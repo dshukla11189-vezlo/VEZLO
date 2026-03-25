@@ -103,10 +103,10 @@ async def get_products(current_user: dict = Depends(get_current_user)):
     products = await db.products.find({}, {"_id": 0}).to_list(1000)
     return [Product(**p) for p in products]
 
-@api_router.post("/products", response_model=Product)
+@api_router.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED)
 async def create_product(input: ProductCreate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
     product = Product(**input.model_dump())
     doc = product.model_dump()

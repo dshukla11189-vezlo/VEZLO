@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { logout, getUser } from '../utils/auth';
-import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User } from 'lucide-react';
+import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X } from 'lucide-react';
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }) {
   const location = useLocation();
   const user = getUser();
   
@@ -31,52 +31,78 @@ export default function Sidebar() {
 
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'retailer' ? retailerLinks : staffLinks;
 
-  return (
-    <div className="sidebar" data-testid="sidebar">
-      <div className="p-6 border-b border-gray-200">
-        <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">FreshFlow</h1>
-        <p className="text-sm text-gray-500 mt-1">{user?.role?.toUpperCase()}</p>
-      </div>
-      
-      <nav className="p-4">
-        {links.map((link) => {
-          const Icon = link.icon;
-          const isActive = location.pathname === link.path;
-          return (
-            <Link
-              key={link.path}
-              to={link.path}
-              data-testid={`nav-${link.label.toLowerCase().replace(' ', '-')}`}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg mb-1 hover:bg-gray-100 ${
-                isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
-              }`}
-            >
-              <Icon size={20} />
-              <span className="text-sm font-medium">{link.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      onClose();
+    }
+  }, [location.pathname, onClose]);
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
-        <div className="flex items-center gap-3 mb-3 px-2">
-          <div className="w-10 h-10 rounded-full bg-[#14532D] flex items-center justify-center text-white">
-            <User size={20} />
+  return (
+    <>
+      {/* Overlay for mobile */}
+      <div 
+        className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
+        onClick={onClose}
+        data-testid="sidebar-overlay"
+      />
+      
+      {/* Sidebar */}
+      <div className={`sidebar ${!isOpen ? 'mobile-hidden' : ''}`} data-testid="sidebar">
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">FreshFlow</h1>
+            <p className="text-sm text-gray-500 mt-1">{user?.role?.toUpperCase()}</p>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate" data-testid="user-name">{user?.name}</p>
-            <p className="text-xs text-gray-500 truncate">{user?.email}</p>
-          </div>
+          <button
+            onClick={onClose}
+            className="md:hidden p-2 hover:bg-gray-100 rounded-lg"
+            data-testid="close-sidebar-button"
+          >
+            <X size={20} className="text-gray-600" />
+          </button>
         </div>
-        <button
-          onClick={logout}
-          data-testid="logout-button"
-          className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
-        >
-          <LogOut size={16} />
-          Logout
-        </button>
+        
+        <nav className="p-4">
+          {links.map((link) => {
+            const Icon = link.icon;
+            const isActive = location.pathname === link.path;
+            return (
+              <Link
+                key={link.path}
+                to={link.path}
+                data-testid={`nav-${link.label.toLowerCase().replace(' ', '-')}`}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg mb-1 hover:bg-gray-100 ${
+                  isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
+                }`}
+              >
+                <Icon size={20} />
+                <span className="text-sm font-medium">{link.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
+          <div className="flex items-center gap-3 mb-3 px-2">
+            <div className="w-10 h-10 rounded-full bg-[#14532D] flex items-center justify-center text-white flex-shrink-0">
+              <User size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate" data-testid="user-name">{user?.name}</p>
+              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            data-testid="logout-button"
+            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
+          >
+            <LogOut size={16} />
+            Logout
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

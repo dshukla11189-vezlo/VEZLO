@@ -1,0 +1,153 @@
+{
+  "brand": {
+    "name": "FreshFlow",
+    "identity": {
+      "archetype": "Organic & Earthy + Swiss Utility",
+      "voice": "Professional, Efficient, Fresh, Trustworthy",
+      "principles": [
+        "Data Density over Fluff: Warehouse staff need to see 50 rows, not 5 cards.",
+        "Color as Status: Green = Fresh/Paid, Red = Waste/Return, Yellow = Pending.",
+        "Input Efficiency: Forms should support keyboard navigation for rapid entry."
+      ]
+    }
+  },
+  "theme": {
+    "mode": "light",
+    "colors": {
+      "primary": {
+        "DEFAULT": "#14532D",
+        "foreground": "#F0FDF4",
+        "hover": "#166534"
+      },
+      "secondary": {
+        "DEFAULT": "#F3F4F6",
+        "foreground": "#1F2937"
+      },
+      "accent": {
+        "DEFAULT": "#D97706",
+        "foreground": "#FFFBEB"
+      },
+      "background": "#F9FAFB",
+      "surface": "#FFFFFF",
+      "destructive": {
+        "DEFAULT": "#991B1B",
+        "foreground": "#FEF2F2"
+      },
+      "muted": "#9CA3AF",
+      "border": "#E5E7EB",
+      "charts": {
+        "sales": "#14532D",
+        "wastage": "#EF4444",
+        "pending": "#F59E0B",
+        "procurement": "#3B82F6",
+        "returns": "#6B7280"
+      }
+    },
+    "typography": {
+      "font_family": {
+        "heading": "Manrope, sans-serif",
+        "body": "IBM Plex Sans, sans-serif",
+        "mono": "JetBrains Mono, monospace"
+      },
+      "scale": {
+        "h1": "text-4xl font-bold tracking-tight text-primary-900",
+        "h2": "text-3xl font-semibold tracking-tight text-primary-900",
+        "h3": "text-2xl font-semibold text-gray-900",
+        "body": "text-base text-gray-700 leading-relaxed",
+        "small": "text-sm text-gray-500",
+        "caption": "text-xs font-medium text-gray-400 uppercase tracking-wider"
+      }
+    },
+    "radius": "0.375rem"
+  },
+  "layout": {
+    "spacing": {
+      "container_padding": "p-6 md:p-8 lg:p-10",
+      "section_gap": "gap-8",
+      "item_gap": "gap-4"
+    },
+    "grid": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "form": "grid grid-cols-1 md:grid-cols-2 gap-6"
+    },
+    "containers": {
+      "card": "bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200",
+      "sidebar": "w-64 bg-white border-r border-gray-200 h-screen fixed left-0 top-0 z-40",
+      "main": "ml-0 md:ml-64 min-h-screen bg-gray-50 transition-all duration-300"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-white hover:bg-primary/90 shadow-sm",
+      "secondary": "bg-white text-gray-900 border border-gray-200 hover:bg-gray-50",
+      "ghost": "hover:bg-gray-100 text-gray-700",
+      "destructive": "bg-red-600 text-white hover:bg-red-700"
+    },
+    "inputs": {
+      "base": "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    },
+    "tables": {
+      "wrapper": "rounded-md border bg-white",
+      "header": "bg-gray-50 text-xs uppercase font-medium text-gray-500",
+      "row": "hover:bg-gray-50/50 transition-colors border-b last:border-0",
+      "cell": "p-4 align-middle text-sm"
+    },
+    "status_badges": {
+      "success": "bg-green-100 text-green-800 border-green-200",
+      "warning": "bg-yellow-100 text-yellow-800 border-yellow-200",
+      "error": "bg-red-100 text-red-800 border-red-200",
+      "neutral": "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "soft": "0 2px 4px rgba(0,0,0,0.02), 0 1px 0 rgba(0,0,0,0.06)",
+      "float": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)"
+    },
+    "glass": "backdrop-blur-md bg-white/80 border border-white/20 shadow-sm"
+  },
+  "assets": {
+    "images": [
+      {
+        "category": "hero",
+        "url": "https://images.unsplash.com/photo-1553799262-a37c45961038?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTJ8MHwxfHNlYXJjaHwxfHxmcmVzaCUyMGZydWl0cyUyMHZlZ2V0YWJsZXMlMjBtYXJrZXR8ZW58MHx8fHwxNzc0NDExOTM4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Assorted fruits on pallets - Good for Login background"
+      },
+      {
+        "category": "dashboard_header",
+        "url": "https://images.unsplash.com/photo-1768734837464-c5045c6a98c4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTJ8MHwxfHNlYXJjaHwyfHxmcmVzaCUyMGZydWl0cyUyMHZlZ2V0YWJsZXMlMjBtYXJrZXR8ZW58MHx8fHwxNzc0NDExOTM4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Fresh vegetables at market - Good for Reports header"
+      },
+      {
+        "category": "procurement",
+        "url": "https://images.unsplash.com/photo-1768734837679-9b3180433384?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTJ8MHwxfHNlYXJjaHw0fHxmcmVzaCUyMGZydWl0cyUyMHZlZ2V0YWJsZXMlMjBtYXJrZXR8ZW58MHx8fHwxNzc0NDExOTM4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Man selecting tomatoes - Good for Procurement section"
+      }
+    ]
+  },
+  "charts": {
+    "library": "Recharts",
+    "styles": {
+      "grid": "stroke-gray-200 stroke-dasharray-3-3",
+      "tooltip": "bg-white border border-gray-200 shadow-lg rounded-md p-2 text-sm",
+      "axis": "text-xs text-gray-500"
+    }
+  },
+  "instructions_to_main_agent": {
+    "general": "You are building a high-density, data-driven dashboard. Avoid massive empty spaces. Farmers and warehouse staff use this; it must be legible and high-contrast.",
+    "colors": "Strictly follow the color palette. Do not use random blues or purples. Stay in the Green/Earth/Grey spectrum.",
+    "typography": "Use 'Manrope' for all Headings (H1-H4). Use 'IBM Plex Sans' for all body text, table data, and inputs. Add these fonts via Google Fonts in index.html.",
+    "tables": "Tables are the heart of this app. Make them dense (py-2 or py-3). Use zebra striping for readability. align numbers to the right.",
+    "forms": "Group related fields. Use 'label' clearly. Validation errors must be red and visible.",
+    "invoice": "The invoice generation must result in a clean, printable layout. White background, black text, clear borders.",
+    "auth": "Implement role-based protection. Admin sees everything. Retailers only see their orders/invoices.",
+    "ocr": "For the QC Order OCR page, use a split-view: Image on left (or top on mobile), Extracted Form on right (or bottom).",
+    "universal_guidelines": [
+      "Use 'sonner' for all toast notifications.",
+      "Use 'lucide-react' for icons.",
+      "Ensure all interactive elements have 'data-testid'.",
+      "Do not use generic 'Inter' font.",
+      "Dark colors look good when used independently without gradients."
+    ]
+  }
+}

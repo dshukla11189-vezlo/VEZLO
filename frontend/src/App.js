@@ -1,53 +1,149 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from './components/ui/sonner';
+import { isAuthenticated, getUser } from './utils/auth';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import AdminDashboard from './pages/admin/Dashboard';
+import Products from './pages/admin/Products';
+import Procurement from './pages/admin/Procurement';
+import QCOrders from './pages/admin/QCOrders';
+import RetailerOrders from './pages/admin/RetailerOrders';
+import Wastage from './pages/admin/Wastage';
+import Payments from './pages/admin/Payments';
+import Invoices from './pages/admin/Invoices';
+import RetailerDashboard from './pages/retailer/Dashboard';
+import StaffDashboard from './pages/staff/Dashboard';
+import './App.css';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+function ProtectedRoute({ children, allowedRoles }) {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
+  const user = getUser();
+  if (allowedRoles && !allowedRoles.includes(user?.role)) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
+function App() {
+  const user = getUser();
+
+  const getDefaultRoute = () => {
+    if (!isAuthenticated()) return '/login';
+    
+    switch (user?.role) {
+      case 'admin':
+      case 'staff':
+        return '/admin/dashboard';
+      case 'retailer':
+        return '/retailer/dashboard';
+      default:
+        return '/login';
     }
   };
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
   return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
+    <BrowserRouter>
+      <div className="App">
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          
+          <Route path="/" element={<Navigate to={getDefaultRoute()} replace />} />
+          
+          {/* Admin & Staff Routes */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/products"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <Products />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/procurement"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <Procurement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/qc-orders"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <QCOrders />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/retailer-orders"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <RetailerOrders />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/wastage"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <Wastage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/payments"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <Payments />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/invoices"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <Invoices />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Retailer Routes */}
+          <Route
+            path="/retailer/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['retailer']}>
+                <RetailerDashboard />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Staff Routes */}
+          <Route
+            path="/staff/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['staff']}>
+                <StaffDashboard />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
-      </BrowserRouter>
-    </div>
+        <Toaster position="top-right" />
+      </div>
+    </BrowserRouter>
   );
 }
 

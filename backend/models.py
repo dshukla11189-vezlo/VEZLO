@@ -1,0 +1,249 @@
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from typing import Optional, List, Literal
+from datetime import datetime, timezone
+import uuid
+
+# Base Models
+class ProductItem(BaseModel):
+    product_id: str
+    product_name: str
+    quantity: float
+    unit: str
+    rate: float
+    total: float
+
+class RejectionItem(BaseModel):
+    product_id: str
+    product_name: str
+    packets: int
+    reason: str
+
+# User Models
+class User(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    email: EmailStr
+    password: str
+    name: str
+    role: Literal["admin", "retailer", "staff"]
+    company_name: Optional[str] = None
+    contact: Optional[str] = None
+    address: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    role: Literal["admin", "retailer", "staff"]
+    company_name: Optional[str] = None
+    contact: Optional[str] = None
+    address: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    email: EmailStr
+    name: str
+    role: str
+    company_name: Optional[str] = None
+    contact: Optional[str] = None
+    address: Optional[str] = None
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserResponse
+
+# Product Models
+class Product(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    category: str
+    unit: str
+    current_stock: float = 0
+    price_per_kg: Optional[float] = None
+    price_per_packet: Optional[float] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ProductCreate(BaseModel):
+    name: str
+    category: str
+    unit: str
+    current_stock: float = 0
+    price_per_kg: Optional[float] = None
+    price_per_packet: Optional[float] = None
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    unit: Optional[str] = None
+    current_stock: Optional[float] = None
+    price_per_kg: Optional[float] = None
+    price_per_packet: Optional[float] = None
+
+# Farmer Models
+class Farmer(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    contact: str
+    address: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class FarmerCreate(BaseModel):
+    name: str
+    contact: str
+    address: Optional[str] = None
+
+# Procurement Models
+class Procurement(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: datetime
+    farmer_id: str
+    farmer_name: str
+    products: List[ProductItem]
+    total_amount: float
+    status: str = "completed"
+    recorded_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ProcurementCreate(BaseModel):
+    date: datetime
+    farmer_id: str
+    farmer_name: str
+    products: List[ProductItem]
+    total_amount: float
+    status: str = "completed"
+
+# QC Order Models
+class QCOrder(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_date: datetime
+    company_name: str
+    products: List[ProductItem]
+    total_amount: float
+    status: str = "pending"
+    delivery_date: Optional[datetime] = None
+    recorded_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class QCOrderCreate(BaseModel):
+    order_date: datetime
+    company_name: str
+    products: List[ProductItem]
+    total_amount: float
+    status: str = "pending"
+    delivery_date: Optional[datetime] = None
+
+# Retailer Order Models
+class RetailerOrder(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_date: datetime
+    retailer_id: str
+    retailer_name: str
+    products: List[ProductItem]
+    total_amount: float
+    status: str = "pending"
+    delivery_date: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerOrderCreate(BaseModel):
+    order_date: datetime
+    retailer_id: Optional[str] = None
+    retailer_name: str
+    products: List[ProductItem]
+    total_amount: float
+    status: str = "pending"
+    delivery_date: Optional[datetime] = None
+
+class OrderStatusUpdate(BaseModel):
+    status: str
+
+# Rejection Models
+class Rejection(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: datetime
+    retailer_id: str
+    order_id: str
+    products: List[RejectionItem]
+    total_deduction: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RejectionCreate(BaseModel):
+    date: datetime
+    retailer_id: Optional[str] = None
+    order_id: str
+    products: List[RejectionItem]
+    total_deduction: float
+
+# Wastage Models
+class Wastage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: datetime
+    products: List[ProductItem]
+    recorded_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class WastageCreate(BaseModel):
+    date: datetime
+    products: List[ProductItem]
+
+# Payment Models
+class Payment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: datetime
+    party_type: Literal["retailer", "farmer", "qc"]
+    party_id: str
+    party_name: str
+    amount: float
+    payment_mode: str
+    reference: Optional[str] = None
+    recorded_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class PaymentCreate(BaseModel):
+    date: datetime
+    party_type: Literal["retailer", "farmer", "qc"]
+    party_id: str
+    party_name: str
+    amount: float
+    payment_mode: str
+    reference: Optional[str] = None
+
+# Invoice Models
+class Invoice(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    invoice_number: str
+    date: datetime
+    party_type: Literal["retailer", "qc"]
+    party_id: str
+    party_name: str
+    order_id: str
+    items: List[ProductItem]
+    total_amount: float
+    paid_amount: float = 0
+    pending_amount: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class InvoiceCreate(BaseModel):
+    date: datetime
+    party_type: Literal["retailer", "qc"]
+    party_id: str
+    party_name: str
+    order_id: str
+    items: List[ProductItem]
+    total_amount: float
+    paid_amount: float = 0
+    pending_amount: float

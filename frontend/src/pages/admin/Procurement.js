@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Plus, Trash2, UserPlus, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import AutocompleteInput from '../../components/AutocompleteInput';
 
 const UNIT_TYPES = [
   { value: 'Kg', label: 'Kg (Kilogram)' },
@@ -17,8 +18,6 @@ const UNIT_TYPES = [
   { value: 'Piece', label: 'Piece' },
   { value: 'Pack', label: 'Pack' }
 ];
-
-const BUNCH_SIZES = ['100g', '250g', '350g', '500g', '1kg'];
 
 export default function Procurement() {
   const [procurements, setProcurements] = useState([]);
@@ -148,15 +147,37 @@ export default function Procurement() {
     });
   };
 
-  const handleFarmerSelect = (farmerId) => {
-    const selectedFarmer = farmers.find(f => f.id === farmerId);
-    if (selectedFarmer) {
-      setProcurementForm({
-        ...procurementForm,
-        farmer_id: farmerId,
-        farmer_name: selectedFarmer.name
-      });
-    }
+  const handleFarmerSelect = (farmer) => {
+    setProcurementForm({
+      ...procurementForm,
+      farmer_id: farmer.id,
+      farmer_name: farmer.name
+    });
+  };
+
+  const handleProductSelect = (index, product) => {
+    const newProducts = [...procurementForm.products];
+    newProducts[index] = {
+      ...newProducts[index],
+      product_id: product.id,
+      product_name: product.name,
+      unit: product.unit || 'Kg',
+      rate: product.price_per_kg || 0
+    };
+    
+    // Calculate row total
+    newProducts[index].total = newProducts[index].quantity * newProducts[index].rate;
+    
+    // Calculate grand total
+    const grandTotal = newProducts.reduce((sum, p) => sum + p.total, 0);
+    const pendingAmount = grandTotal - procurementForm.paid_amount;
+    
+    setProcurementForm({
+      ...procurementForm,
+      products: newProducts,
+      total_amount: grandTotal,
+      pending_amount: pendingAmount
+    });
   };
 
   const handleSubmitProcurement = async (e) => {
@@ -374,19 +395,15 @@ export default function Procurement() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="proc-farmer">Select Farmer *</Label>
-                  <Select value={procurementForm.farmer_id} onValueChange={handleFarmerSelect}>
-                    <SelectTrigger data-testid="procurement-farmer-select">
-                      <SelectValue placeholder="Choose farmer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {farmers.map((farmer) => (
-                        <SelectItem key={farmer.id} value={farmer.id}>
-                          {farmer.name} - {farmer.contact}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <AutocompleteInput
+                    label="Select Farmer *"
+                    placeholder="Start typing farmer name..."
+                    items={farmers}
+                    displayKey="name"
+                    secondaryKey="contact"
+                    onSelect={handleFarmerSelect}
+                    testId="procurement-farmer-autocomplete"
+                  />
                 </div>
               </div>
 
@@ -411,22 +428,15 @@ export default function Procurement() {
                       <div className="grid grid-cols-1 gap-3">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <Label className="text-xs">Product *</Label>
-                            <Select
-                              value={product.product_id}
-                              onValueChange={(value) => handleProductChange(index, 'product_id', value)}
-                            >
-                              <SelectTrigger data-testid={`product-select-${index}`}>
-                                <SelectValue placeholder="Select product" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {products.map((p) => (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    {p.name} ({p.category})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <AutocompleteInput
+                              label="Product *"
+                              placeholder="Start typing product name..."
+                              items={products}
+                              displayKey="name"
+                              secondaryKey="category"
+                              onSelect={(product) => handleProductSelect(index, product)}
+                              testId={`product-autocomplete-${index}`}
+                            />
                           </div>
                           <div>
                             <Label className="text-xs">Unit Type *</Label>
@@ -451,22 +461,15 @@ export default function Procurement() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                           {product.unit === 'Bunch' && (
                             <div>
-                              <Label className="text-xs">Bunch Size *</Label>
-                              <Select
-                                value={product.unit_size}
-                                onValueChange={(value) => handleProductChange(index, 'unit_size', value)}
-                              >
-                                <SelectTrigger data-testid={`bunch-size-${index}`}>
-                                  <SelectValue placeholder="Size" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {BUNCH_SIZES.map((size) => (
-                                    <SelectItem key={size} value={size}>
-                                      {size}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <Label className="text-xs">Bunch Size (e.g., 250g) *</Label>
+                              <Input
+                                type="text"
+                                placeholder="250g"
+                                data-testid={`bunch-size-input-${index}`}
+                                value={product.unit_size || ''}
+                                onChange={(e) => handleProductChange(index, 'unit_size', e.target.value)}
+                              />
+                              <p className="text-xs text-gray-500 mt-1">Custom: 350g, 480g, etc.</p>
                             </div>
                           )}
                           <div>

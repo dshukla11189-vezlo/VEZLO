@@ -29,13 +29,13 @@ export default function Layout({ children, title }) {
         <div className="mobile-header">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 hover:bg-gray-100 rounded-lg"
+            className="hover:bg-gray-100 rounded-lg"
             data-testid="open-sidebar-button"
+            aria-label="Open menu"
           >
-            <Menu size={24} className="text-gray-700" />
+            <Menu size={20} className="text-gray-700" />
           </button>
-          <h1 className="text-xl font-bold text-[#14532D]">FreshFlow</h1>
-          <div className="w-10"></div>
+          <h1 className="font-bold text-[#14532D]">FreshFlow</h1>
         </div>
       )}
       

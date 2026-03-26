@@ -13,6 +13,7 @@ import bcrypt
 import jwt
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import io
+import csv
 
 from models import *
 from ocr_processor import process_excel_image
@@ -529,7 +530,7 @@ async def get_qc_grns(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    grns = await db.qc_grns.find({}, {"_id": 0}).sort("grn_date", -1).to_list(1000)
+    grns = await db.qc_grns.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     for g in grns:
         if isinstance(g.get('grn_date'), str):
             g['grn_date'] = datetime.fromisoformat(g['grn_date'])
@@ -551,11 +552,194 @@ async def create_qc_grn(input: QCGRNCreate, current_user: dict = Depends(get_cur
     doc['created_at'] = doc['created_at'].isoformat()
     await db.qc_grns.insert_one(doc)
     
-    # Update indent and dispatch status
-    await db.qc_indents.update_one({"id": input.indent_id}, {"$set": {"status": "completed"}})
-    await db.qc_dispatches.update_one({"id": input.dispatch_id}, {"$set": {"status": "delivered"}})
-    
     return {"id": grn.id, "message": "GRN created successfully"}
+
+@api_router.delete("/qc-grns/{grn_id}")
+async def delete_qc_grn(grn_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.qc_grns.delete_one({"id": grn_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="GRN not found")
+    
+    return {"message": "GRN deleted successfully"}
+
+@api_router.post("/qc-grns/upload-ninjacart-csv")
+async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """
+    Upload Ninjacart GRN CSV file and match with our dispatches.
+    The CSV contains: PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are allowed")
+    
+    # Read and parse CSV
+    content = await file.read()
+    decoded = content.decode('utf-8')
+    reader = csv.DictReader(io.StringIO(decoded))
+    
+    # Get all Ninjacart dispatches
+    ninjacart_dispatches = await db.qc_dispatches.find(
+        {"customer_name": {"$regex": "ninja", "$options": "i"}},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get packaging variants for weight lookup
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {p['name'].lower(): p for p in packaging_variants}
+    
+    # Parse CSV rows and match with dispatches
+    csv_data_by_date = {}
+    
+    for row in reader:
+        try:
+            # Parse date (format: DD/MM/YY)
+            date_str = row.get('PO_DeliveryDate', '')
+            if not date_str:
+                continue
+            
+            day, month, year = date_str.split('/')
+            # Handle 2-digit year
+            if len(year) == 2:
+                year = '20' + year
+            parsed_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            
+            sku_name = row.get('Sku Name', '').strip()
+            grn_qty_raw = row.get('GRNQuantity', '0')
+            grn_qty = float(grn_qty_raw) if grn_qty_raw else 0
+            grn_price = float(row.get('GRNPrice', '0') or '0')
+            weight_unit = row.get('WeightUnit', 'Kg').strip()
+            
+            if not sku_name or grn_qty == 0:
+                continue
+            
+            # Store by date
+            if parsed_date not in csv_data_by_date:
+                csv_data_by_date[parsed_date] = []
+            
+            csv_data_by_date[parsed_date].append({
+                'sku_name': sku_name,
+                'grn_qty': grn_qty,
+                'grn_price': grn_price,
+                'weight_unit': weight_unit
+            })
+        except Exception as e:
+            logging.error(f"Error parsing CSV row: {e}")
+            continue
+    
+    # Match CSV data with dispatches
+    matched_items = []
+    
+    for dispatch in ninjacart_dispatches:
+        dispatch_date = dispatch.get('dispatch_date', '')
+        if isinstance(dispatch_date, str):
+            dispatch_date_str = dispatch_date[:10]  # Get YYYY-MM-DD part
+        else:
+            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+        
+        # Check if we have CSV data for this date
+        if dispatch_date_str not in csv_data_by_date:
+            continue
+        
+        csv_rows = csv_data_by_date[dispatch_date_str]
+        
+        for item in dispatch.get('items', []):
+            product_name = item.get('product_name', '').lower()
+            packaging_name = item.get('packaging_name', '')
+            packaging_weight_gm = 0
+            
+            # Try to find packaging weight
+            if packaging_name:
+                pkg = packaging_map.get(packaging_name.lower())
+                if pkg:
+                    packaging_weight_gm = pkg.get('weight_gm', 0)
+            
+            # Try to match with CSV data
+            for csv_row in csv_rows:
+                sku_name = csv_row['sku_name'].lower()
+                # Match product name (flexible matching)
+                if product_name in sku_name or sku_name.split()[0] in product_name:
+                    grn_qty_raw = csv_row['grn_qty']
+                    grn_price_kg = csv_row['grn_price']
+                    weight_unit = csv_row['weight_unit']
+                    
+                    # Convert GRN qty to units if it's in Kg and we have packaging weight
+                    if weight_unit.lower() == 'kg' and packaging_weight_gm > 0:
+                        grn_qty_units = (grn_qty_raw * 1000) / packaging_weight_gm
+                        rate_per_unit = grn_price_kg * (packaging_weight_gm / 1000)
+                    else:
+                        # Already in pieces or no conversion needed
+                        grn_qty_units = grn_qty_raw
+                        rate_per_unit = grn_price_kg
+                    
+                    supplied_qty = item.get('supplied_qty', 0)
+                    difference = grn_qty_units - supplied_qty
+                    
+                    matched_items.append({
+                        'dispatch_id': dispatch.get('id'),
+                        'dispatch_date': dispatch_date_str,
+                        'product_id': item.get('product_id'),
+                        'product_name': item.get('product_name'),
+                        'product_unit': item.get('product_unit'),
+                        'packaging_id': item.get('packaging_id'),
+                        'packaging_name': packaging_name,
+                        'packaging_weight_gm': packaging_weight_gm,
+                        'supplied_qty': supplied_qty,
+                        'grn_qty': round(grn_qty_units, 2),
+                        'grn_qty_kg': grn_qty_raw if weight_unit.lower() == 'kg' else None,
+                        'difference': round(difference, 2),
+                        'rate_per_kg': grn_price_kg,
+                        'rate_per_unit': round(rate_per_unit, 2),
+                        'amount': round(grn_qty_units * rate_per_unit, 2)
+                    })
+                    break  # Found match, move to next item
+    
+    return {
+        "file_name": file.filename,
+        "rows_processed": sum(len(rows) for rows in csv_data_by_date.values()),
+        "dates_found": list(csv_data_by_date.keys()),
+        "matched_items": matched_items,
+        "message": f"Processed {len(matched_items)} matching items"
+    }
+
+@api_router.get("/qc-grns/dispatch-summary")
+async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_user)):
+    """Get all Ninjacart dispatches for GRN table"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all Ninjacart dispatches
+    dispatches = await db.qc_dispatches.find(
+        {"customer_name": {"$regex": "ninja", "$options": "i"}},
+        {"_id": 0}
+    ).sort("dispatch_date", -1).to_list(1000)
+    
+    # Flatten items with dispatch info
+    items = []
+    for dispatch in dispatches:
+        dispatch_date = dispatch.get('dispatch_date', '')
+        for item in dispatch.get('items', []):
+            items.append({
+                'dispatch_id': dispatch.get('id'),
+                'dispatch_date': dispatch_date,
+                'dispatch_time': dispatch.get('dispatch_time', ''),
+                'customer_name': dispatch.get('customer_name'),
+                'product_id': item.get('product_id'),
+                'product_name': item.get('product_name'),
+                'product_unit': item.get('product_unit'),
+                'packaging_id': item.get('packaging_id'),
+                'packaging_name': item.get('packaging_name'),
+                'supplied_qty': item.get('supplied_qty', 0),
+                'grn_qty': None,
+                'difference': None,
+                'rate_per_unit': item.get('rate'),
+            })
+    
+    return items
 
 # QC Invoice Routes
 @api_router.get("/qc-invoices")

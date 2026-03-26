@@ -293,41 +293,47 @@ class QCInvoiceUpdate(BaseModel):
     remarks: Optional[str] = None
     status: Optional[str] = None
 
-# QC GRN (Goods Receipt Note) Item
+# QC GRN (Goods Receipt Note) Item - for Ninjacart
 class QCGRNItem(BaseModel):
+    dispatch_id: str
+    dispatch_date: str  # Original dispatch date
     product_id: str
     product_name: str
     product_unit: str
-    dispatched_qty: float
-    received_qty: float
-    rejected_qty: float  # dispatched_qty - received_qty
-    rejection_reason: Optional[str] = None
+    packaging_id: Optional[str] = None
+    packaging_name: Optional[str] = None
+    packaging_weight_gm: Optional[float] = None  # Packaging weight in grams
+    supplied_qty: float  # Quantity we supplied (in units)
+    grn_qty: float  # GRN quantity from Ninjacart (converted to units)
+    grn_qty_kg: Optional[float] = None  # Original GRN qty in Kg from file
+    difference: float  # grn_qty - supplied_qty
+    rate_per_kg: Optional[float] = None  # Rate per kg from file
+    rate_per_unit: Optional[float] = None  # Calculated rate per unit
+    amount: Optional[float] = None  # grn_qty * rate_per_unit
 
-# QC GRN Models
+# QC GRN Models - Ninjacart specific
 class QCGRN(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    grn_date: datetime
-    dispatch_id: str
-    indent_id: str
-    customer_name: str
+    grn_date: datetime  # Date when GRN was recorded
+    customer_name: str = "Ninjacart"
+    file_name: Optional[str] = None  # Original uploaded file name
     items: List[QCGRNItem]
-    total_dispatched: float
-    total_received: float
-    total_rejected: float
+    total_supplied: float
+    total_grn: float
+    total_difference: float
     status: str = "completed"
     recorded_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class QCGRNCreate(BaseModel):
     grn_date: datetime
-    dispatch_id: str
-    indent_id: str
-    customer_name: str
+    customer_name: str = "Ninjacart"
+    file_name: Optional[str] = None
     items: List[QCGRNItem]
-    total_dispatched: float
-    total_received: float
-    total_rejected: float
+    total_supplied: float
+    total_grn: float
+    total_difference: float
 
 # QC Customer Model
 class QCCustomer(BaseModel):

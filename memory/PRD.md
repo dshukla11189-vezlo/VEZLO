@@ -124,10 +124,16 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [ ] Wastage & Grading Tracking page
 
 ### P1 - High Priority
-- [ ] Quick Commerce Dispatch section - Create dispatches from indents
-- [ ] Quick Commerce GRN section - Record what was accepted after dispatch
+- [x] Quick Commerce Dispatch section - Create dispatches from indents (COMPLETED)
+- [x] Quick Commerce Invoicing - Invoice generation with customer-specific formats (COMPLETED)
+- [x] Quick Commerce GRN section - Ninjacart CSV upload for GRN matching (COMPLETED - Mar 2026)
+  - [x] GRN table: Date, Customer, Product, Packaging, Supplied Qty, GRN, Difference
+  - [x] CSV upload for Ninjacart (PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit)
+  - [x] Automatic conversion: Kg to units based on packaging weight
+  - [x] Rate calculation: Per kg to per unit based on packaging weight
+  - [x] Multi-date CSV support
+  - [x] Difference highlighting: Green (GRN > Supplied), Red (GRN < Supplied)
 - [ ] Retailer Rejection Adjustment workflow
-- [ ] Invoicing and Print PDF functionality
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

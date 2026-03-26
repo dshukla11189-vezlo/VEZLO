@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
@@ -25,6 +25,12 @@ export default function QuickCommerce() {
   const [products, setProducts] = useState([]);
   const [packagingVariants, setPackagingVariants] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // GRN states (Ninjacart)
+  const [grnDispatchItems, setGrnDispatchItems] = useState([]);  // Ninjacart dispatches for GRN table
+  const [grnMatchedItems, setGrnMatchedItems] = useState([]);    // Matched items from CSV upload
+  const [uploadingGrn, setUploadingGrn] = useState(false);
+  const [grnUploadResult, setGrnUploadResult] = useState(null);
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -148,6 +154,14 @@ export default function QuickCommerce() {
       setCustomers(customersRes.data);
       setProducts(productsRes.data);
       setInvoices(invoicesRes.data);
+      
+      // Load GRN dispatch summary for Ninjacart
+      try {
+        const grnSummaryRes = await api.get('/api/qc-grns/dispatch-summary');
+        setGrnDispatchItems(grnSummaryRes.data);
+      } catch (err) {
+        console.log('GRN summary not available yet');
+      }
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
@@ -1144,6 +1158,89 @@ export default function QuickCommerce() {
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
+  };
+
+  // GRN Handlers - Ninjacart CSV Upload
+  const handleGrnCsvUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      toast.error('Please upload a CSV file');
+      return;
+    }
+
+    setUploadingGrn(true);
+    setGrnUploadResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await api.post('/api/qc-grns/upload-ninjacart-csv', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      setGrnUploadResult(response.data);
+      setGrnMatchedItems(response.data.matched_items || []);
+      
+      if (response.data.matched_items?.length > 0) {
+        toast.success(`Matched ${response.data.matched_items.length} items from CSV`);
+      } else {
+        toast.warning('No matching items found. Make sure dispatch dates match.');
+      }
+    } catch (error) {
+      console.error('GRN upload error:', error);
+      toast.error('Failed to process CSV file');
+    } finally {
+      setUploadingGrn(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  const handleSaveGrn = async () => {
+    if (grnMatchedItems.length === 0) {
+      toast.error('No items to save');
+      return;
+    }
+
+    try {
+      const totalSupplied = grnMatchedItems.reduce((sum, item) => sum + item.supplied_qty, 0);
+      const totalGrn = grnMatchedItems.reduce((sum, item) => sum + item.grn_qty, 0);
+      const totalDifference = grnMatchedItems.reduce((sum, item) => sum + item.difference, 0);
+
+      const payload = {
+        grn_date: new Date().toISOString(),
+        customer_name: 'Ninjacart',
+        file_name: grnUploadResult?.file_name,
+        items: grnMatchedItems,
+        total_supplied: totalSupplied,
+        total_grn: totalGrn,
+        total_difference: totalDifference
+      };
+
+      await api.post('/api/qc-grns', payload);
+      toast.success('GRN saved successfully');
+      setGrnMatchedItems([]);
+      setGrnUploadResult(null);
+      loadData();
+    } catch (error) {
+      console.error('Save GRN error:', error);
+      toast.error('Failed to save GRN');
+    }
+  };
+
+  const handleDeleteGrn = async (grnId) => {
+    if (!window.confirm('Are you sure you want to delete this GRN?')) return;
+    
+    try {
+      await api.delete(`/api/qc-grns/${grnId}`);
+      toast.success('GRN deleted');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to delete GRN');
+    }
   };
 
   // Calculate totals for indent/dispatch summary
@@ -2385,18 +2482,202 @@ export default function QuickCommerce() {
           </Card>
         </TabsContent>
 
-        {/* GRN TAB */}
+        {/* GRN TAB - Ninjacart */}
         <TabsContent value="grn" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Goods Receipt Notes</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <CardTitle className="text-lg">GRN - Ninjacart</CardTitle>
+                  <p className="text-sm text-gray-500 mt-1">Upload Ninjacart CSV to match with dispatches</p>
+                </div>
+                <div className="flex gap-3">
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleGrnCsvUpload}
+                      className="hidden"
+                      disabled={uploadingGrn}
+                    />
+                    <Button
+                      className="bg-[#14532D] hover:bg-[#166534]"
+                      disabled={uploadingGrn}
+                      asChild
+                    >
+                      <span>
+                        {uploadingGrn ? (
+                          <Loader2 size={16} className="mr-2 animate-spin" />
+                        ) : (
+                          <Upload size={16} className="mr-2" />
+                        )}
+                        Upload Ninjacart CSV
+                      </span>
+                    </Button>
+                  </label>
+                  {grnMatchedItems.length > 0 && (
+                    <Button onClick={handleSaveGrn} className="bg-green-600 hover:bg-green-700">
+                      <Save size={16} className="mr-2" />
+                      Save GRN ({grnMatchedItems.length} items)
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="p-8 text-center text-gray-500">
-                <ClipboardCheck size={48} className="mx-auto text-gray-400 mb-4" />
-                <p>GRN functionality coming soon.</p>
-                <p className="text-sm mt-2">After dispatch, record what was accepted by the customer.</p>
-              </div>
+              {/* Upload Result Info */}
+              {grnUploadResult && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-700">
+                    <strong>File:</strong> {grnUploadResult.file_name} | 
+                    <strong> Rows:</strong> {grnUploadResult.rows_processed} | 
+                    <strong> Dates:</strong> {grnUploadResult.dates_found?.join(', ')} | 
+                    <strong> Matched:</strong> {grnUploadResult.matched_items?.length || 0} items
+                  </p>
+                </div>
+              )}
+
+              {/* GRN Matched Items Table (from CSV upload) */}
+              {grnMatchedItems.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-sm mb-2 text-green-700">Matched Items from CSV</h4>
+                  <div className="data-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>DATE</th>
+                          <th>CUSTOMER</th>
+                          <th>PRODUCT</th>
+                          <th>PACKAGING</th>
+                          <th className="text-right">SUPPLIED QTY</th>
+                          <th className="text-right">GRN (Units)</th>
+                          <th className="text-right">DIFFERENCE</th>
+                          <th className="text-right">RATE/UNIT (₹)</th>
+                          <th className="text-right">AMOUNT (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {grnMatchedItems.map((item, idx) => (
+                          <tr key={idx}>
+                            <td>{item.dispatch_date}</td>
+                            <td className="font-medium text-[#14532D]">Ninjacart</td>
+                            <td className="font-medium">{item.product_name}</td>
+                            <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                            <td className="text-right">{item.supplied_qty}</td>
+                            <td className="text-right font-semibold">{item.grn_qty}</td>
+                            <td className="text-right">
+                              <span className={`font-bold ${
+                                item.difference > 0 ? 'text-green-600' : 
+                                item.difference < 0 ? 'text-red-600' : 'text-gray-600'
+                              }`}>
+                                {item.difference > 0 ? '+' : ''}{item.difference}
+                              </span>
+                            </td>
+                            <td className="text-right">₹{item.rate_per_unit?.toFixed(2)}</td>
+                            <td className="text-right font-semibold">₹{item.amount?.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-gray-50">
+                          <td colSpan={4} className="font-semibold">Totals:</td>
+                          <td className="text-right font-bold">{grnMatchedItems.reduce((sum, i) => sum + i.supplied_qty, 0)}</td>
+                          <td className="text-right font-bold">{grnMatchedItems.reduce((sum, i) => sum + i.grn_qty, 0).toFixed(2)}</td>
+                          <td className="text-right">
+                            <span className={`font-bold ${
+                              grnMatchedItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? 'text-green-600' : 
+                              grnMatchedItems.reduce((sum, i) => sum + i.difference, 0) < 0 ? 'text-red-600' : 'text-gray-600'
+                            }`}>
+                              {grnMatchedItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? '+' : ''}
+                              {grnMatchedItems.reduce((sum, i) => sum + i.difference, 0).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="text-right">-</td>
+                          <td className="text-right font-bold">₹{grnMatchedItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Ninjacart Dispatches Table (without GRN data) */}
+              {grnDispatchItems.length > 0 && grnMatchedItems.length === 0 && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">Ninjacart Dispatches Pending GRN</h4>
+                  <div className="data-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>DATE</th>
+                          <th>CUSTOMER</th>
+                          <th>PRODUCT</th>
+                          <th>PACKAGING</th>
+                          <th className="text-right">SUPPLIED QTY</th>
+                          <th className="text-right">GRN</th>
+                          <th className="text-right">DIFFERENCE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {grnDispatchItems.map((item, idx) => (
+                          <tr key={idx}>
+                            <td>{formatDate(item.dispatch_date)}</td>
+                            <td className="font-medium text-[#14532D]">{item.customer_name}</td>
+                            <td className="font-medium">{item.product_name}</td>
+                            <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                            <td className="text-right">{item.supplied_qty}</td>
+                            <td className="text-right text-gray-400">-</td>
+                            <td className="text-right text-gray-400">-</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-3">
+                    Upload Ninjacart CSV file to match GRN data with dispatches.
+                  </p>
+                </div>
+              )}
+
+              {/* Saved GRNs */}
+              {grns.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-semibold text-sm mb-2">Saved GRN Records</h4>
+                  <div className="space-y-3">
+                    {grns.map((grn) => (
+                      <div key={grn.id} className="border rounded-lg p-3 bg-gray-50">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-4">
+                            <span className="font-semibold">{formatDate(grn.grn_date)}</span>
+                            <span className="text-sm text-gray-600">{grn.file_name}</span>
+                            <span className="text-sm">
+                              Items: <strong>{grn.items?.length}</strong>
+                            </span>
+                            <span className={`text-sm font-bold ${
+                              grn.total_difference > 0 ? 'text-green-600' : 
+                              grn.total_difference < 0 ? 'text-red-600' : 'text-gray-600'
+                            }`}>
+                              Diff: {grn.total_difference > 0 ? '+' : ''}{grn.total_difference?.toFixed(2)}
+                            </span>
+                          </div>
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteGrn(grn.id)}>
+                            <Trash2 size={14} className="text-red-600" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {grnDispatchItems.length === 0 && grnMatchedItems.length === 0 && grns.length === 0 && (
+                <div className="p-8 text-center text-gray-500">
+                  <ClipboardCheck size={48} className="mx-auto text-gray-400 mb-4" />
+                  <p>No Ninjacart dispatches found.</p>
+                  <p className="text-sm mt-2">Create dispatches for Ninjacart first, then upload their CSV for GRN matching.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

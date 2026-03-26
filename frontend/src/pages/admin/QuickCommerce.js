@@ -34,7 +34,7 @@ export default function QuickCommerce() {
   const [indentForm, setIndentForm] = useState({
     indent_date: new Date().toISOString().split('T')[0],
     customer_name: '',
-    items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
+    items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
   });
 
   const [customerForm, setCustomerForm] = useState({
@@ -77,7 +77,7 @@ export default function QuickCommerce() {
   const handleAddIndentItem = () => {
     setIndentForm({
       ...indentForm,
-      items: [...indentForm.items, { product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
+      items: [...indentForm.items, { product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
     });
   };
 
@@ -114,6 +114,43 @@ export default function QuickCommerce() {
     setIndentForm({ ...indentForm, customer_name: customer.name });
   };
 
+  // Get stored packaging variants from localStorage
+  const getStoredPackagingVariants = () => {
+    try {
+      const stored = localStorage.getItem('packaging_variants');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Error reading packaging variants:', e);
+    }
+    // Default common variants
+    return [
+      { name: '100gm without roots' },
+      { name: '100gm with roots' },
+      { name: '250gm without roots' },
+      { name: '250gm with roots' },
+      { name: '500gm pack' },
+      { name: '1kg pack' }
+    ];
+  };
+
+  // Save new packaging variant to localStorage
+  const savePackagingVariant = (variant) => {
+    if (!variant || variant.trim() === '') return;
+    
+    try {
+      const stored = getStoredPackagingVariants();
+      const exists = stored.some(v => v.name.toLowerCase() === variant.toLowerCase());
+      if (!exists) {
+        const updated = [...stored, { name: variant }];
+        localStorage.setItem('packaging_variants', JSON.stringify(updated));
+      }
+    } catch (e) {
+      console.error('Error saving packaging variant:', e);
+    }
+  };
+
   const handleSubmitIndent = async (e) => {
     e.preventDefault();
     
@@ -142,8 +179,7 @@ export default function QuickCommerce() {
           packaging: item.packaging || '',
           required_qty: parseFloat(item.required_qty),
           lot_size: parseInt(item.lot_size),
-          no_of_crates: item.no_of_crates,
-          rate: item.rate ? parseFloat(item.rate) : null
+          no_of_crates: item.no_of_crates
         })),
         status: 'pending'
       };
@@ -173,8 +209,7 @@ export default function QuickCommerce() {
         ...item,
         required_qty: item.required_qty.toString(),
         lot_size: item.lot_size.toString(),
-        packaging: item.packaging || '',
-        rate: item.rate ? item.rate.toString() : ''
+        packaging: item.packaging || ''
       }))
     });
     setOpenIndent(true);
@@ -197,7 +232,7 @@ export default function QuickCommerce() {
     setIndentForm({
       indent_date: new Date().toISOString().split('T')[0],
       customer_name: '',
-      items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
+      items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
     });
   };
 
@@ -421,12 +456,13 @@ export default function QuickCommerce() {
                       </Button>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {indentForm.items.map((item, index) => (
                         <div key={index} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                            <div className="md:col-span-2">
-                              <Label className="text-xs">Product Name *</Label>
+                          {/* Row 1: Product and Packaging */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <Label className="text-sm font-medium">Product Name *</Label>
                               <AutocompleteInput
                                 placeholder="Select product"
                                 items={products}
@@ -437,77 +473,77 @@ export default function QuickCommerce() {
                                 storageKey="recent_products"
                               />
                             </div>
-                            <div className="md:col-span-2">
-                              <Label className="text-xs">Packaging / Variant</Label>
-                              <Input
-                                value={item.packaging}
-                                placeholder="e.g., 100gm without roots"
-                                onChange={(e) => handleIndentItemChange(index, 'packaging', e.target.value)}
-                                data-testid={`item-packaging-${index}`}
+                            <div>
+                              <Label className="text-sm font-medium">Packaging / Variant</Label>
+                              <AutocompleteInput
+                                placeholder="e.g., 100gm without roots, 250gm with roots"
+                                items={getStoredPackagingVariants()}
+                                displayKey="name"
+                                onSelect={(variant) => handleIndentItemChange(index, 'packaging', variant.name)}
+                                onInputChange={(value) => handleIndentItemChange(index, 'packaging', value)}
+                                testId={`item-packaging-${index}`}
+                                storageKey="recent_packaging_variants"
+                                allowCustom={true}
                               />
                             </div>
+                          </div>
+                          {/* Row 2: Unit, Qty, Lot Size, Crates */}
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 items-end">
                             <div>
-                              <Label className="text-xs">Unit</Label>
+                              <Label className="text-sm font-medium">Unit</Label>
                               <Input
                                 value={item.product_unit}
-                                placeholder="Kg/Pkt"
+                                placeholder="Kg / Pkt / gm"
                                 onChange={(e) => handleIndentItemChange(index, 'product_unit', e.target.value)}
+                                className="h-10"
                                 data-testid={`item-unit-${index}`}
                               />
                             </div>
                             <div>
-                              <Label className="text-xs">Req Qty *</Label>
+                              <Label className="text-sm font-medium">Required Qty *</Label>
                               <Input
                                 type="number"
                                 step="0.01"
-                                placeholder="100"
+                                placeholder="Enter quantity"
                                 value={item.required_qty}
                                 onChange={(e) => handleIndentItemChange(index, 'required_qty', e.target.value)}
+                                className="h-10"
                                 required
                                 data-testid={`item-qty-${index}`}
                               />
                             </div>
                             <div>
-                              <Label className="text-xs">Lot Size *</Label>
+                              <Label className="text-sm font-medium">Lot Size *</Label>
                               <Input
                                 type="number"
-                                placeholder="10"
+                                placeholder="Pkts per crate"
                                 value={item.lot_size}
                                 onChange={(e) => handleIndentItemChange(index, 'lot_size', e.target.value)}
+                                className="h-10"
                                 required
                                 data-testid={`item-lot-size-${index}`}
                               />
                             </div>
                             <div>
-                              <Label className="text-xs">Crates</Label>
+                              <Label className="text-sm font-medium">Crates</Label>
                               <Input
                                 value={item.no_of_crates}
                                 disabled
-                                className="bg-green-50 font-semibold text-green-700"
+                                className="h-10 bg-green-50 font-bold text-green-700 text-center"
                                 data-testid={`item-crates-${index}`}
                               />
                             </div>
-                            <div>
-                              <Label className="text-xs">Rate (₹)</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                placeholder="Optional"
-                                value={item.rate}
-                                onChange={(e) => handleIndentItemChange(index, 'rate', e.target.value)}
-                                data-testid={`item-rate-${index}`}
-                              />
-                            </div>
-                            <div className="flex items-end">
+                            <div className="flex items-end justify-end">
                               {indentForm.items.length > 1 && (
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="ghost"
+                                  variant="outline"
                                   onClick={() => handleRemoveIndentItem(index)}
-                                  className="h-9 w-9 p-0"
+                                  className="h-10 px-3 text-red-600 border-red-200 hover:bg-red-50"
                                 >
-                                  <Trash2 size={14} className="text-red-600" />
+                                  <Trash2 size={16} className="mr-1" />
+                                  Remove
                                 </Button>
                               )}
                             </div>
@@ -550,67 +586,101 @@ export default function QuickCommerce() {
                     <tr>
                       <th>DATE</th>
                       <th>CUSTOMER</th>
-                      <th>PRODUCTS</th>
-                      <th className="text-right">TOTAL CRATES</th>
+                      <th>PRODUCT</th>
+                      <th>UNIT</th>
+                      <th className="text-right">QTY</th>
+                      <th className="text-right">CRATES</th>
                       <th>STATUS</th>
                       <th className="text-center">ACTION</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {indents.map((indent) => (
-                      <tr key={indent.id} data-testid={`indent-row-${indent.id}`}>
-                        <td>{formatDate(indent.indent_date)}</td>
-                        <td className="font-medium">{indent.customer_name}</td>
-                        <td>
-                          <div className="space-y-1">
-                            {indent.items?.slice(0, 2).map((item, i) => (
-                              <div key={i} className="text-xs">
-                                {item.product_name}
-                                {item.packaging && <span className="text-gray-500"> ({item.packaging})</span>}
-                                : {item.required_qty} {item.product_unit}
-                                {item.rate && <span className="text-green-600 ml-1">@ ₹{item.rate}</span>}
-                              </div>
-                            ))}
-                            {indent.items?.length > 2 && (
-                              <div className="text-xs text-gray-500">+ {indent.items.length - 2} more</div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="text-right font-semibold">
-                          {indent.items?.reduce((sum, i) => sum + (i.no_of_crates || 0), 0)}
-                        </td>
-                        <td>
-                          <span className={`badge ${
-                            indent.status === 'completed' ? 'badge-success' : 
-                            indent.status === 'dispatched' ? 'badge-warning' : 'badge-error'
-                          }`}>
-                            {indent.status}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleEditIndent(indent)}
-                              data-testid={`edit-indent-${indent.id}`}
-                              disabled={indent.status !== 'pending'}
-                            >
-                              <Edit size={14} className="text-blue-600" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleDeleteIndent(indent.id)}
-                              data-testid={`delete-indent-${indent.id}`}
-                              disabled={indent.status !== 'pending'}
-                            >
-                              <Trash2 size={14} className="text-red-600" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {indents.map((indent) => {
+                      // Calculate row span for items
+                      const itemCount = indent.items?.length || 1;
+                      return indent.items?.map((item, itemIndex) => (
+                        <tr key={`${indent.id}-${itemIndex}`} data-testid={`indent-row-${indent.id}-${itemIndex}`}>
+                          {itemIndex === 0 && (
+                            <>
+                              <td rowSpan={itemCount} className="align-top">{formatDate(indent.indent_date)}</td>
+                              <td rowSpan={itemCount} className="font-medium align-top">{indent.customer_name}</td>
+                            </>
+                          )}
+                          <td>
+                            <div>
+                              <span className="font-medium">{item.product_name}</span>
+                              {item.packaging && (
+                                <span className="text-gray-500 text-xs ml-1">({item.packaging})</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="text-sm">{item.product_unit}</td>
+                          <td className="text-right font-semibold">{item.required_qty}</td>
+                          <td className="text-right text-green-700 font-semibold">{item.no_of_crates}</td>
+                          {itemIndex === 0 && (
+                            <>
+                              <td rowSpan={itemCount} className="align-top">
+                                <span className={`badge ${
+                                  indent.status === 'completed' ? 'badge-success' : 
+                                  indent.status === 'dispatched' ? 'badge-warning' : 'badge-error'
+                                }`}>
+                                  {indent.status}
+                                </span>
+                              </td>
+                              <td rowSpan={itemCount} className="align-top">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleEditIndent(indent)}
+                                    data-testid={`edit-indent-${indent.id}`}
+                                    disabled={indent.status !== 'pending'}
+                                  >
+                                    <Edit size={14} className="text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteIndent(indent.id)}
+                                    data-testid={`delete-indent-${indent.id}`}
+                                    disabled={indent.status !== 'pending'}
+                                  >
+                                    <Trash2 size={14} className="text-red-600" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      )) || (
+                        <tr key={indent.id}>
+                          <td>{formatDate(indent.indent_date)}</td>
+                          <td className="font-medium">{indent.customer_name}</td>
+                          <td colSpan={4} className="text-gray-500">No items</td>
+                          <td>
+                            <span className={`badge badge-error`}>{indent.status}</span>
+                          </td>
+                          <td>
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEditIndent(indent)}
+                              >
+                                <Edit size={14} className="text-blue-600" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteIndent(indent.id)}
+                              >
+                                <Trash2 size={14} className="text-red-600" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
                 {indents.length === 0 && !loading && (

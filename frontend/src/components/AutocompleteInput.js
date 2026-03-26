@@ -9,16 +9,24 @@ export default function AutocompleteInput({
   items = [], 
   value, 
   onSelect, 
+  onInputChange,  // New: callback for custom input
   displayKey = 'name',
   secondaryKey = null,
   testId,
-  storageKey = null // For recent selections
+  storageKey = null, // For recent selections
+  allowCustom = false // New: allow custom input without selection
 }) {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(value || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredItems, setFilteredItems] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
   const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    if (value !== undefined && value !== searchTerm) {
+      setSearchTerm(value);
+    }
+  }, [value]);
 
   useEffect(() => {
     // Load recent selections from localStorage
@@ -28,7 +36,7 @@ export default function AutocompleteInput({
         try {
           const recentIds = JSON.parse(recent);
           const recentItemsData = recentIds
-            .map(id => items.find(item => item.id === id))
+            .map(id => items.find(item => item.id === id || item.name === id))
             .filter(Boolean);
           setRecentItems(recentItemsData);
         } catch (e) {
@@ -64,31 +72,62 @@ export default function AutocompleteInput({
   }, [searchTerm, items, displayKey, secondaryKey]);
 
   const handleInputChange = (e) => {
-    setSearchTerm(e.target.value);
+    const newValue = e.target.value;
+    setSearchTerm(newValue);
     setShowSuggestions(true);
+    
+    // For custom input support
+    if (allowCustom && onInputChange) {
+      onInputChange(newValue);
+    }
   };
 
   const handleSelect = (item) => {
     setSearchTerm(item[displayKey]);
     setShowSuggestions(false);
-    onSelect(item);
+    if (onSelect) {
+      onSelect(item);
+    }
     
     // Save to recent selections
     if (storageKey) {
       const recent = localStorage.getItem(storageKey);
       let recentIds = recent ? JSON.parse(recent) : [];
       
+      // Use id or name as identifier
+      const itemId = item.id || item.name;
+      
       // Remove if already exists
-      recentIds = recentIds.filter(id => id !== item.id);
+      recentIds = recentIds.filter(id => id !== itemId);
       
       // Add to front
-      recentIds.unshift(item.id);
+      recentIds.unshift(itemId);
       
       // Keep only last 5
       recentIds = recentIds.slice(0, 5);
       
       localStorage.setItem(storageKey, JSON.stringify(recentIds));
     }
+  };
+
+  const handleBlur = () => {
+    // Delay hiding to allow click on suggestion
+    setTimeout(() => {
+      setShowSuggestions(false);
+      
+      // For custom input, save the typed value as a recent item
+      if (allowCustom && searchTerm && storageKey) {
+        const recent = localStorage.getItem(storageKey);
+        let recentIds = recent ? JSON.parse(recent) : [];
+        
+        // Only save if not already in list
+        if (!recentIds.includes(searchTerm)) {
+          recentIds.unshift(searchTerm);
+          recentIds = recentIds.slice(0, 10);
+          localStorage.setItem(storageKey, JSON.stringify(recentIds));
+        }
+      }
+    }, 200);
   };
 
   const handleFocus = () => {
@@ -101,15 +140,17 @@ export default function AutocompleteInput({
 
   return (
     <div ref={wrapperRef} className="relative">
-      {label && <Label className="text-xs mb-1 block">{label}</Label>}
+      {label && <Label className="text-sm mb-1 block">{label}</Label>}
       <Input
         type="text"
         placeholder={placeholder}
         value={searchTerm}
         onChange={handleInputChange}
         onFocus={handleFocus}
+        onBlur={handleBlur}
         data-testid={testId}
         autoComplete="off"
+        className="h-10"
       />
       
       {showSuggestions && displayItems.length > 0 && (

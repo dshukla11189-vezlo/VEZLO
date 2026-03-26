@@ -518,9 +518,57 @@ async def delete_qc_dispatch(dispatch_id: str, current_user: dict = Depends(get_
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # Get the dispatch to find the indent_id
+    dispatch = await db.qc_dispatches.find_one({"id": dispatch_id}, {"_id": 0})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    indent_id = dispatch.get("indent_id")
+    
+    # Delete the dispatch
     result = await db.qc_dispatches.delete_one({"id": dispatch_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Check if there are any remaining dispatches for this indent
+    if indent_id:
+        remaining_dispatches = await db.qc_dispatches.count_documents({"indent_id": indent_id})
+        
+        if remaining_dispatches == 0:
+            # No more dispatches - reset indent status to pending
+            await db.qc_indents.update_one(
+                {"id": indent_id},
+                {"$set": {"status": "pending"}}
+            )
+        else:
+            # Check if indent is fully dispatched or partial
+            indent = await db.qc_indents.find_one({"id": indent_id}, {"_id": 0})
+            if indent:
+                dispatches_for_indent = await db.qc_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+                
+                # Calculate total dispatched per product
+                dispatched_by_product = {}
+                for d in dispatches_for_indent:
+                    for item in d.get("items", []):
+                        product_id = item.get("product_id")
+                        if product_id:
+                            dispatched_by_product[product_id] = dispatched_by_product.get(product_id, 0) + item.get("supplied_qty", 0)
+                
+                # Check if all items are fully dispatched
+                all_dispatched = True
+                for item in indent.get("items", []):
+                    product_id = item.get("product_id")
+                    required = item.get("required_qty", 0)
+                    dispatched = dispatched_by_product.get(product_id, 0)
+                    if dispatched < required:
+                        all_dispatched = False
+                        break
+                
+                new_status = "dispatched" if all_dispatched else "partial"
+                await db.qc_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"status": new_status}}
+                )
     
     return {"message": "Dispatch deleted successfully"}
 

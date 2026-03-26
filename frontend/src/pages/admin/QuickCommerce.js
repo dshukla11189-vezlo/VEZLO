@@ -89,6 +89,7 @@ export default function QuickCommerce() {
   const [expandedIndents, setExpandedIndents] = useState({});  // Track which indent dispatch logs are expanded
   const [openDispatchDialog, setOpenDispatchDialog] = useState(false);
   const [currentDispatchIndent, setCurrentDispatchIndent] = useState(null);
+  const [dispatchDate, setDispatchDate] = useState(new Date().toISOString().split('T')[0]);  // Dispatch date picker
   const [dispatchTime, setDispatchTime] = useState('');
   const [dispatchRemarks, setDispatchRemarks] = useState('');
 
@@ -652,6 +653,7 @@ export default function QuickCommerce() {
 
   const openNewDispatchDialog = (indent) => {
     setCurrentDispatchIndent(indent);
+    setDispatchDate(new Date().toISOString().split('T')[0]);  // Default to today
     setDispatchTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }));
     setDispatchRemarks('');
     // Pre-fill with remaining quantities
@@ -700,7 +702,7 @@ export default function QuickCommerce() {
       }).filter(item => item.supplied_qty > 0);  // Only include items with qty > 0
 
       const payload = {
-        dispatch_date: new Date().toISOString(),
+        dispatch_date: new Date(dispatchDate).toISOString(),
         dispatch_time: dispatchTime,
         indent_id: indent.id,
         customer_name: indent.customer_name,
@@ -1860,7 +1862,8 @@ export default function QuickCommerce() {
                       const itemCount = indent.items?.length || 1;
                       // Check if any dispatches exist for this indent
                       const hasDispatches = dispatches.some(d => d.indent_id === indent.id);
-                      const canEditDelete = !hasDispatches && indent.status === 'pending';
+                      // Can edit/delete if no dispatches exist (status will be auto-updated by backend)
+                      const canEditDelete = !hasDispatches;
                       
                       return indent.items?.map((item, itemIndex) => (
                         <tr key={`${indent.id}-${itemIndex}`} data-testid={`indent-row-${indent.id}-${itemIndex}`}>
@@ -1971,7 +1974,7 @@ export default function QuickCommerce() {
               </DialogHeader>
               {currentDispatchIndent && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4 bg-gray-50 p-3 rounded-lg">
+                  <div className="grid grid-cols-4 gap-4 bg-gray-50 p-3 rounded-lg">
                     <div>
                       <span className="text-sm text-gray-500">Customer:</span>
                       <span className="font-semibold text-[#14532D] ml-2">{currentDispatchIndent.customer_name}</span>
@@ -1979,6 +1982,15 @@ export default function QuickCommerce() {
                     <div>
                       <span className="text-sm text-gray-500">Indent Date:</span>
                       <span className="font-medium ml-2">{formatDate(currentDispatchIndent.indent_date)}</span>
+                    </div>
+                    <div>
+                      <Label className="text-sm">Dispatch Date</Label>
+                      <Input
+                        type="date"
+                        value={dispatchDate}
+                        onChange={(e) => setDispatchDate(e.target.value)}
+                        className="mt-1"
+                      />
                     </div>
                     <div>
                       <Label className="text-sm">Dispatch Time</Label>
@@ -2190,6 +2202,10 @@ export default function QuickCommerce() {
                               <div>
                                 <span className="text-sm text-gray-500">Customer:</span>
                                 <span className="font-semibold text-[#14532D] ml-1">{indent.customer_name}</span>
+                              </div>
+                              <div>
+                                <span className="text-sm text-gray-500">Indent Date:</span>
+                                <span className="font-medium ml-1">{formatDate(indent.indent_date)}</span>
                               </div>
                               <span className={`badge ${
                                 remaining <= 0 ? 'badge-success' : 

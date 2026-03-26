@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { logout, getUser } from '../utils/auth';
 import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X } from 'lucide-react';
 
-export default function Sidebar({ isOpen, onClose }) {
+export default function Sidebar({ isOpen, onClose, isMobile }) {
   const location = useLocation();
   const user = getUser();
   
@@ -31,36 +31,45 @@ export default function Sidebar({ isOpen, onClose }) {
 
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'retailer' ? retailerLinks : staffLinks;
 
-  // Close sidebar on route change (mobile)
+  // Close sidebar on route change (mobile only)
   useEffect(() => {
-    if (window.innerWidth < 768) {
+    if (isMobile && onClose) {
       onClose();
     }
-  }, [location.pathname, onClose]);
+  }, [location.pathname]);
+
+  // Sidebar should be visible on desktop, hideable on mobile
+  const sidebarClasses = isMobile 
+    ? `sidebar ${!isOpen ? 'mobile-hidden' : ''}`
+    : 'sidebar';
 
   return (
     <>
       {/* Overlay for mobile */}
-      <div 
-        className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
-        onClick={onClose}
-        data-testid="sidebar-overlay"
-      />
+      {isMobile && (
+        <div 
+          className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
+          onClick={onClose}
+          data-testid="sidebar-overlay"
+        />
+      )}
       
       {/* Sidebar */}
-      <div className={`sidebar ${!isOpen ? 'mobile-hidden' : ''}`} data-testid="sidebar">
+      <div className={sidebarClasses} data-testid="sidebar">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">FreshFlow</h1>
             <p className="text-sm text-gray-500 mt-1">{user?.role?.toUpperCase()}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="md:hidden p-2 hover:bg-gray-100 rounded-lg"
-            data-testid="close-sidebar-button"
-          >
-            <X size={20} className="text-gray-600" />
-          </button>
+          {isMobile && (
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-lg"
+              data-testid="close-sidebar-button"
+            >
+              <X size={20} className="text-gray-600" />
+            </button>
+          )}
         </div>
         
         <nav className="p-4">

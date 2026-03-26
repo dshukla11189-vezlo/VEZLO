@@ -102,7 +102,9 @@ export default function QuickCommerce() {
     total_amount: 0,
     remarks: ''
   });
-  const [selectedDispatchesForInvoice, setSelectedDispatchesForInvoice] = useState([]);
+  const [selectedItemsForInvoice, setSelectedItemsForInvoice] = useState({});  // { `${dispatchId}-${itemIndex}`: true }
+  const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState('');
+  const [invoiceDateFilter, setInvoiceDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     loadData();
@@ -708,48 +710,131 @@ export default function QuickCommerce() {
     }
   };
 
-  // Invoice Handlers
-  const openNewInvoiceDialog = (indent, selectedDispatches) => {
-    const customerType = indent.customer_name.toLowerCase().includes('ninja') ? 'ninjacart' : 'standard';
+  // Invoice Handlers - Day-based invoicing with multiple product selection
+  const getDispatchedItemsForCustomer = (customerName, dateFilter) => {
+    // Get all dispatched items for a customer on a specific date
+    const items = [];
+    const filterDate = dateFilter ? new Date(dateFilter).toDateString() : null;
     
-    // Aggregate items from selected dispatches
-    const itemsMap = {};
-    selectedDispatches.forEach(dispatch => {
-      dispatch.items?.forEach(item => {
-        const key = `${item.product_id}-${item.packaging_id || ''}`;
-        if (itemsMap[key]) {
-          itemsMap[key].supplied_qty += item.supplied_qty;
-          itemsMap[key].no_of_crates += item.no_of_crates;
-        } else {
-          itemsMap[key] = { ...item, receiving_qty: item.supplied_qty };
-        }
+    dispatches
+      .filter(d => d.customer_name === customerName)
+      .filter(d => !filterDate || new Date(d.dispatch_date).toDateString() === filterDate)
+      .forEach(dispatch => {
+        dispatch.items?.forEach((item, itemIndex) => {
+          items.push({
+            ...item,
+            dispatch_id: dispatch.id,
+            dispatch_date: dispatch.dispatch_date,
+            dispatch_time: dispatch.dispatch_time,
+            item_index: itemIndex,
+            key: `${dispatch.id}-${itemIndex}`
+          });
+        });
       });
-    });
+    
+    return items;
+  };
 
-    const items = Object.values(itemsMap);
-    const subtotal = items.reduce((sum, item) => sum + ((item.supplied_qty || 0) * (item.rate || 0)), 0);
-
+  const openCreateInvoiceDialog = (customerName = '') => {
+    setInvoiceCustomerFilter(customerName);
+    setInvoiceDateFilter(new Date().toISOString().split('T')[0]);
+    setSelectedItemsForInvoice({});
+    setEditingInvoice(null);
+    
+    const customerType = customerName.toLowerCase().includes('ninja') ? 'ninjacart' : 'standard';
+    
     setInvoiceForm({
       invoice_date: new Date().toISOString().split('T')[0],
-      customer_name: indent.customer_name,
+      customer_name: customerName,
       customer_type: customerType,
-      indent_id: indent.id,
-      dispatch_ids: selectedDispatches.map(d => d.id),
-      items: items,
-      subtotal: subtotal,
+      indent_id: '',
+      dispatch_ids: [],
+      items: [],
+      subtotal: 0,
       discount: 0,
-      total_amount: subtotal,
+      total_amount: 0,
       remarks: ''
     });
-    setEditingInvoice(null);
+    
     setOpenInvoice(true);
+  };
+
+  const toggleItemSelection = (itemKey) => {
+    setSelectedItemsForInvoice(prev => ({
+      ...prev,
+      [itemKey]: !prev[itemKey]
+    }));
+  };
+
+  const selectAllItems = (items) => {
+    const newSelection = {};
+    items.forEach(item => {
+      newSelection[item.key] = true;
+    });
+    setSelectedItemsForInvoice(newSelection);
+  };
+
+  const clearItemSelection = () => {
+    setSelectedItemsForInvoice({});
+  };
+
+  const getSelectedInvoiceItems = () => {
+    const items = getDispatchedItemsForCustomer(invoiceForm.customer_name, invoiceDateFilter);
+    return items.filter(item => selectedItemsForInvoice[item.key]);
   };
 
   const handleSaveInvoice = async () => {
     try {
+      let finalItems = [];
+      let dispatchIds = [];
+      
+      if (editingInvoice) {
+        // Use existing items for edit
+        finalItems = invoiceForm.items;
+        dispatchIds = invoiceForm.dispatch_ids;
+      } else {
+        // Get selected items for new invoice
+        const selectedItems = getSelectedInvoiceItems();
+        if (selectedItems.length === 0) {
+          toast.error('Please select at least one item for the invoice');
+          return;
+        }
+        
+        // Aggregate items by product+packaging
+        const itemsMap = {};
+        selectedItems.forEach(item => {
+          const key = `${item.product_id}-${item.packaging_id || ''}`;
+          if (itemsMap[key]) {
+            itemsMap[key].supplied_qty += item.supplied_qty;
+            itemsMap[key].no_of_crates += item.no_of_crates;
+          } else {
+            itemsMap[key] = { 
+              ...item, 
+              receiving_qty: item.supplied_qty,
+              amount: (item.supplied_qty || 0) * (item.rate || 0)
+            };
+          }
+          if (!dispatchIds.includes(item.dispatch_id)) {
+            dispatchIds.push(item.dispatch_id);
+          }
+        });
+        
+        finalItems = Object.values(itemsMap);
+      }
+
+      const subtotal = finalItems.reduce((sum, item) => sum + ((item.supplied_qty || 0) * (item.rate || 0)), 0);
+
       const payload = {
-        ...invoiceForm,
-        invoice_date: new Date(invoiceForm.invoice_date).toISOString()
+        invoice_date: new Date(invoiceForm.invoice_date).toISOString(),
+        customer_name: invoiceForm.customer_name,
+        customer_type: invoiceForm.customer_type,
+        indent_id: invoiceForm.indent_id || '',
+        dispatch_ids: dispatchIds,
+        items: finalItems,
+        subtotal: editingInvoice ? invoiceForm.subtotal : subtotal,
+        discount: invoiceForm.discount || 0,
+        total_amount: editingInvoice ? invoiceForm.total_amount : (subtotal - (invoiceForm.discount || 0)),
+        remarks: invoiceForm.remarks
       };
 
       if (editingInvoice) {
@@ -762,6 +847,7 @@ export default function QuickCommerce() {
 
       setOpenInvoice(false);
       setEditingInvoice(null);
+      setSelectedItemsForInvoice({});
       loadData();
     } catch (error) {
       console.error('Error saving invoice:', error);
@@ -774,7 +860,7 @@ export default function QuickCommerce() {
       invoice_date: new Date(invoice.invoice_date).toISOString().split('T')[0],
       customer_name: invoice.customer_name,
       customer_type: invoice.customer_type,
-      indent_id: invoice.indent_id,
+      indent_id: invoice.indent_id || '',
       dispatch_ids: invoice.dispatch_ids || [],
       items: invoice.items || [],
       subtotal: invoice.subtotal || 0,
@@ -817,6 +903,111 @@ export default function QuickCommerce() {
         total_amount: subtotal - (prev.discount || 0)
       };
     });
+  };
+
+  // Generate printable invoice HTML
+  const generateInvoicePDF = (invoice) => {
+    const isNinjacart = invoice.customer_type === 'ninjacart';
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Invoice ${invoice.invoice_number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #14532D; padding-bottom: 10px; margin-bottom: 20px; }
+          .header h1 { color: #14532D; margin: 0; }
+          .info-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
+          .info-label { color: #666; }
+          .info-value { font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+          th { background-color: #14532D; color: white; }
+          .text-right { text-align: right; }
+          .total-row { background-color: #f0f9f0; font-weight: bold; }
+          .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>FreshFlow</h1>
+          <p>Invoice</p>
+        </div>
+        
+        <div class="info-row">
+          <div><span class="info-label">Invoice No:</span> <span class="info-value">${invoice.invoice_number}</span></div>
+          <div><span class="info-label">Date:</span> <span class="info-value">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div>
+        </div>
+        <div class="info-row">
+          <div><span class="info-label">Customer:</span> <span class="info-value">${invoice.customer_name}</span></div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>S.No</th>
+              <th>Product</th>
+              <th>Packaging</th>
+              <th class="text-right">Indent Qty</th>
+              <th class="text-right">Supplied Qty</th>
+              <th class="text-right">Lot Size</th>
+              <th class="text-right">Crates</th>
+              ${isNinjacart ? '<th class="text-right">Receiving Qty</th>' : '<th class="text-right">Rate (₹)</th><th class="text-right">Amount (₹)</th>'}
+            </tr>
+          </thead>
+          <tbody>
+            ${invoice.items?.map((item, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td>${item.product_name}</td>
+                <td>${item.packaging_name || '-'}</td>
+                <td class="text-right">${item.indent_qty || '-'}</td>
+                <td class="text-right">${item.supplied_qty}</td>
+                <td class="text-right">${item.lot_size}</td>
+                <td class="text-right">${item.no_of_crates}</td>
+                ${isNinjacart 
+                  ? `<td class="text-right">${item.receiving_qty || item.supplied_qty}</td>` 
+                  : `<td class="text-right">${item.rate || '-'}</td><td class="text-right">${item.amount?.toFixed(2) || '-'}</td>`}
+              </tr>
+            `).join('')}
+          </tbody>
+          ${!isNinjacart ? `
+            <tfoot>
+              <tr class="total-row">
+                <td colspan="8" class="text-right">Subtotal:</td>
+                <td class="text-right">₹${invoice.subtotal?.toFixed(2) || '0.00'}</td>
+              </tr>
+              ${invoice.discount > 0 ? `
+                <tr>
+                  <td colspan="8" class="text-right">Discount:</td>
+                  <td class="text-right">₹${invoice.discount?.toFixed(2)}</td>
+                </tr>
+              ` : ''}
+              <tr class="total-row">
+                <td colspan="8" class="text-right">Total:</td>
+                <td class="text-right">₹${invoice.total_amount?.toFixed(2) || '0.00'}</td>
+              </tr>
+            </tfoot>
+          ` : ''}
+        </table>
+        
+        ${invoice.remarks ? `<p><strong>Remarks:</strong> ${invoice.remarks}</p>` : ''}
+        
+        <div class="footer">
+          <p>Generated on ${new Date().toLocaleString('en-IN')}</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    // Open in new window for printing/saving as PDF
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   };
 
   // Calculate totals for indent/dispatch summary
@@ -919,9 +1110,10 @@ export default function QuickCommerce() {
 
       {/* Tabs */}
       <Tabs defaultValue="indent" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-6 max-w-3xl">
           <TabsTrigger value="indent">Indent</TabsTrigger>
           <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
+          <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
           <TabsTrigger value="grn">GRN</TabsTrigger>
           <TabsTrigger value="packaging">Packaging ({packagingVariants.length})</TabsTrigger>
           <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
@@ -1515,171 +1707,6 @@ export default function QuickCommerce() {
             </DialogContent>
           </Dialog>
 
-          {/* Invoice Dialog */}
-          <Dialog open={openInvoice} onOpenChange={setOpenInvoice}>
-            <DialogContent className="sm:max-w-[1000px] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editingInvoice ? `Edit Invoice: ${editingInvoice.invoice_number}` : 'Create Invoice'}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-sm">Invoice Date *</Label>
-                    <Input
-                      type="date"
-                      value={invoiceForm.invoice_date}
-                      onChange={(e) => setInvoiceForm({ ...invoiceForm, invoice_date: e.target.value })}
-                      className="mt-1"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Can be backdated</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm">Customer</Label>
-                    <Input value={invoiceForm.customer_name} disabled className="mt-1 bg-gray-100" />
-                  </div>
-                  <div>
-                    <Label className="text-sm">Invoice Type</Label>
-                    <Input 
-                      value={invoiceForm.customer_type === 'ninjacart' ? 'Ninjacart (No Rate)' : 'Standard (With Rate)'} 
-                      disabled 
-                      className="mt-1 bg-gray-100" 
-                    />
-                  </div>
-                </div>
-
-                <div className="data-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>S.NO</th>
-                        <th>PRODUCT</th>
-                        <th>PACKAGING</th>
-                        <th className="text-right">INDENT QTY</th>
-                        <th className="text-right">SUPPLIED QTY</th>
-                        <th className="text-right">LOT SIZE</th>
-                        <th className="text-right">CRATES</th>
-                        {invoiceForm.customer_type === 'ninjacart' && (
-                          <th className="text-right">RECEIVING QTY</th>
-                        )}
-                        {invoiceForm.customer_type !== 'ninjacart' && (
-                          <>
-                            <th className="text-right">RATE (₹)</th>
-                            <th className="text-right">AMOUNT (₹)</th>
-                          </>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {invoiceForm.items.map((item, idx) => (
-                        <tr key={idx}>
-                          <td>{idx + 1}</td>
-                          <td className="font-medium">{item.product_name}</td>
-                          <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
-                          <td className="text-right">{item.indent_qty}</td>
-                          <td className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.supplied_qty}
-                              onChange={(e) => updateInvoiceItem(idx, 'supplied_qty', parseFloat(e.target.value) || 0)}
-                              className="w-20 h-8 text-right"
-                            />
-                          </td>
-                          <td className="text-right">{item.lot_size}</td>
-                          <td className="text-right">{item.no_of_crates}</td>
-                          {invoiceForm.customer_type === 'ninjacart' && (
-                            <td className="text-right">
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={item.receiving_qty || item.supplied_qty}
-                                onChange={(e) => updateInvoiceItem(idx, 'receiving_qty', parseFloat(e.target.value) || 0)}
-                                className="w-20 h-8 text-right"
-                              />
-                            </td>
-                          )}
-                          {invoiceForm.customer_type !== 'ninjacart' && (
-                            <>
-                              <td className="text-right">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  value={item.rate || ''}
-                                  onChange={(e) => updateInvoiceItem(idx, 'rate', parseFloat(e.target.value) || 0)}
-                                  className="w-20 h-8 text-right"
-                                  placeholder="Rate"
-                                />
-                              </td>
-                              <td className="text-right font-semibold">
-                                ₹{((item.supplied_qty || 0) * (item.rate || 0)).toFixed(2)}
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                    {invoiceForm.customer_type !== 'ninjacart' && (
-                      <tfoot>
-                        <tr className="bg-gray-50">
-                          <td colSpan={8} className="text-right font-semibold">Subtotal:</td>
-                          <td className="text-right font-bold">₹{invoiceForm.subtotal?.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td colSpan={8} className="text-right">Discount:</td>
-                          <td className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={invoiceForm.discount || ''}
-                              onChange={(e) => {
-                                const discount = parseFloat(e.target.value) || 0;
-                                setInvoiceForm(prev => ({
-                                  ...prev,
-                                  discount: discount,
-                                  total_amount: prev.subtotal - discount
-                                }));
-                              }}
-                              className="w-24 h-8 text-right"
-                              placeholder="0.00"
-                            />
-                          </td>
-                        </tr>
-                        <tr className="bg-green-50">
-                          <td colSpan={8} className="text-right font-bold text-lg">Total:</td>
-                          <td className="text-right font-bold text-lg text-green-700">₹{invoiceForm.total_amount?.toFixed(2)}</td>
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
-
-                <div>
-                  <Label className="text-sm">Remarks</Label>
-                  <Input
-                    value={invoiceForm.remarks}
-                    onChange={(e) => setInvoiceForm({ ...invoiceForm, remarks: e.target.value })}
-                    placeholder="Any additional notes"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    className="flex-1 bg-[#14532D] hover:bg-[#166534]"
-                    onClick={handleSaveInvoice}
-                  >
-                    <Save size={16} className="mr-2" />
-                    {editingInvoice ? 'Update Invoice' : 'Create Invoice'}
-                  </Button>
-                  <Button variant="outline" onClick={() => window.print()}>
-                    <Printer size={16} className="mr-2" />
-                    Print
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-4">
@@ -1790,7 +1817,7 @@ export default function QuickCommerce() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => openNewInvoiceDialog(indent, dispatchLogs)}
+                                onClick={() => openCreateInvoiceDialog(indent.customer_name)}
                                 data-testid={`create-invoice-${indent.id}`}
                               >
                                 <Receipt size={16} className="mr-1" />
@@ -1922,6 +1949,114 @@ export default function QuickCommerce() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* INVOICES TAB */}
+        <TabsContent value="invoices" className="mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <CardTitle className="text-lg">All Invoices</CardTitle>
+                <Button
+                  className="bg-[#14532D] hover:bg-[#166534]"
+                  onClick={() => openCreateInvoiceDialog('')}
+                  data-testid="create-new-invoice-btn"
+                >
+                  <Plus size={16} className="mr-2" />
+                  Create Invoice
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {invoices.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <Receipt size={48} className="mx-auto text-gray-400 mb-4" />
+                  <p>No invoices created yet.</p>
+                  <p className="text-sm mt-2">Create invoices from the Dispatch tab or click "Create Invoice" above.</p>
+                </div>
+              ) : (
+                <div className="data-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>INVOICE NO</th>
+                        <th>DATE</th>
+                        <th>CUSTOMER</th>
+                        <th>TYPE</th>
+                        <th className="text-right">ITEMS</th>
+                        <th className="text-right">TOTAL</th>
+                        <th>STATUS</th>
+                        <th className="text-center">ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((invoice) => (
+                        <tr key={invoice.id} data-testid={`invoice-row-${invoice.id}`}>
+                          <td className="font-semibold text-[#14532D]">{invoice.invoice_number}</td>
+                          <td>{formatDate(invoice.invoice_date)}</td>
+                          <td className="font-medium">{invoice.customer_name}</td>
+                          <td>
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              invoice.customer_type === 'ninjacart' 
+                                ? 'bg-purple-100 text-purple-700' 
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {invoice.customer_type === 'ninjacart' ? 'Ninjacart' : 'Standard'}
+                            </span>
+                          </td>
+                          <td className="text-right">{invoice.items?.length || 0}</td>
+                          <td className="text-right font-semibold">
+                            {invoice.customer_type !== 'ninjacart' 
+                              ? `₹${invoice.total_amount?.toFixed(2) || '0.00'}` 
+                              : '-'}
+                          </td>
+                          <td>
+                            <span className={`badge ${
+                              invoice.status === 'finalized' ? 'badge-success' : 
+                              invoice.status === 'cancelled' ? 'badge-error' : 'badge-warning'
+                            }`}>
+                              {invoice.status || 'draft'}
+                            </span>
+                          </td>
+                          <td className="text-center">
+                            <div className="flex justify-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => generateInvoicePDF(invoice)}
+                                title="Download/Print PDF"
+                                data-testid={`download-invoice-${invoice.id}`}
+                              >
+                                <Download size={16} className="text-blue-600" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEditInvoice(invoice)}
+                                title="Edit Invoice"
+                                data-testid={`edit-invoice-${invoice.id}`}
+                              >
+                                <Edit size={16} className="text-gray-600" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteInvoice(invoice.id)}
+                                title="Delete Invoice"
+                                data-testid={`delete-invoice-${invoice.id}`}
+                              >
+                                <Trash2 size={16} className="text-red-600" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </CardContent>
@@ -2114,6 +2249,284 @@ export default function QuickCommerce() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Invoice Dialog - Rendered outside Tabs so it can be opened from any tab */}
+      <Dialog open={openInvoice} onOpenChange={setOpenInvoice}>
+        <DialogContent className="sm:max-w-[1100px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingInvoice ? `Edit Invoice: ${editingInvoice.invoice_number}` : 'Create Invoice'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Invoice Header */}
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <Label className="text-sm">Invoice Date *</Label>
+                <Input
+                  type="date"
+                  value={invoiceForm.invoice_date}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, invoice_date: e.target.value })}
+                  className="mt-1"
+                />
+                <p className="text-xs text-gray-500 mt-1">Can be backdated</p>
+              </div>
+              {!editingInvoice && (
+                <div>
+                  <Label className="text-sm">Customer *</Label>
+                  <Select 
+                    value={invoiceForm.customer_name} 
+                    onValueChange={(value) => {
+                      const customerType = value.toLowerCase().includes('ninja') ? 'ninjacart' : 'standard';
+                      setInvoiceForm({ ...invoiceForm, customer_name: value, customer_type: customerType });
+                      setSelectedItemsForInvoice({});
+                    }}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select Customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customers.map(c => (
+                        <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {editingInvoice && (
+                <div>
+                  <Label className="text-sm">Customer</Label>
+                  <Input value={invoiceForm.customer_name} disabled className="mt-1 bg-gray-100" />
+                </div>
+              )}
+              {!editingInvoice && (
+                <div>
+                  <Label className="text-sm">Filter by Dispatch Date</Label>
+                  <Input
+                    type="date"
+                    value={invoiceDateFilter}
+                    onChange={(e) => {
+                      setInvoiceDateFilter(e.target.value);
+                      setSelectedItemsForInvoice({});
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+              )}
+              <div>
+                <Label className="text-sm">Invoice Type</Label>
+                <Input 
+                  value={invoiceForm.customer_type === 'ninjacart' ? 'Ninjacart (No Rate)' : 'Standard (With Rate)'} 
+                  disabled 
+                  className="mt-1 bg-gray-100" 
+                />
+              </div>
+            </div>
+
+            {/* Item Selection (for new invoice) */}
+            {!editingInvoice && invoiceForm.customer_name && (
+              <div className="border rounded-lg p-3 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-sm">Select Products for Invoice</h4>
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => selectAllItems(getDispatchedItemsForCustomer(invoiceForm.customer_name, invoiceDateFilter))}
+                    >
+                      Select All
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={clearItemSelection}>
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                
+                {getDispatchedItemsForCustomer(invoiceForm.customer_name, invoiceDateFilter).length === 0 ? (
+                  <p className="text-sm text-gray-500 py-4 text-center">
+                    No dispatched items found for {invoiceForm.customer_name} on {invoiceDateFilter}
+                  </p>
+                ) : (
+                  <div className="data-table max-h-64 overflow-y-auto">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={{width: '40px'}}>
+                            <input 
+                              type="checkbox" 
+                              checked={Object.keys(selectedItemsForInvoice).length === getDispatchedItemsForCustomer(invoiceForm.customer_name, invoiceDateFilter).length && Object.keys(selectedItemsForInvoice).length > 0}
+                              onChange={(e) => e.target.checked ? selectAllItems(getDispatchedItemsForCustomer(invoiceForm.customer_name, invoiceDateFilter)) : clearItemSelection()}
+                              className="w-4 h-4"
+                            />
+                          </th>
+                          <th>PRODUCT</th>
+                          <th>PACKAGING</th>
+                          <th className="text-right">QTY</th>
+                          <th>DISPATCH TIME</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getDispatchedItemsForCustomer(invoiceForm.customer_name, invoiceDateFilter).map((item) => (
+                          <tr 
+                            key={item.key} 
+                            className={selectedItemsForInvoice[item.key] ? 'bg-green-50' : ''}
+                            onClick={() => toggleItemSelection(item.key)}
+                            style={{cursor: 'pointer'}}
+                          >
+                            <td>
+                              <input 
+                                type="checkbox" 
+                                checked={!!selectedItemsForInvoice[item.key]}
+                                onChange={() => toggleItemSelection(item.key)}
+                                className="w-4 h-4"
+                              />
+                            </td>
+                            <td className="font-medium">{item.product_name}</td>
+                            <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                            <td className="text-right">{item.supplied_qty}</td>
+                            <td className="text-sm text-gray-500">{item.dispatch_time || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-2">
+                  Selected: {Object.values(selectedItemsForInvoice).filter(Boolean).length} items
+                </p>
+              </div>
+            )}
+
+            {/* Edit mode - show existing items */}
+            {editingInvoice && (
+              <div className="data-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>S.NO</th>
+                      <th>PRODUCT</th>
+                      <th>PACKAGING</th>
+                      <th className="text-right">INDENT QTY</th>
+                      <th className="text-right">SUPPLIED QTY</th>
+                      <th className="text-right">LOT SIZE</th>
+                      <th className="text-right">CRATES</th>
+                      {invoiceForm.customer_type === 'ninjacart' && (
+                        <th className="text-right">RECEIVING QTY</th>
+                      )}
+                      {invoiceForm.customer_type !== 'ninjacart' && (
+                        <>
+                          <th className="text-right">RATE (₹)</th>
+                          <th className="text-right">AMOUNT (₹)</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceForm.items.map((item, idx) => (
+                      <tr key={idx}>
+                        <td>{idx + 1}</td>
+                        <td className="font-medium">{item.product_name}</td>
+                        <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                        <td className="text-right">{item.indent_qty || '-'}</td>
+                        <td className="text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={item.supplied_qty}
+                            onChange={(e) => updateInvoiceItem(idx, 'supplied_qty', parseFloat(e.target.value) || 0)}
+                            className="w-20 h-8 text-right"
+                          />
+                        </td>
+                        <td className="text-right">{item.lot_size}</td>
+                        <td className="text-right">{item.no_of_crates}</td>
+                        {invoiceForm.customer_type === 'ninjacart' && (
+                          <td className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.receiving_qty || item.supplied_qty}
+                              onChange={(e) => updateInvoiceItem(idx, 'receiving_qty', parseFloat(e.target.value) || 0)}
+                              className="w-20 h-8 text-right"
+                            />
+                          </td>
+                        )}
+                        {invoiceForm.customer_type !== 'ninjacart' && (
+                          <>
+                            <td className="text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.rate || ''}
+                                onChange={(e) => updateInvoiceItem(idx, 'rate', parseFloat(e.target.value) || 0)}
+                                className="w-20 h-8 text-right"
+                                placeholder="Rate"
+                              />
+                            </td>
+                            <td className="text-right font-semibold">
+                              ₹{((item.supplied_qty || 0) * (item.rate || 0)).toFixed(2)}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  {invoiceForm.customer_type !== 'ninjacart' && (
+                    <tfoot>
+                      <tr className="bg-gray-50">
+                        <td colSpan={8} className="text-right font-semibold">Subtotal:</td>
+                        <td className="text-right font-bold">₹{invoiceForm.subtotal?.toFixed(2)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={8} className="text-right">Discount:</td>
+                        <td className="text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={invoiceForm.discount || ''}
+                            onChange={(e) => {
+                              const discount = parseFloat(e.target.value) || 0;
+                              setInvoiceForm(prev => ({
+                                ...prev,
+                                discount: discount,
+                                total_amount: prev.subtotal - discount
+                              }));
+                            }}
+                            className="w-24 h-8 text-right"
+                            placeholder="0.00"
+                          />
+                        </td>
+                      </tr>
+                      <tr className="bg-green-50">
+                        <td colSpan={8} className="text-right font-bold text-lg">Total:</td>
+                        <td className="text-right font-bold text-lg text-green-700">₹{invoiceForm.total_amount?.toFixed(2)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
+
+            <div>
+              <Label className="text-sm">Remarks</Label>
+              <Input
+                value={invoiceForm.remarks}
+                onChange={(e) => setInvoiceForm({ ...invoiceForm, remarks: e.target.value })}
+                placeholder="Any additional notes"
+                className="mt-1"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 bg-[#14532D] hover:bg-[#166534]"
+                onClick={handleSaveInvoice}
+                disabled={!editingInvoice && Object.values(selectedItemsForInvoice).filter(Boolean).length === 0}
+              >
+                <Save size={16} className="mr-2" />
+                {editingInvoice ? 'Update Invoice' : 'Create Invoice'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

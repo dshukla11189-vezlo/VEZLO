@@ -85,12 +85,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Customer-specific formats:
     - Ninjacart: S.No, Product, Packaging, Indent Qty, Supplied Qty, Lot Size, Crates, Receiving Qty (No Rate)
     - Standard: Same + Rate and Amount columns
-  - [x] Create invoices from dispatch entries
-  - [x] Editable invoice items (Supplied Qty, Receiving Qty, Rate)
+  - [x] **Day-based invoicing**: Select multiple products from dispatches for a single invoice
+  - [x] Multi-item selection with checkboxes and "Select All" option
+  - [x] Filter by customer and dispatch date
+  - [x] **Dedicated Invoices Tab** with table view of all invoices
+  - [x] Download/Print PDF button (opens printable window)
+  - [x] Edit/Delete invoices from Invoices tab
   - [x] Backdated invoice support
-  - [x] Edit/Delete invoices
-  - [x] Auto-calculate subtotal, discount, total
-  - [x] Print button
   - [x] Backend API: GET/POST/PUT/DELETE /api/qc-invoices
 - [ ] **GRN Section**: Record accepted vs rejected quantities
 

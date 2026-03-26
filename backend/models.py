@@ -244,10 +244,10 @@ class QCInvoiceItem(BaseModel):
     product_unit: str
     packaging_id: Optional[str] = None
     packaging_name: Optional[str] = None
-    indent_qty: float
+    indent_qty: Optional[float] = None
     supplied_qty: float
-    lot_size: int
-    no_of_crates: float
+    lot_size: int = 0
+    no_of_crates: float = 0
     receiving_qty: Optional[float] = None  # For Ninjacart format
     rate: Optional[float] = None  # Rate per unit
     amount: Optional[float] = None  # supplied_qty * rate

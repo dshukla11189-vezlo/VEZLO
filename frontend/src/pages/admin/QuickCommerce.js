@@ -1243,6 +1243,45 @@ export default function QuickCommerce() {
     }
   };
 
+  // Export GRN to CSV
+  const exportGrnToCsv = (items) => {
+    if (!items || items.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const headers = ['Date', 'Customer', 'Product', 'Packaging', 'Supplied Qty', 'GRN Qty', 'Difference', 'Rate/Unit (₹)', 'Amount (₹)', 'Loss/Gain (₹)'];
+    const rows = items.map(item => [
+      item.dispatch_date,
+      'Ninjacart',
+      item.product_name,
+      item.packaging_name || '-',
+      item.supplied_qty,
+      item.grn_qty,
+      item.difference,
+      item.rate_per_unit?.toFixed(2) || '0',
+      item.amount?.toFixed(2) || '0',
+      ((item.difference || 0) * (item.rate_per_unit || 0)).toFixed(2)
+    ]);
+
+    // Add totals row
+    const totalSupplied = items.reduce((sum, i) => sum + i.supplied_qty, 0);
+    const totalGrn = items.reduce((sum, i) => sum + i.grn_qty, 0);
+    const totalDiff = items.reduce((sum, i) => sum + i.difference, 0);
+    const totalAmount = items.reduce((sum, i) => sum + (i.amount || 0), 0);
+    const totalLossGain = items.reduce((sum, i) => sum + ((i.difference || 0) * (i.rate_per_unit || 0)), 0);
+    
+    rows.push(['TOTAL', '', '', '', totalSupplied, totalGrn.toFixed(2), totalDiff.toFixed(2), '', totalAmount.toFixed(2), totalLossGain.toFixed(2)]);
+
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `GRN_Ninjacart_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    toast.success('GRN exported to CSV');
+  };
+
   // Calculate totals for indent/dispatch summary
   const calculateTotals = (items, useSupplied = false, indentId = null) => {
     let totalRequired = 0;
@@ -2516,10 +2555,16 @@ export default function QuickCommerce() {
                     </Button>
                   </label>
                   {grnMatchedItems.length > 0 && (
-                    <Button onClick={handleSaveGrn} className="bg-green-600 hover:bg-green-700">
-                      <Save size={16} className="mr-2" />
-                      Save GRN ({grnMatchedItems.length} items)
-                    </Button>
+                    <>
+                      <Button onClick={() => exportGrnToCsv(grnMatchedItems)} variant="outline">
+                        <Download size={16} className="mr-2" />
+                        Export CSV
+                      </Button>
+                      <Button onClick={handleSaveGrn} className="bg-green-600 hover:bg-green-700">
+                        <Save size={16} className="mr-2" />
+                        Save GRN ({grnMatchedItems.length} items)
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -2533,6 +2578,9 @@ export default function QuickCommerce() {
                     <strong> Rows:</strong> {grnUploadResult.rows_processed} | 
                     <strong> Dates:</strong> {grnUploadResult.dates_found?.join(', ')} | 
                     <strong> Matched:</strong> {grnUploadResult.matched_items?.length || 0} items
+                    {grnUploadResult.unmatched_dates?.length > 0 && (
+                      <span className="text-orange-600"> | <strong>No dispatch for:</strong> {grnUploadResult.unmatched_dates.join(', ')}</span>
+                    )}
                   </p>
                 </div>
               )}
@@ -2540,8 +2588,10 @@ export default function QuickCommerce() {
               {/* GRN Matched Items Table (from CSV upload) */}
               {grnMatchedItems.length > 0 && (
                 <div className="mb-6">
-                  <h4 className="font-semibold text-sm mb-2 text-green-700">Matched Items from CSV</h4>
-                  <div className="data-table">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold text-sm text-green-700">Matched Items from CSV</h4>
+                  </div>
+                  <div className="data-table overflow-x-auto">
                     <table>
                       <thead>
                         <tr>
@@ -2554,29 +2604,41 @@ export default function QuickCommerce() {
                           <th className="text-right">DIFFERENCE</th>
                           <th className="text-right">RATE/UNIT (₹)</th>
                           <th className="text-right">AMOUNT (₹)</th>
+                          <th className="text-right">LOSS/GAIN (₹)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {grnMatchedItems.map((item, idx) => (
-                          <tr key={idx}>
-                            <td>{item.dispatch_date}</td>
-                            <td className="font-medium text-[#14532D]">Ninjacart</td>
-                            <td className="font-medium">{item.product_name}</td>
-                            <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
-                            <td className="text-right">{item.supplied_qty}</td>
-                            <td className="text-right font-semibold">{item.grn_qty}</td>
-                            <td className="text-right">
-                              <span className={`font-bold ${
-                                item.difference > 0 ? 'text-green-600' : 
-                                item.difference < 0 ? 'text-red-600' : 'text-gray-600'
-                              }`}>
-                                {item.difference > 0 ? '+' : ''}{item.difference}
-                              </span>
-                            </td>
-                            <td className="text-right">₹{item.rate_per_unit?.toFixed(2)}</td>
-                            <td className="text-right font-semibold">₹{item.amount?.toFixed(2)}</td>
-                          </tr>
-                        ))}
+                        {grnMatchedItems.map((item, idx) => {
+                          const lossGain = (item.difference || 0) * (item.rate_per_unit || 0);
+                          return (
+                            <tr key={idx}>
+                              <td>{item.dispatch_date}</td>
+                              <td className="font-medium text-[#14532D]">Ninjacart</td>
+                              <td className="font-medium">{item.product_name}</td>
+                              <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                              <td className="text-right">{item.supplied_qty}</td>
+                              <td className="text-right font-semibold">{item.grn_qty}</td>
+                              <td className="text-right">
+                                <span className={`font-bold ${
+                                  item.difference > 0 ? 'text-green-600' : 
+                                  item.difference < 0 ? 'text-red-600' : 'text-gray-600'
+                                }`}>
+                                  {item.difference > 0 ? '+' : ''}{item.difference}
+                                </span>
+                              </td>
+                              <td className="text-right">₹{item.rate_per_unit?.toFixed(2)}</td>
+                              <td className="text-right font-semibold">₹{item.amount?.toFixed(2)}</td>
+                              <td className="text-right">
+                                <span className={`font-bold ${
+                                  lossGain > 0 ? 'text-green-600' : 
+                                  lossGain < 0 ? 'text-red-600' : 'text-gray-600'
+                                }`}>
+                                  {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(2)}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                       <tfoot>
                         <tr className="bg-gray-50">
@@ -2594,6 +2656,16 @@ export default function QuickCommerce() {
                           </td>
                           <td className="text-right">-</td>
                           <td className="text-right font-bold">₹{grnMatchedItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(2)}</td>
+                          <td className="text-right">
+                            {(() => {
+                              const totalLossGain = grnMatchedItems.reduce((sum, i) => sum + ((i.difference || 0) * (i.rate_per_unit || 0)), 0);
+                              return (
+                                <span className={`font-bold ${totalLossGain > 0 ? 'text-green-600' : totalLossGain < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                                  {totalLossGain > 0 ? '+' : ''}₹{totalLossGain.toFixed(2)}
+                                </span>
+                              );
+                            })()}
+                          </td>
                         </tr>
                       </tfoot>
                     </table>

@@ -56,6 +56,18 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **Date/Farmer filters** for pending payments
 - [x] **Bulk Payment feature** - Pay multiple farmers at once
 
+### Phase 4: Quick Commerce Module (IN PROGRESS - Dec 2026)
+- [x] Renamed "QC Orders" to "Quick Commerce" in sidebar
+- [x] Created 3-tab structure: Indent, Dispatch, GRN
+- [x] **Indent Section**:
+  - [x] Add QC Customer (Blinkit, Zepto, Instamart, etc.)
+  - [x] Create Indent with: Customer Name, Product Name, Product Unit, Required Qty, Lot Size
+  - [x] Auto-calculate No. of Crates (Required Qty / Lot Size)
+  - [x] Edit/Delete Indents
+  - [x] Status tracking (pending, dispatched, completed)
+- [ ] **Dispatch Section**: Create dispatches from pending indents
+- [ ] **GRN Section**: Record accepted vs rejected quantities
+
 ### Phase 3: Multi-Language Support (COMPLETED - Dec 2026)
 - [x] i18next integration with language detection
 - [x] Language switcher in desktop header (top right)
@@ -78,6 +90,8 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [ ] Wastage & Grading Tracking page
 
 ### P1 - High Priority
+- [ ] Quick Commerce Dispatch section - Create dispatches from indents
+- [ ] Quick Commerce GRN section - Record what was accepted after dispatch
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Invoicing and Print PDF functionality
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)

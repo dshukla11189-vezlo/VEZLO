@@ -340,6 +340,148 @@ async def ocr_qc_order(file: UploadFile = File(...), current_user: dict = Depend
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
+# QC Customer Routes
+@api_router.get("/qc-customers")
+async def get_qc_customers(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    customers = await db.qc_customers.find({}, {"_id": 0}).sort("name", 1).to_list(1000)
+    return customers
+
+@api_router.post("/qc-customers")
+async def create_qc_customer(input: QCCustomerCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    customer = QCCustomer(**input.model_dump())
+    doc = customer.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.qc_customers.insert_one(doc)
+    return {"id": customer.id, "name": customer.name}
+
+# QC Indent Routes
+@api_router.get("/qc-indents")
+async def get_qc_indents(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    indents = await db.qc_indents.find({}, {"_id": 0}).sort("indent_date", -1).to_list(1000)
+    for i in indents:
+        if isinstance(i.get('indent_date'), str):
+            i['indent_date'] = datetime.fromisoformat(i['indent_date'])
+        if isinstance(i.get('created_at'), str):
+            i['created_at'] = datetime.fromisoformat(i['created_at'])
+    return indents
+
+@api_router.post("/qc-indents")
+async def create_qc_indent(input: QCIndentCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    indent_dict = input.model_dump()
+    indent_dict["recorded_by"] = current_user["user_id"]
+    indent = QCIndent(**indent_dict)
+    
+    doc = indent.model_dump()
+    doc['indent_date'] = doc['indent_date'].isoformat()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.qc_indents.insert_one(doc)
+    return {"id": indent.id, "message": "Indent created successfully"}
+
+@api_router.put("/qc-indents/{indent_id}")
+async def update_qc_indent(indent_id: str, input: QCIndentUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {k: v for k, v in input.model_dump().items() if v is not None}
+    if 'indent_date' in update_data:
+        update_data['indent_date'] = update_data['indent_date'].isoformat()
+    
+    result = await db.qc_indents.update_one({"id": indent_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    return {"message": "Indent updated successfully"}
+
+@api_router.delete("/qc-indents/{indent_id}")
+async def delete_qc_indent(indent_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.qc_indents.delete_one({"id": indent_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    return {"message": "Indent deleted successfully"}
+
+# QC Dispatch Routes
+@api_router.get("/qc-dispatches")
+async def get_qc_dispatches(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    dispatches = await db.qc_dispatches.find({}, {"_id": 0}).sort("dispatch_date", -1).to_list(1000)
+    for d in dispatches:
+        if isinstance(d.get('dispatch_date'), str):
+            d['dispatch_date'] = datetime.fromisoformat(d['dispatch_date'])
+        if isinstance(d.get('created_at'), str):
+            d['created_at'] = datetime.fromisoformat(d['created_at'])
+    return dispatches
+
+@api_router.post("/qc-dispatches")
+async def create_qc_dispatch(input: QCDispatchCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    dispatch_dict = input.model_dump()
+    dispatch_dict["recorded_by"] = current_user["user_id"]
+    dispatch = QCDispatch(**dispatch_dict)
+    
+    doc = dispatch.model_dump()
+    doc['dispatch_date'] = doc['dispatch_date'].isoformat()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.qc_dispatches.insert_one(doc)
+    
+    # Update indent status to dispatched
+    await db.qc_indents.update_one({"id": input.indent_id}, {"$set": {"status": "dispatched"}})
+    
+    return {"id": dispatch.id, "message": "Dispatch created successfully"}
+
+# QC GRN Routes
+@api_router.get("/qc-grns")
+async def get_qc_grns(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    grns = await db.qc_grns.find({}, {"_id": 0}).sort("grn_date", -1).to_list(1000)
+    for g in grns:
+        if isinstance(g.get('grn_date'), str):
+            g['grn_date'] = datetime.fromisoformat(g['grn_date'])
+        if isinstance(g.get('created_at'), str):
+            g['created_at'] = datetime.fromisoformat(g['created_at'])
+    return grns
+
+@api_router.post("/qc-grns")
+async def create_qc_grn(input: QCGRNCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    grn_dict = input.model_dump()
+    grn_dict["recorded_by"] = current_user["user_id"]
+    grn = QCGRN(**grn_dict)
+    
+    doc = grn.model_dump()
+    doc['grn_date'] = doc['grn_date'].isoformat()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.qc_grns.insert_one(doc)
+    
+    # Update indent and dispatch status
+    await db.qc_indents.update_one({"id": input.indent_id}, {"$set": {"status": "completed"}})
+    await db.qc_dispatches.update_one({"id": input.dispatch_id}, {"$set": {"status": "delivered"}})
+    
+    return {"id": grn.id, "message": "GRN created successfully"}
+
 # Retailer Order Routes
 @api_router.get("/retailer-orders", response_model=List[RetailerOrder])
 async def get_retailer_orders(current_user: dict = Depends(get_current_user)):

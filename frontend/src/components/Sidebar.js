@@ -13,7 +13,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     { path: '/admin/dashboard', icon: Home, labelKey: 'app.dashboard' },
     { path: '/admin/products', icon: Package, labelKey: 'app.products' },
     { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
-    { path: '/admin/qc-orders', icon: ShoppingCart, labelKey: 'app.qcOrders' },
+    { path: '/admin/quick-commerce', icon: ShoppingCart, labelKey: 'app.quickCommerce' },
     { path: '/admin/retailer-orders', icon: ShoppingCart, labelKey: 'app.retailerOrders' },
     { path: '/admin/wastage', icon: Trash2, labelKey: 'app.wastage' },
     { path: '/admin/payments', icon: DollarSign, labelKey: 'app.payments' },

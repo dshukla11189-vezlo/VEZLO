@@ -7,7 +7,7 @@ import Register from './pages/Register';
 import AdminDashboard from './pages/admin/Dashboard';
 import Products from './pages/admin/Products';
 import Procurement from './pages/admin/Procurement';
-import QCOrders from './pages/admin/QCOrders';
+import QuickCommerce from './pages/admin/QuickCommerce';
 import RetailerOrders from './pages/admin/RetailerOrders';
 import Wastage from './pages/admin/Wastage';
 import Payments from './pages/admin/Payments';
@@ -81,10 +81,10 @@ function App() {
             }
           />
           <Route
-            path="/admin/qc-orders"
+            path="/admin/quick-commerce"
             element={
               <ProtectedRoute allowedRoles={['admin', 'staff']}>
-                <QCOrders />
+                <QuickCommerce />
               </ProtectedRoute>
             }
           />

@@ -86,6 +86,14 @@ export default function QuickCommerce() {
   const [dispatchTime, setDispatchTime] = useState('');
   const [dispatchRemarks, setDispatchRemarks] = useState('');
 
+  // Dispatch tab filters
+  const [dispatchFilters, setDispatchFilters] = useState({
+    fromDate: '',
+    toDate: '',
+    customerName: '',
+    productName: ''
+  });
+
   // Invoice states
   const [invoices, setInvoices] = useState([]);
   const [openInvoice, setOpenInvoice] = useState(false);
@@ -1177,8 +1185,35 @@ export default function QuickCommerce() {
     return acc;
   }, { totalRequired: 0 });
 
+  // Filter indents for Dispatch tab
+  const filteredDispatchIndents = indents.filter(indent => {
+    // Date range filter
+    if (dispatchFilters.fromDate) {
+      const indentDate = new Date(indent.indent_date).setHours(0,0,0,0);
+      const fromDate = new Date(dispatchFilters.fromDate).setHours(0,0,0,0);
+      if (indentDate < fromDate) return false;
+    }
+    if (dispatchFilters.toDate) {
+      const indentDate = new Date(indent.indent_date).setHours(0,0,0,0);
+      const toDate = new Date(dispatchFilters.toDate).setHours(0,0,0,0);
+      if (indentDate > toDate) return false;
+    }
+    // Customer filter
+    if (dispatchFilters.customerName && indent.customer_name !== dispatchFilters.customerName) {
+      return false;
+    }
+    // Product filter (check if any item matches)
+    if (dispatchFilters.productName) {
+      const hasProduct = indent.items?.some(item => 
+        item.product_name?.toLowerCase().includes(dispatchFilters.productName.toLowerCase())
+      );
+      if (!hasProduct) return false;
+    }
+    return true;
+  });
+
   // Calculate grand totals for Dispatch tab
-  const dispatchGrandTotals = filteredIndents.reduce((acc, indent) => {
+  const dispatchGrandTotals = filteredDispatchIndents.reduce((acc, indent) => {
     indent.items?.forEach((item) => {
       acc.totalRequired += parseFloat(item.required_qty) || 0;
       acc.totalSupplied += getDispatchedQtyForIndent(indent.id, item.product_id);
@@ -1865,7 +1900,7 @@ export default function QuickCommerce() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-4">
-                <CardTitle className="text-lg">Dispatch Log & Invoicing</CardTitle>
+                <CardTitle className="text-lg">Dispatch Log & Invoicing ({filteredDispatchIndents.length})</CardTitle>
                 {/* Totals Summary */}
                 <div className="flex gap-4">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
@@ -1897,15 +1932,71 @@ export default function QuickCommerce() {
               </div>
             </CardHeader>
             <CardContent>
-              {filteredIndents.length === 0 ? (
+              {/* Dispatch Filters */}
+              <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">From:</Label>
+                  <Input
+                    type="date"
+                    value={dispatchFilters.fromDate}
+                    onChange={(e) => setDispatchFilters({ ...dispatchFilters, fromDate: e.target.value })}
+                    className="w-36 h-9"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">To:</Label>
+                  <Input
+                    type="date"
+                    value={dispatchFilters.toDate}
+                    onChange={(e) => setDispatchFilters({ ...dispatchFilters, toDate: e.target.value })}
+                    className="w-36 h-9"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">Customer:</Label>
+                  <Select 
+                    value={dispatchFilters.customerName} 
+                    onValueChange={(value) => setDispatchFilters({ ...dispatchFilters, customerName: value === 'all' ? '' : value })}
+                  >
+                    <SelectTrigger className="w-40 h-9">
+                      <SelectValue placeholder="All Customers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Customers</SelectItem>
+                      {customers.map(c => (
+                        <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">Product:</Label>
+                  <Input
+                    type="text"
+                    placeholder="Search product..."
+                    value={dispatchFilters.productName}
+                    onChange={(e) => setDispatchFilters({ ...dispatchFilters, productName: e.target.value })}
+                    className="w-40 h-9"
+                  />
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setDispatchFilters({ fromDate: '', toDate: '', customerName: '', productName: '' })}
+                >
+                  Clear Filters
+                </Button>
+              </div>
+
+              {filteredDispatchIndents.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                   <Truck size={48} className="mx-auto text-gray-400 mb-4" />
                   <p>No indents found.</p>
-                  <p className="text-sm mt-2">Create indents first in the Indent tab.</p>
+                  <p className="text-sm mt-2">{indents.length > 0 ? 'Try adjusting your filters.' : 'Create indents first in the Indent tab.'}</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {filteredIndents.map((indent) => {
+                  {filteredDispatchIndents.map((indent) => {
                     const dispatchLogs = getDispatchLogsForIndent(indent.id);
                     const isExpanded = expandedIndents[indent.id];
                     const relatedInvoices = invoices.filter(inv => inv.indent_id === indent.id);

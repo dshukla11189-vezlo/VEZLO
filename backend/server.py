@@ -231,6 +231,35 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
     await db.procurements.insert_one(doc)
     return procurement
 
+@api_router.put("/procurement/{procurement_id}")
+async def update_procurement(procurement_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    
+    # Only update payment-related fields
+    update_fields = {}
+    if "paid_amount" in input:
+        update_fields["paid_amount"] = input["paid_amount"]
+    if "pending_amount" in input:
+        update_fields["pending_amount"] = input["pending_amount"]
+    if "payment_status" in input:
+        update_fields["payment_status"] = input["payment_status"]
+    
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    
+    result = await db.procurements.find_one_and_update(
+        {"id": procurement_id},
+        {"$set": update_fields},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Procurement not found")
+    
+    return {"message": "Procurement updated successfully", "procurement": result}
+
 @api_router.delete("/procurement/{procurement_id}")
 async def delete_procurement(procurement_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:

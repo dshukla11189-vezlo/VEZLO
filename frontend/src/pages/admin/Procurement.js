@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -352,6 +352,17 @@ export default function Procurement() {
         amount: paymentForm.amount,
         payment_mode: paymentForm.payment_mode,
         reference: paymentForm.reference || `Payment for procurement on ${formatDate(selectedProcurement.date)}`
+      });
+      
+      // Update procurement record with new payment info
+      const newPaidAmount = (selectedProcurement.paid_amount || 0) + paymentForm.amount;
+      const newPendingAmount = selectedProcurement.total_amount - newPaidAmount;
+      const newPaymentStatus = newPendingAmount <= 0 ? 'paid' : newPaidAmount > 0 ? 'partial' : 'pending';
+      
+      await api.put(`/api/procurement/${selectedProcurement.id}`, {
+        paid_amount: newPaidAmount,
+        pending_amount: newPendingAmount,
+        payment_status: newPaymentStatus
       });
       
       toast.success('Payment recorded successfully');
@@ -802,7 +813,7 @@ export default function Procurement() {
                 <p className="text-3xl font-bold text-red-700">₹{getTotalPending().toFixed(2)}</p>
               </div>
               <div className="bg-red-50 p-3 rounded-lg">
-                <DollarSign className="text-red-700" size={24} />
+                <IndianRupee className="text-red-700" size={24} />
               </div>
             </div>
           </CardContent>
@@ -953,7 +964,7 @@ export default function Procurement() {
                                 data-testid={`pay-farmer-${proc.id}`}
                                 title="Record Payment"
                               >
-                                <DollarSign size={14} />
+                                <IndianRupee size={14} />
                               </Button>
                             )}
                           </div>

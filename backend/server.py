@@ -702,23 +702,60 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             # Try to match with CSV data
             for csv_row in csv_rows:
                 sku_name = csv_row['sku_name'].lower()
+                sku_name_original = csv_row['sku_name']  # Keep original for pattern detection
                 # Match product name (flexible matching)
                 if product_name in sku_name or sku_name.split()[0] in product_name:
                     grn_qty_raw = csv_row['grn_qty']
-                    grn_price_kg = csv_row['grn_price']
+                    csv_rate = csv_row['grn_price']
                     weight_unit = csv_row['weight_unit']
+                    
+                    # Detect pricing type from SKU name: (Kg)/(Kgs) = rate per Kg, (PCS) = rate per piece
+                    sku_upper = sku_name_original.upper()
+                    is_rate_per_kg = '(KG)' in sku_upper or '(KGS)' in sku_upper
+                    is_rate_per_pcs = '(PCS)' in sku_upper
                     
                     # Convert GRN qty to units if it's in Kg and we have packaging weight
                     if weight_unit.lower() == 'kg' and packaging_weight_gm > 0:
                         grn_qty_units = (grn_qty_raw * 1000) / packaging_weight_gm
-                        rate_per_unit = grn_price_kg * (packaging_weight_gm / 1000)
                     else:
                         # Already in pieces or no conversion needed
                         grn_qty_units = grn_qty_raw
-                        rate_per_unit = grn_price_kg
+                    
+                    # Calculate rate and amount based on SKU pricing type
+                    if is_rate_per_kg:
+                        # Rate is per Kg - Amount = Total weight in Kg × Rate per Kg
+                        # Total weight = grn_qty_units × packaging_weight_gm / 1000
+                        rate_per_unit = csv_rate * (packaging_weight_gm / 1000) if packaging_weight_gm > 0 else csv_rate
+                        total_weight_kg = (grn_qty_units * packaging_weight_gm / 1000) if packaging_weight_gm > 0 else grn_qty_raw
+                        amount = total_weight_kg * csv_rate
+                        rate_type = 'per_kg'
+                    elif is_rate_per_pcs:
+                        # Rate is per piece - Amount = Quantity × Rate per piece
+                        rate_per_unit = csv_rate
+                        amount = grn_qty_units * csv_rate
+                        rate_type = 'per_pcs'
+                    else:
+                        # Fallback: use WeightUnit from CSV
+                        if weight_unit.lower() == 'kg' and packaging_weight_gm > 0:
+                            rate_per_unit = csv_rate * (packaging_weight_gm / 1000)
+                            total_weight_kg = grn_qty_units * packaging_weight_gm / 1000
+                            amount = total_weight_kg * csv_rate
+                        else:
+                            rate_per_unit = csv_rate
+                            amount = grn_qty_units * csv_rate
+                        rate_type = 'unknown'
                     
                     supplied_qty = item.get('supplied_qty', 0)
                     difference = grn_qty_units - supplied_qty
+                    
+                    # Calculate loss/gain amount based on rate type
+                    if is_rate_per_kg and packaging_weight_gm > 0:
+                        # Loss/Gain in Kg terms, then multiply by rate
+                        diff_weight_kg = difference * packaging_weight_gm / 1000
+                        loss_gain_amount = diff_weight_kg * csv_rate
+                    else:
+                        # Loss/Gain in pieces/units
+                        loss_gain_amount = difference * rate_per_unit
                     
                     matched_items.append({
                         'dispatch_id': dispatch.get('id'),
@@ -733,9 +770,12 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                         'grn_qty': round(grn_qty_units, 2),
                         'grn_qty_kg': grn_qty_raw if weight_unit.lower() == 'kg' else None,
                         'difference': round(difference, 2),
-                        'rate_per_kg': grn_price_kg,
+                        'rate_per_kg': csv_rate if is_rate_per_kg else None,
                         'rate_per_unit': round(rate_per_unit, 2),
-                        'amount': round(grn_qty_units * rate_per_unit, 2)
+                        'rate_type': rate_type,
+                        'sku_name': sku_name_original,
+                        'amount': round(amount, 2),
+                        'loss_gain_amount': round(loss_gain_amount, 2)
                     })
                     break  # Found match, move to next item
     

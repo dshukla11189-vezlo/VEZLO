@@ -1257,28 +1257,43 @@ export default function QuickCommerce() {
       return;
     }
 
-    const headers = ['Date', 'Customer', 'Product', 'Packaging', 'Supplied Qty', 'GRN Qty', 'Difference', 'Rate/Unit (₹)', 'Amount (₹)', 'Loss/Gain (₹)'];
-    const rows = items.map(item => [
-      item.dispatch_date,
-      'Ninjacart',
-      item.product_name,
-      item.packaging_name || '-',
-      item.supplied_qty,
-      item.grn_qty,
-      item.difference,
-      item.rate_per_unit?.toFixed(2) || '0',
-      item.amount?.toFixed(2) || '0',
-      ((item.difference || 0) * (item.rate_per_unit || 0)).toFixed(2)
-    ]);
+    const headers = ['Date', 'Customer', 'Product', 'SKU Name', 'Packaging', 'Supplied Qty', 'GRN Qty', 'Difference', 'Rate Type', 'Rate', 'Amount (₹)', 'Loss/Gain (₹)'];
+    const rows = items.map(item => {
+      const lossGain = item.loss_gain_amount !== undefined 
+        ? item.loss_gain_amount 
+        : (item.difference || 0) * (item.rate_per_unit || 0);
+      const rateDisplay = item.rate_per_kg 
+        ? `${item.rate_per_kg?.toFixed(2)}/Kg` 
+        : `${item.rate_per_unit?.toFixed(2)}/Pc`;
+      return [
+        item.dispatch_date,
+        'Ninjacart',
+        item.product_name,
+        item.sku_name || '-',
+        item.packaging_name || '-',
+        item.supplied_qty,
+        item.grn_qty,
+        item.difference,
+        item.rate_type || '-',
+        rateDisplay,
+        item.amount?.toFixed(2) || '0',
+        lossGain.toFixed(2)
+      ];
+    });
 
     // Add totals row
     const totalSupplied = items.reduce((sum, i) => sum + i.supplied_qty, 0);
     const totalGrn = items.reduce((sum, i) => sum + i.grn_qty, 0);
     const totalDiff = items.reduce((sum, i) => sum + i.difference, 0);
     const totalAmount = items.reduce((sum, i) => sum + (i.amount || 0), 0);
-    const totalLossGain = items.reduce((sum, i) => sum + ((i.difference || 0) * (i.rate_per_unit || 0)), 0);
+    const totalLossGain = items.reduce((sum, i) => {
+      const itemLossGain = i.loss_gain_amount !== undefined 
+        ? i.loss_gain_amount 
+        : (i.difference || 0) * (i.rate_per_unit || 0);
+      return sum + itemLossGain;
+    }, 0);
     
-    rows.push(['TOTAL', '', '', '', totalSupplied, totalGrn.toFixed(2), totalDiff.toFixed(2), '', totalAmount.toFixed(2), totalLossGain.toFixed(2)]);
+    rows.push(['TOTAL', '', '', '', '', totalSupplied, totalGrn.toFixed(2), totalDiff.toFixed(2), '', '', totalAmount.toFixed(2), totalLossGain.toFixed(2)]);
 
     const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -2622,19 +2637,29 @@ export default function QuickCommerce() {
                           <th className="text-right">SUPPLIED QTY</th>
                           <th className="text-right">GRN (Units)</th>
                           <th className="text-right">DIFFERENCE</th>
-                          <th className="text-right">RATE/UNIT (₹)</th>
+                          <th className="text-right">RATE</th>
                           <th className="text-right">AMOUNT (₹)</th>
                           <th className="text-right">LOSS/GAIN (₹)</th>
                         </tr>
                       </thead>
                       <tbody>
                         {grnMatchedItems.map((item, idx) => {
-                          const lossGain = (item.difference || 0) * (item.rate_per_unit || 0);
+                          // Use loss_gain_amount from backend if available, otherwise calculate
+                          const lossGain = item.loss_gain_amount !== undefined 
+                            ? item.loss_gain_amount 
+                            : (item.difference || 0) * (item.rate_per_unit || 0);
                           return (
                             <tr key={idx}>
                               <td>{item.dispatch_date}</td>
                               <td className="font-medium text-[#14532D]">Ninjacart</td>
-                              <td className="font-medium">{item.product_name}</td>
+                              <td className="font-medium">
+                                {item.product_name}
+                                {item.rate_type && (
+                                  <span className="ml-1 text-xs text-gray-400">
+                                    ({item.rate_type === 'per_kg' ? '₹/Kg' : item.rate_type === 'per_pcs' ? '₹/Pcs' : ''})
+                                  </span>
+                                )}
+                              </td>
                               <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                               <td className="text-right">{item.supplied_qty}</td>
                               <td className="text-right font-semibold">{item.grn_qty}</td>
@@ -2646,7 +2671,13 @@ export default function QuickCommerce() {
                                   {item.difference > 0 ? '+' : ''}{item.difference}
                                 </span>
                               </td>
-                              <td className="text-right">₹{item.rate_per_unit?.toFixed(2)}</td>
+                              <td className="text-right">
+                                {item.rate_per_kg ? (
+                                  <span>₹{item.rate_per_kg?.toFixed(2)}/Kg</span>
+                                ) : (
+                                  <span>₹{item.rate_per_unit?.toFixed(2)}/Pc</span>
+                                )}
+                              </td>
                               <td className="text-right font-semibold">₹{item.amount?.toFixed(2)}</td>
                               <td className="text-right">
                                 <span className={`font-bold ${
@@ -2678,7 +2709,13 @@ export default function QuickCommerce() {
                           <td className="text-right font-bold">₹{grnMatchedItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(2)}</td>
                           <td className="text-right">
                             {(() => {
-                              const totalLossGain = grnMatchedItems.reduce((sum, i) => sum + ((i.difference || 0) * (i.rate_per_unit || 0)), 0);
+                              const totalLossGain = grnMatchedItems.reduce((sum, i) => {
+                                // Use loss_gain_amount from backend if available
+                                const itemLossGain = i.loss_gain_amount !== undefined 
+                                  ? i.loss_gain_amount 
+                                  : (i.difference || 0) * (i.rate_per_unit || 0);
+                                return sum + itemLossGain;
+                              }, 0);
                               return (
                                 <span className={`font-bold ${totalLossGain > 0 ? 'text-green-600' : totalLossGain < 0 ? 'text-red-600' : 'text-gray-600'}`}>
                                   {totalLossGain > 0 ? '+' : ''}₹{totalLossGain.toFixed(2)}

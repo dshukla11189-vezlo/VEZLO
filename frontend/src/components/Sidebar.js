@@ -1,32 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
 import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose, isMobile }) {
+  const { t } = useTranslation();
   const location = useLocation();
   const user = getUser();
   
   const adminLinks = [
-    { path: '/admin/dashboard', icon: Home, label: 'Dashboard' },
-    { path: '/admin/products', icon: Package, label: 'Products' },
-    { path: '/admin/procurement', icon: TruckIcon, label: 'Procurement' },
-    { path: '/admin/qc-orders', icon: ShoppingCart, label: 'QC Orders' },
-    { path: '/admin/retailer-orders', icon: ShoppingCart, label: 'Retailer Orders' },
-    { path: '/admin/wastage', icon: Trash2, label: 'Wastage' },
-    { path: '/admin/payments', icon: DollarSign, label: 'Payments' },
-    { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
+    { path: '/admin/dashboard', icon: Home, labelKey: 'app.dashboard' },
+    { path: '/admin/products', icon: Package, labelKey: 'app.products' },
+    { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
+    { path: '/admin/qc-orders', icon: ShoppingCart, labelKey: 'app.qcOrders' },
+    { path: '/admin/retailer-orders', icon: ShoppingCart, labelKey: 'app.retailerOrders' },
+    { path: '/admin/wastage', icon: Trash2, labelKey: 'app.wastage' },
+    { path: '/admin/payments', icon: DollarSign, labelKey: 'app.payments' },
+    { path: '/admin/invoices', icon: FileText, labelKey: 'app.invoices' },
   ];
 
   const retailerLinks = [
-    { path: '/retailer/dashboard', icon: Home, label: 'Dashboard' },
+    { path: '/retailer/dashboard', icon: Home, labelKey: 'app.dashboard' },
   ];
 
   const staffLinks = [
-    { path: '/staff/dashboard', icon: Home, label: 'Dashboard' },
-    { path: '/admin/products', icon: Package, label: 'Products' },
-    { path: '/admin/procurement', icon: TruckIcon, label: 'Procurement' },
-    { path: '/admin/wastage', icon: Trash2, label: 'Wastage' },
+    { path: '/staff/dashboard', icon: Home, labelKey: 'app.dashboard' },
+    { path: '/admin/products', icon: Package, labelKey: 'app.products' },
+    { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
+    { path: '/admin/wastage', icon: Trash2, labelKey: 'app.wastage' },
   ];
 
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'retailer' ? retailerLinks : staffLinks;
@@ -58,7 +60,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
       <div className={sidebarClasses} data-testid="sidebar">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">FreshFlow</h1>
+            <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">{t('app.title')}</h1>
             <p className="text-sm text-gray-500 mt-1">{user?.role?.toUpperCase()}</p>
           </div>
           {isMobile && (
@@ -80,13 +82,13 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
               <Link
                 key={link.path}
                 to={link.path}
-                data-testid={`nav-${link.label.toLowerCase().replace(' ', '-')}`}
+                data-testid={`nav-${t(link.labelKey).toLowerCase().replace(' ', '-')}`}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg mb-1 hover:bg-gray-100 ${
                   isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
                 }`}
               >
                 <Icon size={20} />
-                <span className="text-sm font-medium">{link.label}</span>
+                <span className="text-sm font-medium">{t(link.labelKey)}</span>
               </Link>
             );
           })}
@@ -108,7 +110,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
             className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100"
           >
             <LogOut size={16} />
-            Logout
+            {t('app.logout')}
           </button>
         </div>
       </div>

@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
+import LanguageSwitcher from './LanguageSwitcher';
 import { Menu } from 'lucide-react';
 
 export default function Layout({ children, title }) {
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -26,20 +29,29 @@ export default function Layout({ children, title }) {
       
       {/* Mobile Header */}
       {isMobile && (
-        <div className="mobile-header">
+        <div className="mobile-header flex items-center justify-between px-3 py-2">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="hover:bg-gray-100 rounded-lg"
+            className="hover:bg-gray-100 rounded-lg p-1"
             data-testid="open-sidebar-button"
             aria-label="Open menu"
           >
             <Menu size={20} className="text-gray-700" />
           </button>
-          <h1 className="font-bold text-[#14532D]">FreshFlow</h1>
+          <h1 className="font-bold text-[#14532D] text-sm">{t('app.title')}</h1>
+          <div className="scale-90">
+            <LanguageSwitcher />
+          </div>
         </div>
       )}
       
       <div className="main-content">
+        {/* Desktop Header with Language Switcher */}
+        {!isMobile && (
+          <div className="flex justify-end items-center p-3 border-b border-gray-200 bg-white shadow-sm" data-testid="desktop-header">
+            <LanguageSwitcher />
+          </div>
+        )}
         <div className="p-4 md:p-6 lg:p-8">
           {title && (
             <div className="mb-4 md:mb-8">

@@ -94,12 +94,24 @@ class Farmer(BaseModel):
     name: str
     contact: str
     address: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    bank_name: Optional[str] = None
+    branch_name: Optional[str] = None
+    upi_id: Optional[str] = None
+    materials_supplied: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class FarmerCreate(BaseModel):
     name: str
     contact: str
     address: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    bank_name: Optional[str] = None
+    branch_name: Optional[str] = None
+    upi_id: Optional[str] = None
+    materials_supplied: Optional[str] = None
 
 # Procurement Models
 class Procurement(BaseModel):
@@ -113,6 +125,7 @@ class Procurement(BaseModel):
     paid_amount: float = 0
     pending_amount: float = 0
     payment_status: str = "pending"  # pending, partial, paid
+    remark: Optional[str] = None
     status: str = "completed"
     recorded_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -126,6 +139,7 @@ class ProcurementCreate(BaseModel):
     paid_amount: float = 0
     pending_amount: float = 0
     payment_status: str = "pending"
+    remark: Optional[str] = None
     status: str = "completed"
 
 # QC Order Models

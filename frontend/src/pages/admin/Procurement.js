@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
@@ -20,6 +21,7 @@ const UNIT_TYPES = [
 ];
 
 export default function Procurement() {
+  const { t } = useTranslation();
   const [procurements, setProcurements] = useState([]);
   const [filteredProcurements, setFilteredProcurements] = useState([]);
   const [farmers, setFarmers] = useState([]);
@@ -50,7 +52,8 @@ export default function Procurement() {
     total_amount: 0,
     paid_amount: 0,
     pending_amount: 0,
-    payment_status: 'pending'
+    payment_status: 'pending',
+    remark: ''
   });
 
   // Payment form
@@ -64,7 +67,13 @@ export default function Procurement() {
   const [farmerForm, setFarmerForm] = useState({
     name: '',
     contact: '',
-    address: ''
+    address: '',
+    bank_account_number: '',
+    ifsc_code: '',
+    bank_name: '',
+    branch_name: '',
+    upi_id: '',
+    materials_supplied: ''
   });
 
   useEffect(() => {
@@ -301,7 +310,8 @@ export default function Procurement() {
         total_amount: 0,
         paid_amount: 0,
         pending_amount: 0,
-        payment_status: 'pending'
+        payment_status: 'pending',
+        remark: ''
       });
       loadData();
     } catch (error) {
@@ -322,7 +332,17 @@ export default function Procurement() {
         toast.success('Farmer added successfully');
       }
       setOpenFarmer(false);
-      setFarmerForm({ name: '', contact: '', address: '' });
+      setFarmerForm({ 
+        name: '', 
+        contact: '', 
+        address: '',
+        bank_account_number: '',
+        ifsc_code: '',
+        bank_name: '',
+        branch_name: '',
+        upi_id: '',
+        materials_supplied: ''
+      });
       setSelectedProcurement(null);
       loadData();
     } catch (error) {
@@ -385,7 +405,8 @@ export default function Procurement() {
       total_amount: procurement.total_amount,
       paid_amount: procurement.paid_amount || 0,
       pending_amount: procurement.pending_amount || 0,
-      payment_status: procurement.payment_status || 'pending'
+      payment_status: procurement.payment_status || 'pending',
+      remark: procurement.remark || ''
     });
     setOpenProcurement(true);
   };
@@ -461,7 +482,13 @@ export default function Procurement() {
     setFarmerForm({
       name: farmer.name,
       contact: farmer.contact,
-      address: farmer.address || ''
+      address: farmer.address || '',
+      bank_account_number: farmer.bank_account_number || '',
+      ifsc_code: farmer.ifsc_code || '',
+      bank_name: farmer.bank_name || '',
+      branch_name: farmer.branch_name || '',
+      upi_id: farmer.upi_id || '',
+      materials_supplied: farmer.materials_supplied || ''
     });
     setSelectedProcurement({ ...farmer, isFarmerEdit: true }); // Reuse for tracking
     setOpenFarmer(true);
@@ -507,33 +534,33 @@ export default function Procurement() {
   };
 
   return (
-    <Layout title="Daily Procurement">
+    <Layout title={t('procurement.dailyProcurement')}>
       <div className="mb-6 flex flex-col sm:flex-row gap-3 flex-wrap">
         <Dialog open={openFarmer} onOpenChange={setOpenFarmer}>
           <DialogTrigger asChild>
             <Button variant="outline" data-testid="add-farmer-button">
               <UserPlus size={16} className="mr-2" />
-              Add Farmer
+              {t('procurement.addFarmer')}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{selectedProcurement?.isFarmerEdit ? 'Edit Farmer' : 'Add New Farmer'}</DialogTitle>
+              <DialogTitle>{selectedProcurement?.isFarmerEdit ? t('farmer.editFarmer') : t('farmer.addNew')}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmitFarmer} className="space-y-4">
               <div>
-                <Label htmlFor="farmer-name">Farmer Name *</Label>
+                <Label htmlFor="farmer-name">{t('farmer.name')} *</Label>
                 <Input
                   id="farmer-name"
                   data-testid="farmer-name-input"
-                  placeholder="Enter farmer name"
+                  placeholder={t('farmer.name')}
                   value={farmerForm.name}
                   onChange={(e) => setFarmerForm({ ...farmerForm, name: e.target.value })}
                   required
                 />
               </div>
               <div>
-                <Label htmlFor="farmer-contact">Contact Number *</Label>
+                <Label htmlFor="farmer-contact">{t('farmer.contact')} *</Label>
                 <Input
                   id="farmer-contact"
                   data-testid="farmer-contact-input"
@@ -544,17 +571,78 @@ export default function Procurement() {
                 />
               </div>
               <div>
-                <Label htmlFor="farmer-address">Address</Label>
+                <Label htmlFor="farmer-address">{t('farmer.address')}</Label>
                 <Input
                   id="farmer-address"
                   data-testid="farmer-address-input"
-                  placeholder="Village, District"
+                  placeholder={t('farmer.address')}
                   value={farmerForm.address}
                   onChange={(e) => setFarmerForm({ ...farmerForm, address: e.target.value })}
                 />
               </div>
+              
+              <div className="border-t pt-4 mt-2">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('farmer.bankingDetails')}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="bank-account">{t('farmer.accountNumber')}</Label>
+                    <Input
+                      id="bank-account"
+                      placeholder={t('farmer.accountNumber')}
+                      value={farmerForm.bank_account_number}
+                      onChange={(e) => setFarmerForm({ ...farmerForm, bank_account_number: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ifsc">{t('farmer.ifscCode')}</Label>
+                    <Input
+                      id="ifsc"
+                      placeholder={t('farmer.ifscCode')}
+                      value={farmerForm.ifsc_code}
+                      onChange={(e) => setFarmerForm({ ...farmerForm, ifsc_code: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="bank-name">{t('farmer.bankName')}</Label>
+                    <Input
+                      id="bank-name"
+                      placeholder={t('farmer.bankName')}
+                      value={farmerForm.bank_name}
+                      onChange={(e) => setFarmerForm({ ...farmerForm, bank_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="branch">{t('farmer.branchName')}</Label>
+                    <Input
+                      id="branch"
+                      placeholder={t('farmer.branchName')}
+                      value={farmerForm.branch_name}
+                      onChange={(e) => setFarmerForm({ ...farmerForm, branch_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="upi">{t('farmer.upiId')}</Label>
+                    <Input
+                      id="upi"
+                      placeholder="farmer@upi"
+                      value={farmerForm.upi_id}
+                      onChange={(e) => setFarmerForm({ ...farmerForm, upi_id: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="materials">{t('farmer.materialsSupplied')}</Label>
+                    <Input
+                      id="materials"
+                      placeholder="e.g., Tomato, Potato, Onion"
+                      value={farmerForm.materials_supplied}
+                      onChange={(e) => setFarmerForm({ ...farmerForm, materials_supplied: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+              
               <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-farmer-button">
-                Add Farmer
+                {selectedProcurement?.isFarmerEdit ? t('farmer.update') : t('farmer.add')}
               </Button>
             </form>
           </DialogContent>
@@ -564,17 +652,17 @@ export default function Procurement() {
           <DialogTrigger asChild>
             <Button className="bg-[#14532D] hover:bg-[#166534]" data-testid="add-procurement-button">
               <Plus size={16} className="mr-2" />
-              Record Purchase
+              {t('procurement.recordPurchase')}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Record Daily Purchase</DialogTitle>
+              <DialogTitle>{t('procurement.recordPurchase')}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmitProcurement} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="proc-date">Purchase Date *</Label>
+                  <Label htmlFor="proc-date">{t('procurement.date')} *</Label>
                   <Input
                     id="proc-date"
                     type="date"
@@ -586,8 +674,8 @@ export default function Procurement() {
                 </div>
                 <div>
                   <AutocompleteInput
-                    label="Select Farmer *"
-                    placeholder="Start typing farmer name..."
+                    label={t('procurement.selectFarmer')}
+                    placeholder={t('procurement.selectFarmer')}
                     items={farmers}
                     displayKey="name"
                     secondaryKey="contact"
@@ -600,7 +688,7 @@ export default function Procurement() {
 
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
-                  <Label className="text-base font-semibold">Products Purchased</Label>
+                  <Label className="text-base font-semibold">{t('procurement.products')}</Label>
                   <Button
                     type="button"
                     size="sm"
@@ -609,7 +697,7 @@ export default function Procurement() {
                     data-testid="add-product-row-button"
                   >
                     <Plus size={16} className="mr-1" />
-                    Add Product
+                    {t('procurement.addProduct')}
                   </Button>
                 </div>
 
@@ -718,7 +806,7 @@ export default function Procurement() {
 
               <div className="border-t pt-4 space-y-3">
                 <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
-                  <span className="text-lg font-semibold">Grand Total:</span>
+                  <span className="text-lg font-semibold">{t('procurement.totalAmount')}:</span>
                   <span className="text-2xl font-bold text-[#14532D]" data-testid="grand-total">
                     ₹{procurementForm.total_amount.toFixed(2)}
                   </span>
@@ -726,7 +814,7 @@ export default function Procurement() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg">
                   <div>
-                    <Label htmlFor="paid-amount">Amount Paid Now</Label>
+                    <Label htmlFor="paid-amount">{t('procurement.paidAmount')}</Label>
                     <Input
                       id="paid-amount"
                       type="number"
@@ -738,7 +826,7 @@ export default function Procurement() {
                     />
                   </div>
                   <div>
-                    <Label>Pending Amount</Label>
+                    <Label>{t('procurement.pendingAmount')}</Label>
                     <Input
                       type="text"
                       value={`₹${procurementForm.pending_amount.toFixed(2)}`}
@@ -752,10 +840,22 @@ export default function Procurement() {
                 {procurementForm.payment_status !== 'pending' && (
                   <div className="text-sm text-center">
                     <span className={`badge ${procurementForm.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
-                      Payment Status: {procurementForm.payment_status.toUpperCase()}
+                      {t('procurement.payment')}: {procurementForm.payment_status.toUpperCase()}
                     </span>
                   </div>
                 )}
+
+                <div>
+                  <Label htmlFor="remark">{t('procurement.remark')} {t('procurement.optional')}</Label>
+                  <Input
+                    id="remark"
+                    type="text"
+                    placeholder={t('procurement.addNotes')}
+                    data-testid="remark-input"
+                    value={procurementForm.remark || ''}
+                    onChange={(e) => setProcurementForm({ ...procurementForm, remark: e.target.value })}
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -766,10 +866,10 @@ export default function Procurement() {
                   data-testid="save-template-button"
                 >
                   <BookmarkPlus size={16} className="mr-2" />
-                  Save as Template
+                  {t('procurement.saveTemplate')}
                 </Button>
                 <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-procurement-button">
-                  {editMode ? 'Update Purchase' : 'Record Purchase & Update Stock'}
+                  {editMode ? t('procurement.editPurchase') : t('procurement.save')}
                 </Button>
               </div>
             </form>
@@ -783,7 +883,7 @@ export default function Procurement() {
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-gray-600">Total Farmers</p>
+                <p className="text-sm text-gray-600">{t('procurement.farmers')}</p>
                 <p className="text-3xl font-bold text-gray-900">{farmers.length}</p>
               </div>
               <div className="bg-green-50 p-3 rounded-lg">
@@ -796,7 +896,7 @@ export default function Procurement() {
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-gray-600">Total Purchases</p>
+                <p className="text-sm text-gray-600">{t('procurement.purchases')}</p>
                 <p className="text-3xl font-bold text-gray-900">{procurements.length}</p>
               </div>
               <div className="bg-blue-50 p-3 rounded-lg">
@@ -809,7 +909,7 @@ export default function Procurement() {
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-gray-600">Pending to Farmers</p>
+                <p className="text-sm text-gray-600">{t('procurement.pending')}</p>
                 <p className="text-3xl font-bold text-red-700">₹{getTotalPending().toFixed(2)}</p>
               </div>
               <div className="bg-red-50 p-3 rounded-lg">
@@ -822,9 +922,9 @@ export default function Procurement() {
 
       <Tabs defaultValue="history" className="w-full">
         <TabsList className="grid w-full grid-cols-3 max-w-2xl">
-          <TabsTrigger value="history">Purchase History</TabsTrigger>
-          <TabsTrigger value="farmers">Farmers</TabsTrigger>
-          <TabsTrigger value="templates">Templates ({templates.length})</TabsTrigger>
+          <TabsTrigger value="history">{t('procurement.purchaseHistory')}</TabsTrigger>
+          <TabsTrigger value="farmers">{t('procurement.farmers')}</TabsTrigger>
+          <TabsTrigger value="templates">{t('procurement.templates')} ({templates.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="history" className="mt-6">
@@ -834,17 +934,17 @@ export default function Procurement() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Filter size={18} />
-                  Filters
+                  {t('procurement.filters')}
                 </CardTitle>
                 <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters-button">
-                  Clear All
+                  {t('procurement.clearAll')}
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                  <Label htmlFor="filter-from-date" className="text-xs">From Date</Label>
+                  <Label htmlFor="filter-from-date" className="text-xs">{t('procurement.fromDate')}</Label>
                   <Input
                     id="filter-from-date"
                     type="date"
@@ -854,7 +954,7 @@ export default function Procurement() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="filter-to-date" className="text-xs">To Date</Label>
+                  <Label htmlFor="filter-to-date" className="text-xs">{t('procurement.toDate')}</Label>
                   <Input
                     id="filter-to-date"
                     type="date"
@@ -864,22 +964,22 @@ export default function Procurement() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="filter-farmer" className="text-xs">Farmer Name</Label>
+                  <Label htmlFor="filter-farmer" className="text-xs">{t('procurement.farmerName')}</Label>
                   <Input
                     id="filter-farmer"
                     type="text"
-                    placeholder="Search farmer..."
+                    placeholder={t('common.search')}
                     value={filters.farmerName}
                     onChange={(e) => setFilters({ ...filters, farmerName: e.target.value })}
                     data-testid="filter-farmer-name"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="filter-product" className="text-xs">Product Name</Label>
+                  <Label htmlFor="filter-product" className="text-xs">{t('procurement.productName')}</Label>
                   <Input
                     id="filter-product"
                     type="text"
-                    placeholder="Search product..."
+                    placeholder={t('common.search')}
                     value={filters.productName}
                     onChange={(e) => setFilters({ ...filters, productName: e.target.value })}
                     data-testid="filter-product-name"
@@ -887,28 +987,28 @@ export default function Procurement() {
                 </div>
               </div>
               <div className="mt-3 text-xs text-gray-600">
-                Showing {filteredProcurements.length} of {procurements.length} purchases
+                {t('procurement.showing')} {filteredProcurements.length} {t('procurement.of')} {procurements.length} {t('procurement.purchases')}
               </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Purchase History</CardTitle>
+              <CardTitle className="text-lg">{t('procurement.purchaseHistory')}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="data-table">
                 <table>
                   <thead>
                     <tr>
-                      <th>DATE</th>
-                      <th>FARMER</th>
-                      <th>PRODUCTS</th>
-                      <th className="text-right">TOTAL</th>
-                      <th className="text-right">PAID</th>
-                      <th className="text-right">PENDING</th>
-                      <th>PAYMENT</th>
-                      <th className="text-center">ACTION</th>
+                      <th>{t('procurement.date')}</th>
+                      <th>{t('procurement.farmer')}</th>
+                      <th>{t('procurement.products')}</th>
+                      <th className="text-right">{t('procurement.total')}</th>
+                      <th className="text-right">{t('procurement.paid')}</th>
+                      <th className="text-right">{t('procurement.pending')}</th>
+                      <th>{t('procurement.payment')}</th>
+                      <th className="text-center">{t('procurement.action')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -943,7 +1043,7 @@ export default function Procurement() {
                               variant="ghost"
                               onClick={() => handleEdit(proc)}
                               data-testid={`edit-procurement-${proc.id}`}
-                              title="Edit"
+                              title={t('common.edit')}
                             >
                               <Edit size={14} className="text-blue-600" />
                             </Button>
@@ -952,7 +1052,7 @@ export default function Procurement() {
                               variant="ghost"
                               onClick={() => handleDelete(proc.id)}
                               data-testid={`delete-procurement-${proc.id}`}
-                              title="Delete"
+                              title={t('common.delete')}
                             >
                               <Trash2 size={14} className="text-red-600" />
                             </Button>
@@ -962,7 +1062,7 @@ export default function Procurement() {
                                 variant="outline"
                                 onClick={() => handleRecordPayment(proc)}
                                 data-testid={`pay-farmer-${proc.id}`}
-                                title="Record Payment"
+                                title={t('procurement.addPayment')}
                               >
                                 <IndianRupee size={14} />
                               </Button>
@@ -976,8 +1076,8 @@ export default function Procurement() {
                 {filteredProcurements.length === 0 && !loading && (
                   <div className="p-8 text-center text-gray-500">
                     {procurements.length === 0 
-                      ? 'No procurement records found. Record your first purchase to get started.'
-                      : 'No purchases match your filters. Try adjusting the filters.'}
+                      ? t('procurement.noPurchases')
+                      : t('common.noData')}
                   </div>
                 )}
               </div>
@@ -988,7 +1088,7 @@ export default function Procurement() {
         <TabsContent value="farmers" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Registered Farmers ({farmers.length})</CardTitle>
+              <CardTitle className="text-lg">{t('procurement.farmers')} ({farmers.length})</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

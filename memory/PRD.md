@@ -71,15 +71,27 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Total Required Qty summary at top of table (Mar 2026)
   - [x] **BUG FIX**: AutocompleteInput crash when typing in Packaging/Variant field (Mar 2026)
 - [x] **Dispatch Section** (COMPLETED - Mar 2026):
-  - [x] All Indent entries auto-populated in Dispatch tab as editable cards
-  - [x] Editable "Supplied Qty" input for each line item
-  - [x] Difference column (Supplied - Required) with color coding:
-    - Red/Bold when supplied < required
-    - Green/Bold when supplied > required
-  - [x] Auto-calculate crates based on supplied qty
-  - [x] Summary totals at top: Total Required, Total Supplied, Difference
-  - [x] Save button per indent to persist dispatch data
-  - [x] Backend API for create/update dispatches
+  - [x] Log-based dispatch entries (multiple dispatches per indent)
+  - [x] Support for partial dispatches (e.g., Morning 1200, Evening 800)
+  - [x] Expandable indent cards showing dispatch history
+  - [x] "New Dispatch" button with dialog to enter supplied quantities
+  - [x] Dispatch time tracking (e.g., "09:00 AM")
+  - [x] Remaining qty calculation and status (Pending/Partial/Fully Dispatched)
+  - [x] Summary totals: Total Required, Total Dispatched, Remaining
+  - [x] Difference column with color coding (Red < Required, Green > Required)
+  - [x] Delete dispatch entries
+- [x] **Invoice System** (COMPLETED - Mar 2026):
+  - [x] Invoice number format: CUS-DDMMMYYYY-NNN (e.g., NIN-26MAR2026-001)
+  - [x] Customer-specific formats:
+    - Ninjacart: S.No, Product, Packaging, Indent Qty, Supplied Qty, Lot Size, Crates, Receiving Qty (No Rate)
+    - Standard: Same + Rate and Amount columns
+  - [x] Create invoices from dispatch entries
+  - [x] Editable invoice items (Supplied Qty, Receiving Qty, Rate)
+  - [x] Backdated invoice support
+  - [x] Edit/Delete invoices
+  - [x] Auto-calculate subtotal, discount, total
+  - [x] Print button
+  - [x] Backend API: GET/POST/PUT/DELETE /api/qc-invoices
 - [ ] **GRN Section**: Record accepted vs rejected quantities
 
 ### Phase 3: Multi-Language Support (COMPLETED - Dec 2026)

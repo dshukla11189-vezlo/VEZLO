@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
@@ -77,9 +77,32 @@ export default function QuickCommerce() {
     weight_gm: ''
   });
 
-  // Dispatch states - track supplied quantities for each indent item
+  // Dispatch states - log-based dispatch entries
   const [dispatchData, setDispatchData] = useState({});  // { indentId: { itemIndex: supplied_qty } }
   const [savingDispatch, setSavingDispatch] = useState({});  // Track which indents are being saved
+  const [expandedIndents, setExpandedIndents] = useState({});  // Track which indent dispatch logs are expanded
+  const [openDispatchDialog, setOpenDispatchDialog] = useState(false);
+  const [currentDispatchIndent, setCurrentDispatchIndent] = useState(null);
+  const [dispatchTime, setDispatchTime] = useState('');
+  const [dispatchRemarks, setDispatchRemarks] = useState('');
+
+  // Invoice states
+  const [invoices, setInvoices] = useState([]);
+  const [openInvoice, setOpenInvoice] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState(null);
+  const [invoiceForm, setInvoiceForm] = useState({
+    invoice_date: new Date().toISOString().split('T')[0],
+    customer_name: '',
+    customer_type: 'standard',
+    indent_id: '',
+    dispatch_ids: [],
+    items: [],
+    subtotal: 0,
+    discount: 0,
+    total_amount: 0,
+    remarks: ''
+  });
+  const [selectedDispatchesForInvoice, setSelectedDispatchesForInvoice] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -93,18 +116,20 @@ export default function QuickCommerce() {
 
   const loadData = async () => {
     try {
-      const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes] = await Promise.all([
+      const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes, invoicesRes] = await Promise.all([
         api.get('/api/qc-indents'),
         api.get('/api/qc-dispatches'),
         api.get('/api/qc-grns'),
         api.get('/api/qc-customers'),
-        api.get('/api/products')
+        api.get('/api/products'),
+        api.get('/api/qc-invoices')
       ]);
       setIndents(indentsRes.data);
       setDispatches(dispatchesRes.data);
       setGrns(grnsRes.data);
       setCustomers(customersRes.data);
       setProducts(productsRes.data);
+      setInvoices(invoicesRes.data);
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
@@ -554,7 +579,7 @@ export default function QuickCommerce() {
     setCustomerForm({ name: '', contact_person: '', contact_number: '', address: '' });
   };
 
-  // Dispatch Handlers
+  // Dispatch Handlers - Log-based dispatch entries
   const handleSuppliedQtyChange = (indentId, itemIndex, value) => {
     setDispatchData(prev => ({
       ...prev,
@@ -565,24 +590,57 @@ export default function QuickCommerce() {
     }));
   };
 
-  const getSuppliedQty = (indentId, itemIndex) => {
-    // First check if there's a saved dispatch for this indent
-    const existingDispatch = dispatches.find(d => d.indent_id === indentId);
-    if (existingDispatch && existingDispatch.items[itemIndex]) {
-      // If user has edited, use that value; otherwise use saved value
-      if (dispatchData[indentId]?.[itemIndex] !== undefined) {
-        return dispatchData[indentId][itemIndex];
-      }
-      return existingDispatch.items[itemIndex].supplied_qty?.toString() || '';
-    }
-    return dispatchData[indentId]?.[itemIndex] || '';
+  const getDispatchedQtyForIndent = (indentId, productId) => {
+    // Sum up all dispatched quantities for this product from all dispatch logs
+    return dispatches
+      .filter(d => d.indent_id === indentId)
+      .reduce((total, dispatch) => {
+        const item = dispatch.items?.find(i => i.product_id === productId);
+        return total + (item?.supplied_qty || 0);
+      }, 0);
   };
 
-  const handleSaveDispatch = async (indent) => {
-    // Validate that at least one item has supplied qty
+  const getRemainingQty = (indent, item) => {
+    const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id);
+    return Math.max(0, item.required_qty - dispatched);
+  };
+
+  const getDispatchLogsForIndent = (indentId) => {
+    return dispatches
+      .filter(d => d.indent_id === indentId)
+      .sort((a, b) => new Date(b.dispatch_date) - new Date(a.dispatch_date));
+  };
+
+  const toggleExpandIndent = (indentId) => {
+    setExpandedIndents(prev => ({
+      ...prev,
+      [indentId]: !prev[indentId]
+    }));
+  };
+
+  const openNewDispatchDialog = (indent) => {
+    setCurrentDispatchIndent(indent);
+    setDispatchTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }));
+    setDispatchRemarks('');
+    // Pre-fill with remaining quantities
+    const newDispatchData = {};
+    indent.items?.forEach((item, idx) => {
+      const remaining = getRemainingQty(indent, item);
+      newDispatchData[idx] = remaining > 0 ? remaining.toString() : '';
+    });
+    setDispatchData(prev => ({ ...prev, [indent.id]: newDispatchData }));
+    setOpenDispatchDialog(true);
+  };
+
+  const handleSaveDispatch = async () => {
+    if (!currentDispatchIndent) return;
+
+    const indent = currentDispatchIndent;
+    
+    // Validate that at least one item has supplied qty > 0
     const hasSuppliedQty = indent.items.some((_, idx) => {
-      const qty = getSuppliedQty(indent.id, idx);
-      return qty !== '' && parseFloat(qty) >= 0;
+      const qty = dispatchData[indent.id]?.[idx];
+      return qty !== '' && parseFloat(qty) > 0;
     });
 
     if (!hasSuppliedQty) {
@@ -593,44 +651,42 @@ export default function QuickCommerce() {
     setSavingDispatch(prev => ({ ...prev, [indent.id]: true }));
 
     try {
-      const existingDispatch = dispatches.find(d => d.indent_id === indent.id);
-      
       const dispatchItems = indent.items.map((item, idx) => {
-        const suppliedQty = parseFloat(getSuppliedQty(indent.id, idx)) || 0;
+        const suppliedQty = parseFloat(dispatchData[indent.id]?.[idx]) || 0;
         return {
           product_id: item.product_id,
           product_name: item.product_name,
           product_unit: item.product_unit,
           packaging_id: item.packaging_id || '',
           packaging_name: item.packaging_name || '',
-          required_qty: item.required_qty,
+          indent_qty: item.required_qty,
           supplied_qty: suppliedQty,
           lot_size: item.lot_size,
-          no_of_crates: item.lot_size > 0 ? Math.ceil(suppliedQty / item.lot_size) : 0
+          no_of_crates: item.lot_size > 0 ? Math.ceil(suppliedQty / item.lot_size) : 0,
+          rate: item.rate || null
         };
-      });
+      }).filter(item => item.supplied_qty > 0);  // Only include items with qty > 0
 
       const payload = {
         dispatch_date: new Date().toISOString(),
+        dispatch_time: dispatchTime,
         indent_id: indent.id,
         customer_name: indent.customer_name,
-        items: dispatchItems
+        items: dispatchItems,
+        remarks: dispatchRemarks
       };
 
-      if (existingDispatch) {
-        await api.put(`/api/qc-dispatches/${existingDispatch.id}`, payload);
-        toast.success('Dispatch updated successfully');
-      } else {
-        await api.post('/api/qc-dispatches', payload);
-        toast.success('Dispatch saved successfully');
-      }
+      await api.post('/api/qc-dispatches', payload);
+      toast.success('Dispatch entry saved successfully');
 
-      // Clear local state for this indent and reload data
+      // Clear local state and close dialog
       setDispatchData(prev => {
         const newData = { ...prev };
         delete newData[indent.id];
         return newData;
       });
+      setOpenDispatchDialog(false);
+      setCurrentDispatchIndent(null);
       loadData();
     } catch (error) {
       console.error('Error saving dispatch:', error);
@@ -638,6 +694,129 @@ export default function QuickCommerce() {
     } finally {
       setSavingDispatch(prev => ({ ...prev, [indent.id]: false }));
     }
+  };
+
+  const handleDeleteDispatch = async (dispatchId) => {
+    if (!window.confirm('Are you sure you want to delete this dispatch entry?')) return;
+    
+    try {
+      await api.delete(`/api/qc-dispatches/${dispatchId}`);
+      toast.success('Dispatch entry deleted');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to delete dispatch entry');
+    }
+  };
+
+  // Invoice Handlers
+  const openNewInvoiceDialog = (indent, selectedDispatches) => {
+    const customerType = indent.customer_name.toLowerCase().includes('ninja') ? 'ninjacart' : 'standard';
+    
+    // Aggregate items from selected dispatches
+    const itemsMap = {};
+    selectedDispatches.forEach(dispatch => {
+      dispatch.items?.forEach(item => {
+        const key = `${item.product_id}-${item.packaging_id || ''}`;
+        if (itemsMap[key]) {
+          itemsMap[key].supplied_qty += item.supplied_qty;
+          itemsMap[key].no_of_crates += item.no_of_crates;
+        } else {
+          itemsMap[key] = { ...item, receiving_qty: item.supplied_qty };
+        }
+      });
+    });
+
+    const items = Object.values(itemsMap);
+    const subtotal = items.reduce((sum, item) => sum + ((item.supplied_qty || 0) * (item.rate || 0)), 0);
+
+    setInvoiceForm({
+      invoice_date: new Date().toISOString().split('T')[0],
+      customer_name: indent.customer_name,
+      customer_type: customerType,
+      indent_id: indent.id,
+      dispatch_ids: selectedDispatches.map(d => d.id),
+      items: items,
+      subtotal: subtotal,
+      discount: 0,
+      total_amount: subtotal,
+      remarks: ''
+    });
+    setEditingInvoice(null);
+    setOpenInvoice(true);
+  };
+
+  const handleSaveInvoice = async () => {
+    try {
+      const payload = {
+        ...invoiceForm,
+        invoice_date: new Date(invoiceForm.invoice_date).toISOString()
+      };
+
+      if (editingInvoice) {
+        await api.put(`/api/qc-invoices/${editingInvoice.id}`, payload);
+        toast.success('Invoice updated successfully');
+      } else {
+        const response = await api.post('/api/qc-invoices', payload);
+        toast.success(`Invoice ${response.data.invoice_number} created successfully`);
+      }
+
+      setOpenInvoice(false);
+      setEditingInvoice(null);
+      loadData();
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+      toast.error('Failed to save invoice');
+    }
+  };
+
+  const handleEditInvoice = (invoice) => {
+    setInvoiceForm({
+      invoice_date: new Date(invoice.invoice_date).toISOString().split('T')[0],
+      customer_name: invoice.customer_name,
+      customer_type: invoice.customer_type,
+      indent_id: invoice.indent_id,
+      dispatch_ids: invoice.dispatch_ids || [],
+      items: invoice.items || [],
+      subtotal: invoice.subtotal || 0,
+      discount: invoice.discount || 0,
+      total_amount: invoice.total_amount || 0,
+      remarks: invoice.remarks || ''
+    });
+    setEditingInvoice(invoice);
+    setOpenInvoice(true);
+  };
+
+  const handleDeleteInvoice = async (invoiceId) => {
+    if (!window.confirm('Are you sure you want to delete this invoice?')) return;
+    
+    try {
+      await api.delete(`/api/qc-invoices/${invoiceId}`);
+      toast.success('Invoice deleted');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to delete invoice');
+    }
+  };
+
+  const updateInvoiceItem = (index, field, value) => {
+    setInvoiceForm(prev => {
+      const newItems = [...prev.items];
+      newItems[index] = { ...newItems[index], [field]: value };
+      
+      // Recalculate amount
+      if (field === 'supplied_qty' || field === 'rate') {
+        newItems[index].amount = (parseFloat(newItems[index].supplied_qty) || 0) * (parseFloat(newItems[index].rate) || 0);
+      }
+      
+      // Recalculate totals
+      const subtotal = newItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      return {
+        ...prev,
+        items: newItems,
+        subtotal: subtotal,
+        total_amount: subtotal - (prev.discount || 0)
+      };
+    });
   };
 
   // Calculate totals for indent/dispatch summary
@@ -648,7 +827,7 @@ export default function QuickCommerce() {
     items.forEach((item, idx) => {
       totalRequired += parseFloat(item.required_qty) || 0;
       if (useSupplied && indentId) {
-        totalSupplied += parseFloat(getSuppliedQty(indentId, idx)) || 0;
+        totalSupplied += getDispatchedQtyForIndent(indentId, item.product_id);
       }
     });
 
@@ -681,9 +860,9 @@ export default function QuickCommerce() {
 
   // Calculate grand totals for Dispatch tab
   const dispatchGrandTotals = filteredIndents.reduce((acc, indent) => {
-    indent.items?.forEach((item, idx) => {
+    indent.items?.forEach((item) => {
       acc.totalRequired += parseFloat(item.required_qty) || 0;
-      acc.totalSupplied += parseFloat(getSuppliedQty(indent.id, idx)) || 0;
+      acc.totalSupplied += getDispatchedQtyForIndent(indent.id, item.product_id);
     });
     return acc;
   }, { totalRequired: 0, totalSupplied: 0 });
@@ -1238,10 +1417,273 @@ export default function QuickCommerce() {
 
         {/* DISPATCH TAB */}
         <TabsContent value="dispatch" className="mt-6">
+          {/* New Dispatch Entry Dialog */}
+          <Dialog open={openDispatchDialog} onOpenChange={setOpenDispatchDialog}>
+            <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>New Dispatch Entry</DialogTitle>
+              </DialogHeader>
+              {currentDispatchIndent && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4 bg-gray-50 p-3 rounded-lg">
+                    <div>
+                      <span className="text-sm text-gray-500">Customer:</span>
+                      <span className="font-semibold text-[#14532D] ml-2">{currentDispatchIndent.customer_name}</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Indent Date:</span>
+                      <span className="font-medium ml-2">{formatDate(currentDispatchIndent.indent_date)}</span>
+                    </div>
+                    <div>
+                      <Label className="text-sm">Dispatch Time</Label>
+                      <Input
+                        value={dispatchTime}
+                        onChange={(e) => setDispatchTime(e.target.value)}
+                        placeholder="e.g., 09:00 AM"
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="data-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>PRODUCT</th>
+                          <th>PACKAGING</th>
+                          <th className="text-right">INDENT QTY</th>
+                          <th className="text-right">ALREADY DISPATCHED</th>
+                          <th className="text-right">REMAINING</th>
+                          <th className="text-right" style={{ width: '150px' }}>SUPPLY NOW</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentDispatchIndent.items?.map((item, idx) => {
+                          const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id);
+                          const remaining = Math.max(0, item.required_qty - dispatched);
+                          return (
+                            <tr key={idx}>
+                              <td className="font-medium">{item.product_name}</td>
+                              <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                              <td className="text-right">{item.required_qty}</td>
+                              <td className="text-right text-blue-600">{dispatched}</td>
+                              <td className={`text-right font-semibold ${remaining > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                                {remaining}
+                              </td>
+                              <td className="text-right">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="Qty"
+                                  value={dispatchData[currentDispatchIndent.id]?.[idx] || ''}
+                                  onChange={(e) => handleSuppliedQtyChange(currentDispatchIndent.id, idx, e.target.value)}
+                                  className="w-full h-9 text-right"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm">Remarks (optional)</Label>
+                    <Input
+                      value={dispatchRemarks}
+                      onChange={(e) => setDispatchRemarks(e.target.value)}
+                      placeholder="e.g., Morning dispatch, Evening batch"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <Button
+                    className="w-full bg-[#14532D] hover:bg-[#166534]"
+                    onClick={handleSaveDispatch}
+                    disabled={savingDispatch[currentDispatchIndent?.id]}
+                  >
+                    {savingDispatch[currentDispatchIndent?.id] ? (
+                      <Loader2 size={16} className="mr-2 animate-spin" />
+                    ) : (
+                      <Save size={16} className="mr-2" />
+                    )}
+                    Save Dispatch Entry
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Invoice Dialog */}
+          <Dialog open={openInvoice} onOpenChange={setOpenInvoice}>
+            <DialogContent className="sm:max-w-[1000px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editingInvoice ? `Edit Invoice: ${editingInvoice.invoice_number}` : 'Create Invoice'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label className="text-sm">Invoice Date *</Label>
+                    <Input
+                      type="date"
+                      value={invoiceForm.invoice_date}
+                      onChange={(e) => setInvoiceForm({ ...invoiceForm, invoice_date: e.target.value })}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Can be backdated</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm">Customer</Label>
+                    <Input value={invoiceForm.customer_name} disabled className="mt-1 bg-gray-100" />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Invoice Type</Label>
+                    <Input 
+                      value={invoiceForm.customer_type === 'ninjacart' ? 'Ninjacart (No Rate)' : 'Standard (With Rate)'} 
+                      disabled 
+                      className="mt-1 bg-gray-100" 
+                    />
+                  </div>
+                </div>
+
+                <div className="data-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>S.NO</th>
+                        <th>PRODUCT</th>
+                        <th>PACKAGING</th>
+                        <th className="text-right">INDENT QTY</th>
+                        <th className="text-right">SUPPLIED QTY</th>
+                        <th className="text-right">LOT SIZE</th>
+                        <th className="text-right">CRATES</th>
+                        {invoiceForm.customer_type === 'ninjacart' && (
+                          <th className="text-right">RECEIVING QTY</th>
+                        )}
+                        {invoiceForm.customer_type !== 'ninjacart' && (
+                          <>
+                            <th className="text-right">RATE (₹)</th>
+                            <th className="text-right">AMOUNT (₹)</th>
+                          </>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoiceForm.items.map((item, idx) => (
+                        <tr key={idx}>
+                          <td>{idx + 1}</td>
+                          <td className="font-medium">{item.product_name}</td>
+                          <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                          <td className="text-right">{item.indent_qty}</td>
+                          <td className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.supplied_qty}
+                              onChange={(e) => updateInvoiceItem(idx, 'supplied_qty', parseFloat(e.target.value) || 0)}
+                              className="w-20 h-8 text-right"
+                            />
+                          </td>
+                          <td className="text-right">{item.lot_size}</td>
+                          <td className="text-right">{item.no_of_crates}</td>
+                          {invoiceForm.customer_type === 'ninjacart' && (
+                            <td className="text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.receiving_qty || item.supplied_qty}
+                                onChange={(e) => updateInvoiceItem(idx, 'receiving_qty', parseFloat(e.target.value) || 0)}
+                                className="w-20 h-8 text-right"
+                              />
+                            </td>
+                          )}
+                          {invoiceForm.customer_type !== 'ninjacart' && (
+                            <>
+                              <td className="text-right">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={item.rate || ''}
+                                  onChange={(e) => updateInvoiceItem(idx, 'rate', parseFloat(e.target.value) || 0)}
+                                  className="w-20 h-8 text-right"
+                                  placeholder="Rate"
+                                />
+                              </td>
+                              <td className="text-right font-semibold">
+                                ₹{((item.supplied_qty || 0) * (item.rate || 0)).toFixed(2)}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    {invoiceForm.customer_type !== 'ninjacart' && (
+                      <tfoot>
+                        <tr className="bg-gray-50">
+                          <td colSpan={8} className="text-right font-semibold">Subtotal:</td>
+                          <td className="text-right font-bold">₹{invoiceForm.subtotal?.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td colSpan={8} className="text-right">Discount:</td>
+                          <td className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={invoiceForm.discount || ''}
+                              onChange={(e) => {
+                                const discount = parseFloat(e.target.value) || 0;
+                                setInvoiceForm(prev => ({
+                                  ...prev,
+                                  discount: discount,
+                                  total_amount: prev.subtotal - discount
+                                }));
+                              }}
+                              className="w-24 h-8 text-right"
+                              placeholder="0.00"
+                            />
+                          </td>
+                        </tr>
+                        <tr className="bg-green-50">
+                          <td colSpan={8} className="text-right font-bold text-lg">Total:</td>
+                          <td className="text-right font-bold text-lg text-green-700">₹{invoiceForm.total_amount?.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+
+                <div>
+                  <Label className="text-sm">Remarks</Label>
+                  <Input
+                    value={invoiceForm.remarks}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, remarks: e.target.value })}
+                    placeholder="Any additional notes"
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    className="flex-1 bg-[#14532D] hover:bg-[#166534]"
+                    onClick={handleSaveInvoice}
+                  >
+                    <Save size={16} className="mr-2" />
+                    {editingInvoice ? 'Update Invoice' : 'Create Invoice'}
+                  </Button>
+                  <Button variant="outline" onClick={() => window.print()}>
+                    <Printer size={16} className="mr-2" />
+                    Print
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-4">
-                <CardTitle className="text-lg">Dispatch - Enter Supplied Quantities</CardTitle>
+                <CardTitle className="text-lg">Dispatch Log & Invoicing</CardTitle>
                 {/* Totals Summary */}
                 <div className="flex gap-4">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
@@ -1251,7 +1693,7 @@ export default function QuickCommerce() {
                   </div>
                   <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2">
                     <span className="text-sm text-green-700 font-medium">
-                      Total Supplied: <span className="text-lg font-bold">{dispatchGrandTotals.totalSupplied.toFixed(2)}</span>
+                      Total Dispatched: <span className="text-lg font-bold">{dispatchGrandTotals.totalSupplied.toFixed(2)}</span>
                     </span>
                   </div>
                   <div className={`border rounded-lg px-4 py-2 ${
@@ -1264,8 +1706,8 @@ export default function QuickCommerce() {
                         ? 'text-green-700' 
                         : 'text-red-700'
                     }`}>
-                      Difference: <span className="text-lg font-bold">
-                        {(dispatchGrandTotals.totalSupplied - dispatchGrandTotals.totalRequired).toFixed(2)}
+                      Remaining: <span className="text-lg font-bold">
+                        {(dispatchGrandTotals.totalRequired - dispatchGrandTotals.totalSupplied).toFixed(2)}
                       </span>
                     </span>
                   </div>
@@ -1277,19 +1719,36 @@ export default function QuickCommerce() {
                 <div className="p-8 text-center text-gray-500">
                   <Truck size={48} className="mx-auto text-gray-400 mb-4" />
                   <p>No indents found.</p>
-                  <p className="text-sm mt-2">Create indents first in the Indent tab, then enter supplied quantities here.</p>
+                  <p className="text-sm mt-2">Create indents first in the Indent tab.</p>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {filteredIndents.map((indent) => {
-                    const existingDispatch = dispatches.find(d => d.indent_id === indent.id);
-                    const isSaving = savingDispatch[indent.id];
+                    const dispatchLogs = getDispatchLogsForIndent(indent.id);
+                    const isExpanded = expandedIndents[indent.id];
+                    const relatedInvoices = invoices.filter(inv => inv.indent_id === indent.id);
+                    
+                    // Calculate totals
+                    let totalIndentQty = 0;
+                    let totalDispatched = 0;
+                    indent.items?.forEach(item => {
+                      totalIndentQty += item.required_qty;
+                      totalDispatched += getDispatchedQtyForIndent(indent.id, item.product_id);
+                    });
+                    const remaining = totalIndentQty - totalDispatched;
                     
                     return (
                       <div key={indent.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`dispatch-indent-${indent.id}`}>
                         {/* Indent Header */}
                         <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-b">
                           <div className="flex items-center gap-4">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => toggleExpandIndent(indent.id)}
+                            >
+                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            </Button>
                             <div>
                               <span className="text-sm text-gray-500">Date:</span>
                               <span className="font-medium ml-1">{formatDate(indent.indent_date)}</span>
@@ -1299,90 +1758,167 @@ export default function QuickCommerce() {
                               <span className="font-semibold text-[#14532D] ml-1">{indent.customer_name}</span>
                             </div>
                             <span className={`badge ${
-                              indent.status === 'completed' ? 'badge-success' : 
-                              indent.status === 'dispatched' ? 'badge-warning' : 'badge-error'
+                              remaining <= 0 ? 'badge-success' : 
+                              totalDispatched > 0 ? 'badge-warning' : 'badge-error'
                             }`}>
-                              {indent.status}
+                              {remaining <= 0 ? 'Fully Dispatched' : totalDispatched > 0 ? 'Partial' : 'Pending'}
                             </span>
-                            {existingDispatch && (
-                              <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
-                                Dispatch Saved
+                            <span className="text-sm">
+                              <span className="text-gray-500">Dispatched:</span>
+                              <span className={`font-bold ml-1 ${remaining <= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                                {totalDispatched} / {totalIndentQty}
+                              </span>
+                            </span>
+                            {dispatchLogs.length > 0 && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                {dispatchLogs.length} dispatch(es)
                               </span>
                             )}
                           </div>
-                          <Button
-                            size="sm"
-                            className="bg-[#14532D] hover:bg-[#166534]"
-                            onClick={() => handleSaveDispatch(indent)}
-                            disabled={isSaving}
-                            data-testid={`save-dispatch-${indent.id}`}
-                          >
-                            {isSaving ? (
-                              <Loader2 size={16} className="mr-2 animate-spin" />
-                            ) : (
-                              <Save size={16} className="mr-2" />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              className="bg-[#14532D] hover:bg-[#166534]"
+                              onClick={() => openNewDispatchDialog(indent)}
+                              disabled={remaining <= 0}
+                              data-testid={`new-dispatch-${indent.id}`}
+                            >
+                              <Plus size={16} className="mr-1" />
+                              New Dispatch
+                            </Button>
+                            {dispatchLogs.length > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openNewInvoiceDialog(indent, dispatchLogs)}
+                                data-testid={`create-invoice-${indent.id}`}
+                              >
+                                <Receipt size={16} className="mr-1" />
+                                Create Invoice
+                              </Button>
                             )}
-                            {existingDispatch ? 'Update' : 'Save'}
-                          </Button>
+                          </div>
                         </div>
                         
-                        {/* Items Table */}
-                        <div className="data-table">
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>PRODUCT</th>
-                                <th>PACKAGING</th>
-                                <th>UNIT</th>
-                                <th className="text-right">REQUIRED QTY</th>
-                                <th className="text-right" style={{ width: '150px' }}>SUPPLIED QTY</th>
-                                <th className="text-right">DIFFERENCE</th>
-                                <th className="text-right">LOT SIZE</th>
-                                <th className="text-right">CRATES</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {indent.items?.map((item, itemIndex) => {
-                                const suppliedQty = parseFloat(getSuppliedQty(indent.id, itemIndex)) || 0;
-                                const difference = suppliedQty - item.required_qty;
-                                const calculatedCrates = item.lot_size > 0 ? Math.ceil(suppliedQty / item.lot_size) : 0;
-                                
-                                return (
-                                  <tr key={itemIndex} data-testid={`dispatch-item-${indent.id}-${itemIndex}`}>
-                                    <td className="font-medium">{item.product_name}</td>
-                                    <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
-                                    <td className="text-sm">{item.product_unit}</td>
-                                    <td className="text-right font-semibold">{item.required_qty}</td>
-                                    <td className="text-right">
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        placeholder="Enter qty"
-                                        value={getSuppliedQty(indent.id, itemIndex)}
-                                        onChange={(e) => handleSuppliedQtyChange(indent.id, itemIndex, e.target.value)}
-                                        className="w-full h-9 text-right"
-                                        data-testid={`supplied-qty-${indent.id}-${itemIndex}`}
-                                      />
-                                    </td>
-                                    <td className="text-right">
-                                      {suppliedQty > 0 && (
-                                        <span className={`font-bold ${
-                                          difference < 0 ? 'text-red-600' : 
-                                          difference > 0 ? 'text-green-600' : 'text-gray-600'
-                                        }`}>
-                                          {difference > 0 ? '+' : ''}{difference.toFixed(2)}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="text-right text-gray-600">{item.lot_size}</td>
-                                    <td className="text-right text-green-700 font-semibold">{calculatedCrates}</td>
+                        {/* Expanded Content */}
+                        {isExpanded && (
+                          <div className="p-4 space-y-4">
+                            {/* Product Summary */}
+                            <div className="data-table">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>PRODUCT</th>
+                                    <th>PACKAGING</th>
+                                    <th className="text-right">INDENT QTY</th>
+                                    <th className="text-right">DISPATCHED</th>
+                                    <th className="text-right">REMAINING</th>
+                                    <th className="text-right">DIFFERENCE</th>
                                   </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                                </thead>
+                                <tbody>
+                                  {indent.items?.map((item, idx) => {
+                                    const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id);
+                                    const itemRemaining = item.required_qty - dispatched;
+                                    return (
+                                      <tr key={idx}>
+                                        <td className="font-medium">{item.product_name}</td>
+                                        <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                                        <td className="text-right">{item.required_qty}</td>
+                                        <td className="text-right text-blue-600 font-semibold">{dispatched}</td>
+                                        <td className={`text-right font-semibold ${itemRemaining > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                                          {itemRemaining}
+                                        </td>
+                                        <td className="text-right">
+                                          <span className={`font-bold ${
+                                            dispatched - item.required_qty < 0 ? 'text-red-600' : 
+                                            dispatched - item.required_qty > 0 ? 'text-green-600' : 'text-gray-600'
+                                          }`}>
+                                            {dispatched - item.required_qty > 0 ? '+' : ''}{(dispatched - item.required_qty).toFixed(2)}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Dispatch Logs */}
+                            {dispatchLogs.length > 0 && (
+                              <div>
+                                <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                                  <Clock size={16} />
+                                  Dispatch Log
+                                </h4>
+                                <div className="space-y-2">
+                                  {dispatchLogs.map((dispatch) => (
+                                    <div key={dispatch.id} className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-sm font-medium">
+                                            {formatDate(dispatch.dispatch_date)}
+                                            {dispatch.dispatch_time && ` at ${dispatch.dispatch_time}`}
+                                          </span>
+                                          {dispatch.remarks && (
+                                            <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded">
+                                              {dispatch.remarks}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleDeleteDispatch(dispatch.id)}
+                                        >
+                                          <Trash2 size={14} className="text-red-600" />
+                                        </Button>
+                                      </div>
+                                      <div className="text-sm text-gray-700">
+                                        {dispatch.items?.map((item, idx) => (
+                                          <span key={idx} className="inline-block mr-4">
+                                            {item.product_name}: <span className="font-semibold">{item.supplied_qty}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Related Invoices */}
+                            {relatedInvoices.length > 0 && (
+                              <div>
+                                <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                                  <Receipt size={16} />
+                                  Invoices
+                                </h4>
+                                <div className="space-y-2">
+                                  {relatedInvoices.map((invoice) => (
+                                    <div key={invoice.id} className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center justify-between">
+                                      <div>
+                                        <span className="font-semibold text-green-800">{invoice.invoice_number}</span>
+                                        <span className="text-sm text-gray-600 ml-3">{formatDate(invoice.invoice_date)}</span>
+                                        {invoice.total_amount > 0 && (
+                                          <span className="text-sm font-semibold text-green-700 ml-3">₹{invoice.total_amount?.toFixed(2)}</span>
+                                        )}
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button size="sm" variant="ghost" onClick={() => handleEditInvoice(invoice)}>
+                                          <Edit size={14} className="text-blue-600" />
+                                        </Button>
+                                        <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
+                                          <Trash2 size={14} className="text-red-600" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

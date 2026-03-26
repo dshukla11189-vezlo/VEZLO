@@ -198,39 +198,100 @@ class QCIndentUpdate(BaseModel):
     items: Optional[List[QCIndentItem]] = None
     status: Optional[str] = None
 
-# QC Dispatch Item
+# QC Dispatch Item (for log-based dispatch entries)
 class QCDispatchItem(BaseModel):
     product_id: str
     product_name: str
     product_unit: str
     packaging_id: Optional[str] = None
     packaging_name: Optional[str] = None
-    required_qty: float  # From indent
-    supplied_qty: float  # Actual supplied quantity
+    indent_qty: float  # Original indent quantity
+    supplied_qty: float  # Quantity supplied in this dispatch
     lot_size: int
     no_of_crates: float  # Auto-calculated from supplied_qty
+    rate: Optional[float] = None  # Rate per unit (optional, for invoicing)
 
-# QC Dispatch Models
+# QC Dispatch Models (Log-based - multiple dispatches per indent)
 class QCDispatch(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     dispatch_date: datetime
+    dispatch_time: str = ""  # e.g., "09:00 AM", "05:30 PM"
     indent_id: str
     customer_name: str
     items: List[QCDispatchItem]
     vehicle_number: Optional[str] = None
     driver_name: Optional[str] = None
+    remarks: Optional[str] = None
     status: str = "dispatched"  # dispatched, delivered, partial_received
     recorded_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class QCDispatchCreate(BaseModel):
     dispatch_date: datetime
+    dispatch_time: str = ""
     indent_id: str
     customer_name: str
     items: List[QCDispatchItem]
     vehicle_number: Optional[str] = None
     driver_name: Optional[str] = None
+    remarks: Optional[str] = None
+
+# QC Invoice Item
+class QCInvoiceItem(BaseModel):
+    product_id: str
+    product_name: str
+    product_unit: str
+    packaging_id: Optional[str] = None
+    packaging_name: Optional[str] = None
+    indent_qty: float
+    supplied_qty: float
+    lot_size: int
+    no_of_crates: float
+    receiving_qty: Optional[float] = None  # For Ninjacart format
+    rate: Optional[float] = None  # Rate per unit
+    amount: Optional[float] = None  # supplied_qty * rate
+
+# QC Invoice Models
+class QCInvoice(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    invoice_number: str  # Format: CUS-DDMMMYYYY-001 (e.g., NIN-26MAR2026-001)
+    invoice_date: datetime
+    customer_name: str
+    customer_type: str = "standard"  # "ninjacart" or "standard"
+    dispatch_ids: List[str] = []  # Link to dispatch entries
+    indent_id: str
+    items: List[QCInvoiceItem]
+    subtotal: Optional[float] = None
+    discount: Optional[float] = None
+    total_amount: Optional[float] = None
+    remarks: Optional[str] = None
+    status: str = "draft"  # draft, finalized, cancelled
+    recorded_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class QCInvoiceCreate(BaseModel):
+    invoice_date: datetime
+    customer_name: str
+    customer_type: str = "standard"
+    dispatch_ids: List[str] = []
+    indent_id: str
+    items: List[QCInvoiceItem]
+    subtotal: Optional[float] = None
+    discount: Optional[float] = None
+    total_amount: Optional[float] = None
+    remarks: Optional[str] = None
+
+class QCInvoiceUpdate(BaseModel):
+    invoice_date: Optional[datetime] = None
+    items: Optional[List[QCInvoiceItem]] = None
+    subtotal: Optional[float] = None
+    discount: Optional[float] = None
+    total_amount: Optional[float] = None
+    remarks: Optional[str] = None
+    status: Optional[str] = None
 
 # QC GRN (Goods Receipt Note) Item
 class QCGRNItem(BaseModel):

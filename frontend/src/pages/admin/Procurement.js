@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -21,13 +21,25 @@ const UNIT_TYPES = [
 
 export default function Procurement() {
   const [procurements, setProcurements] = useState([]);
+  const [filteredProcurements, setFilteredProcurements] = useState([]);
   const [farmers, setFarmers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openProcurement, setOpenProcurement] = useState(false);
   const [openFarmer, setOpenFarmer] = useState(false);
   const [openPayment, setOpenPayment] = useState(false);
+  const [openTemplate, setOpenTemplate] = useState(false);
   const [selectedProcurement, setSelectedProcurement] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  
+  // Filters
+  const [filters, setFilters] = useState({
+    fromDate: '',
+    toDate: '',
+    farmerName: '',
+    productName: ''
+  });
 
   // Procurement form
   const [procurementForm, setProcurementForm] = useState({
@@ -57,6 +69,7 @@ export default function Procurement() {
 
   useEffect(() => {
     loadData();
+    loadTemplates();
   }, []);
 
   const loadData = async () => {
@@ -67,6 +80,7 @@ export default function Procurement() {
         api.get('/api/products')
       ]);
       setProcurements(procRes.data);
+      setFilteredProcurements(procRes.data);
       setFarmers(farmRes.data);
       setProducts(prodRes.data);
     } catch (error) {
@@ -74,6 +88,55 @@ export default function Procurement() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadTemplates = () => {
+    const saved = localStorage.getItem('procurement_templates');
+    if (saved) {
+      try {
+        setTemplates(JSON.parse(saved));
+      } catch (e) {
+        console.error('Error loading templates:', e);
+      }
+    }
+  };
+
+  // Filter procurements
+  useEffect(() => {
+    let filtered = [...procurements];
+
+    if (filters.fromDate) {
+      filtered = filtered.filter(p => new Date(p.date) >= new Date(filters.fromDate));
+    }
+
+    if (filters.toDate) {
+      filtered = filtered.filter(p => new Date(p.date) <= new Date(filters.toDate));
+    }
+
+    if (filters.farmerName) {
+      filtered = filtered.filter(p => 
+        p.farmer_name.toLowerCase().includes(filters.farmerName.toLowerCase())
+      );
+    }
+
+    if (filters.productName) {
+      filtered = filtered.filter(p =>
+        p.products.some(prod => 
+          prod.product_name.toLowerCase().includes(filters.productName.toLowerCase())
+        )
+      );
+    }
+
+    setFilteredProcurements(filtered);
+  }, [filters, procurements]);
+
+  const clearFilters = () => {
+    setFilters({
+      fromDate: '',
+      toDate: '',
+      farmerName: '',
+      productName: ''
+    });
   };
 
   const handleAddProductRow = () => {
@@ -291,6 +354,89 @@ export default function Procurement() {
     }
   };
 
+  // Edit procurement
+  const handleEdit = (procurement) => {
+    setEditMode(true);
+    setSelectedProcurement(procurement);
+    setProcurementForm({
+      date: procurement.date.split('T')[0],
+      farmer_id: procurement.farmer_id,
+      farmer_name: procurement.farmer_name,
+      products: procurement.products,
+      total_amount: procurement.total_amount,
+      paid_amount: procurement.paid_amount || 0,
+      pending_amount: procurement.pending_amount || 0,
+      payment_status: procurement.payment_status || 'pending'
+    });
+    setOpenProcurement(true);
+  };
+
+  // Delete procurement
+  const handleDelete = async (procurementId) => {
+    if (!window.confirm('Are you sure you want to delete this purchase record? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/api/procurement/${procurementId}`);
+      toast.success('Purchase record deleted successfully');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to delete purchase record');
+    }
+  };
+
+  // Save as template
+  const handleSaveAsTemplate = () => {
+    if (!procurementForm.farmer_name || procurementForm.products.length === 0 || !procurementForm.products[0].product_id) {
+      toast.error('Please fill in farmer and at least one product to save as template');
+      return;
+    }
+
+    const templateName = prompt('Enter template name (e.g., "Weekly Order - Ramesh"):');
+    if (!templateName) return;
+
+    const template = {
+      id: Date.now().toString(),
+      name: templateName,
+      farmer_id: procurementForm.farmer_id,
+      farmer_name: procurementForm.farmer_name,
+      products: procurementForm.products.filter(p => p.product_id),
+      created_at: new Date().toISOString()
+    };
+
+    const updatedTemplates = [...templates, template];
+    setTemplates(updatedTemplates);
+    localStorage.setItem('procurement_templates', JSON.stringify(updatedTemplates));
+    
+    toast.success(`Template "${templateName}" saved successfully!`);
+  };
+
+  // Load template
+  const handleLoadTemplate = (template) => {
+    setProcurementForm({
+      ...procurementForm,
+      farmer_id: template.farmer_id,
+      farmer_name: template.farmer_name,
+      products: template.products.map(p => ({ ...p, total: p.quantity * p.rate })),
+      total_amount: template.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0),
+      pending_amount: template.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0)
+    });
+    setOpenTemplate(false);
+    setOpenProcurement(true);
+    toast.success('Template loaded! You can now adjust quantities and rates.');
+  };
+
+  // Delete template
+  const handleDeleteTemplate = (templateId) => {
+    if (!window.confirm('Delete this template?')) return;
+    
+    const updatedTemplates = templates.filter(t => t.id !== templateId);
+    setTemplates(updatedTemplates);
+    localStorage.setItem('procurement_templates', JSON.stringify(updatedTemplates));
+    toast.success('Template deleted');
+  };
+
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
@@ -318,7 +464,7 @@ export default function Procurement() {
 
   return (
     <Layout title="Daily Procurement">
-      <div className="mb-6 flex flex-col sm:flex-row gap-3">
+      <div className="mb-6 flex flex-col sm:flex-row gap-3 flex-wrap">
         <Dialog open={openFarmer} onOpenChange={setOpenFarmer}>
           <DialogTrigger asChild>
             <Button variant="outline" data-testid="add-farmer-button">
@@ -403,6 +549,7 @@ export default function Procurement() {
                     secondaryKey="contact"
                     onSelect={handleFarmerSelect}
                     testId="procurement-farmer-autocomplete"
+                    storageKey="recent_farmers"
                   />
                 </div>
               </div>
@@ -436,6 +583,7 @@ export default function Procurement() {
                               secondaryKey="category"
                               onSelect={(product) => handleProductSelect(index, product)}
                               testId={`product-autocomplete-${index}`}
+                              storageKey="recent_products"
                             />
                           </div>
                           <div>
@@ -566,9 +714,20 @@ export default function Procurement() {
                 )}
               </div>
 
-              <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-procurement-button">
-                Record Purchase & Update Stock
-              </Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Button 
+                  type="button" 
+                  variant="outline"
+                  onClick={handleSaveAsTemplate}
+                  data-testid="save-template-button"
+                >
+                  <BookmarkPlus size={16} className="mr-2" />
+                  Save as Template
+                </Button>
+                <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-procurement-button">
+                  {editMode ? 'Update Purchase' : 'Record Purchase & Update Stock'}
+                </Button>
+              </div>
             </form>
           </DialogContent>
         </Dialog>

@@ -180,10 +180,10 @@ async def get_procurements(current_user: dict = Depends(get_current_user)):
             p['created_at'] = datetime.fromisoformat(p['created_at'])
     return [Procurement(**p) for p in procurements]
 
-@api_router.post("/procurement", response_model=Procurement)
+@api_router.post("/procurement", response_model=Procurement, status_code=status.HTTP_201_CREATED)
 async def create_procurement(input: ProcurementCreate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
     procurement_dict = input.model_dump()
     procurement_dict["recorded_by"] = current_user["user_id"]
@@ -201,6 +201,30 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
     doc['created_at'] = doc['created_at'].isoformat()
     await db.procurements.insert_one(doc)
     return procurement
+
+@api_router.delete("/procurement/{procurement_id}")
+async def delete_procurement(procurement_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    
+    # Get procurement details first
+    procurement = await db.procurements.find_one({"id": procurement_id}, {"_id": 0})
+    if not procurement:
+        raise HTTPException(status_code=404, detail="Procurement not found")
+    
+    # Reverse stock changes
+    for item in procurement.get("products", []):
+        await db.products.update_one(
+            {"id": item["product_id"]},
+            {"$inc": {"current_stock": -item["quantity"]}}
+        )
+    
+    # Delete procurement
+    result = await db.procurements.delete_one({"id": procurement_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Procurement not found")
+    
+    return {"message": "Procurement deleted successfully"}
 
 # QC Order Routes
 @api_router.get("/qc-orders", response_model=List[QCOrder])

@@ -89,10 +89,17 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Multi-item selection with checkboxes and "Select All" option
   - [x] Filter by customer and dispatch date
   - [x] **Dedicated Invoices Tab** with table view of all invoices
+  - [x] **Invoice list filters**: Date (from/to), Customer, Product search (Mar 2026)
   - [x] Download/Print PDF button (opens printable window)
+  - [x] **Improved invoice PDF format** with professional styling (Mar 2026)
   - [x] Edit/Delete invoices from Invoices tab
   - [x] Backdated invoice support
+  - [x] **Receiving Qty blank** for Ninjacart invoices (Mar 2026)
   - [x] Backend API: GET/POST/PUT/DELETE /api/qc-invoices
+- [x] **Dispatch Section UI Update** (Mar 2026):
+  - [x] Product name and packaging visible in collapsed header row
+  - [x] Date removed from header (decluttered view)
+  - [x] Dispatched/Total ratio per product shown
 - [ ] **GRN Section**: Record accepted vs rejected quantities
 
 ### Phase 3: Multi-Language Support (COMPLETED - Dec 2026)

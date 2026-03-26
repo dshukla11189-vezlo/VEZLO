@@ -106,6 +106,14 @@ export default function QuickCommerce() {
   const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState('');
   const [invoiceDateFilter, setInvoiceDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
+  // Invoice list filters
+  const [invoiceListFilters, setInvoiceListFilters] = useState({
+    fromDate: '',
+    toDate: '',
+    customerName: '',
+    productName: ''
+  });
+
   useEffect(() => {
     loadData();
     loadPackagingVariants();
@@ -810,7 +818,7 @@ export default function QuickCommerce() {
           } else {
             itemsMap[key] = { 
               ...item, 
-              receiving_qty: item.supplied_qty,
+              receiving_qty: null,  // Keep blank - to be filled by customer
               amount: (item.supplied_qty || 0) * (item.rate || 0)
             };
           }
@@ -908,6 +916,7 @@ export default function QuickCommerce() {
   // Generate printable invoice HTML
   const generateInvoicePDF = (invoice) => {
     const isNinjacart = invoice.customer_type === 'ninjacart';
+    const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     
     const htmlContent = `
       <!DOCTYPE html>
@@ -915,41 +924,151 @@ export default function QuickCommerce() {
       <head>
         <title>Invoice ${invoice.invoice_number}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
-          .header { text-align: center; border-bottom: 2px solid #14532D; padding-bottom: 10px; margin-bottom: 20px; }
-          .header h1 { color: #14532D; margin: 0; }
-          .info-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
-          .info-label { color: #666; }
-          .info-value { font-weight: bold; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-          th { background-color: #14532D; color: white; }
-          .text-right { text-align: right; }
-          .total-row { background-color: #f0f9f0; font-weight: bold; }
-          .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
-          @media print { body { padding: 0; } }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; max-width: 850px; margin: 0 auto; background: white; }
+          
+          .invoice-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-start;
+            border-bottom: 3px solid #14532D; 
+            padding-bottom: 20px; 
+            margin-bottom: 25px; 
+          }
+          .company-info h1 { 
+            color: #14532D; 
+            font-size: 32px; 
+            font-weight: bold; 
+            margin-bottom: 5px;
+          }
+          .company-info p { color: #666; font-size: 14px; }
+          
+          .invoice-details { text-align: right; }
+          .invoice-details .invoice-number { 
+            font-size: 24px; 
+            color: #14532D; 
+            font-weight: bold; 
+            margin-bottom: 8px;
+          }
+          .invoice-details .invoice-date { 
+            font-size: 16px; 
+            color: #333;
+          }
+          
+          .customer-section {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+          }
+          .customer-section h3 { 
+            color: #14532D; 
+            font-size: 18px; 
+            margin-bottom: 5px;
+          }
+          .customer-section p { color: #555; }
+          
+          .invoice-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+            font-size: 14px;
+          }
+          .invoice-table th {
+            background: #14532D;
+            color: white;
+            padding: 12px 10px;
+            text-align: left;
+            font-weight: 600;
+          }
+          .invoice-table th.text-right { text-align: right; }
+          .invoice-table th.text-center { text-align: center; }
+          
+          .invoice-table td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #e0e0e0;
+          }
+          .invoice-table td.text-right { text-align: right; }
+          .invoice-table td.text-center { text-align: center; }
+          
+          .invoice-table tbody tr:nth-child(even) { background: #f9f9f9; }
+          .invoice-table tbody tr:hover { background: #f0f7f0; }
+          
+          .invoice-table tfoot td {
+            padding: 12px 10px;
+            font-weight: bold;
+          }
+          .invoice-table .total-row { background: #e8f5e9; }
+          .invoice-table .grand-total { 
+            background: #14532D; 
+            color: white;
+            font-size: 16px;
+          }
+          
+          .remarks-section {
+            background: #fff9e6;
+            padding: 12px 15px;
+            border-radius: 6px;
+            border-left: 4px solid #ffc107;
+            margin-bottom: 25px;
+          }
+          .remarks-section strong { color: #856404; }
+          
+          .footer {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #888;
+            font-size: 12px;
+          }
+          
+          .signature-section {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 50px;
+            padding-top: 30px;
+          }
+          .signature-box {
+            text-align: center;
+            width: 200px;
+          }
+          .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 40px;
+            padding-top: 8px;
+            font-size: 12px;
+            color: #666;
+          }
+          
+          @media print { 
+            body { padding: 15px; }
+            .invoice-table { font-size: 12px; }
+          }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1>FreshFlow</h1>
-          <p>Invoice</p>
+        <div class="invoice-header">
+          <div class="company-info">
+            <h1>FreshFlow</h1>
+            <p>Fresh Produce Supply Chain</p>
+          </div>
+          <div class="invoice-details">
+            <div class="invoice-number">${invoice.invoice_number}</div>
+            <div class="invoice-date">${invoiceDate}</div>
+          </div>
         </div>
         
-        <div class="info-row">
-          <div><span class="info-label">Invoice No:</span> <span class="info-value">${invoice.invoice_number}</span></div>
-          <div><span class="info-label">Date:</span> <span class="info-value">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div>
-        </div>
-        <div class="info-row">
-          <div><span class="info-label">Customer:</span> <span class="info-value">${invoice.customer_name}</span></div>
+        <div class="customer-section">
+          <h3>${invoice.customer_name}</h3>
+          <p>${isNinjacart ? 'Quick Commerce Partner' : 'Retail Partner'}</p>
         </div>
         
-        <table>
+        <table class="invoice-table">
           <thead>
             <tr>
-              <th>S.No</th>
-              <th>Product</th>
-              <th>Packaging</th>
+              <th class="text-center" style="width: 50px;">S.No</th>
+              <th>Product Name</th>
+              <th>Packaging / Variant</th>
               <th class="text-right">Indent Qty</th>
               <th class="text-right">Supplied Qty</th>
               <th class="text-right">Lot Size</th>
@@ -960,20 +1079,20 @@ export default function QuickCommerce() {
           <tbody>
             ${invoice.items?.map((item, idx) => `
               <tr>
-                <td>${idx + 1}</td>
-                <td>${item.product_name}</td>
+                <td class="text-center">${idx + 1}</td>
+                <td><strong>${item.product_name}</strong></td>
                 <td>${item.packaging_name || '-'}</td>
                 <td class="text-right">${item.indent_qty || '-'}</td>
-                <td class="text-right">${item.supplied_qty}</td>
-                <td class="text-right">${item.lot_size}</td>
-                <td class="text-right">${item.no_of_crates}</td>
+                <td class="text-right"><strong>${item.supplied_qty}</strong></td>
+                <td class="text-right">${item.lot_size || '-'}</td>
+                <td class="text-right">${item.no_of_crates || '-'}</td>
                 ${isNinjacart 
-                  ? `<td class="text-right">${item.receiving_qty || item.supplied_qty}</td>` 
-                  : `<td class="text-right">${item.rate || '-'}</td><td class="text-right">${item.amount?.toFixed(2) || '-'}</td>`}
+                  ? `<td class="text-right">${item.receiving_qty || ''}</td>` 
+                  : `<td class="text-right">${item.rate ? '₹' + item.rate.toFixed(2) : '-'}</td><td class="text-right"><strong>${item.amount ? '₹' + item.amount.toFixed(2) : '-'}</strong></td>`}
               </tr>
             `).join('')}
           </tbody>
-          ${!isNinjacart ? `
+          ${!isNinjacart && invoice.total_amount > 0 ? `
             <tfoot>
               <tr class="total-row">
                 <td colspan="8" class="text-right">Subtotal:</td>
@@ -982,21 +1101,30 @@ export default function QuickCommerce() {
               ${invoice.discount > 0 ? `
                 <tr>
                   <td colspan="8" class="text-right">Discount:</td>
-                  <td class="text-right">₹${invoice.discount?.toFixed(2)}</td>
+                  <td class="text-right">- ₹${invoice.discount?.toFixed(2)}</td>
                 </tr>
               ` : ''}
-              <tr class="total-row">
-                <td colspan="8" class="text-right">Total:</td>
+              <tr class="grand-total">
+                <td colspan="8" class="text-right">Grand Total:</td>
                 <td class="text-right">₹${invoice.total_amount?.toFixed(2) || '0.00'}</td>
               </tr>
             </tfoot>
           ` : ''}
         </table>
         
-        ${invoice.remarks ? `<p><strong>Remarks:</strong> ${invoice.remarks}</p>` : ''}
+        ${invoice.remarks ? `<div class="remarks-section"><strong>Remarks:</strong> ${invoice.remarks}</div>` : ''}
+        
+        <div class="signature-section">
+          <div class="signature-box">
+            <div class="signature-line">Prepared By</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line">Received By</div>
+          </div>
+        </div>
         
         <div class="footer">
-          <p>Generated on ${new Date().toLocaleString('en-IN')}</p>
+          <p>Generated on ${new Date().toLocaleString('en-IN')} | FreshFlow - Quality Fresh Produce</p>
         </div>
       </body>
       </html>
@@ -1057,6 +1185,33 @@ export default function QuickCommerce() {
     });
     return acc;
   }, { totalRequired: 0, totalSupplied: 0 });
+
+  // Filter invoices based on filters
+  const filteredInvoices = invoices.filter(invoice => {
+    // Date range filter
+    if (invoiceListFilters.fromDate) {
+      const invoiceDate = new Date(invoice.invoice_date).setHours(0,0,0,0);
+      const fromDate = new Date(invoiceListFilters.fromDate).setHours(0,0,0,0);
+      if (invoiceDate < fromDate) return false;
+    }
+    if (invoiceListFilters.toDate) {
+      const invoiceDate = new Date(invoice.invoice_date).setHours(0,0,0,0);
+      const toDate = new Date(invoiceListFilters.toDate).setHours(0,0,0,0);
+      if (invoiceDate > toDate) return false;
+    }
+    // Customer filter
+    if (invoiceListFilters.customerName && invoice.customer_name !== invoiceListFilters.customerName) {
+      return false;
+    }
+    // Product filter (check if any item matches)
+    if (invoiceListFilters.productName) {
+      const hasProduct = invoice.items?.some(item => 
+        item.product_name?.toLowerCase().includes(invoiceListFilters.productName.toLowerCase())
+      );
+      if (!hasProduct) return false;
+    }
+    return true;
+  });
 
   // Stats
   const pendingIndents = indents.filter(i => i.status === 'pending').length;
@@ -1767,63 +1922,77 @@ export default function QuickCommerce() {
                     return (
                       <div key={indent.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`dispatch-indent-${indent.id}`}>
                         {/* Indent Header */}
-                        <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-b">
-                          <div className="flex items-center gap-4">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => toggleExpandIndent(indent.id)}
-                            >
-                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                            </Button>
-                            <div>
-                              <span className="text-sm text-gray-500">Date:</span>
-                              <span className="font-medium ml-1">{formatDate(indent.indent_date)}</span>
-                            </div>
-                            <div>
-                              <span className="text-sm text-gray-500">Customer:</span>
-                              <span className="font-semibold text-[#14532D] ml-1">{indent.customer_name}</span>
-                            </div>
-                            <span className={`badge ${
-                              remaining <= 0 ? 'badge-success' : 
-                              totalDispatched > 0 ? 'badge-warning' : 'badge-error'
-                            }`}>
-                              {remaining <= 0 ? 'Fully Dispatched' : totalDispatched > 0 ? 'Partial' : 'Pending'}
-                            </span>
-                            <span className="text-sm">
-                              <span className="text-gray-500">Dispatched:</span>
-                              <span className={`font-bold ml-1 ${remaining <= 0 ? 'text-green-600' : 'text-orange-600'}`}>
-                                {totalDispatched} / {totalIndentQty}
+                        <div className="bg-gray-50 px-4 py-3 border-b">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => toggleExpandIndent(indent.id)}
+                              >
+                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                              </Button>
+                              <div>
+                                <span className="text-sm text-gray-500">Customer:</span>
+                                <span className="font-semibold text-[#14532D] ml-1">{indent.customer_name}</span>
+                              </div>
+                              <span className={`badge ${
+                                remaining <= 0 ? 'badge-success' : 
+                                totalDispatched > 0 ? 'badge-warning' : 'badge-error'
+                              }`}>
+                                {remaining <= 0 ? 'Fully Dispatched' : totalDispatched > 0 ? 'Partial' : 'Pending'}
                               </span>
-                            </span>
-                            {dispatchLogs.length > 0 && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                                {dispatchLogs.length} dispatch(es)
+                              <span className="text-sm">
+                                <span className="text-gray-500">Dispatched:</span>
+                                <span className={`font-bold ml-1 ${remaining <= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                                  {totalDispatched} / {totalIndentQty}
+                                </span>
                               </span>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              className="bg-[#14532D] hover:bg-[#166534]"
-                              onClick={() => openNewDispatchDialog(indent)}
-                              disabled={remaining <= 0}
-                              data-testid={`new-dispatch-${indent.id}`}
-                            >
-                              <Plus size={16} className="mr-1" />
-                              New Dispatch
-                            </Button>
-                            {dispatchLogs.length > 0 && (
+                              {dispatchLogs.length > 0 && (
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                  {dispatchLogs.length} dispatch(es)
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
                               <Button
                                 size="sm"
-                                variant="outline"
-                                onClick={() => openCreateInvoiceDialog(indent.customer_name)}
-                                data-testid={`create-invoice-${indent.id}`}
+                                className="bg-[#14532D] hover:bg-[#166534]"
+                                onClick={() => openNewDispatchDialog(indent)}
+                                disabled={remaining <= 0}
+                                data-testid={`new-dispatch-${indent.id}`}
                               >
-                                <Receipt size={16} className="mr-1" />
-                                Create Invoice
+                                <Plus size={16} className="mr-1" />
+                                New Dispatch
                               </Button>
-                            )}
+                              {dispatchLogs.length > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openCreateInvoiceDialog(indent.customer_name)}
+                                  data-testid={`create-invoice-${indent.id}`}
+                                >
+                                  <Receipt size={16} className="mr-1" />
+                                  Create Invoice
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {/* Product Summary Row */}
+                          <div className="mt-2 ml-10 flex flex-wrap gap-3 text-sm">
+                            {indent.items?.map((item, idx) => {
+                              const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id);
+                              const itemRemaining = item.required_qty - dispatched;
+                              return (
+                                <div key={idx} className="bg-white border rounded px-2 py-1 flex items-center gap-2">
+                                  <span className="font-medium">{item.product_name}</span>
+                                  {item.packaging_name && <span className="text-gray-500">({item.packaging_name})</span>}
+                                  <span className={`font-semibold ${itemRemaining > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                                    {dispatched}/{item.required_qty}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                         
@@ -1960,7 +2129,7 @@ export default function QuickCommerce() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-4">
-                <CardTitle className="text-lg">All Invoices</CardTitle>
+                <CardTitle className="text-lg">All Invoices ({filteredInvoices.length})</CardTitle>
                 <Button
                   className="bg-[#14532D] hover:bg-[#166534]"
                   onClick={() => openCreateInvoiceDialog('')}
@@ -1972,11 +2141,67 @@ export default function QuickCommerce() {
               </div>
             </CardHeader>
             <CardContent>
-              {invoices.length === 0 ? (
+              {/* Filters */}
+              <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">From:</Label>
+                  <Input
+                    type="date"
+                    value={invoiceListFilters.fromDate}
+                    onChange={(e) => setInvoiceListFilters({ ...invoiceListFilters, fromDate: e.target.value })}
+                    className="w-36 h-9"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">To:</Label>
+                  <Input
+                    type="date"
+                    value={invoiceListFilters.toDate}
+                    onChange={(e) => setInvoiceListFilters({ ...invoiceListFilters, toDate: e.target.value })}
+                    className="w-36 h-9"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">Customer:</Label>
+                  <Select 
+                    value={invoiceListFilters.customerName} 
+                    onValueChange={(value) => setInvoiceListFilters({ ...invoiceListFilters, customerName: value === 'all' ? '' : value })}
+                  >
+                    <SelectTrigger className="w-40 h-9">
+                      <SelectValue placeholder="All Customers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Customers</SelectItem>
+                      {customers.map(c => (
+                        <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">Product:</Label>
+                  <Input
+                    type="text"
+                    placeholder="Search product..."
+                    value={invoiceListFilters.productName}
+                    onChange={(e) => setInvoiceListFilters({ ...invoiceListFilters, productName: e.target.value })}
+                    className="w-40 h-9"
+                  />
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setInvoiceListFilters({ fromDate: '', toDate: '', customerName: '', productName: '' })}
+                >
+                  Clear Filters
+                </Button>
+              </div>
+
+              {filteredInvoices.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                   <Receipt size={48} className="mx-auto text-gray-400 mb-4" />
-                  <p>No invoices created yet.</p>
-                  <p className="text-sm mt-2">Create invoices from the Dispatch tab or click "Create Invoice" above.</p>
+                  <p>No invoices found.</p>
+                  <p className="text-sm mt-2">{invoices.length > 0 ? 'Try adjusting your filters.' : 'Create invoices from the Dispatch tab or click "Create Invoice" above.'}</p>
                 </div>
               ) : (
                 <div className="data-table">
@@ -1994,7 +2219,7 @@ export default function QuickCommerce() {
                       </tr>
                     </thead>
                     <tbody>
-                      {invoices.map((invoice) => (
+                      {filteredInvoices.map((invoice) => (
                         <tr key={invoice.id} data-testid={`invoice-row-${invoice.id}`}>
                           <td className="font-semibold text-[#14532D]">{invoice.invoice_number}</td>
                           <td>{formatDate(invoice.invoice_date)}</td>

@@ -1184,6 +1184,13 @@ export default function QuickCommerce() {
       setGrnUploadResult(response.data);
       setGrnMatchedItems(response.data.matched_items || []);
       
+      // Show warnings for skipped rows
+      if (response.data.warnings?.length > 0) {
+        response.data.warnings.forEach(warning => {
+          toast.warning(warning, { duration: 5000 });
+        });
+      }
+      
       if (response.data.matched_items?.length > 0) {
         toast.success(`Matched ${response.data.matched_items.length} items from CSV`);
       } else {
@@ -2575,13 +2582,26 @@ export default function QuickCommerce() {
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-700">
                     <strong>File:</strong> {grnUploadResult.file_name} | 
-                    <strong> Rows:</strong> {grnUploadResult.rows_processed} | 
-                    <strong> Dates:</strong> {grnUploadResult.dates_found?.join(', ')} | 
+                    <strong> Total CSV Rows:</strong> {grnUploadResult.total_csv_rows || grnUploadResult.rows_processed} | 
+                    <strong> Processed:</strong> {grnUploadResult.rows_processed} | 
                     <strong> Matched:</strong> {grnUploadResult.matched_items?.length || 0} items
-                    {grnUploadResult.unmatched_dates?.length > 0 && (
-                      <span className="text-orange-600"> | <strong>No dispatch for:</strong> {grnUploadResult.unmatched_dates.join(', ')}</span>
+                    {grnUploadResult.rows_skipped > 0 && (
+                      <span className="text-orange-600"> | <strong>Skipped:</strong> {grnUploadResult.rows_skipped} rows</span>
                     )}
                   </p>
+                  {grnUploadResult.dates_found?.length > 0 && (
+                    <p className="text-xs text-blue-600 mt-1">
+                      <strong>Dispatch dates matched:</strong> {grnUploadResult.dates_found.join(', ')}
+                    </p>
+                  )}
+                  {grnUploadResult.warnings?.length > 0 && (
+                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded">
+                      <p className="text-xs font-semibold text-orange-700">Warnings:</p>
+                      {grnUploadResult.warnings.map((warning, idx) => (
+                        <p key={idx} className="text-xs text-orange-600">{warning}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

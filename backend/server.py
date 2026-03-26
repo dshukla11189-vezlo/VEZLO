@@ -570,6 +570,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     """
     Upload Ninjacart GRN CSV file and match with our dispatches.
     The CSV contains: PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit
+    
+    STRICT VALIDATION: Only processes CSV rows if a dispatch exists for that exact date.
+    Returns warnings for skipped rows (no matching dispatch).
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -588,18 +591,35 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         {"_id": 0}
     ).to_list(1000)
     
+    # Build a set of dates that have dispatches for quick lookup
+    dispatch_dates_set = set()
+    for dispatch in ninjacart_dispatches:
+        dispatch_date = dispatch.get('dispatch_date', '')
+        if isinstance(dispatch_date, str):
+            dispatch_dates_set.add(dispatch_date[:10])  # YYYY-MM-DD
+        else:
+            dispatch_dates_set.add(dispatch_date.strftime('%Y-%m-%d'))
+    
     # Get packaging variants for weight lookup
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
     packaging_map = {p['name'].lower(): p for p in packaging_variants}
     
-    # Parse CSV rows and match with dispatches
+    # Parse CSV rows and validate against dispatch dates
     csv_data_by_date = {}
+    skipped_rows = []  # Track rows skipped due to no matching dispatch
+    total_csv_rows = 0
     
     for row in reader:
+        total_csv_rows += 1
         try:
             # Parse date (format: DD/MM/YY)
             date_str = row.get('PO_DeliveryDate', '')
             if not date_str:
+                skipped_rows.append({
+                    'row': total_csv_rows,
+                    'reason': 'Missing date',
+                    'sku': row.get('Sku Name', 'Unknown')
+                })
                 continue
             
             day, month, year = date_str.split('/')
@@ -615,9 +635,25 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             weight_unit = row.get('WeightUnit', 'Kg').strip()
             
             if not sku_name or grn_qty == 0:
+                skipped_rows.append({
+                    'row': total_csv_rows,
+                    'reason': 'Empty SKU or zero quantity',
+                    'sku': sku_name or 'Empty',
+                    'date': date_str
+                })
                 continue
             
-            # Store by date
+            # STRICT VALIDATION: Check if dispatch exists for this date
+            if parsed_date not in dispatch_dates_set:
+                skipped_rows.append({
+                    'row': total_csv_rows,
+                    'reason': f'No dispatch found for date {date_str}',
+                    'sku': sku_name,
+                    'date': date_str
+                })
+                continue
+            
+            # Store by date (only if dispatch exists)
             if parsed_date not in csv_data_by_date:
                 csv_data_by_date[parsed_date] = []
             
@@ -628,7 +664,12 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 'weight_unit': weight_unit
             })
         except Exception as e:
-            logging.error(f"Error parsing CSV row: {e}")
+            logging.error(f"Error parsing CSV row {total_csv_rows}: {e}")
+            skipped_rows.append({
+                'row': total_csv_rows,
+                'reason': f'Parse error: {str(e)}',
+                'sku': row.get('Sku Name', 'Unknown')
+            })
             continue
     
     # Match CSV data with dispatches
@@ -698,12 +739,30 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     })
                     break  # Found match, move to next item
     
+    # Build response with warnings
+    warnings = []
+    if skipped_rows:
+        # Group skipped rows by reason
+        no_dispatch_rows = [r for r in skipped_rows if 'No dispatch found' in r.get('reason', '')]
+        other_skipped = [r for r in skipped_rows if 'No dispatch found' not in r.get('reason', '')]
+        
+        if no_dispatch_rows:
+            dates_skipped = list(set([r.get('date', 'Unknown') for r in no_dispatch_rows]))
+            warnings.append(f"{len(no_dispatch_rows)} row(s) skipped - No dispatch found for dates: {', '.join(dates_skipped)}")
+        
+        if other_skipped:
+            warnings.append(f"{len(other_skipped)} row(s) skipped due to invalid data")
+    
     return {
         "file_name": file.filename,
+        "total_csv_rows": total_csv_rows,
         "rows_processed": sum(len(rows) for rows in csv_data_by_date.values()),
+        "rows_skipped": len(skipped_rows),
         "dates_found": list(csv_data_by_date.keys()),
         "matched_items": matched_items,
-        "message": f"Processed {len(matched_items)} matching items"
+        "warnings": warnings,
+        "skipped_details": skipped_rows[:10] if skipped_rows else [],  # Show first 10 skipped
+        "message": f"Processed {len(matched_items)} matching items" + (f" ({len(skipped_rows)} rows skipped)" if skipped_rows else "")
     }
 
 @api_router.get("/qc-grns/dispatch-summary")

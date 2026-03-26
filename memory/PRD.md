@@ -52,6 +52,9 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] Purchase templates (save/load repeat orders)
 - [x] Payment tracking (paid, partial, pending)
 - [x] Purchase remarks/notes field
+- [x] **Pending Payments Tab** - Farmer-wise pending amounts view (Dec 2026)
+- [x] **Date/Farmer filters** for pending payments
+- [x] **Bulk Payment feature** - Pay multiple farmers at once
 
 ### Phase 3: Multi-Language Support (COMPLETED - Dec 2026)
 - [x] i18next integration with language detection

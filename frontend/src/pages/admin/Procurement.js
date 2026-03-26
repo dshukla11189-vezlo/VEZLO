@@ -8,10 +8,11 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
+import { Checkbox } from '../../components/ui/checkbox';
 
 const UNIT_TYPES = [
   { value: 'Kg', label: 'Kg (Kilogram)' },
@@ -74,6 +75,19 @@ export default function Procurement() {
     branch_name: '',
     upi_id: '',
     materials_supplied: ''
+  });
+
+  // Pending payments state
+  const [pendingFilters, setPendingFilters] = useState({
+    fromDate: '',
+    toDate: '',
+    farmerName: ''
+  });
+  const [selectedFarmersForPayment, setSelectedFarmersForPayment] = useState([]);
+  const [openBulkPayment, setOpenBulkPayment] = useState(false);
+  const [bulkPaymentForm, setBulkPaymentForm] = useState({
+    payment_mode: 'cash',
+    reference: ''
   });
 
   useEffect(() => {
@@ -533,6 +547,117 @@ export default function Procurement() {
     return procurements.reduce((sum, p) => sum + (p.pending_amount || 0), 0);
   };
 
+  // Compute farmer-wise pending amounts with filters
+  const getFarmerWisePending = () => {
+    let filtered = procurements;
+    
+    // Apply date filters
+    if (pendingFilters.fromDate) {
+      filtered = filtered.filter(p => new Date(p.date) >= new Date(pendingFilters.fromDate));
+    }
+    if (pendingFilters.toDate) {
+      filtered = filtered.filter(p => new Date(p.date) <= new Date(pendingFilters.toDate));
+    }
+    if (pendingFilters.farmerName) {
+      filtered = filtered.filter(p => 
+        p.farmer_name.toLowerCase().includes(pendingFilters.farmerName.toLowerCase())
+      );
+    }
+
+    // Group by farmer
+    const farmerMap = {};
+    filtered.forEach(p => {
+      if (!farmerMap[p.farmer_id]) {
+        const farmer = farmers.find(f => f.id === p.farmer_id);
+        farmerMap[p.farmer_id] = {
+          farmer_id: p.farmer_id,
+          farmer_name: p.farmer_name,
+          contact: farmer?.contact || '',
+          total_amount: 0,
+          paid_amount: 0,
+          pending_amount: 0,
+          purchase_count: 0,
+          purchases: []
+        };
+      }
+      farmerMap[p.farmer_id].total_amount += p.total_amount || 0;
+      farmerMap[p.farmer_id].paid_amount += p.paid_amount || 0;
+      farmerMap[p.farmer_id].pending_amount += p.pending_amount || 0;
+      farmerMap[p.farmer_id].purchase_count += 1;
+      if ((p.pending_amount || 0) > 0) {
+        farmerMap[p.farmer_id].purchases.push(p);
+      }
+    });
+
+    // Convert to array and filter only those with pending > 0
+    return Object.values(farmerMap)
+      .filter(f => f.pending_amount > 0)
+      .sort((a, b) => b.pending_amount - a.pending_amount);
+  };
+
+  // Handle bulk payment
+  const handleBulkPayment = async (e) => {
+    e.preventDefault();
+    
+    if (selectedFarmersForPayment.length === 0) {
+      toast.error('Please select at least one farmer');
+      return;
+    }
+
+    try {
+      // Process payments for each selected farmer's pending purchases
+      for (const farmerData of selectedFarmersForPayment) {
+        for (const purchase of farmerData.purchases) {
+          if ((purchase.pending_amount || 0) > 0) {
+            // Mark as fully paid
+            const newPaidAmount = purchase.total_amount;
+            await api.put(`/api/procurement/${purchase.id}`, {
+              ...purchase,
+              paid_amount: newPaidAmount,
+              pending_amount: 0,
+              payment_status: 'paid'
+            });
+          }
+        }
+      }
+      
+      toast.success(`Payment recorded for ${selectedFarmersForPayment.length} farmer(s)`);
+      setOpenBulkPayment(false);
+      setSelectedFarmersForPayment([]);
+      setBulkPaymentForm({ payment_mode: 'cash', reference: '' });
+      loadData();
+    } catch (error) {
+      toast.error('Failed to record payments');
+    }
+  };
+
+  // Toggle farmer selection for bulk payment
+  const toggleFarmerSelection = (farmerData) => {
+    setSelectedFarmersForPayment(prev => {
+      const exists = prev.find(f => f.farmer_id === farmerData.farmer_id);
+      if (exists) {
+        return prev.filter(f => f.farmer_id !== farmerData.farmer_id);
+      }
+      return [...prev, farmerData];
+    });
+  };
+
+  // Select all farmers with pending
+  const selectAllFarmers = () => {
+    const pendingFarmers = getFarmerWisePending();
+    setSelectedFarmersForPayment(pendingFarmers);
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedFarmersForPayment([]);
+  };
+
+  // Get total selected pending amount
+  const getSelectedTotalPending = () => {
+    return selectedFarmersForPayment.reduce((sum, f) => sum + f.pending_amount, 0);
+  };
+
   return (
     <Layout title={t('procurement.dailyProcurement')}>
       <div className="mb-6 flex flex-col sm:flex-row gap-3 flex-wrap">
@@ -921,8 +1046,9 @@ export default function Procurement() {
       </div>
 
       <Tabs defaultValue="history" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-4 max-w-3xl">
           <TabsTrigger value="history">{t('procurement.purchaseHistory')}</TabsTrigger>
+          <TabsTrigger value="pending">Pending Payments</TabsTrigger>
           <TabsTrigger value="farmers">{t('procurement.farmers')}</TabsTrigger>
           <TabsTrigger value="templates">{t('procurement.templates')} ({templates.length})</TabsTrigger>
         </TabsList>
@@ -1078,6 +1204,175 @@ export default function Procurement() {
                     {procurements.length === 0 
                       ? t('procurement.noPurchases')
                       : t('common.noData')}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="pending" className="mt-6">
+          {/* Pending Payments Filter Panel */}
+          <Card className="mb-4">
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Filter size={18} />
+                  Filter Pending Payments
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => setPendingFilters({ fromDate: '', toDate: '', farmerName: '' })}
+                    data-testid="clear-pending-filters"
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="pending-from-date" className="text-xs">From Date</Label>
+                  <Input
+                    id="pending-from-date"
+                    type="date"
+                    value={pendingFilters.fromDate}
+                    onChange={(e) => setPendingFilters({ ...pendingFilters, fromDate: e.target.value })}
+                    data-testid="pending-from-date"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="pending-to-date" className="text-xs">To Date</Label>
+                  <Input
+                    id="pending-to-date"
+                    type="date"
+                    value={pendingFilters.toDate}
+                    onChange={(e) => setPendingFilters({ ...pendingFilters, toDate: e.target.value })}
+                    data-testid="pending-to-date"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="pending-farmer" className="text-xs">Farmer Name</Label>
+                  <Input
+                    id="pending-farmer"
+                    type="text"
+                    placeholder="Search farmer..."
+                    value={pendingFilters.farmerName}
+                    onChange={(e) => setPendingFilters({ ...pendingFilters, farmerName: e.target.value })}
+                    data-testid="pending-farmer-filter"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bulk Payment Actions */}
+          {selectedFarmersForPayment.length > 0 && (
+            <Card className="mb-4 border-green-200 bg-green-50">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="font-semibold text-green-800">
+                      {selectedFarmersForPayment.length} farmer(s) selected
+                    </p>
+                    <p className="text-sm text-green-700">
+                      Total Pending: ₹{getSelectedTotalPending().toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={clearSelection}>
+                      Clear Selection
+                    </Button>
+                    <Button 
+                      className="bg-[#14532D] hover:bg-[#166534]"
+                      onClick={() => setOpenBulkPayment(true)}
+                      data-testid="bulk-payment-btn"
+                    >
+                      <IndianRupee size={16} className="mr-2" />
+                      Record Bulk Payment
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Farmer-wise Pending Table */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-lg">Farmer-wise Pending Payments</CardTitle>
+                <Button variant="outline" size="sm" onClick={selectAllFarmers} data-testid="select-all-farmers">
+                  <CheckSquare size={16} className="mr-2" />
+                  Select All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="data-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="w-10"></th>
+                      <th>FARMER</th>
+                      <th>CONTACT</th>
+                      <th className="text-right">TOTAL PURCHASES</th>
+                      <th className="text-right">TOTAL AMOUNT</th>
+                      <th className="text-right">PAID</th>
+                      <th className="text-right">PENDING</th>
+                      <th className="text-center">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getFarmerWisePending().map((farmerData) => {
+                      const isSelected = selectedFarmersForPayment.some(f => f.farmer_id === farmerData.farmer_id);
+                      return (
+                        <tr key={farmerData.farmer_id} data-testid={`pending-row-${farmerData.farmer_id}`}>
+                          <td>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleFarmerSelection(farmerData)}
+                              data-testid={`select-farmer-${farmerData.farmer_id}`}
+                            />
+                          </td>
+                          <td className="font-medium">{farmerData.farmer_name}</td>
+                          <td>
+                            <div className="flex items-center gap-1 text-sm text-gray-600">
+                              <Phone size={12} />
+                              {farmerData.contact || '-'}
+                            </div>
+                          </td>
+                          <td className="text-right">{farmerData.purchase_count}</td>
+                          <td className="text-right font-semibold">₹{farmerData.total_amount.toFixed(2)}</td>
+                          <td className="text-right text-green-700">₹{farmerData.paid_amount.toFixed(2)}</td>
+                          <td className="text-right text-red-700 font-bold">₹{farmerData.pending_amount.toFixed(2)}</td>
+                          <td className="text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedFarmersForPayment([farmerData]);
+                                setOpenBulkPayment(true);
+                              }}
+                              data-testid={`pay-single-${farmerData.farmer_id}`}
+                            >
+                              <IndianRupee size={14} className="mr-1" />
+                              Pay
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {getFarmerWisePending().length === 0 && (
+                  <div className="p-8 text-center text-gray-500">
+                    <CheckSquare size={48} className="mx-auto text-green-400 mb-4" />
+                    <p className="font-medium text-green-700">All payments cleared!</p>
+                    <p className="text-sm">No pending payments for the selected filters.</p>
                   </div>
                 )}
               </div>
@@ -1263,6 +1558,73 @@ export default function Procurement() {
               </Button>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Payment Dialog */}
+      <Dialog open={openBulkPayment} onOpenChange={setOpenBulkPayment}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Record Bulk Payment</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleBulkPayment} className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-lg space-y-3 max-h-60 overflow-y-auto">
+              <p className="text-sm font-medium text-gray-700 mb-2">
+                Selected Farmers ({selectedFarmersForPayment.length}):
+              </p>
+              {selectedFarmersForPayment.map((farmerData) => (
+                <div key={farmerData.farmer_id} className="flex justify-between items-center text-sm py-2 border-b border-gray-200 last:border-0">
+                  <div>
+                    <p className="font-medium">{farmerData.farmer_name}</p>
+                    <p className="text-xs text-gray-500">{farmerData.purchase_count} pending purchase(s)</p>
+                  </div>
+                  <span className="font-bold text-red-700">₹{farmerData.pending_amount.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-green-800">Total Payment Amount:</span>
+                <span className="text-2xl font-bold text-green-700">₹{getSelectedTotalPending().toFixed(2)}</span>
+              </div>
+              <p className="text-xs text-green-600 mt-1">All pending amounts will be marked as paid</p>
+            </div>
+
+            <div>
+              <Label htmlFor="bulk-payment-mode">Payment Mode *</Label>
+              <Select 
+                value={bulkPaymentForm.payment_mode} 
+                onValueChange={(value) => setBulkPaymentForm({ ...bulkPaymentForm, payment_mode: value })}
+              >
+                <SelectTrigger data-testid="bulk-payment-mode-select">
+                  <SelectValue placeholder="Select mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="bulk-payment-reference">Reference / Note</Label>
+              <Input
+                id="bulk-payment-reference"
+                placeholder="Transaction ID, Cheque number, etc."
+                data-testid="bulk-payment-reference-input"
+                value={bulkPaymentForm.reference}
+                onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, reference: e.target.value })}
+              />
+            </div>
+
+            <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-bulk-payment-button">
+              <IndianRupee size={16} className="mr-2" />
+              Confirm Payment for {selectedFarmersForPayment.length} Farmer(s)
+            </Button>
+          </form>
         </DialogContent>
       </Dialog>
     </Layout>

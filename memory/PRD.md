@@ -101,6 +101,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Date removed from header (decluttered view)
   - [x] Dispatched/Total ratio per product shown
 - [ ] **GRN Section**: Record accepted vs rejected quantities
+- [x] **GRN - Ninjacart CSV Upload** (COMPLETED - Mar 2026):
+  - [x] Strict date validation: Only process CSV rows with matching dispatch dates
+  - [x] Skip rows without dispatch, return detailed warnings
+  - [x] Rate/Unit, Amount, Loss/Gain columns in GRN table
+  - [x] Export to CSV functionality
+  - [x] Save GRN to database
 
 ### Phase 3: Multi-Language Support (COMPLETED - Dec 2026)
 - [x] i18next integration with language detection
@@ -133,6 +139,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Rate calculation: Per kg to per unit based on packaging weight
   - [x] Multi-date CSV support
   - [x] Difference highlighting: Green (GRN > Supplied), Red (GRN < Supplied)
+  - [x] **Strict Date Validation**: CSV rows only processed if dispatch exists for that date (Mar 2026)
+  - [x] **Warnings for Skipped Rows**: Returns detailed warnings for rows without matching dispatch
+  - [x] **Extended GRN Table Columns**: Rate/Unit (₹), Amount (₹), Loss/Gain (₹) (Mar 2026)
+  - [x] **Loss/Gain Calculation**: difference × rate_per_unit with color coding
+  - [x] **Export CSV Button**: Downloads GRN data as CSV file
+  - [x] **Save GRN**: Persists matched GRN data to database
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
@@ -40,6 +40,13 @@ export default function QuickCommerce() {
     toDate: '',
     customerName: '',
     productName: ''
+  });
+
+  // Export states
+  const [openExport, setOpenExport] = useState(false);
+  const [exportFilters, setExportFilters] = useState({
+    fromDate: new Date().toISOString().split('T')[0],
+    toDate: new Date().toISOString().split('T')[0]
   });
 
   // Get last used date from localStorage or default to today
@@ -162,6 +169,144 @@ export default function QuickCommerce() {
 
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  // Export functions
+  const getIndentsForExport = () => {
+    let filtered = [...indents];
+    
+    if (exportFilters.fromDate) {
+      filtered = filtered.filter(i => new Date(i.indent_date) >= new Date(exportFilters.fromDate));
+    }
+    if (exportFilters.toDate) {
+      filtered = filtered.filter(i => new Date(i.indent_date) <= new Date(exportFilters.toDate));
+    }
+    
+    return filtered;
+  };
+
+  const exportToExcel = () => {
+    const exportData = getIndentsForExport();
+    if (exportData.length === 0) {
+      toast.error('No indents found for selected date range');
+      return;
+    }
+
+    // Flatten data for Excel
+    const rows = [];
+    exportData.forEach(indent => {
+      indent.items?.forEach(item => {
+        rows.push({
+          'Date': formatDate(indent.indent_date),
+          'Customer': indent.customer_name,
+          'Product': item.product_name,
+          'Packaging': item.packaging_name || '',
+          'Unit': item.product_unit,
+          'Quantity': item.required_qty,
+          'Lot Size': item.lot_size,
+          'Crates': item.no_of_crates,
+          'Rate': item.rate || '',
+          'Status': indent.status
+        });
+      });
+    });
+
+    // Create CSV content
+    const headers = Object.keys(rows[0]);
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => headers.map(h => `"${row[h]}"`).join(','))
+    ].join('\n');
+
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `indents_${exportFilters.fromDate}_to_${exportFilters.toDate}.csv`;
+    link.click();
+    
+    toast.success(`Exported ${rows.length} items to Excel`);
+    setOpenExport(false);
+  };
+
+  const exportToPDF = () => {
+    const exportData = getIndentsForExport();
+    if (exportData.length === 0) {
+      toast.error('No indents found for selected date range');
+      return;
+    }
+
+    // Create printable HTML
+    let htmlContent = `
+      <html>
+      <head>
+        <title>Indent Report - ${exportFilters.fromDate} to ${exportFilters.toDate}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; color: #14532D; }
+          .date-range { text-align: center; color: #666; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #14532D; color: white; }
+          tr:nth-child(even) { background-color: #f2f2f2; }
+          .text-right { text-align: right; }
+          .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <h1>FreshFlow - Indent Report</h1>
+        <p class="date-range">From: ${formatDate(exportFilters.fromDate)} To: ${formatDate(exportFilters.toDate)}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Customer</th>
+              <th>Product</th>
+              <th>Packaging</th>
+              <th>Unit</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Lot Size</th>
+              <th class="text-right">Crates</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    exportData.forEach(indent => {
+      indent.items?.forEach((item, idx) => {
+        htmlContent += `
+          <tr>
+            ${idx === 0 ? `<td rowspan="${indent.items.length}">${formatDate(indent.indent_date)}</td>` : ''}
+            ${idx === 0 ? `<td rowspan="${indent.items.length}">${indent.customer_name}</td>` : ''}
+            <td>${item.product_name}</td>
+            <td>${item.packaging_name || '-'}</td>
+            <td>${item.product_unit}</td>
+            <td class="text-right">${item.required_qty}</td>
+            <td class="text-right">${item.lot_size}</td>
+            <td class="text-right">${item.no_of_crates}</td>
+            ${idx === 0 ? `<td rowspan="${indent.items.length}">${indent.status}</td>` : ''}
+          </tr>
+        `;
+      });
+    });
+
+    htmlContent += `
+          </tbody>
+        </table>
+        <p class="footer">Generated on ${new Date().toLocaleString('en-IN')}</p>
+      </body>
+      </html>
+    `;
+
+    // Open in new window and print
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.print();
+    
+    toast.success('PDF export initiated - use Print dialog to save as PDF');
+    setOpenExport(false);
   };
 
   // Indent handlers
@@ -470,14 +615,73 @@ export default function QuickCommerce() {
           {/* Filter Panel */}
           <Card className="mb-4">
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Filter size={18} />
                   Filter Indents
                 </CardTitle>
-                <Button variant="ghost" size="sm" onClick={clearIndentFilters}>
-                  Clear All
-                </Button>
+                <div className="flex gap-2">
+                  <Dialog open={openExport} onOpenChange={setOpenExport}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" data-testid="export-btn">
+                        <Download size={16} className="mr-2" />
+                        Export
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle>Export Indents</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label className="text-sm">From Date *</Label>
+                            <Input
+                              type="date"
+                              value={exportFilters.fromDate}
+                              onChange={(e) => setExportFilters({ ...exportFilters, fromDate: e.target.value })}
+                              data-testid="export-from-date"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm">To Date *</Label>
+                            <Input
+                              type="date"
+                              value={exportFilters.toDate}
+                              onChange={(e) => setExportFilters({ ...exportFilters, toDate: e.target.value })}
+                              data-testid="export-to-date"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {getIndentsForExport().length} indent(s) found for selected date range
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <Button 
+                            onClick={exportToExcel} 
+                            variant="outline" 
+                            className="w-full"
+                            data-testid="export-excel-btn"
+                          >
+                            <FileSpreadsheet size={16} className="mr-2" />
+                            Export to Excel
+                          </Button>
+                          <Button 
+                            onClick={exportToPDF} 
+                            className="w-full bg-[#14532D] hover:bg-[#166534]"
+                            data-testid="export-pdf-btn"
+                          >
+                            <FileText size={16} className="mr-2" />
+                            Export to PDF
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Button variant="ghost" size="sm" onClick={clearIndentFilters}>
+                    Clear All
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -653,26 +857,15 @@ export default function QuickCommerce() {
                             </div>
                             <div>
                               <Label className="text-sm font-medium">Packaging / Variant</Label>
-                              <Select
-                                value={item.packaging_id}
-                                onValueChange={(value) => {
-                                  const selectedPackaging = packagingVariants.find(p => p.id === value);
-                                  if (selectedPackaging) {
-                                    handlePackagingSelect(index, selectedPackaging);
-                                  }
-                                }}
-                              >
-                                <SelectTrigger className="h-10" data-testid={`item-packaging-${index}`}>
-                                  <SelectValue placeholder="Select packaging variant" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {packagingVariants.map((pkg) => (
-                                    <SelectItem key={pkg.id} value={pkg.id}>
-                                      {pkg.name} - {pkg.weight_gm} gm
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <AutocompleteInput
+                                placeholder="Search packaging variant..."
+                                items={packagingVariants.map(p => ({ ...p, displayName: `${p.name} - ${p.weight_gm} gm` }))}
+                                displayKey="displayName"
+                                secondaryKey="weight_gm"
+                                onSelect={(packaging) => handlePackagingSelect(index, packaging)}
+                                testId={`item-packaging-${index}`}
+                                storageKey="recent_packaging"
+                              />
                             </div>
                           </div>
                           {/* Row 2: Unit, Qty, Lot Size, Crates, Rate */}
@@ -790,6 +983,7 @@ export default function QuickCommerce() {
                       <th>PRODUCT</th>
                       <th>UNIT</th>
                       <th className="text-right">QTY</th>
+                      <th className="text-right">LOT SIZE</th>
                       <th className="text-right">CRATES</th>
                       <th>STATUS</th>
                       <th className="text-center">ACTION</th>
@@ -817,6 +1011,7 @@ export default function QuickCommerce() {
                           </td>
                           <td className="text-sm">{item.product_unit}</td>
                           <td className="text-right font-semibold">{item.required_qty}</td>
+                          <td className="text-right text-gray-600">{item.lot_size}</td>
                           <td className="text-right text-green-700 font-semibold">{item.no_of_crates}</td>
                           {itemIndex === 0 && (
                             <>

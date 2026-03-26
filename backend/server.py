@@ -753,18 +753,34 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             dispatch_is_pcs_based = 'PCS' in packaging_upper or 'PACK' in packaging_upper
             
             # Try to match with CSV data - must match BOTH product name AND pricing type
+            best_match = None
+            best_match_score = 0
+            
             for csv_row in csv_rows:
                 sku_name = csv_row['sku_name'].lower()
                 sku_name_original = csv_row['sku_name']
                 
-                # Check product name match
-                product_match = product_name in sku_name or sku_name.split()[0] in product_name
-                if not product_match:
+                # Check product name match - ALL significant words of product must be in SKU
+                product_words = [w for w in product_name.split() if len(w) > 2]  # Skip short words
+                sku_words = sku_name.replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
+                
+                # Count how many product words match in SKU
+                match_count = sum(1 for pw in product_words if any(pw in sw or sw in pw for sw in sku_words))
+                
+                # Require at least first word (product type) to match
+                if product_words and not any(product_words[0] in sw or sw in product_words[0] for sw in sku_words):
+                    continue
+                
+                # Calculate match score (higher is better)
+                match_score = match_count / len(product_words) if product_words else 0
+                
+                # If product has multiple words (e.g., "Amaranthus Red"), require majority to match
+                if len(product_words) > 1 and match_score < 0.5:
                     continue
                 
                 # Detect SKU pricing type from SKU name: (Kg)/(Kgs) = Kg-based, (PCS) = piece-based
                 sku_upper = sku_name_original.upper()
-                sku_is_kg_based = '(KG)' in sku_upper or '(KGS)' in sku_upper
+                sku_is_kg_based = '(KG)' in sku_upper or '(KGS)' in sku_upper or sku_upper.endswith('KG') or sku_upper.endswith('KGS') or ' KG ' in sku_upper or '-KG-' in sku_upper or ' KGS ' in sku_upper or '-KGS-' in sku_upper
                 sku_is_pcs_based = '(PCS)' in sku_upper
                 
                 # Match type: Kg-based SKU should match Kg-based packaging, PCS-based should match PCS-based
@@ -782,6 +798,23 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 if not type_match:
                     continue
+                
+                # This is a potential match - track it if it's better than current best
+                if match_score > best_match_score:
+                    best_match_score = match_score
+                    best_match = {
+                        'csv_row': csv_row,
+                        'sku_name_original': sku_name_original,
+                        'sku_is_kg_based': sku_is_kg_based,
+                        'sku_is_pcs_based': sku_is_pcs_based
+                    }
+            
+            # Process the best match if found
+            if best_match:
+                csv_row = best_match['csv_row']
+                sku_name_original = best_match['sku_name_original']
+                sku_is_kg_based = best_match['sku_is_kg_based']
+                sku_is_pcs_based = best_match['sku_is_pcs_based']
                 
                 grn_qty_raw = csv_row['grn_qty']
                 csv_rate = csv_row['grn_price']
@@ -854,7 +887,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     'amount': round(amount, 2),
                     'loss_gain_amount': round(loss_gain_amount, 2)
                 })
-                break  # Found match, move to next dispatch item
+                # Mark the CSV row as used (remove from list to prevent reuse)
+                csv_rows.remove(csv_row)
     
     # Build response with warnings
     warnings = []

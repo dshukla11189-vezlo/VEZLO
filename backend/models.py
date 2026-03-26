@@ -8,7 +8,8 @@ class ProductItem(BaseModel):
     product_id: str
     product_name: str
     quantity: float
-    unit: str
+    unit: str  # Kg, Bunch, Piece, Pack
+    unit_size: Optional[str] = None  # For bunches: "100g", "250g", "350g"
     rate: float
     total: float
 
@@ -109,6 +110,9 @@ class Procurement(BaseModel):
     farmer_name: str
     products: List[ProductItem]
     total_amount: float
+    paid_amount: float = 0
+    pending_amount: float = 0
+    payment_status: str = "pending"  # pending, partial, paid
     status: str = "completed"
     recorded_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -119,6 +123,9 @@ class ProcurementCreate(BaseModel):
     farmer_name: str
     products: List[ProductItem]
     total_amount: float
+    paid_amount: float = 0
+    pending_amount: float = 0
+    payment_status: str = "pending"
     status: str = "completed"
 
 # QC Order Models

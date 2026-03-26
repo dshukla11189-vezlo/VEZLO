@@ -7,8 +7,18 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+
+const UNIT_TYPES = [
+  { value: 'Kg', label: 'Kg (Kilogram)' },
+  { value: 'Bunch', label: 'Bunch' },
+  { value: 'Piece', label: 'Piece' },
+  { value: 'Pack', label: 'Pack' }
+];
+
+const BUNCH_SIZES = ['100g', '250g', '350g', '500g', '1kg'];
 
 export default function Procurement() {
   const [procurements, setProcurements] = useState([]);
@@ -17,14 +27,26 @@ export default function Procurement() {
   const [loading, setLoading] = useState(true);
   const [openProcurement, setOpenProcurement] = useState(false);
   const [openFarmer, setOpenFarmer] = useState(false);
+  const [openPayment, setOpenPayment] = useState(false);
+  const [selectedProcurement, setSelectedProcurement] = useState(null);
 
   // Procurement form
   const [procurementForm, setProcurementForm] = useState({
     date: new Date().toISOString().split('T')[0],
     farmer_id: '',
     farmer_name: '',
-    products: [{ product_id: '', product_name: '', quantity: 0, unit: '', rate: 0, total: 0 }],
-    total_amount: 0
+    products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }],
+    total_amount: 0,
+    paid_amount: 0,
+    pending_amount: 0,
+    payment_status: 'pending'
+  });
+
+  // Payment form
+  const [paymentForm, setPaymentForm] = useState({
+    amount: 0,
+    payment_mode: 'cash',
+    reference: ''
   });
 
   // Farmer form
@@ -58,17 +80,19 @@ export default function Procurement() {
   const handleAddProductRow = () => {
     setProcurementForm({
       ...procurementForm,
-      products: [...procurementForm.products, { product_id: '', product_name: '', quantity: 0, unit: '', rate: 0, total: 0 }]
+      products: [...procurementForm.products, { product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }]
     });
   };
 
   const handleRemoveProductRow = (index) => {
     const newProducts = procurementForm.products.filter((_, i) => i !== index);
     const newTotal = newProducts.reduce((sum, p) => sum + p.total, 0);
+    const pendingAmount = newTotal - procurementForm.paid_amount;
     setProcurementForm({
       ...procurementForm,
       products: newProducts,
-      total_amount: newTotal
+      total_amount: newTotal,
+      pending_amount: pendingAmount
     });
   };
 
@@ -82,9 +106,15 @@ export default function Procurement() {
           ...newProducts[index],
           product_id: value,
           product_name: selectedProduct.name,
-          unit: selectedProduct.unit,
+          unit: selectedProduct.unit || 'Kg',
           rate: selectedProduct.price_per_kg || 0
         };
+      }
+    } else if (field === 'unit') {
+      newProducts[index][field] = value;
+      // Reset unit_size if not Bunch
+      if (value !== 'Bunch') {
+        newProducts[index].unit_size = '';
       }
     } else {
       newProducts[index][field] = field === 'quantity' || field === 'rate' ? parseFloat(value) || 0 : value;
@@ -93,13 +123,28 @@ export default function Procurement() {
     // Calculate row total
     newProducts[index].total = newProducts[index].quantity * newProducts[index].rate;
     
-    // Calculate grand total
+    // Calculate grand total and pending amount
     const grandTotal = newProducts.reduce((sum, p) => sum + p.total, 0);
+    const pendingAmount = grandTotal - procurementForm.paid_amount;
     
     setProcurementForm({
       ...procurementForm,
       products: newProducts,
-      total_amount: grandTotal
+      total_amount: grandTotal,
+      pending_amount: pendingAmount
+    });
+  };
+
+  const handlePaidAmountChange = (value) => {
+    const paidAmount = parseFloat(value) || 0;
+    const pendingAmount = procurementForm.total_amount - paidAmount;
+    const paymentStatus = paidAmount === 0 ? 'pending' : paidAmount >= procurementForm.total_amount ? 'paid' : 'partial';
+    
+    setProcurementForm({
+      ...procurementForm,
+      paid_amount: paidAmount,
+      pending_amount: pendingAmount,
+      payment_status: paymentStatus
     });
   };
 
@@ -117,7 +162,6 @@ export default function Procurement() {
   const handleSubmitProcurement = async (e) => {
     e.preventDefault();
     
-    // Validation
     if (!procurementForm.farmer_id) {
       toast.error('Please select a farmer');
       return;
@@ -128,6 +172,13 @@ export default function Procurement() {
       return;
     }
     
+    // Validate bunches have unit_size
+    const invalidBunches = procurementForm.products.filter(p => p.unit === 'Bunch' && !p.unit_size);
+    if (invalidBunches.length > 0) {
+      toast.error('Please specify bunch size for all bunch items');
+      return;
+    }
+    
     try {
       const payload = {
         date: new Date(procurementForm.date).toISOString(),
@@ -135,18 +186,38 @@ export default function Procurement() {
         farmer_name: procurementForm.farmer_name,
         products: procurementForm.products.filter(p => p.product_id),
         total_amount: procurementForm.total_amount,
+        paid_amount: procurementForm.paid_amount,
+        pending_amount: procurementForm.pending_amount,
+        payment_status: procurementForm.payment_status,
         status: 'completed'
       };
       
       await api.post('/api/procurement', payload);
+      
+      // If payment was made, record it
+      if (procurementForm.paid_amount > 0) {
+        await api.post('/api/payments', {
+          date: new Date().toISOString(),
+          party_type: 'farmer',
+          party_id: procurementForm.farmer_id,
+          party_name: procurementForm.farmer_name,
+          amount: procurementForm.paid_amount,
+          payment_mode: 'cash',
+          reference: `Procurement payment - ${new Date().toLocaleDateString()}`
+        });
+      }
+      
       toast.success('Procurement recorded successfully! Inventory updated.');
       setOpenProcurement(false);
       setProcurementForm({
         date: new Date().toISOString().split('T')[0],
         farmer_id: '',
         farmer_name: '',
-        products: [{ product_id: '', product_name: '', quantity: 0, unit: '', rate: 0, total: 0 }],
-        total_amount: 0
+        products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }],
+        total_amount: 0,
+        paid_amount: 0,
+        pending_amount: 0,
+        payment_status: 'pending'
       });
       loadData();
     } catch (error) {
@@ -167,8 +238,61 @@ export default function Procurement() {
     }
   };
 
+  const handleRecordPayment = (procurement) => {
+    setSelectedProcurement(procurement);
+    setPaymentForm({
+      amount: procurement.pending_amount || 0,
+      payment_mode: 'cash',
+      reference: ''
+    });
+    setOpenPayment(true);
+  };
+
+  const handleSubmitPayment = async (e) => {
+    e.preventDefault();
+    try {
+      // Record payment
+      await api.post('/api/payments', {
+        date: new Date().toISOString(),
+        party_type: 'farmer',
+        party_id: selectedProcurement.farmer_id,
+        party_name: selectedProcurement.farmer_name,
+        amount: paymentForm.amount,
+        payment_mode: paymentForm.payment_mode,
+        reference: paymentForm.reference || `Payment for procurement on ${formatDate(selectedProcurement.date)}`
+      });
+      
+      toast.success('Payment recorded successfully');
+      setOpenPayment(false);
+      loadData();
+    } catch (error) {
+      toast.error('Failed to record payment');
+    }
+  };
+
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const getUnitLabel = (unit, unitSize) => {
+    if (unit === 'Bunch' && unitSize) {
+      return `${unit} (${unitSize})`;
+    }
+    return unit;
+  };
+
+  const getRateLabel = (unit) => {
+    const labels = {
+      'Kg': 'Rate per Kg',
+      'Bunch': 'Rate per Bunch',
+      'Piece': 'Rate per Piece',
+      'Pack': 'Rate per Pack'
+    };
+    return labels[unit] || 'Rate';
+  };
+
+  const getTotalPending = () => {
+    return procurements.reduce((sum, p) => sum + (p.pending_amount || 0), 0);
   };
 
   return (
@@ -232,7 +356,7 @@ export default function Procurement() {
               Record Purchase
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Record Daily Purchase</DialogTitle>
             </DialogHeader>
@@ -284,69 +408,112 @@ export default function Procurement() {
                 <div className="space-y-3">
                   {procurementForm.products.map((product, index) => (
                     <Card key={index} className="p-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-                        <div className="lg:col-span-2">
-                          <Label className="text-xs">Product *</Label>
-                          <Select
-                            value={product.product_id}
-                            onValueChange={(value) => handleProductChange(index, 'product_id', value)}
-                          >
-                            <SelectTrigger data-testid={`product-select-${index}`}>
-                              <SelectValue placeholder="Select product" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {products.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                  {p.name} ({p.category})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                      <div className="grid grid-cols-1 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Product *</Label>
+                            <Select
+                              value={product.product_id}
+                              onValueChange={(value) => handleProductChange(index, 'product_id', value)}
+                            >
+                              <SelectTrigger data-testid={`product-select-${index}`}>
+                                <SelectValue placeholder="Select product" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {products.map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {p.name} ({p.category})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Unit Type *</Label>
+                            <Select
+                              value={product.unit}
+                              onValueChange={(value) => handleProductChange(index, 'unit', value)}
+                            >
+                              <SelectTrigger data-testid={`unit-select-${index}`}>
+                                <SelectValue placeholder="Select unit" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {UNIT_TYPES.map((u) => (
+                                  <SelectItem key={u.value} value={u.value}>
+                                    {u.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
-                        <div>
-                          <Label className="text-xs">Quantity *</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="0"
-                            data-testid={`quantity-input-${index}`}
-                            value={product.quantity || ''}
-                            onChange={(e) => handleProductChange(index, 'quantity', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Rate (₹/{product.unit || 'unit'}) *</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="0"
-                            data-testid={`rate-input-${index}`}
-                            value={product.rate || ''}
-                            onChange={(e) => handleProductChange(index, 'rate', e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-end gap-2">
-                          <div className="flex-1">
-                            <Label className="text-xs">Total</Label>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {product.unit === 'Bunch' && (
+                            <div>
+                              <Label className="text-xs">Bunch Size *</Label>
+                              <Select
+                                value={product.unit_size}
+                                onValueChange={(value) => handleProductChange(index, 'unit_size', value)}
+                              >
+                                <SelectTrigger data-testid={`bunch-size-${index}`}>
+                                  <SelectValue placeholder="Size" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {BUNCH_SIZES.map((size) => (
+                                    <SelectItem key={size} value={size}>
+                                      {size}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          <div>
+                            <Label className="text-xs">Quantity *</Label>
                             <Input
-                              type="text"
-                              value={`₹${product.total.toFixed(2)}`}
-                              disabled
-                              className="bg-gray-50"
-                              data-testid={`total-display-${index}`}
+                              type="number"
+                              step="0.01"
+                              placeholder="0"
+                              data-testid={`quantity-input-${index}`}
+                              value={product.quantity || ''}
+                              onChange={(e) => handleProductChange(index, 'quantity', e.target.value)}
                             />
                           </div>
-                          {procurementForm.products.length > 1 && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleRemoveProductRow(index)}
-                              data-testid={`remove-product-${index}`}
-                            >
-                              <Trash2 size={16} className="text-red-600" />
-                            </Button>
-                          )}
+                          <div>
+                            <Label className="text-xs">{getRateLabel(product.unit)} *</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0"
+                              data-testid={`rate-input-${index}`}
+                              value={product.rate || ''}
+                              onChange={(e) => handleProductChange(index, 'rate', e.target.value)}
+                            />
+                          </div>
+                          <div className="flex items-end gap-2">
+                            <div className="flex-1">
+                              <Label className="text-xs">Total</Label>
+                              <Input
+                                type="text"
+                                value={`₹${product.total.toFixed(2)}`}
+                                disabled
+                                className="bg-gray-50"
+                                data-testid={`total-display-${index}`}
+                              />
+                            </div>
+                            {procurementForm.products.length > 1 && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleRemoveProductRow(index)}
+                                data-testid={`remove-product-${index}`}
+                              >
+                                <Trash2 size={16} className="text-red-600" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </Card>
@@ -354,11 +521,46 @@ export default function Procurement() {
                 </div>
               </div>
 
-              <div className="border-t pt-4 flex items-center justify-between bg-gray-50 p-4 rounded-lg">
-                <span className="text-lg font-semibold">Grand Total:</span>
-                <span className="text-2xl font-bold text-[#14532D]" data-testid="grand-total">
-                  ₹{procurementForm.total_amount.toFixed(2)}
-                </span>
+              <div className="border-t pt-4 space-y-3">
+                <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
+                  <span className="text-lg font-semibold">Grand Total:</span>
+                  <span className="text-2xl font-bold text-[#14532D]" data-testid="grand-total">
+                    ₹{procurementForm.total_amount.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg">
+                  <div>
+                    <Label htmlFor="paid-amount">Amount Paid Now</Label>
+                    <Input
+                      id="paid-amount"
+                      type="number"
+                      step="0.01"
+                      placeholder="0"
+                      data-testid="paid-amount-input"
+                      value={procurementForm.paid_amount || ''}
+                      onChange={(e) => handlePaidAmountChange(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Pending Amount</Label>
+                    <Input
+                      type="text"
+                      value={`₹${procurementForm.pending_amount.toFixed(2)}`}
+                      disabled
+                      className="bg-white font-semibold"
+                      data-testid="pending-amount-display"
+                    />
+                  </div>
+                </div>
+
+                {procurementForm.payment_status !== 'pending' && (
+                  <div className="text-sm text-center">
+                    <span className={`badge ${procurementForm.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
+                      Payment Status: {procurementForm.payment_status.toUpperCase()}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-procurement-button">
@@ -369,74 +571,227 @@ export default function Procurement() {
         </Dialog>
       </div>
 
-      {/* Farmers List */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-lg">Registered Farmers ({farmers.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {farmers.slice(0, 6).map((farmer) => (
-              <div key={farmer.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-testid={`farmer-card-${farmer.id}`}>
-                <p className="font-semibold text-gray-900">{farmer.name}</p>
-                <p className="text-sm text-gray-600 mt-1">{farmer.contact}</p>
-                {farmer.address && <p className="text-xs text-gray-500 mt-1">{farmer.address}</p>}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card className="stat-card">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Farmers</p>
+                <p className="text-3xl font-bold text-gray-900">{farmers.length}</p>
               </div>
-            ))}
-          </div>
-          {farmers.length === 0 && (
-            <p className="text-sm text-gray-500 text-center py-4">No farmers registered yet. Add your first farmer to start.</p>
-          )}
-        </CardContent>
-      </Card>
+              <div className="bg-green-50 p-3 rounded-lg">
+                <UserPlus className="text-green-700" size={24} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-card">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Purchases</p>
+                <p className="text-3xl font-bold text-gray-900">{procurements.length}</p>
+              </div>
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <Plus className="text-blue-700" size={24} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-card">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Pending to Farmers</p>
+                <p className="text-3xl font-bold text-red-700">₹{getTotalPending().toFixed(2)}</p>
+              </div>
+              <div className="bg-red-50 p-3 rounded-lg">
+                <DollarSign className="text-red-700" size={24} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Procurement History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Purchase History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="data-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>DATE</th>
-                  <th>FARMER</th>
-                  <th>PRODUCTS</th>
-                  <th className="text-right">TOTAL AMOUNT</th>
-                  <th>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {procurements.map((proc) => (
-                  <tr key={proc.id} data-testid={`procurement-row-${proc.id}`}>
-                    <td>{formatDate(proc.date)}</td>
-                    <td className="font-medium">{proc.farmer_name}</td>
-                    <td>
-                      <div className="space-y-1">
-                        {proc.products?.map((p, i) => (
-                          <div key={i} className="text-xs">
-                            {p.product_name}: {p.quantity} {p.unit} @ ₹{p.rate}
+      <Tabs defaultValue="history" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="history">Purchase History</TabsTrigger>
+          <TabsTrigger value="farmers">Farmers</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="history" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Purchase History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="data-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>DATE</th>
+                      <th>FARMER</th>
+                      <th>PRODUCTS</th>
+                      <th className="text-right">TOTAL</th>
+                      <th className="text-right">PAID</th>
+                      <th className="text-right">PENDING</th>
+                      <th>PAYMENT</th>
+                      <th className="text-center">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {procurements.map((proc) => (
+                      <tr key={proc.id} data-testid={`procurement-row-${proc.id}`}>
+                        <td>{formatDate(proc.date)}</td>
+                        <td className="font-medium">{proc.farmer_name}</td>
+                        <td>
+                          <div className="space-y-1">
+                            {proc.products?.map((p, i) => (
+                              <div key={i} className="text-xs">
+                                {p.product_name}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="text-right font-semibold">₹{proc.total_amount?.toFixed(2)}</td>
-                    <td>
-                      <span className="badge badge-success">{proc.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {procurements.length === 0 && !loading && (
-              <div className="p-8 text-center text-gray-500">
-                No procurement records found. Record your first purchase to get started.
+                        </td>
+                        <td className="text-right font-semibold">₹{proc.total_amount?.toFixed(2)}</td>
+                        <td className="text-right text-green-700">₹{(proc.paid_amount || 0).toFixed(2)}</td>
+                        <td className="text-right text-red-700">₹{(proc.pending_amount || 0).toFixed(2)}</td>
+                        <td>
+                          <span className={`badge ${
+                            proc.payment_status === 'paid' ? 'badge-success' : 
+                            proc.payment_status === 'partial' ? 'badge-warning' : 'badge-error'
+                          }`}>
+                            {proc.payment_status || 'pending'}
+                          </span>
+                        </td>
+                        <td className="text-center">
+                          {(proc.pending_amount || 0) > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRecordPayment(proc)}
+                              data-testid={`pay-farmer-${proc.id}`}
+                            >
+                              <DollarSign size={14} className="mr-1" />
+                              Pay
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {procurements.length === 0 && !loading && (
+                  <div className="p-8 text-center text-gray-500">
+                    No procurement records found. Record your first purchase to get started.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="farmers" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Registered Farmers ({farmers.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {farmers.map((farmer) => (
+                  <div key={farmer.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-testid={`farmer-card-${farmer.id}`}>
+                    <p className="font-semibold text-gray-900">{farmer.name}</p>
+                    <p className="text-sm text-gray-600 mt-1">{farmer.contact}</p>
+                    {farmer.address && <p className="text-xs text-gray-500 mt-1">{farmer.address}</p>}
+                  </div>
+                ))}
+              </div>
+              {farmers.length === 0 && (
+                <p className="text-sm text-gray-500 text-center py-4">No farmers registered yet. Add your first farmer to start.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Payment Dialog */}
+      <Dialog open={openPayment} onOpenChange={setOpenPayment}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Record Payment to Farmer</DialogTitle>
+          </DialogHeader>
+          {selectedProcurement && (
+            <form onSubmit={handleSubmitPayment} className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Farmer:</span>
+                  <span className="font-medium">{selectedProcurement.farmer_name}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Purchase Date:</span>
+                  <span className="font-medium">{formatDate(selectedProcurement.date)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Total Amount:</span>
+                  <span className="font-medium">₹{selectedProcurement.total_amount?.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Already Paid:</span>
+                  <span className="font-medium text-green-700">₹{(selectedProcurement.paid_amount || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span className="font-semibold">Pending:</span>
+                  <span className="font-bold text-red-700">₹{(selectedProcurement.pending_amount || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="payment-amount">Payment Amount *</Label>
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  step="0.01"
+                  data-testid="payment-amount-input"
+                  value={paymentForm.amount}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) || 0 })}
+                  required
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="payment-mode">Payment Mode *</Label>
+                <Select value={paymentForm.payment_mode} onValueChange={(value) => setPaymentForm({ ...paymentForm, payment_mode: value })}>
+                  <SelectTrigger data-testid="payment-mode-select">
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="payment-reference">Reference / Note</Label>
+                <Input
+                  id="payment-reference"
+                  placeholder="Transaction ID, Cheque number, etc."
+                  data-testid="payment-reference-input"
+                  value={paymentForm.reference}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+                />
+              </div>
+
+              <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-payment-button">
+                Record Payment
+              </Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

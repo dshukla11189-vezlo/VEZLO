@@ -777,12 +777,77 @@ export default function Procurement() {
       </div>
 
       <Tabs defaultValue="history" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
+        <TabsList className="grid w-full grid-cols-3 max-w-2xl">
           <TabsTrigger value="history">Purchase History</TabsTrigger>
           <TabsTrigger value="farmers">Farmers</TabsTrigger>
+          <TabsTrigger value="templates">Templates ({templates.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="history" className="mt-6">
+          {/* Filter Panel */}
+          <Card className="mb-4">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Filter size={18} />
+                  Filters
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters-button">
+                  Clear All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <Label htmlFor="filter-from-date" className="text-xs">From Date</Label>
+                  <Input
+                    id="filter-from-date"
+                    type="date"
+                    value={filters.fromDate}
+                    onChange={(e) => setFilters({ ...filters, fromDate: e.target.value })}
+                    data-testid="filter-from-date"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="filter-to-date" className="text-xs">To Date</Label>
+                  <Input
+                    id="filter-to-date"
+                    type="date"
+                    value={filters.toDate}
+                    onChange={(e) => setFilters({ ...filters, toDate: e.target.value })}
+                    data-testid="filter-to-date"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="filter-farmer" className="text-xs">Farmer Name</Label>
+                  <Input
+                    id="filter-farmer"
+                    type="text"
+                    placeholder="Search farmer..."
+                    value={filters.farmerName}
+                    onChange={(e) => setFilters({ ...filters, farmerName: e.target.value })}
+                    data-testid="filter-farmer-name"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="filter-product" className="text-xs">Product Name</Label>
+                  <Input
+                    id="filter-product"
+                    type="text"
+                    placeholder="Search product..."
+                    value={filters.productName}
+                    onChange={(e) => setFilters({ ...filters, productName: e.target.value })}
+                    data-testid="filter-product-name"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-gray-600">
+                Showing {filteredProcurements.length} of {procurements.length} purchases
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Purchase History</CardTitle>
@@ -803,7 +868,7 @@ export default function Procurement() {
                     </tr>
                   </thead>
                   <tbody>
-                    {procurements.map((proc) => (
+                    {filteredProcurements.map((proc) => (
                       <tr key={proc.id} data-testid={`procurement-row-${proc.id}`}>
                         <td>{formatDate(proc.date)}</td>
                         <td className="font-medium">{proc.farmer_name}</td>
@@ -827,26 +892,48 @@ export default function Procurement() {
                             {proc.payment_status || 'pending'}
                           </span>
                         </td>
-                        <td className="text-center">
-                          {(proc.pending_amount || 0) > 0 && (
+                        <td>
+                          <div className="flex items-center justify-center gap-1">
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={() => handleRecordPayment(proc)}
-                              data-testid={`pay-farmer-${proc.id}`}
+                              variant="ghost"
+                              onClick={() => handleEdit(proc)}
+                              data-testid={`edit-procurement-${proc.id}`}
+                              title="Edit"
                             >
-                              <DollarSign size={14} className="mr-1" />
-                              Pay
+                              <Edit size={14} className="text-blue-600" />
                             </Button>
-                          )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDelete(proc.id)}
+                              data-testid={`delete-procurement-${proc.id}`}
+                              title="Delete"
+                            >
+                              <Trash2 size={14} className="text-red-600" />
+                            </Button>
+                            {(proc.pending_amount || 0) > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleRecordPayment(proc)}
+                                data-testid={`pay-farmer-${proc.id}`}
+                                title="Record Payment"
+                              >
+                                <DollarSign size={14} />
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {procurements.length === 0 && !loading && (
+                {filteredProcurements.length === 0 && !loading && (
                   <div className="p-8 text-center text-gray-500">
-                    No procurement records found. Record your first purchase to get started.
+                    {procurements.length === 0 
+                      ? 'No procurement records found. Record your first purchase to get started.'
+                      : 'No purchases match your filters. Try adjusting the filters.'}
                   </div>
                 )}
               </div>
@@ -871,6 +958,66 @@ export default function Procurement() {
               </div>
               {farmers.length === 0 && (
                 <p className="text-sm text-gray-500 text-center py-4">No farmers registered yet. Add your first farmer to start.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="templates" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Purchase Templates ({templates.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {templates.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {templates.map((template) => (
+                    <div key={template.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-testid={`template-card-${template.id}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-900">{template.name}</p>
+                          <p className="text-sm text-gray-600 mt-1">{template.farmer_name}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteTemplate(template.id)}
+                          data-testid={`delete-template-${template.id}`}
+                        >
+                          <Trash2 size={14} className="text-red-600" />
+                        </Button>
+                      </div>
+                      <div className="mt-2 mb-3">
+                        <p className="text-xs text-gray-500">{template.products.length} products</p>
+                        <div className="mt-1 space-y-1">
+                          {template.products.slice(0, 2).map((p, i) => (
+                            <p key={i} className="text-xs text-gray-600">
+                              • {p.product_name}: {p.quantity} {p.unit}
+                            </p>
+                          ))}
+                          {template.products.length > 2 && (
+                            <p className="text-xs text-gray-500">+ {template.products.length - 2} more</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="w-full bg-[#14532D] hover:bg-[#166534]"
+                        onClick={() => handleLoadTemplate(template)}
+                        data-testid={`load-template-${template.id}`}
+                      >
+                        <BookmarkPlus size={14} className="mr-2" />
+                        Use Template
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <BookmarkPlus size={48} className="mx-auto text-gray-400 mb-4" />
+                  <p className="text-gray-600 mb-2">No templates saved yet</p>
+                  <p className="text-sm text-gray-500">Create a purchase and click "Save as Template" to save it for future use</p>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -1700,6 +1700,10 @@ export default function QuickCommerce() {
                     {filteredIndents.map((indent) => {
                       // Calculate row span for items
                       const itemCount = indent.items?.length || 1;
+                      // Check if any dispatches exist for this indent
+                      const hasDispatches = dispatches.some(d => d.indent_id === indent.id);
+                      const canEditDelete = !hasDispatches && indent.status === 'pending';
+                      
                       return indent.items?.map((item, itemIndex) => (
                         <tr key={`${indent.id}-${itemIndex}`} data-testid={`indent-row-${indent.id}-${itemIndex}`}>
                           {itemIndex === 0 && (
@@ -1725,7 +1729,7 @@ export default function QuickCommerce() {
                               <td rowSpan={itemCount} className="align-top">
                                 <span className={`badge ${
                                   indent.status === 'completed' ? 'badge-success' : 
-                                  indent.status === 'dispatched' ? 'badge-warning' : 'badge-error'
+                                  indent.status === 'dispatched' || indent.status === 'partial' ? 'badge-warning' : 'badge-error'
                                 }`}>
                                   {indent.status}
                                 </span>
@@ -1737,18 +1741,20 @@ export default function QuickCommerce() {
                                     variant="ghost"
                                     onClick={() => handleEditIndent(indent)}
                                     data-testid={`edit-indent-${indent.id}`}
-                                    disabled={indent.status !== 'pending'}
+                                    disabled={!canEditDelete}
+                                    title={canEditDelete ? 'Edit indent' : 'Cannot edit - already dispatched'}
                                   >
-                                    <Edit size={14} className="text-blue-600" />
+                                    <Edit size={14} className={canEditDelete ? 'text-blue-600' : 'text-gray-400'} />
                                   </Button>
                                   <Button
                                     size="sm"
                                     variant="ghost"
                                     onClick={() => handleDeleteIndent(indent.id)}
                                     data-testid={`delete-indent-${indent.id}`}
-                                    disabled={indent.status !== 'pending'}
+                                    disabled={!canEditDelete}
+                                    title={canEditDelete ? 'Delete indent' : 'Cannot delete - already dispatched'}
                                   >
-                                    <Trash2 size={14} className="text-red-600" />
+                                    <Trash2 size={14} className={canEditDelete ? 'text-red-600' : 'text-gray-400'} />
                                   </Button>
                                 </div>
                               </td>
@@ -2687,12 +2693,12 @@ export default function QuickCommerce() {
                             onClick={() => toggleItemSelection(item.key)}
                             style={{cursor: 'pointer'}}
                           >
-                            <td>
+                            <td onClick={(e) => e.stopPropagation()}>
                               <input 
                                 type="checkbox" 
                                 checked={!!selectedItemsForInvoice[item.key]}
                                 onChange={() => toggleItemSelection(item.key)}
-                                className="w-4 h-4"
+                                className="w-4 h-4 cursor-pointer"
                               />
                             </td>
                             <td className="font-medium">{item.product_name}</td>

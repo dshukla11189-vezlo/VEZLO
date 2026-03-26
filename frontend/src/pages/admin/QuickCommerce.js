@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
@@ -18,23 +18,44 @@ export default function QuickCommerce() {
   
   // Data states
   const [indents, setIndents] = useState([]);
+  const [filteredIndents, setFilteredIndents] = useState([]);
   const [dispatches, setDispatches] = useState([]);
   const [grns, setGrns] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [packagingVariants, setPackagingVariants] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
   const [openCustomer, setOpenCustomer] = useState(false);
+  const [openPackaging, setOpenPackaging] = useState(false);
   const [editingIndent, setEditingIndent] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
+  const [editingPackaging, setEditingPackaging] = useState(null);
+
+  // Filter states
+  const [indentFilters, setIndentFilters] = useState({
+    fromDate: '',
+    toDate: '',
+    customerName: '',
+    productName: ''
+  });
+
+  // Get last used date from localStorage or default to today
+  const getLastUsedDate = () => {
+    try {
+      const lastDate = localStorage.getItem('last_indent_date');
+      if (lastDate) return lastDate;
+    } catch (e) {}
+    return new Date().toISOString().split('T')[0];
+  };
 
   // Form states
   const [indentForm, setIndentForm] = useState({
-    indent_date: new Date().toISOString().split('T')[0],
+    indent_date: getLastUsedDate(),
     customer_name: '',
-    items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
+    items: [{ product_id: '', product_name: '', product_unit: '', packaging_id: '', packaging_name: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
   });
 
   const [customerForm, setCustomerForm] = useState({
@@ -44,9 +65,20 @@ export default function QuickCommerce() {
     address: ''
   });
 
+  const [packagingForm, setPackagingForm] = useState({
+    name: '',
+    weight_gm: ''
+  });
+
   useEffect(() => {
     loadData();
+    loadPackagingVariants();
   }, []);
+
+  // Apply filters when indents or filters change
+  useEffect(() => {
+    applyIndentFilters();
+  }, [indents, indentFilters]);
 
   const loadData = async () => {
     try {
@@ -69,6 +101,65 @@ export default function QuickCommerce() {
     }
   };
 
+  // Load packaging variants from localStorage
+  const loadPackagingVariants = () => {
+    try {
+      const stored = localStorage.getItem('qc_packaging_variants');
+      if (stored) {
+        setPackagingVariants(JSON.parse(stored));
+      } else {
+        // Default packaging variants
+        const defaults = [
+          { id: '1', name: 'Packet 100 gm', weight_gm: 100 },
+          { id: '2', name: 'Packet 250 gm', weight_gm: 250 },
+          { id: '3', name: 'Without Roots 90-100 gm', weight_gm: 110 },
+          { id: '4', name: 'With Roots 100 gm', weight_gm: 120 },
+          { id: '5', name: 'Bunch 500 gm', weight_gm: 500 }
+        ];
+        setPackagingVariants(defaults);
+        localStorage.setItem('qc_packaging_variants', JSON.stringify(defaults));
+      }
+    } catch (e) {
+      console.error('Error loading packaging variants:', e);
+    }
+  };
+
+  // Save packaging variants to localStorage
+  const savePackagingVariants = (variants) => {
+    localStorage.setItem('qc_packaging_variants', JSON.stringify(variants));
+    setPackagingVariants(variants);
+  };
+
+  // Apply filters to indents
+  const applyIndentFilters = () => {
+    let filtered = [...indents];
+    
+    if (indentFilters.fromDate) {
+      filtered = filtered.filter(i => new Date(i.indent_date) >= new Date(indentFilters.fromDate));
+    }
+    if (indentFilters.toDate) {
+      filtered = filtered.filter(i => new Date(i.indent_date) <= new Date(indentFilters.toDate));
+    }
+    if (indentFilters.customerName) {
+      filtered = filtered.filter(i => 
+        i.customer_name.toLowerCase().includes(indentFilters.customerName.toLowerCase())
+      );
+    }
+    if (indentFilters.productName) {
+      filtered = filtered.filter(i => 
+        i.items?.some(item => 
+          item.product_name.toLowerCase().includes(indentFilters.productName.toLowerCase())
+        )
+      );
+    }
+    
+    setFilteredIndents(filtered);
+  };
+
+  const clearIndentFilters = () => {
+    setIndentFilters({ fromDate: '', toDate: '', customerName: '', productName: '' });
+  };
+
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
@@ -77,7 +168,7 @@ export default function QuickCommerce() {
   const handleAddIndentItem = () => {
     setIndentForm({
       ...indentForm,
-      items: [...indentForm.items, { product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
+      items: [...indentForm.items, { product_id: '', product_name: '', product_unit: '', packaging_id: '', packaging_name: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
     });
   };
 
@@ -106,7 +197,16 @@ export default function QuickCommerce() {
     const newItems = [...indentForm.items];
     newItems[index].product_id = product.id;
     newItems[index].product_name = product.name;
-    newItems[index].product_unit = product.unit;
+    // Don't override unit here - let packaging selection set it
+    setIndentForm({ ...indentForm, items: newItems });
+  };
+
+  // Handle packaging selection - auto-fill unit
+  const handlePackagingSelect = (index, packaging) => {
+    const newItems = [...indentForm.items];
+    newItems[index].packaging_id = packaging.id;
+    newItems[index].packaging_name = packaging.name;
+    newItems[index].product_unit = `${packaging.weight_gm} gm`;  // Auto-set unit from packaging weight
     setIndentForm({ ...indentForm, items: newItems });
   };
 
@@ -114,41 +214,55 @@ export default function QuickCommerce() {
     setIndentForm({ ...indentForm, customer_name: customer.name });
   };
 
-  // Get stored packaging variants from localStorage
-  const getStoredPackagingVariants = () => {
-    try {
-      const stored = localStorage.getItem('packaging_variants');
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Error reading packaging variants:', e);
+  // Packaging management handlers
+  const handleSubmitPackaging = (e) => {
+    e.preventDefault();
+    
+    if (!packagingForm.name || !packagingForm.weight_gm) {
+      toast.error('Please fill in all fields');
+      return;
     }
-    // Default common variants
-    return [
-      { name: '100gm without roots' },
-      { name: '100gm with roots' },
-      { name: '250gm without roots' },
-      { name: '250gm with roots' },
-      { name: '500gm pack' },
-      { name: '1kg pack' }
-    ];
+
+    const newPackaging = {
+      id: editingPackaging?.id || Date.now().toString(),
+      name: packagingForm.name,
+      weight_gm: parseFloat(packagingForm.weight_gm)
+    };
+
+    let updatedVariants;
+    if (editingPackaging) {
+      updatedVariants = packagingVariants.map(p => p.id === editingPackaging.id ? newPackaging : p);
+      toast.success('Packaging updated successfully');
+    } else {
+      updatedVariants = [...packagingVariants, newPackaging];
+      toast.success('Packaging added successfully');
+    }
+
+    savePackagingVariants(updatedVariants);
+    resetPackagingForm();
+    setOpenPackaging(false);
   };
 
-  // Save new packaging variant to localStorage
-  const savePackagingVariant = (variant) => {
-    if (!variant || variant.trim() === '') return;
+  const handleEditPackaging = (packaging) => {
+    setEditingPackaging(packaging);
+    setPackagingForm({
+      name: packaging.name,
+      weight_gm: packaging.weight_gm.toString()
+    });
+    setOpenPackaging(true);
+  };
+
+  const handleDeletePackaging = (packagingId) => {
+    if (!window.confirm('Are you sure you want to delete this packaging?')) return;
     
-    try {
-      const stored = getStoredPackagingVariants();
-      const exists = stored.some(v => v.name.toLowerCase() === variant.toLowerCase());
-      if (!exists) {
-        const updated = [...stored, { name: variant }];
-        localStorage.setItem('packaging_variants', JSON.stringify(updated));
-      }
-    } catch (e) {
-      console.error('Error saving packaging variant:', e);
-    }
+    const updatedVariants = packagingVariants.filter(p => p.id !== packagingId);
+    savePackagingVariants(updatedVariants);
+    toast.success('Packaging deleted successfully');
+  };
+
+  const resetPackagingForm = () => {
+    setEditingPackaging(null);
+    setPackagingForm({ name: '', weight_gm: '' });
   };
 
   const handleSubmitIndent = async (e) => {
@@ -169,6 +283,9 @@ export default function QuickCommerce() {
     }
 
     try {
+      // Save the date for next time
+      localStorage.setItem('last_indent_date', indentForm.indent_date);
+
       const payload = {
         indent_date: new Date(indentForm.indent_date).toISOString(),
         customer_name: indentForm.customer_name,
@@ -176,10 +293,12 @@ export default function QuickCommerce() {
           product_id: item.product_id,
           product_name: item.product_name,
           product_unit: item.product_unit,
-          packaging: item.packaging || '',
+          packaging_id: item.packaging_id || '',
+          packaging_name: item.packaging_name || '',
           required_qty: parseFloat(item.required_qty),
           lot_size: parseInt(item.lot_size),
-          no_of_crates: item.no_of_crates
+          no_of_crates: item.no_of_crates,
+          rate: item.rate ? parseFloat(item.rate) : null
         })),
         status: 'pending'
       };
@@ -209,7 +328,9 @@ export default function QuickCommerce() {
         ...item,
         required_qty: item.required_qty.toString(),
         lot_size: item.lot_size.toString(),
-        packaging: item.packaging || ''
+        packaging_id: item.packaging_id || '',
+        packaging_name: item.packaging_name || '',
+        rate: item.rate ? item.rate.toString() : ''
       }))
     });
     setOpenIndent(true);
@@ -230,9 +351,9 @@ export default function QuickCommerce() {
   const resetIndentForm = () => {
     setEditingIndent(null);
     setIndentForm({
-      indent_date: new Date().toISOString().split('T')[0],
+      indent_date: getLastUsedDate(),
       customer_name: '',
-      items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
+      items: [{ product_id: '', product_name: '', product_unit: '', packaging_id: '', packaging_name: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
     });
   };
 
@@ -336,15 +457,72 @@ export default function QuickCommerce() {
 
       {/* Tabs */}
       <Tabs defaultValue="indent" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-xl">
+        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
           <TabsTrigger value="indent">Indent</TabsTrigger>
           <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
           <TabsTrigger value="grn">GRN</TabsTrigger>
+          <TabsTrigger value="packaging">Packaging ({packagingVariants.length})</TabsTrigger>
           <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
         </TabsList>
 
         {/* INDENT TAB */}
         <TabsContent value="indent" className="mt-6">
+          {/* Filter Panel */}
+          <Card className="mb-4">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Filter size={18} />
+                  Filter Indents
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={clearIndentFilters}>
+                  Clear All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <Label className="text-xs">From Date</Label>
+                  <Input
+                    type="date"
+                    value={indentFilters.fromDate}
+                    onChange={(e) => setIndentFilters({ ...indentFilters, fromDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">To Date</Label>
+                  <Input
+                    type="date"
+                    value={indentFilters.toDate}
+                    onChange={(e) => setIndentFilters({ ...indentFilters, toDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Customer</Label>
+                  <Input
+                    type="text"
+                    placeholder="Search customer..."
+                    value={indentFilters.customerName}
+                    onChange={(e) => setIndentFilters({ ...indentFilters, customerName: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Product</Label>
+                  <Input
+                    type="text"
+                    placeholder="Search product..."
+                    value={indentFilters.productName}
+                    onChange={(e) => setIndentFilters({ ...indentFilters, productName: e.target.value })}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Showing {filteredIndents.length} of {indents.length} indents
+              </p>
+            </CardContent>
+          </Card>
+
           <div className="flex flex-wrap gap-3 mb-4">
             <Dialog open={openCustomer} onOpenChange={(open) => { setOpenCustomer(open); if (!open) resetCustomerForm(); }}>
               <DialogTrigger asChild>
@@ -475,27 +653,38 @@ export default function QuickCommerce() {
                             </div>
                             <div>
                               <Label className="text-sm font-medium">Packaging / Variant</Label>
-                              <AutocompleteInput
-                                placeholder="e.g., 100gm without roots, 250gm with roots"
-                                items={getStoredPackagingVariants()}
-                                displayKey="name"
-                                onSelect={(variant) => handleIndentItemChange(index, 'packaging', variant.name)}
-                                onInputChange={(value) => handleIndentItemChange(index, 'packaging', value)}
-                                testId={`item-packaging-${index}`}
-                                storageKey="recent_packaging_variants"
-                                allowCustom={true}
-                              />
+                              <Select
+                                value={item.packaging_id}
+                                onValueChange={(value) => {
+                                  const selectedPackaging = packagingVariants.find(p => p.id === value);
+                                  if (selectedPackaging) {
+                                    handlePackagingSelect(index, selectedPackaging);
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="h-10" data-testid={`item-packaging-${index}`}>
+                                  <SelectValue placeholder="Select packaging variant" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {packagingVariants.map((pkg) => (
+                                    <SelectItem key={pkg.id} value={pkg.id}>
+                                      {pkg.name} - {pkg.weight_gm} gm
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                           </div>
-                          {/* Row 2: Unit, Qty, Lot Size, Crates */}
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 items-end">
+                          {/* Row 2: Unit, Qty, Lot Size, Crates, Rate */}
+                          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 items-end">
                             <div>
-                              <Label className="text-sm font-medium">Unit</Label>
+                              <Label className="text-sm font-medium">Unit (auto)</Label>
                               <Input
                                 value={item.product_unit}
-                                placeholder="Kg / Pkt / gm"
+                                placeholder="Auto from packaging"
                                 onChange={(e) => handleIndentItemChange(index, 'product_unit', e.target.value)}
-                                className="h-10"
+                                className="h-10 bg-gray-100"
+                                readOnly
                                 data-testid={`item-unit-${index}`}
                               />
                             </div>
@@ -531,6 +720,18 @@ export default function QuickCommerce() {
                                 disabled
                                 className="h-10 bg-green-50 font-bold text-green-700 text-center"
                                 data-testid={`item-crates-${index}`}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-sm font-medium">Rate (₹)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Optional"
+                                value={item.rate}
+                                onChange={(e) => handleIndentItemChange(index, 'rate', e.target.value)}
+                                className="h-10"
+                                data-testid={`item-rate-${index}`}
                               />
                             </div>
                             <div className="flex items-end justify-end">
@@ -577,7 +778,7 @@ export default function QuickCommerce() {
           {/* Indents Table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Indent Orders</CardTitle>
+              <CardTitle className="text-lg">Indent Orders ({filteredIndents.length})</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="data-table">
@@ -595,7 +796,7 @@ export default function QuickCommerce() {
                     </tr>
                   </thead>
                   <tbody>
-                    {indents.map((indent) => {
+                    {filteredIndents.map((indent) => {
                       // Calculate row span for items
                       const itemCount = indent.items?.length || 1;
                       return indent.items?.map((item, itemIndex) => (
@@ -609,8 +810,8 @@ export default function QuickCommerce() {
                           <td>
                             <div>
                               <span className="font-medium">{item.product_name}</span>
-                              {item.packaging && (
-                                <span className="text-gray-500 text-xs ml-1">({item.packaging})</span>
+                              {item.packaging_name && (
+                                <span className="text-gray-500 text-xs ml-1">({item.packaging_name})</span>
                               )}
                             </div>
                           </td>
@@ -721,6 +922,113 @@ export default function QuickCommerce() {
                 <ClipboardCheck size={48} className="mx-auto text-gray-400 mb-4" />
                 <p>GRN functionality coming soon.</p>
                 <p className="text-sm mt-2">After dispatch, record what was accepted by the customer.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* PACKAGING TAB */}
+        <TabsContent value="packaging" className="mt-6">
+          <div className="flex flex-wrap gap-3 mb-4">
+            <Dialog open={openPackaging} onOpenChange={(open) => { setOpenPackaging(open); if (!open) resetPackagingForm(); }}>
+              <DialogTrigger asChild>
+                <Button className="bg-[#14532D] hover:bg-[#166534]" data-testid="add-packaging-btn">
+                  <Plus size={16} className="mr-2" />
+                  Add Packaging Variant
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>{editingPackaging ? 'Edit Packaging Variant' : 'Add Packaging Variant'}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmitPackaging} className="space-y-4">
+                  <div>
+                    <Label htmlFor="packaging-name">Packaging Name *</Label>
+                    <Input
+                      id="packaging-name"
+                      placeholder="e.g., Packet 100 gm, Without Roots 90-100 gm"
+                      value={packagingForm.name}
+                      onChange={(e) => setPackagingForm({ ...packagingForm, name: e.target.value })}
+                      required
+                      data-testid="packaging-name-input"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Name should describe the packaging type
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="packaging-weight">Weight (in grams) *</Label>
+                    <Input
+                      id="packaging-weight"
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g., 100, 250, 500"
+                      value={packagingForm.weight_gm}
+                      onChange={(e) => setPackagingForm({ ...packagingForm, weight_gm: e.target.value })}
+                      required
+                      data-testid="packaging-weight-input"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      This weight will be used for P&L calculations
+                    </p>
+                  </div>
+                  <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-packaging-btn">
+                    {editingPackaging ? 'Update Packaging' : 'Add Packaging'}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Packaging Variants ({packagingVariants.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="data-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>PACKAGING NAME</th>
+                      <th className="text-right">WEIGHT (gm)</th>
+                      <th className="text-center">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {packagingVariants.map((pkg) => (
+                      <tr key={pkg.id} data-testid={`packaging-row-${pkg.id}`}>
+                        <td className="font-medium">{pkg.name}</td>
+                        <td className="text-right">{pkg.weight_gm} gm</td>
+                        <td>
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditPackaging(pkg)}
+                              data-testid={`edit-packaging-${pkg.id}`}
+                            >
+                              <Edit size={14} className="text-blue-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeletePackaging(pkg.id)}
+                              data-testid={`delete-packaging-${pkg.id}`}
+                            >
+                              <Trash2 size={14} className="text-red-600" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {packagingVariants.length === 0 && (
+                  <div className="p-8 text-center text-gray-500">
+                    <Box size={48} className="mx-auto text-gray-400 mb-4" />
+                    <p>No packaging variants found. Add your first packaging variant.</p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

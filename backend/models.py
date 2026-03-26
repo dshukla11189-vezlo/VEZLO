@@ -168,9 +168,11 @@ class QCIndentItem(BaseModel):
     product_id: str
     product_name: str
     product_unit: str
+    packaging: Optional[str] = None  # e.g., "100gm without roots", "250gm with roots"
     required_qty: float
     lot_size: int  # packets per crate
     no_of_crates: float  # auto-calculated: required_qty / lot_size
+    rate: Optional[float] = None  # price per unit (optional)
 
 # QC Indent Models
 class QCIndent(BaseModel):

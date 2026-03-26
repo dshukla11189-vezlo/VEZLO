@@ -360,6 +360,29 @@ async def create_qc_customer(input: QCCustomerCreate, current_user: dict = Depen
     await db.qc_customers.insert_one(doc)
     return {"id": customer.id, "name": customer.name}
 
+@api_router.put("/qc-customers/{customer_id}")
+async def update_qc_customer(customer_id: str, input: QCCustomerCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = input.model_dump()
+    result = await db.qc_customers.update_one({"id": customer_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    return {"message": "Customer updated successfully"}
+
+@api_router.delete("/qc-customers/{customer_id}")
+async def delete_qc_customer(customer_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.qc_customers.delete_one({"id": customer_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    return {"message": "Customer deleted successfully"}
+
 # QC Indent Routes
 @api_router.get("/qc-indents")
 async def get_qc_indents(current_user: dict = Depends(get_current_user)):

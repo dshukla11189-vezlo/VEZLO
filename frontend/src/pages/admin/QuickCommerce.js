@@ -28,12 +28,13 @@ export default function QuickCommerce() {
   const [openIndent, setOpenIndent] = useState(false);
   const [openCustomer, setOpenCustomer] = useState(false);
   const [editingIndent, setEditingIndent] = useState(null);
+  const [editingCustomer, setEditingCustomer] = useState(null);
 
   // Form states
   const [indentForm, setIndentForm] = useState({
     indent_date: new Date().toISOString().split('T')[0],
     customer_name: '',
-    items: [{ product_id: '', product_name: '', product_unit: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
+    items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
   });
 
   const [customerForm, setCustomerForm] = useState({
@@ -76,7 +77,7 @@ export default function QuickCommerce() {
   const handleAddIndentItem = () => {
     setIndentForm({
       ...indentForm,
-      items: [...indentForm.items, { product_id: '', product_name: '', product_unit: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
+      items: [...indentForm.items, { product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
     });
   };
 
@@ -138,9 +139,11 @@ export default function QuickCommerce() {
           product_id: item.product_id,
           product_name: item.product_name,
           product_unit: item.product_unit,
+          packaging: item.packaging || '',
           required_qty: parseFloat(item.required_qty),
           lot_size: parseInt(item.lot_size),
-          no_of_crates: item.no_of_crates
+          no_of_crates: item.no_of_crates,
+          rate: item.rate ? parseFloat(item.rate) : null
         })),
         status: 'pending'
       };
@@ -169,7 +172,9 @@ export default function QuickCommerce() {
       items: indent.items.map(item => ({
         ...item,
         required_qty: item.required_qty.toString(),
-        lot_size: item.lot_size.toString()
+        lot_size: item.lot_size.toString(),
+        packaging: item.packaging || '',
+        rate: item.rate ? item.rate.toString() : ''
       }))
     });
     setOpenIndent(true);
@@ -192,7 +197,7 @@ export default function QuickCommerce() {
     setIndentForm({
       indent_date: new Date().toISOString().split('T')[0],
       customer_name: '',
-      items: [{ product_id: '', product_name: '', product_unit: '', required_qty: '', lot_size: '', no_of_crates: 0 }]
+      items: [{ product_id: '', product_name: '', product_unit: '', packaging: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
     });
   };
 
@@ -201,14 +206,47 @@ export default function QuickCommerce() {
     e.preventDefault();
     
     try {
-      await api.post('/api/qc-customers', customerForm);
-      toast.success('Customer added successfully');
+      if (editingCustomer) {
+        await api.put(`/api/qc-customers/${editingCustomer.id}`, customerForm);
+        toast.success('Customer updated successfully');
+      } else {
+        await api.post('/api/qc-customers', customerForm);
+        toast.success('Customer added successfully');
+      }
       setOpenCustomer(false);
-      setCustomerForm({ name: '', contact_person: '', contact_number: '', address: '' });
+      resetCustomerForm();
       loadData();
     } catch (error) {
-      toast.error('Failed to add customer');
+      toast.error('Failed to save customer');
     }
+  };
+
+  const handleEditCustomer = (customer) => {
+    setEditingCustomer(customer);
+    setCustomerForm({
+      name: customer.name,
+      contact_person: customer.contact_person || '',
+      contact_number: customer.contact_number || '',
+      address: customer.address || ''
+    });
+    setOpenCustomer(true);
+  };
+
+  const handleDeleteCustomer = async (customerId) => {
+    if (!window.confirm('Are you sure you want to delete this customer?')) return;
+    
+    try {
+      await api.delete(`/api/qc-customers/${customerId}`);
+      toast.success('Customer deleted successfully');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to delete customer');
+    }
+  };
+
+  const resetCustomerForm = () => {
+    setEditingCustomer(null);
+    setCustomerForm({ name: '', contact_person: '', contact_number: '', address: '' });
   };
 
   // Stats
@@ -263,25 +301,26 @@ export default function QuickCommerce() {
 
       {/* Tabs */}
       <Tabs defaultValue="indent" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-lg">
+        <TabsList className="grid w-full grid-cols-4 max-w-xl">
           <TabsTrigger value="indent">Indent</TabsTrigger>
           <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
           <TabsTrigger value="grn">GRN</TabsTrigger>
+          <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
         </TabsList>
 
         {/* INDENT TAB */}
         <TabsContent value="indent" className="mt-6">
           <div className="flex flex-wrap gap-3 mb-4">
-            <Dialog open={openCustomer} onOpenChange={setOpenCustomer}>
+            <Dialog open={openCustomer} onOpenChange={(open) => { setOpenCustomer(open); if (!open) resetCustomerForm(); }}>
               <DialogTrigger asChild>
                 <Button variant="outline" data-testid="add-customer-btn">
                   <UserPlus size={16} className="mr-2" />
-                  Add Customer
+                  {editingCustomer ? 'Edit Customer' : 'Add Customer'}
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                  <DialogTitle>Add QC Customer</DialogTitle>
+                  <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add QC Customer'}</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmitCustomer} className="space-y-4">
                   <div>
@@ -323,7 +362,7 @@ export default function QuickCommerce() {
                     />
                   </div>
                   <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-customer-btn">
-                    Add Customer
+                    {editingCustomer ? 'Update Customer' : 'Add Customer'}
                   </Button>
                 </form>
               </DialogContent>
@@ -385,9 +424,9 @@ export default function QuickCommerce() {
                     <div className="space-y-3">
                       {indentForm.items.map((item, index) => (
                         <div key={index} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-                          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                             <div className="md:col-span-2">
-                              <Label className="text-xs">Product Name</Label>
+                              <Label className="text-xs">Product Name *</Label>
                               <AutocompleteInput
                                 placeholder="Select product"
                                 items={products}
@@ -396,6 +435,15 @@ export default function QuickCommerce() {
                                 onSelect={(product) => handleProductSelect(index, product)}
                                 testId={`product-autocomplete-${index}`}
                                 storageKey="recent_products"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <Label className="text-xs">Packaging / Variant</Label>
+                              <Input
+                                value={item.packaging}
+                                placeholder="e.g., 100gm without roots"
+                                onChange={(e) => handleIndentItemChange(index, 'packaging', e.target.value)}
+                                data-testid={`item-packaging-${index}`}
                               />
                             </div>
                             <div>
@@ -408,7 +456,7 @@ export default function QuickCommerce() {
                               />
                             </div>
                             <div>
-                              <Label className="text-xs">Required Qty *</Label>
+                              <Label className="text-xs">Req Qty *</Label>
                               <Input
                                 type="number"
                                 step="0.01"
@@ -430,16 +478,27 @@ export default function QuickCommerce() {
                                 data-testid={`item-lot-size-${index}`}
                               />
                             </div>
-                            <div className="flex items-end gap-2">
-                              <div className="flex-1">
-                                <Label className="text-xs">Crates</Label>
-                                <Input
-                                  value={item.no_of_crates}
-                                  disabled
-                                  className="bg-green-50 font-semibold text-green-700"
-                                  data-testid={`item-crates-${index}`}
-                                />
-                              </div>
+                            <div>
+                              <Label className="text-xs">Crates</Label>
+                              <Input
+                                value={item.no_of_crates}
+                                disabled
+                                className="bg-green-50 font-semibold text-green-700"
+                                data-testid={`item-crates-${index}`}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Rate (₹)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Optional"
+                                value={item.rate}
+                                onChange={(e) => handleIndentItemChange(index, 'rate', e.target.value)}
+                                data-testid={`item-rate-${index}`}
+                              />
+                            </div>
+                            <div className="flex items-end">
                               {indentForm.items.length > 1 && (
                                 <Button
                                   type="button"
@@ -506,7 +565,10 @@ export default function QuickCommerce() {
                           <div className="space-y-1">
                             {indent.items?.slice(0, 2).map((item, i) => (
                               <div key={i} className="text-xs">
-                                {item.product_name}: {item.required_qty} {item.product_unit}
+                                {item.product_name}
+                                {item.packaging && <span className="text-gray-500"> ({item.packaging})</span>}
+                                : {item.required_qty} {item.product_unit}
+                                {item.rate && <span className="text-green-600 ml-1">@ ₹{item.rate}</span>}
                               </div>
                             ))}
                             {indent.items?.length > 2 && (
@@ -590,6 +652,69 @@ export default function QuickCommerce() {
                 <p>GRN functionality coming soon.</p>
                 <p className="text-sm mt-2">After dispatch, record what was accepted by the customer.</p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* CUSTOMERS TAB */}
+        <TabsContent value="customers" className="mt-6">
+          <div className="flex flex-wrap gap-3 mb-4">
+            <Button 
+              variant="outline" 
+              onClick={() => { resetCustomerForm(); setOpenCustomer(true); }}
+              data-testid="add-customer-btn-tab"
+            >
+              <UserPlus size={16} className="mr-2" />
+              Add Customer
+            </Button>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">QC Customers</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {customers.map((customer) => (
+                  <div key={customer.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-testid={`customer-card-${customer.id}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-semibold text-lg text-[#14532D]">{customer.name}</h3>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleEditCustomer(customer)}
+                          data-testid={`edit-customer-${customer.id}`}
+                        >
+                          <Edit size={14} className="text-blue-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteCustomer(customer.id)}
+                          data-testid={`delete-customer-${customer.id}`}
+                        >
+                          <Trash2 size={14} className="text-red-600" />
+                        </Button>
+                      </div>
+                    </div>
+                    {customer.contact_person && (
+                      <p className="text-sm text-gray-600">Contact: {customer.contact_person}</p>
+                    )}
+                    {customer.contact_number && (
+                      <p className="text-sm text-gray-600">Phone: {customer.contact_number}</p>
+                    )}
+                    {customer.address && (
+                      <p className="text-sm text-gray-500 mt-1">{customer.address}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {customers.length === 0 && (
+                <div className="p-8 text-center text-gray-500">
+                  <UserPlus size={48} className="mx-auto text-gray-400 mb-4" />
+                  <p>No customers found. Add your first QC customer to get started.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

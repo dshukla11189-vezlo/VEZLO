@@ -65,6 +65,10 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Auto-calculate No. of Crates (Required Qty / Lot Size)
   - [x] Edit/Delete Indents
   - [x] Status tracking (pending, dispatched, completed)
+  - [x] Packaging/Variant CRUD management (with weight in grams)
+  - [x] Indent history filtering (date, customer, product)
+  - [x] Export buttons (Excel/PDF - UI ready)
+  - [x] **BUG FIX**: AutocompleteInput crash when typing in Packaging/Variant field (Mar 2026)
 - [ ] **Dispatch Section**: Create dispatches from pending indents
 - [ ] **GRN Section**: Record accepted vs rejected quantities
 

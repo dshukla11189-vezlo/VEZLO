@@ -60,9 +60,19 @@ export default function AutocompleteInput({
   useEffect(() => {
     // Filter items based on search term
     if (searchTerm.length > 0) {
+      const searchLower = searchTerm.toLowerCase();
       const filtered = items.filter(item => {
-        const primaryMatch = item[displayKey]?.toLowerCase().includes(searchTerm.toLowerCase());
-        const secondaryMatch = secondaryKey ? item[secondaryKey]?.toLowerCase().includes(searchTerm.toLowerCase()) : false;
+        // Safely convert to string before calling toLowerCase
+        const primaryValue = item[displayKey];
+        const primaryMatch = primaryValue != null 
+          ? String(primaryValue).toLowerCase().includes(searchLower) 
+          : false;
+        
+        const secondaryValue = secondaryKey ? item[secondaryKey] : null;
+        const secondaryMatch = secondaryValue != null 
+          ? String(secondaryValue).toLowerCase().includes(searchLower) 
+          : false;
+        
         return primaryMatch || secondaryMatch;
       });
       setFilteredItems(filtered);

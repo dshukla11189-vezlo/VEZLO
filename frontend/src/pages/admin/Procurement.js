@@ -312,13 +312,21 @@ export default function Procurement() {
   const handleSubmitFarmer = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/api/farmers', farmerForm);
-      toast.success('Farmer added successfully');
+      if (selectedProcurement?.isFarmerEdit) {
+        // Edit mode
+        await api.put(`/api/farmers/${selectedProcurement.id}`, farmerForm);
+        toast.success('Farmer updated successfully');
+      } else {
+        // Create mode
+        await api.post('/api/farmers', farmerForm);
+        toast.success('Farmer added successfully');
+      }
       setOpenFarmer(false);
       setFarmerForm({ name: '', contact: '', address: '' });
+      setSelectedProcurement(null);
       loadData();
     } catch (error) {
-      toast.error('Failed to add farmer');
+      toast.error('Failed to save farmer');
     }
   };
 
@@ -437,6 +445,31 @@ export default function Procurement() {
     toast.success('Template deleted');
   };
 
+  // Farmer edit/delete
+  const handleEditFarmer = (farmer) => {
+    setFarmerForm({
+      name: farmer.name,
+      contact: farmer.contact,
+      address: farmer.address || ''
+    });
+    setSelectedProcurement({ ...farmer, isFarmerEdit: true }); // Reuse for tracking
+    setOpenFarmer(true);
+  };
+
+  const handleDeleteFarmer = async (farmerId) => {
+    if (!window.confirm('Are you sure you want to delete this farmer? This cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/api/farmers/${farmerId}`);
+      toast.success('Farmer deleted successfully');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to delete farmer');
+    }
+  };
+
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
@@ -474,7 +507,7 @@ export default function Procurement() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Add New Farmer</DialogTitle>
+              <DialogTitle>{selectedProcurement?.isFarmerEdit ? 'Edit Farmer' : 'Add New Farmer'}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmitFarmer} className="space-y-4">
               <div>
@@ -949,8 +982,28 @@ export default function Procurement() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {farmers.map((farmer) => (
-                  <div key={farmer.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow" data-testid={`farmer-card-${farmer.id}`}>
-                    <p className="font-semibold text-gray-900">{farmer.name}</p>
+                  <div key={farmer.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow relative" data-testid={`farmer-card-${farmer.id}`}>
+                    <div className="absolute top-2 right-2 flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleEditFarmer(farmer)}
+                        data-testid={`edit-farmer-${farmer.id}`}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Edit size={14} className="text-blue-600" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteFarmer(farmer.id)}
+                        data-testid={`delete-farmer-${farmer.id}`}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Trash2 size={14} className="text-red-600" />
+                      </Button>
+                    </div>
+                    <p className="font-semibold text-gray-900 pr-16">{farmer.name}</p>
                     <p className="text-sm text-gray-600 mt-1">{farmer.contact}</p>
                     {farmer.address && <p className="text-xs text-gray-500 mt-1">{farmer.address}</p>}
                   </div>

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2 } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
@@ -76,6 +76,10 @@ export default function QuickCommerce() {
     name: '',
     weight_gm: ''
   });
+
+  // Dispatch states - track supplied quantities for each indent item
+  const [dispatchData, setDispatchData] = useState({});  // { indentId: { itemIndex: supplied_qty } }
+  const [savingDispatch, setSavingDispatch] = useState({});  // Track which indents are being saved
 
   useEffect(() => {
     loadData();
@@ -550,6 +554,140 @@ export default function QuickCommerce() {
     setCustomerForm({ name: '', contact_person: '', contact_number: '', address: '' });
   };
 
+  // Dispatch Handlers
+  const handleSuppliedQtyChange = (indentId, itemIndex, value) => {
+    setDispatchData(prev => ({
+      ...prev,
+      [indentId]: {
+        ...prev[indentId],
+        [itemIndex]: value
+      }
+    }));
+  };
+
+  const getSuppliedQty = (indentId, itemIndex) => {
+    // First check if there's a saved dispatch for this indent
+    const existingDispatch = dispatches.find(d => d.indent_id === indentId);
+    if (existingDispatch && existingDispatch.items[itemIndex]) {
+      // If user has edited, use that value; otherwise use saved value
+      if (dispatchData[indentId]?.[itemIndex] !== undefined) {
+        return dispatchData[indentId][itemIndex];
+      }
+      return existingDispatch.items[itemIndex].supplied_qty?.toString() || '';
+    }
+    return dispatchData[indentId]?.[itemIndex] || '';
+  };
+
+  const handleSaveDispatch = async (indent) => {
+    // Validate that at least one item has supplied qty
+    const hasSuppliedQty = indent.items.some((_, idx) => {
+      const qty = getSuppliedQty(indent.id, idx);
+      return qty !== '' && parseFloat(qty) >= 0;
+    });
+
+    if (!hasSuppliedQty) {
+      toast.error('Please enter supplied quantity for at least one item');
+      return;
+    }
+
+    setSavingDispatch(prev => ({ ...prev, [indent.id]: true }));
+
+    try {
+      const existingDispatch = dispatches.find(d => d.indent_id === indent.id);
+      
+      const dispatchItems = indent.items.map((item, idx) => {
+        const suppliedQty = parseFloat(getSuppliedQty(indent.id, idx)) || 0;
+        return {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          product_unit: item.product_unit,
+          packaging_id: item.packaging_id || '',
+          packaging_name: item.packaging_name || '',
+          required_qty: item.required_qty,
+          supplied_qty: suppliedQty,
+          lot_size: item.lot_size,
+          no_of_crates: item.lot_size > 0 ? Math.ceil(suppliedQty / item.lot_size) : 0
+        };
+      });
+
+      const payload = {
+        dispatch_date: new Date().toISOString(),
+        indent_id: indent.id,
+        customer_name: indent.customer_name,
+        items: dispatchItems
+      };
+
+      if (existingDispatch) {
+        await api.put(`/api/qc-dispatches/${existingDispatch.id}`, payload);
+        toast.success('Dispatch updated successfully');
+      } else {
+        await api.post('/api/qc-dispatches', payload);
+        toast.success('Dispatch saved successfully');
+      }
+
+      // Clear local state for this indent and reload data
+      setDispatchData(prev => {
+        const newData = { ...prev };
+        delete newData[indent.id];
+        return newData;
+      });
+      loadData();
+    } catch (error) {
+      console.error('Error saving dispatch:', error);
+      toast.error('Failed to save dispatch');
+    } finally {
+      setSavingDispatch(prev => ({ ...prev, [indent.id]: false }));
+    }
+  };
+
+  // Calculate totals for indent/dispatch summary
+  const calculateTotals = (items, useSupplied = false, indentId = null) => {
+    let totalRequired = 0;
+    let totalSupplied = 0;
+
+    items.forEach((item, idx) => {
+      totalRequired += parseFloat(item.required_qty) || 0;
+      if (useSupplied && indentId) {
+        totalSupplied += parseFloat(getSuppliedQty(indentId, idx)) || 0;
+      }
+    });
+
+    return { totalRequired, totalSupplied };
+  };
+
+  // Get all indent items flattened for display with their parent indent info
+  const getAllIndentItems = () => {
+    const items = [];
+    filteredIndents.forEach(indent => {
+      indent.items?.forEach((item, itemIndex) => {
+        items.push({
+          ...item,
+          indent,
+          itemIndex,
+          indentId: indent.id
+        });
+      });
+    });
+    return items;
+  };
+
+  // Calculate grand totals for Indent tab
+  const indentGrandTotals = filteredIndents.reduce((acc, indent) => {
+    indent.items?.forEach(item => {
+      acc.totalRequired += parseFloat(item.required_qty) || 0;
+    });
+    return acc;
+  }, { totalRequired: 0 });
+
+  // Calculate grand totals for Dispatch tab
+  const dispatchGrandTotals = filteredIndents.reduce((acc, indent) => {
+    indent.items?.forEach((item, idx) => {
+      acc.totalRequired += parseFloat(item.required_qty) || 0;
+      acc.totalSupplied += parseFloat(getSuppliedQty(indent.id, idx)) || 0;
+    });
+    return acc;
+  }, { totalRequired: 0, totalSupplied: 0 });
+
   // Stats
   const pendingIndents = indents.filter(i => i.status === 'pending').length;
   const dispatchedCount = dispatches.length;
@@ -971,7 +1109,15 @@ export default function QuickCommerce() {
           {/* Indents Table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Indent Orders ({filteredIndents.length})</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Indent Orders ({filteredIndents.length})</CardTitle>
+                {/* Total Required Qty Summary */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                  <span className="text-sm text-blue-700 font-medium">
+                    Total Required Qty: <span className="text-lg font-bold">{indentGrandTotals.totalRequired.toFixed(2)}</span>
+                  </span>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="data-table">
@@ -1094,14 +1240,154 @@ export default function QuickCommerce() {
         <TabsContent value="dispatch" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Dispatch Records</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <CardTitle className="text-lg">Dispatch - Enter Supplied Quantities</CardTitle>
+                {/* Totals Summary */}
+                <div className="flex gap-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                    <span className="text-sm text-blue-700 font-medium">
+                      Total Required: <span className="text-lg font-bold">{dispatchGrandTotals.totalRequired.toFixed(2)}</span>
+                    </span>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2">
+                    <span className="text-sm text-green-700 font-medium">
+                      Total Supplied: <span className="text-lg font-bold">{dispatchGrandTotals.totalSupplied.toFixed(2)}</span>
+                    </span>
+                  </div>
+                  <div className={`border rounded-lg px-4 py-2 ${
+                    dispatchGrandTotals.totalSupplied - dispatchGrandTotals.totalRequired >= 0 
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-red-50 border-red-200'
+                  }`}>
+                    <span className={`text-sm font-medium ${
+                      dispatchGrandTotals.totalSupplied - dispatchGrandTotals.totalRequired >= 0 
+                        ? 'text-green-700' 
+                        : 'text-red-700'
+                    }`}>
+                      Difference: <span className="text-lg font-bold">
+                        {(dispatchGrandTotals.totalSupplied - dispatchGrandTotals.totalRequired).toFixed(2)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="p-8 text-center text-gray-500">
-                <Truck size={48} className="mx-auto text-gray-400 mb-4" />
-                <p>Dispatch functionality coming soon.</p>
-                <p className="text-sm mt-2">Create indents first, then dispatch them to customers.</p>
-              </div>
+              {filteredIndents.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <Truck size={48} className="mx-auto text-gray-400 mb-4" />
+                  <p>No indents found.</p>
+                  <p className="text-sm mt-2">Create indents first in the Indent tab, then enter supplied quantities here.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {filteredIndents.map((indent) => {
+                    const existingDispatch = dispatches.find(d => d.indent_id === indent.id);
+                    const isSaving = savingDispatch[indent.id];
+                    
+                    return (
+                      <div key={indent.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`dispatch-indent-${indent.id}`}>
+                        {/* Indent Header */}
+                        <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-b">
+                          <div className="flex items-center gap-4">
+                            <div>
+                              <span className="text-sm text-gray-500">Date:</span>
+                              <span className="font-medium ml-1">{formatDate(indent.indent_date)}</span>
+                            </div>
+                            <div>
+                              <span className="text-sm text-gray-500">Customer:</span>
+                              <span className="font-semibold text-[#14532D] ml-1">{indent.customer_name}</span>
+                            </div>
+                            <span className={`badge ${
+                              indent.status === 'completed' ? 'badge-success' : 
+                              indent.status === 'dispatched' ? 'badge-warning' : 'badge-error'
+                            }`}>
+                              {indent.status}
+                            </span>
+                            {existingDispatch && (
+                              <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
+                                Dispatch Saved
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            className="bg-[#14532D] hover:bg-[#166534]"
+                            onClick={() => handleSaveDispatch(indent)}
+                            disabled={isSaving}
+                            data-testid={`save-dispatch-${indent.id}`}
+                          >
+                            {isSaving ? (
+                              <Loader2 size={16} className="mr-2 animate-spin" />
+                            ) : (
+                              <Save size={16} className="mr-2" />
+                            )}
+                            {existingDispatch ? 'Update' : 'Save'}
+                          </Button>
+                        </div>
+                        
+                        {/* Items Table */}
+                        <div className="data-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>PRODUCT</th>
+                                <th>PACKAGING</th>
+                                <th>UNIT</th>
+                                <th className="text-right">REQUIRED QTY</th>
+                                <th className="text-right" style={{ width: '150px' }}>SUPPLIED QTY</th>
+                                <th className="text-right">DIFFERENCE</th>
+                                <th className="text-right">LOT SIZE</th>
+                                <th className="text-right">CRATES</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {indent.items?.map((item, itemIndex) => {
+                                const suppliedQty = parseFloat(getSuppliedQty(indent.id, itemIndex)) || 0;
+                                const difference = suppliedQty - item.required_qty;
+                                const calculatedCrates = item.lot_size > 0 ? Math.ceil(suppliedQty / item.lot_size) : 0;
+                                
+                                return (
+                                  <tr key={itemIndex} data-testid={`dispatch-item-${indent.id}-${itemIndex}`}>
+                                    <td className="font-medium">{item.product_name}</td>
+                                    <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                                    <td className="text-sm">{item.product_unit}</td>
+                                    <td className="text-right font-semibold">{item.required_qty}</td>
+                                    <td className="text-right">
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="Enter qty"
+                                        value={getSuppliedQty(indent.id, itemIndex)}
+                                        onChange={(e) => handleSuppliedQtyChange(indent.id, itemIndex, e.target.value)}
+                                        className="w-full h-9 text-right"
+                                        data-testid={`supplied-qty-${indent.id}-${itemIndex}`}
+                                      />
+                                    </td>
+                                    <td className="text-right">
+                                      {suppliedQty > 0 && (
+                                        <span className={`font-bold ${
+                                          difference < 0 ? 'text-red-600' : 
+                                          difference > 0 ? 'text-green-600' : 'text-gray-600'
+                                        }`}>
+                                          {difference > 0 ? '+' : ''}{difference.toFixed(2)}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="text-right text-gray-600">{item.lot_size}</td>
+                                    <td className="text-right text-green-700 font-semibold">{calculatedCrates}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

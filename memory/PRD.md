@@ -68,8 +68,18 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Packaging/Variant CRUD management (with weight in grams)
   - [x] Indent history filtering (date, customer, product)
   - [x] Export buttons (Excel/PDF - UI ready)
+  - [x] Total Required Qty summary at top of table (Mar 2026)
   - [x] **BUG FIX**: AutocompleteInput crash when typing in Packaging/Variant field (Mar 2026)
-- [ ] **Dispatch Section**: Create dispatches from pending indents
+- [x] **Dispatch Section** (COMPLETED - Mar 2026):
+  - [x] All Indent entries auto-populated in Dispatch tab as editable cards
+  - [x] Editable "Supplied Qty" input for each line item
+  - [x] Difference column (Supplied - Required) with color coding:
+    - Red/Bold when supplied < required
+    - Green/Bold when supplied > required
+  - [x] Auto-calculate crates based on supplied qty
+  - [x] Summary totals at top: Total Required, Total Supplied, Difference
+  - [x] Save button per indent to persist dispatch data
+  - [x] Backend API for create/update dispatches
 - [ ] **GRN Section**: Record accepted vs rejected quantities
 
 ### Phase 3: Multi-Language Support (COMPLETED - Dec 2026)

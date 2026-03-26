@@ -203,9 +203,12 @@ class QCDispatchItem(BaseModel):
     product_id: str
     product_name: str
     product_unit: str
-    dispatched_qty: float
+    packaging_id: Optional[str] = None
+    packaging_name: Optional[str] = None
+    required_qty: float  # From indent
+    supplied_qty: float  # Actual supplied quantity
     lot_size: int
-    crates_dispatched: float
+    no_of_crates: float  # Auto-calculated from supplied_qty
 
 # QC Dispatch Models
 class QCDispatch(BaseModel):

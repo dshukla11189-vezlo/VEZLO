@@ -471,6 +471,25 @@ async def create_qc_dispatch(input: QCDispatchCreate, current_user: dict = Depen
     
     return {"id": dispatch.id, "message": "Dispatch created successfully"}
 
+@api_router.put("/qc-dispatches/{dispatch_id}")
+async def update_qc_dispatch(dispatch_id: str, input: QCDispatchCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    existing = await db.qc_dispatches.find_one({"id": dispatch_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    update_data = input.model_dump()
+    update_data['dispatch_date'] = update_data['dispatch_date'].isoformat()
+    
+    await db.qc_dispatches.update_one(
+        {"id": dispatch_id},
+        {"$set": update_data}
+    )
+    
+    return {"id": dispatch_id, "message": "Dispatch updated successfully"}
+
 # QC GRN Routes
 @api_router.get("/qc-grns")
 async def get_qc_grns(current_user: dict = Depends(get_current_user)):

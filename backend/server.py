@@ -918,7 +918,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
 
 @api_router.get("/qc-grns/dispatch-summary")
 async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_user)):
-    """Get all Ninjacart dispatches for GRN table"""
+    """Get all Ninjacart dispatches for GRN table - excludes items already in saved GRNs"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -928,11 +928,28 @@ async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_
         {"_id": 0}
     ).sort("dispatch_date", -1).to_list(1000)
     
-    # Flatten items with dispatch info
+    # Get all saved GRNs to exclude already processed items
+    saved_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(1000)
+    
+    # Build a set of processed dispatch_id + product_id combinations
+    processed_items = set()
+    for grn in saved_grns:
+        for item in grn.get('items', []):
+            # Create a unique key for each processed item
+            key = f"{item.get('dispatch_id')}_{item.get('product_id')}"
+            processed_items.add(key)
+    
+    # Flatten items with dispatch info, excluding already processed
     items = []
     for dispatch in dispatches:
         dispatch_date = dispatch.get('dispatch_date', '')
         for item in dispatch.get('items', []):
+            item_key = f"{dispatch.get('id')}_{item.get('product_id')}"
+            
+            # Skip if already processed in a GRN
+            if item_key in processed_items:
+                continue
+                
             items.append({
                 'dispatch_id': dispatch.get('id'),
                 'dispatch_date': dispatch_date,
@@ -1319,7 +1336,7 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     
     # Total stock value
     products = await db.products.find({}, {"_id": 0}).to_list(1000)
-    total_stock_value = sum(p.get("current_stock", 0) * p.get("price_per_kg", 0) for p in products)
+    total_stock_value = sum((p.get("current_stock", 0) or 0) * (p.get("price_per_kg", 0) or 0) for p in products)
     
     # Today's orders
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)

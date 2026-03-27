@@ -37,6 +37,9 @@ export default function QuickCommerce() {
     toDate: '',
     productName: ''
   });
+  // Manual GRN entry state for pending dispatches
+  const [manualGrnData, setManualGrnData] = useState({});  // { dispatchId_productId: { grn_qty, rate } }
+  const [editingPendingGrn, setEditingPendingGrn] = useState(null);  // Track which pending item is being edited
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -1343,6 +1346,81 @@ export default function QuickCommerce() {
     }
     return true;
   });
+
+  // Handle saving manual GRN entries
+  const handleSaveManualGrn = async () => {
+    const itemsToSave = [];
+    
+    // Build items from manualGrnData
+    Object.keys(manualGrnData).forEach(key => {
+      const data = manualGrnData[key];
+      if (data.grn_qty) {
+        // Key format: dispatchId_productId_idx
+        const parts = key.split('_');
+        const dispatchId = parts[0];
+        const productId = parts[1];
+        
+        const dispatchItem = grnDispatchItems.find(
+          item => item.dispatch_id === dispatchId && item.product_id === productId
+        );
+        
+        if (dispatchItem) {
+          const grnQty = parseFloat(data.grn_qty) || 0;
+          const rate = parseFloat(data.rate) || 0;
+          const difference = grnQty - dispatchItem.supplied_qty;
+          const amount = grnQty * rate;
+          const lossGain = difference * rate;
+          
+          itemsToSave.push({
+            dispatch_id: dispatchItem.dispatch_id,
+            dispatch_date: dispatchItem.dispatch_date?.split('T')[0] || dispatchItem.dispatch_date || new Date().toISOString().split('T')[0],
+            product_id: dispatchItem.product_id || 'unknown',
+            product_name: dispatchItem.product_name,
+            product_unit: dispatchItem.product_unit || 'unit',
+            packaging_id: dispatchItem.packaging_id || '',
+            packaging_name: dispatchItem.packaging_name || '',
+            supplied_qty: dispatchItem.supplied_qty,
+            grn_qty: grnQty,
+            difference: difference,
+            rate_per_unit: rate,
+            amount: amount,
+            loss_gain_amount: lossGain,
+            rate_type: 'manual'
+          });
+        }
+      }
+    });
+    
+    if (itemsToSave.length === 0) {
+      toast.error('No GRN data to save');
+      return;
+    }
+    
+    try {
+      const totalSupplied = itemsToSave.reduce((sum, item) => sum + item.supplied_qty, 0);
+      const totalGrn = itemsToSave.reduce((sum, item) => sum + item.grn_qty, 0);
+      const totalDifference = itemsToSave.reduce((sum, item) => sum + item.difference, 0);
+      
+      const payload = {
+        grn_date: new Date().toISOString(),
+        customer_name: 'Ninjacart',
+        file_name: 'Manual Entry',
+        items: itemsToSave,
+        total_supplied: totalSupplied,
+        total_grn: totalGrn,
+        total_difference: totalDifference
+      };
+      
+      await api.post('/api/qc-grns', payload);
+      toast.success('Manual GRN saved successfully');
+      setManualGrnData({});
+      setEditingPendingGrn(null);
+      loadData();
+    } catch (error) {
+      console.error('Save manual GRN error:', error);
+      toast.error('Failed to save manual GRN');
+    }
+  };
 
   // Export GRN to CSV
   const exportGrnToCsv = (items) => {
@@ -2938,11 +3016,54 @@ export default function QuickCommerce() {
                 </div>
               )}
 
-              {/* Ninjacart Dispatches Table (without GRN data) */}
-              {grnDispatchItems.length > 0 && grnMatchedItems.length === 0 && (
-                <div>
-                  <h4 className="font-semibold text-sm mb-2">Ninjacart Dispatches Pending GRN</h4>
-                  <div className="data-table">
+              {/* Ninjacart Dispatches Pending GRN - Always show with filters and manual entry */}
+              {grnDispatchItems.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-sm mb-3">Ninjacart Dispatches Pending GRN</h4>
+                  
+                  {/* Filters for Pending Dispatches */}
+                  <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">From:</Label>
+                      <Input
+                        type="date"
+                        value={grnFilters.fromDate}
+                        onChange={(e) => setGrnFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                        className="w-36 h-8"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">To:</Label>
+                      <Input
+                        type="date"
+                        value={grnFilters.toDate}
+                        onChange={(e) => setGrnFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                        className="w-36 h-8"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">Product:</Label>
+                      <Input
+                        type="text"
+                        placeholder="Filter by product..."
+                        value={grnFilters.productName}
+                        onChange={(e) => setGrnFilters(prev => ({ ...prev, productName: e.target.value }))}
+                        className="w-40 h-8"
+                      />
+                    </div>
+                    {(grnFilters.fromDate || grnFilters.toDate || grnFilters.productName) && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setGrnFilters({ fromDate: '', toDate: '', productName: '' })}
+                        className="h-8"
+                      >
+                        <X size={14} className="mr-1" /> Clear
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="data-table overflow-x-auto">
                     <table>
                       <thead>
                         <tr>
@@ -2951,27 +3072,124 @@ export default function QuickCommerce() {
                           <th>PRODUCT</th>
                           <th>PACKAGING</th>
                           <th className="text-right">SUPPLIED QTY</th>
-                          <th className="text-right">GRN</th>
+                          <th className="text-right">GRN QTY</th>
+                          <th className="text-right">RATE</th>
                           <th className="text-right">DIFFERENCE</th>
+                          <th className="text-center">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {grnDispatchItems.map((item, idx) => (
-                          <tr key={idx}>
-                            <td>{formatDate(item.dispatch_date)}</td>
-                            <td className="font-medium text-[#14532D]">{item.customer_name}</td>
-                            <td className="font-medium">{item.product_name}</td>
-                            <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
-                            <td className="text-right">{item.supplied_qty}</td>
-                            <td className="text-right text-gray-400">-</td>
-                            <td className="text-right text-gray-400">-</td>
-                          </tr>
-                        ))}
+                        {grnDispatchItems
+                          .filter(item => {
+                            // Apply filters
+                            const itemDate = item.dispatch_date?.split('T')[0] || '';
+                            if (grnFilters.fromDate && itemDate < grnFilters.fromDate) return false;
+                            if (grnFilters.toDate && itemDate > grnFilters.toDate) return false;
+                            if (grnFilters.productName && !item.product_name?.toLowerCase().includes(grnFilters.productName.toLowerCase())) return false;
+                            return true;
+                          })
+                          .map((item, idx) => {
+                            const itemKey = `${item.dispatch_id}_${item.product_id}_${idx}`;
+                            const manualData = manualGrnData[itemKey] || {};
+                            const isEditing = editingPendingGrn === itemKey;
+                            const grnQty = manualData.grn_qty || '';
+                            const rate = manualData.rate || '';
+                            const difference = grnQty ? (parseFloat(grnQty) - item.supplied_qty) : null;
+                            
+                            return (
+                              <tr key={idx} className={isEditing ? 'bg-yellow-50' : ''}>
+                                <td>{formatDate(item.dispatch_date)}</td>
+                                <td className="font-medium text-[#14532D]">{item.customer_name}</td>
+                                <td className="font-medium">{item.product_name}</td>
+                                <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                                <td className="text-right">{item.supplied_qty}</td>
+                                <td className="text-right">
+                                  {isEditing ? (
+                                    <Input
+                                      type="number"
+                                      value={grnQty}
+                                      onChange={(e) => setManualGrnData(prev => ({
+                                        ...prev,
+                                        [itemKey]: { ...prev[itemKey], grn_qty: e.target.value }
+                                      }))}
+                                      placeholder="Enter GRN"
+                                      className="w-20 h-7 text-right"
+                                    />
+                                  ) : (
+                                    grnQty ? <span className="font-semibold">{grnQty}</span> : <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                                <td className="text-right">
+                                  {isEditing ? (
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      value={rate}
+                                      onChange={(e) => setManualGrnData(prev => ({
+                                        ...prev,
+                                        [itemKey]: { ...prev[itemKey], rate: e.target.value }
+                                      }))}
+                                      placeholder="Rate"
+                                      className="w-20 h-7 text-right"
+                                    />
+                                  ) : (
+                                    rate ? <span>₹{parseFloat(rate).toFixed(2)}</span> : <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                                <td className="text-right">
+                                  {difference !== null ? (
+                                    <span className={`font-bold ${
+                                      difference > 0 ? 'text-green-600' : 
+                                      difference < 0 ? 'text-red-600' : 'text-gray-600'
+                                    }`}>
+                                      {difference > 0 ? '+' : ''}{difference.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                                <td className="text-center">
+                                  {isEditing ? (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Button size="sm" variant="ghost" onClick={() => setEditingPendingGrn(null)} className="h-7 px-2 text-green-600">
+                                        <Check size={14} />
+                                      </Button>
+                                      <Button size="sm" variant="ghost" onClick={() => {
+                                        setManualGrnData(prev => {
+                                          const newData = { ...prev };
+                                          delete newData[itemKey];
+                                          return newData;
+                                        });
+                                        setEditingPendingGrn(null);
+                                      }} className="h-7 px-2 text-gray-600">
+                                        <X size={14} />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <Button size="sm" variant="ghost" onClick={() => setEditingPendingGrn(itemKey)} className="h-7 px-2 text-blue-600">
+                                      <Pencil size={14} />
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                       </tbody>
                     </table>
                   </div>
+                  
+                  {/* Save Manual GRN Button */}
+                  {Object.keys(manualGrnData).some(key => manualGrnData[key].grn_qty) && (
+                    <div className="mt-4 flex justify-end">
+                      <Button onClick={handleSaveManualGrn} className="bg-green-600 hover:bg-green-700">
+                        <Save size={16} className="mr-2" />
+                        Save Manual GRN Entries
+                      </Button>
+                    </div>
+                  )}
+                  
                   <p className="text-sm text-gray-500 mt-3">
-                    Upload Ninjacart CSV file to match GRN data with dispatches.
+                    Edit GRN values manually or upload Ninjacart CSV file to auto-match.
                   </p>
                 </div>
               )}

@@ -84,7 +84,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
           )}
         </div>
         
-        <nav className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <nav className="p-4 overflow-y-auto flex-1" style={{ maxHeight: 'calc(100vh - 220px)' }}>
           {links.map((link) => {
             const Icon = link.icon;
             const isActive = location.pathname === link.path;

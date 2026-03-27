@@ -3,7 +3,7 @@ import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function BackupPage() {
@@ -11,6 +11,8 @@ export default function BackupPage() {
   const [loading, setLoading] = useState(true);
   const [triggerLoading, setTriggerLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   useEffect(() => {
     loadStatus();
@@ -69,6 +71,22 @@ export default function BackupPage() {
       toast.error('Failed to download backup');
     } finally {
       setDownloadLoading(false);
+    }
+  };
+
+  const resetData = async () => {
+    setResetLoading(true);
+    try {
+      const response = await api.post('/api/admin/reset-data');
+      if (response.data.success) {
+        toast.success('All test data cleared! Ready for production.');
+        setShowResetConfirm(false);
+      }
+    } catch (error) {
+      console.error('Failed to reset data:', error);
+      toast.error(error.response?.data?.detail || 'Failed to reset data');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -212,6 +230,65 @@ export default function BackupPage() {
                 </span>
               ))}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Reset Data Section */}
+        <Card className="border-red-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-700">
+              <Trash2 className="h-5 w-5" />
+              Reset Data for Production
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Clear all test data before going live. This will delete all business data but keep admin accounts.
+            </p>
+            
+            {!showResetConfirm ? (
+              <Button 
+                onClick={() => setShowResetConfirm(true)}
+                variant="outline"
+                className="border-red-300 text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Reset All Data
+              </Button>
+            ) : (
+              <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3">
+                <p className="text-red-800 font-medium">
+                  Are you sure? This will permanently delete:
+                </p>
+                <ul className="text-sm text-red-700 list-disc pl-5 space-y-1">
+                  <li>All products, farmers, procurements</li>
+                  <li>All QC orders, dispatches, invoices, GRN</li>
+                  <li>All retailer orders, payments, rejections</li>
+                  <li>All stock status, expenses</li>
+                  <li>Non-admin user accounts</li>
+                </ul>
+                <div className="flex gap-2 pt-2">
+                  <Button 
+                    onClick={resetData}
+                    disabled={resetLoading}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    {resetLoading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    )}
+                    Yes, Delete Everything
+                  </Button>
+                  <Button 
+                    onClick={() => setShowResetConfirm(false)}
+                    variant="outline"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

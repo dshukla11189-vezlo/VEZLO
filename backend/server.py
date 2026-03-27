@@ -3527,6 +3527,38 @@ async def get_backup_status(current_user: dict = Depends(get_current_user)):
         ]
     }
 
+@api_router.post("/admin/reset-data")
+async def reset_all_data(current_user: dict = Depends(get_current_user)):
+    """
+    Reset all data for production - keeps only admin user.
+    USE WITH CAUTION - This deletes ALL business data!
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can reset data")
+    
+    collections_to_clear = [
+        "products", "farmers", "procurements",
+        "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
+        "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+        "retailer_grn", "retailer_rejections", "retailer_payments",
+        "daily_stock_status", "variable_expenses", "fixed_expenses"
+    ]
+    
+    deleted_counts = {}
+    for coll_name in collections_to_clear:
+        result = await db[coll_name].delete_many({})
+        deleted_counts[coll_name] = result.deleted_count
+    
+    # Delete non-admin users (keep admin accounts)
+    users_deleted = await db.users.delete_many({"role": {"$ne": "admin"}})
+    deleted_counts["users (non-admin)"] = users_deleted.deleted_count
+    
+    return {
+        "success": True,
+        "message": "All test data cleared. Ready for production!",
+        "deleted": deleted_counts
+    }
+
 # Include router
 app.include_router(api_router)
 

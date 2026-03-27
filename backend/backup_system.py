@@ -259,10 +259,47 @@ async def generate_pnl_daily_report(db) -> list:
 
 
 async def generate_pnl_product_report(db) -> list:
-    """Generate P&L product-level detail data (Customer -> Product breakdown)"""
+    """Generate P&L product-level detail data (Customer -> Product breakdown) with all calculated fields"""
     today = datetime.now(timezone.utc)
     from_date = today.replace(day=1).strftime("%Y-%m-%d")
     to_date = today.strftime("%Y-%m-%d")
+    
+    # First, get purchase prices per product (COGS rate)
+    procurements = await db.procurements.find({
+        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    product_purchase = {}  # {product_name: {total_amount, total_qty}}
+    for proc in procurements:
+        for item in proc.get("products", []):
+            product_name = item.get("name", "Unknown")
+            if product_name not in product_purchase:
+                product_purchase[product_name] = {"amount": 0, "qty": 0}
+            product_purchase[product_name]["amount"] += item.get("total", 0) or 0
+            product_purchase[product_name]["qty"] += item.get("quantity", 0) or 0
+    
+    # Calculate COGS rate per product (purchase price per kg)
+    cogs_rate = {}
+    for product, data in product_purchase.items():
+        if data["qty"] > 0:
+            cogs_rate[product] = data["amount"] / data["qty"]
+        else:
+            cogs_rate[product] = 0
+    
+    # Get wastage data per product
+    stock_status = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date},
+        "status": "closed"
+    }, {"_id": 0}).to_list(1000)
+    
+    product_wastage = {}  # {product_name: {wastage_qty, wastage_value}}
+    product_sales_qty = {}  # {product_name: total_sales_qty}
+    for status in stock_status:
+        product_name = status.get("product_name", "Unknown")
+        if product_name not in product_wastage:
+            product_wastage[product_name] = {"qty": 0, "value": 0}
+        product_wastage[product_name]["qty"] += status.get("wastage_qty", 0) or 0
+        product_wastage[product_name]["value"] += status.get("wastage_value", 0) or 0
     
     product_data = []
     
@@ -271,49 +308,136 @@ async def generate_pnl_product_report(db) -> list:
         "grn_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
     }, {"_id": 0}).to_list(1000)
     
+    # First pass - calculate total sales qty per product for wastage allocation
+    for grn in qc_grns:
+        for item in grn.get("items", []):
+            product_name = item.get("product_name", "Unknown")
+            qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
+            if product_name not in product_sales_qty:
+                product_sales_qty[product_name] = 0
+            product_sales_qty[product_name] += qty
+    
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for dispatch in retailer_dispatches:
+        for item in dispatch.get("items", []):
+            product_name = item.get("product_name", "Unknown")
+            qty = item.get("supplied_qty", 0) or 0
+            if product_name not in product_sales_qty:
+                product_sales_qty[product_name] = 0
+            product_sales_qty[product_name] += qty
+    
+    # Calculate wastage rate per product (wastage_value / total_sales_qty)
+    wastage_rate = {}
+    for product, total_qty in product_sales_qty.items():
+        if total_qty > 0 and product in product_wastage:
+            wastage_rate[product] = product_wastage[product]["value"] / total_qty
+        else:
+            wastage_rate[product] = 0
+    
+    # Second pass - generate line items with all calculated fields
     for grn in qc_grns:
         customer = grn.get("customer_name", "Unknown")
         grn_date = grn.get("grn_date", "")[:10]
         
         for item in grn.get("items", []):
+            product_name = item.get("product_name", "Unknown")
+            supplied_qty = item.get("supplied_qty", 0) or 0
+            grn_qty = item.get("grn_qty", 0) or supplied_qty
+            revenue = item.get("grn_amount", 0) or item.get("amount", 0) or 0
+            rate_per_kg = item.get("rate_per_kg", 0) or 0
+            rate_per_unit = item.get("rate_per_unit", 0) or 0
+            packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
+            
+            # Calculate supplied_kg
+            supplied_kg = grn_qty
+            if packaging_weight_gm > 0:
+                supplied_kg = (grn_qty * packaging_weight_gm) / 1000
+            
+            # Calculate COGS
+            product_cogs_rate = cogs_rate.get(product_name, 0)
+            cogs = supplied_kg * product_cogs_rate
+            
+            # Calculate wastage allocation
+            product_wastage_rate = wastage_rate.get(product_name, 0)
+            wastage_value = grn_qty * product_wastage_rate
+            wastage_kg = supplied_kg * (product_wastage_rate / product_cogs_rate) if product_cogs_rate > 0 else 0
+            
+            # Calculate profits and margins
+            gross_profit = revenue - cogs - wastage_value
+            gross_margin = (gross_profit / revenue * 100) if revenue > 0 else 0
+            selling_price_per_kg = (revenue / supplied_kg) if supplied_kg > 0 else 0
+            profit_per_qty = (gross_profit / grn_qty) if grn_qty > 0 else 0
+            
             product_data.append({
                 "Date": grn_date,
                 "Customer": customer,
                 "Customer_Type": "QC",
-                "Product": item.get("product_name", "Unknown"),
+                "Product": product_name,
                 "Unit": item.get("packaging_name", "") or item.get("product_unit", "Kg"),
-                "Supplied_Qty": item.get("supplied_qty", 0) or 0,
-                "GRN_Qty": item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0,
-                "Rate_Per_Kg": item.get("rate_per_kg", 0) or 0,
-                "Rate_Per_Unit": item.get("rate_per_unit", 0) or 0,
-                "Revenue": item.get("grn_amount", 0) or item.get("amount", 0) or 0
+                "Supplied_Qty": round(supplied_qty, 2),
+                "Supplied_Kg": round(supplied_kg, 3),
+                "Revenue": round(revenue, 2),
+                "COGS": round(cogs, 2),
+                "Wastage_Kg": round(wastage_kg, 3),
+                "Wastage_Value": round(wastage_value, 2),
+                "Gross_Profit": round(gross_profit, 2),
+                "SP_Per_Kg": round(selling_price_per_kg, 2),
+                "PP_Per_Kg": round(product_cogs_rate, 2),
+                "Gross_Margin_%": round(gross_margin, 1),
+                "Profit_Per_Qty": round(profit_per_qty, 2)
             })
     
     # Retailer Dispatch line items
-    retailer_dispatches = await db.retailer_dispatches.find({
-        "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(1000)
-    
     for dispatch in retailer_dispatches:
         customer = dispatch.get("retailer_name", "Unknown")
         dispatch_date = dispatch.get("dispatch_date", "")[:10]
         commission_pct = dispatch.get("commission_percentage", 0) or 0
         
         for item in dispatch.get("items", []):
+            product_name = item.get("product_name", "Unknown")
+            supplied_qty = item.get("supplied_qty", 0) or 0
             item_value = item.get("total_value", 0) or 0
-            net_value = item_value * (1 - commission_pct / 100)
+            revenue = item_value * (1 - commission_pct / 100)
+            mrp = item.get("mrp", 0) or 0
+            
+            # For retailers, qty is usually in kg
+            supplied_kg = supplied_qty
+            
+            # Calculate COGS
+            product_cogs_rate = cogs_rate.get(product_name, 0)
+            cogs = supplied_kg * product_cogs_rate
+            
+            # Calculate wastage allocation
+            product_wastage_rate = wastage_rate.get(product_name, 0)
+            wastage_value = supplied_qty * product_wastage_rate
+            wastage_kg = supplied_kg * (product_wastage_rate / product_cogs_rate) if product_cogs_rate > 0 else 0
+            
+            # Calculate profits and margins
+            gross_profit = revenue - cogs - wastage_value
+            gross_margin = (gross_profit / revenue * 100) if revenue > 0 else 0
+            selling_price_per_kg = (revenue / supplied_kg) if supplied_kg > 0 else 0
+            profit_per_qty = (gross_profit / supplied_qty) if supplied_qty > 0 else 0
             
             product_data.append({
                 "Date": dispatch_date,
                 "Customer": customer,
                 "Customer_Type": "Retail",
-                "Product": item.get("product_name", "Unknown"),
+                "Product": product_name,
                 "Unit": item.get("variant_name", "") or "Kg",
-                "Supplied_Qty": item.get("supplied_qty", 0) or 0,
-                "GRN_Qty": item.get("supplied_qty", 0) or 0,
-                "Rate_Per_Kg": item.get("mrp", 0) or 0,
-                "Rate_Per_Unit": item.get("mrp", 0) or 0,
-                "Revenue": round(net_value, 2)
+                "Supplied_Qty": round(supplied_qty, 2),
+                "Supplied_Kg": round(supplied_kg, 3),
+                "Revenue": round(revenue, 2),
+                "COGS": round(cogs, 2),
+                "Wastage_Kg": round(wastage_kg, 3),
+                "Wastage_Value": round(wastage_value, 2),
+                "Gross_Profit": round(gross_profit, 2),
+                "SP_Per_Kg": round(selling_price_per_kg, 2),
+                "PP_Per_Kg": round(product_cogs_rate, 2),
+                "Gross_Margin_%": round(gross_margin, 1),
+                "Profit_Per_Qty": round(profit_per_qty, 2)
             })
     
     return product_data

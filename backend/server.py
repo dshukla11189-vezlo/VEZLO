@@ -1500,13 +1500,26 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
         # Note: Procurement uses 'products' field, not 'items'
         for item in proc.get("products", []):
             product_id = item.get("product_id")
-            qty = item.get("quantity", 0)  # in Kg
-            rate = item.get("rate", 0)
-            value = qty * rate
+            qty = item.get("quantity", 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")  # e.g., "350" for 350gm per bunch
+            rate = item.get("rate", 0)  # rate per unit (per Kg or per Bunch)
+            total_value = item.get("total", qty * rate)
+            
+            # Convert to Kg if unit is Bunch/Piece with a unit_size (weight in grams)
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    weight_per_unit_gm = float(unit_size)  # grams per bunch/piece
+                    qty_kg = (qty * weight_per_unit_gm) / 1000  # convert to Kg
+                except (ValueError, TypeError):
+                    qty_kg = qty  # fallback if unit_size is not a number
+            else:
+                qty_kg = qty  # already in Kg
+            
             if product_id not in purchases_by_product:
                 purchases_by_product[product_id] = {"qty": 0, "value": 0}
-            purchases_by_product[product_id]["qty"] += qty
-            purchases_by_product[product_id]["value"] += value
+            purchases_by_product[product_id]["qty"] += qty_kg
+            purchases_by_product[product_id]["value"] += total_value
     
     # Get today's QC dispatches
     qc_dispatches = await db.qc_dispatches.find({

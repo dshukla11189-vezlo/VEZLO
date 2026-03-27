@@ -1590,10 +1590,33 @@ async def get_today_summary(current_user: dict = Depends(get_current_user)):
             product_sales[product_name]["qty"] += qty
             product_sales[product_name]["amount"] += amount
     
-    # Pending indents (not fully dispatched)
-    pending_indents = await db.qc_indents.count_documents({
+    # Today's Retailer Dispatches
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$regex": f"^{today}"}
+    }, {"_id": 0}).to_list(500)
+    
+    today_retailer_dispatch_count = len(retailer_dispatches)
+    today_retailer_value = sum(d.get('net_payable', 0) or 0 for d in retailer_dispatches)
+    
+    # Add retailer products to top products
+    for d in retailer_dispatches:
+        for item in d.get('items', []):
+            qty = item.get('supplied_qty', 0) or 0
+            amount = item.get('total_value', 0) or 0
+            product_name = item.get('product_name', 'Unknown')
+            if product_name not in product_sales:
+                product_sales[product_name] = {"qty": 0, "amount": 0}
+            product_sales[product_name]["qty"] += qty
+            product_sales[product_name]["amount"] += amount
+    
+    # Pending indents (QC + Retailer)
+    pending_qc_indents = await db.qc_indents.count_documents({
         "status": {"$in": ["pending", "partial"]}
     })
+    pending_retailer_indents = await db.retailer_indents.count_documents({
+        "status": {"$in": ["pending", "partial"]}
+    })
+    pending_indents = pending_qc_indents + pending_retailer_indents
     
     # Today's procurements
     procurements = await db.procurements.find({
@@ -1656,11 +1679,6 @@ async def get_pnl_report(
     if not to_date:
         to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
-    # ========== SALES (from QC Invoices) ==========
-    invoices = await db.qc_invoices.find({
-        "invoice_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(1000)
-    
     # Sales by customer
     sales_by_customer = {}
     sales_by_date = {}
@@ -1670,28 +1688,34 @@ async def get_pnl_report(
     total_sales = 0
     total_sales_qty = 0
     
-    for inv in invoices:
-        customer = inv.get("customer_name", "Unknown")
-        inv_date = inv.get("invoice_date", "")[:10]
+    # ========== QC SALES (from GRN - actual received values) ==========
+    qc_grns = await db.qc_grns.find({
+        "grn_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for grn in qc_grns:
+        customer = grn.get("customer_name", "Unknown")
+        grn_date = grn.get("grn_date", "")[:10]
         
         if customer not in sales_by_customer:
-            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0}
-        if inv_date not in sales_by_date:
-            sales_by_date[inv_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
-        if inv_date not in product_by_date:
-            product_by_date[inv_date] = {}
+            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
+        if grn_date not in sales_by_date:
+            sales_by_date[grn_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+        if grn_date not in product_by_date:
+            product_by_date[grn_date] = {}
         
-        for item in inv.get("items", []):
-            amount = item.get("amount", 0) or 0
-            qty = item.get("supplied_qty", 0) or 0
+        for item in grn.get("items", []):
+            # Use GRN amount (actual received value)
+            amount = item.get("grn_amount", 0) or item.get("amount", 0) or 0
+            qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
             product = item.get("product_name", "Unknown")
             
             total_sales += amount
             total_sales_qty += qty
             sales_by_customer[customer]["amount"] += amount
             sales_by_customer[customer]["qty"] += qty
-            sales_by_date[inv_date]["sales"] += amount
-            sales_by_date[inv_date]["sales_qty"] += qty
+            sales_by_date[grn_date]["sales"] += amount
+            sales_by_date[grn_date]["sales_qty"] += qty
             
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
@@ -1699,16 +1723,68 @@ async def get_pnl_report(
             sales_by_product[product]["sales_qty"] += qty
             
             # Product breakdown per date with customer tracking
-            if product not in product_by_date[inv_date]:
-                product_by_date[inv_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
-            product_by_date[inv_date][product]["sales"] += amount
-            product_by_date[inv_date][product]["sales_qty"] += qty
+            if product not in product_by_date[grn_date]:
+                product_by_date[grn_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+            product_by_date[grn_date][product]["sales"] += amount
+            product_by_date[grn_date][product]["sales_qty"] += qty
             # Track sales by customer for this product on this date
-            if customer not in product_by_date[inv_date][product]["customers"]:
-                product_by_date[inv_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
-            product_by_date[inv_date][product]["customers"][customer]["sales"] += amount
-            product_by_date[inv_date][product]["customers"][customer]["qty"] += qty
+            if customer not in product_by_date[grn_date][product]["customers"]:
+                product_by_date[grn_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
+            product_by_date[grn_date][product]["customers"][customer]["sales"] += amount
+            product_by_date[grn_date][product]["customers"][customer]["qty"] += qty
         
+        sales_by_customer[customer]["invoices"] += 1
+    
+    # ========== RETAILER SALES (from Retailer Dispatches - net_payable) ==========
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for dispatch in retailer_dispatches:
+        customer = dispatch.get("retailer_name", "Unknown") + " (Retail)"
+        dispatch_date = dispatch.get("dispatch_date", "")[:10]
+        # Use net_payable (after commission deduction) as the actual sales value
+        net_payable = dispatch.get("net_payable", 0) or 0
+        
+        if customer not in sales_by_customer:
+            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail"}
+        if dispatch_date not in sales_by_date:
+            sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+        if dispatch_date not in product_by_date:
+            product_by_date[dispatch_date] = {}
+        
+        dispatch_qty = 0
+        for item in dispatch.get("items", []):
+            qty = item.get("supplied_qty", 0) or 0
+            product = item.get("product_name", "Unknown")
+            item_value = item.get("total_value", 0) or 0
+            # Calculate proportional net value after commission
+            commission_pct = dispatch.get("commission_percentage", 0) or 0
+            item_net_value = item_value * (1 - commission_pct / 100)
+            
+            dispatch_qty += qty
+            
+            if product not in sales_by_product:
+                sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
+            sales_by_product[product]["sales_amount"] += item_net_value
+            sales_by_product[product]["sales_qty"] += qty
+            
+            # Product breakdown per date with customer tracking
+            if product not in product_by_date[dispatch_date]:
+                product_by_date[dispatch_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+            product_by_date[dispatch_date][product]["sales"] += item_net_value
+            product_by_date[dispatch_date][product]["sales_qty"] += qty
+            if customer not in product_by_date[dispatch_date][product]["customers"]:
+                product_by_date[dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
+            product_by_date[dispatch_date][product]["customers"][customer]["sales"] += item_net_value
+            product_by_date[dispatch_date][product]["customers"][customer]["qty"] += qty
+        
+        total_sales += net_payable
+        total_sales_qty += dispatch_qty
+        sales_by_customer[customer]["amount"] += net_payable
+        sales_by_customer[customer]["qty"] += dispatch_qty
+        sales_by_date[dispatch_date]["sales"] += net_payable
+        sales_by_date[dispatch_date]["sales_qty"] += dispatch_qty
         sales_by_customer[customer]["invoices"] += 1
     
     # ========== PURCHASES (from Procurements) ==========

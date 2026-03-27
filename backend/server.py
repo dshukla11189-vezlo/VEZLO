@@ -756,13 +756,30 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             best_match = None
             best_match_score = 0
             
+            # Variant/color words that MUST match exactly if present in product name
+            variant_words = {'red', 'green', 'yellow', 'white', 'black', 'purple', 'orange', 
+                           'small', 'large', 'big', 'baby', 'mini', 'jumbo', 'local', 'hybrid',
+                           'english', 'indian', 'desi', 'organic', 'fresh'}
+            
             for csv_row in csv_rows:
                 sku_name = csv_row['sku_name'].lower()
                 sku_name_original = csv_row['sku_name']
                 
                 # Check product name match - ALL significant words of product must be in SKU
-                product_words = [w for w in product_name.split() if len(w) > 2]  # Skip short words
+                product_words = [w.lower() for w in product_name.split() if len(w) > 2]  # Skip short words
                 sku_words = sku_name.replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
+                
+                # STRICT CHECK: If product has variant words, they MUST be in SKU
+                product_variants = [w for w in product_words if w in variant_words]
+                if product_variants:
+                    # Check each variant word is present in SKU
+                    variant_match = all(
+                        any(pv in sw or sw in pv for sw in sku_words) 
+                        for pv in product_variants
+                    )
+                    if not variant_match:
+                        # Variant word missing from SKU - skip this match
+                        continue
                 
                 # Count how many product words match in SKU
                 match_count = sum(1 for pw in product_words if any(pw in sw or sw in pw for sw in sku_words))
@@ -774,8 +791,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 # Calculate match score (higher is better)
                 match_score = match_count / len(product_words) if product_words else 0
                 
-                # If product has multiple words (e.g., "Amaranthus Red"), require majority to match
-                if len(product_words) > 1 and match_score < 0.5:
+                # If product has multiple words, require ALL to match (100%)
+                if len(product_words) > 1 and match_score < 1.0:
                     continue
                 
                 # Detect SKU pricing type from SKU name: (Kg)/(Kgs) = Kg-based, (PCS) = piece-based

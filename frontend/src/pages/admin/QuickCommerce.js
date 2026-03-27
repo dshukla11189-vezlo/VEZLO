@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload, Check, Pencil, X } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
@@ -31,6 +31,12 @@ export default function QuickCommerce() {
   const [grnMatchedItems, setGrnMatchedItems] = useState([]);    // Matched items from CSV upload
   const [uploadingGrn, setUploadingGrn] = useState(false);
   const [grnUploadResult, setGrnUploadResult] = useState(null);
+  const [editingGrnItem, setEditingGrnItem] = useState(null);    // For inline GRN editing
+  const [grnFilters, setGrnFilters] = useState({
+    fromDate: '',
+    toDate: '',
+    productName: ''
+  });
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -1251,6 +1257,92 @@ export default function QuickCommerce() {
       toast.error('Failed to delete GRN');
     }
   };
+
+  // GRN Item Edit/Delete handlers (for matched items before saving)
+  const handleEditGrnItem = (index) => {
+    setEditingGrnItem(index);
+  };
+
+  const handleUpdateGrnItem = (index, field, value) => {
+    setGrnMatchedItems(prev => {
+      const updated = [...prev];
+      const item = { ...updated[index] };
+      
+      // Update the field
+      if (field === 'grn_qty') {
+        const grnQty = parseFloat(value) || 0;
+        item.grn_qty = grnQty;
+        item.difference = grnQty - item.supplied_qty;
+        
+        // Recalculate amount and loss/gain
+        if (item.rate_type === 'per_kg' && item.packaging_weight_gm > 0) {
+          // For Kg-based: grn_qty is in units, convert to Kg for amount
+          const grnKg = (grnQty * item.packaging_weight_gm) / 1000;
+          item.grn_qty_kg = grnKg;
+          item.amount = grnKg * (item.rate_per_kg || 0);
+          const diffKg = (item.difference * item.packaging_weight_gm) / 1000;
+          item.loss_gain_amount = diffKg * (item.rate_per_kg || 0);
+        } else {
+          item.amount = grnQty * (item.rate_per_unit || 0);
+          item.loss_gain_amount = item.difference * (item.rate_per_unit || 0);
+        }
+      } else if (field === 'rate_per_unit') {
+        const rate = parseFloat(value) || 0;
+        item.rate_per_unit = rate;
+        if (item.rate_type === 'per_kg') {
+          // Update rate_per_kg based on packaging weight
+          item.rate_per_kg = item.packaging_weight_gm > 0 ? (rate * 1000) / item.packaging_weight_gm : rate;
+          const grnKg = item.grn_qty_kg || ((item.grn_qty * item.packaging_weight_gm) / 1000);
+          item.amount = grnKg * item.rate_per_kg;
+          const diffKg = (item.difference * item.packaging_weight_gm) / 1000;
+          item.loss_gain_amount = diffKg * item.rate_per_kg;
+        } else {
+          item.amount = item.grn_qty * rate;
+          item.loss_gain_amount = item.difference * rate;
+        }
+      } else if (field === 'rate_per_kg') {
+        const rateKg = parseFloat(value) || 0;
+        item.rate_per_kg = rateKg;
+        item.rate_per_unit = item.packaging_weight_gm > 0 ? (rateKg * item.packaging_weight_gm) / 1000 : rateKg;
+        const grnKg = item.grn_qty_kg || ((item.grn_qty * item.packaging_weight_gm) / 1000);
+        item.amount = grnKg * rateKg;
+        const diffKg = (item.difference * item.packaging_weight_gm) / 1000;
+        item.loss_gain_amount = diffKg * rateKg;
+      }
+      
+      updated[index] = item;
+      return updated;
+    });
+  };
+
+  const handleSaveGrnItemEdit = () => {
+    setEditingGrnItem(null);
+    toast.success('Item updated');
+  };
+
+  const handleDeleteGrnItem = (index) => {
+    if (!window.confirm('Remove this item from GRN?')) return;
+    setGrnMatchedItems(prev => prev.filter((_, i) => i !== index));
+    toast.success('Item removed');
+  };
+
+  // Filter GRN matched items
+  const filteredGrnItems = grnMatchedItems.filter(item => {
+    // Date filter
+    if (grnFilters.fromDate) {
+      const itemDate = item.dispatch_date;
+      if (itemDate < grnFilters.fromDate) return false;
+    }
+    if (grnFilters.toDate) {
+      const itemDate = item.dispatch_date;
+      if (itemDate > grnFilters.toDate) return false;
+    }
+    // Product filter
+    if (grnFilters.productName) {
+      if (!item.product_name?.toLowerCase().includes(grnFilters.productName.toLowerCase())) return false;
+    }
+    return true;
+  });
 
   // Export GRN to CSV
   const exportGrnToCsv = (items) => {
@@ -2639,6 +2731,51 @@ export default function QuickCommerce() {
               {/* GRN Matched Items Table (from CSV upload) */}
               {grnMatchedItems.length > 0 && (
                 <div className="mb-6">
+                  {/* Filters */}
+                  <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">From:</Label>
+                      <Input
+                        type="date"
+                        value={grnFilters.fromDate}
+                        onChange={(e) => setGrnFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                        className="w-36 h-8"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">To:</Label>
+                      <Input
+                        type="date"
+                        value={grnFilters.toDate}
+                        onChange={(e) => setGrnFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                        className="w-36 h-8"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">Product:</Label>
+                      <Input
+                        type="text"
+                        placeholder="Filter by product..."
+                        value={grnFilters.productName}
+                        onChange={(e) => setGrnFilters(prev => ({ ...prev, productName: e.target.value }))}
+                        className="w-40 h-8"
+                      />
+                    </div>
+                    {(grnFilters.fromDate || grnFilters.toDate || grnFilters.productName) && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setGrnFilters({ fromDate: '', toDate: '', productName: '' })}
+                        className="h-8"
+                      >
+                        <X size={14} className="mr-1" /> Clear
+                      </Button>
+                    )}
+                    <span className="text-xs text-gray-500 ml-auto">
+                      Showing {filteredGrnItems.length} of {grnMatchedItems.length} items
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-semibold text-sm text-green-700">Matched Items from CSV</h4>
                   </div>
@@ -2656,16 +2793,18 @@ export default function QuickCommerce() {
                           <th className="text-right">RATE</th>
                           <th className="text-right">AMOUNT (₹)</th>
                           <th className="text-right">LOSS/GAIN (₹)</th>
+                          <th className="text-center">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {grnMatchedItems.map((item, idx) => {
-                          // Use loss_gain_amount from backend if available, otherwise calculate
+                        {filteredGrnItems.map((item, idx) => {
+                          const originalIndex = grnMatchedItems.indexOf(item);
+                          const isEditing = editingGrnItem === originalIndex;
                           const lossGain = item.loss_gain_amount !== undefined 
                             ? item.loss_gain_amount 
                             : (item.difference || 0) * (item.rate_per_unit || 0);
                           return (
-                            <tr key={idx}>
+                            <tr key={idx} className={isEditing ? 'bg-yellow-50' : ''}>
                               <td>{item.dispatch_date}</td>
                               <td className="font-medium text-[#14532D]">Ninjacart</td>
                               <td className="font-medium">
@@ -2678,20 +2817,57 @@ export default function QuickCommerce() {
                               </td>
                               <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                               <td className="text-right">{item.supplied_qty}</td>
-                              <td className="text-right font-semibold">{item.grn_qty}</td>
+                              <td className="text-right font-semibold">
+                                {isEditing ? (
+                                  <Input
+                                    type="number"
+                                    value={item.grn_qty}
+                                    onChange={(e) => handleUpdateGrnItem(originalIndex, 'grn_qty', e.target.value)}
+                                    className="w-20 h-7 text-right"
+                                  />
+                                ) : item.grn_qty}
+                              </td>
                               <td className="text-right">
                                 <span className={`font-bold ${
                                   item.difference > 0 ? 'text-green-600' : 
                                   item.difference < 0 ? 'text-red-600' : 'text-gray-600'
                                 }`}>
-                                  {item.difference > 0 ? '+' : ''}{item.difference}
+                                  {item.difference > 0 ? '+' : ''}{item.difference?.toFixed(2)}
                                 </span>
                               </td>
                               <td className="text-right">
-                                {item.rate_per_kg ? (
-                                  <span>₹{item.rate_per_kg?.toFixed(2)}/Kg</span>
+                                {isEditing ? (
+                                  item.rate_per_kg ? (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <span>₹</span>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={item.rate_per_kg}
+                                        onChange={(e) => handleUpdateGrnItem(originalIndex, 'rate_per_kg', e.target.value)}
+                                        className="w-16 h-7 text-right"
+                                      />
+                                      <span>/Kg</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <span>₹</span>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={item.rate_per_unit}
+                                        onChange={(e) => handleUpdateGrnItem(originalIndex, 'rate_per_unit', e.target.value)}
+                                        className="w-16 h-7 text-right"
+                                      />
+                                      <span>/Pc</span>
+                                    </div>
+                                  )
                                 ) : (
-                                  <span>₹{item.rate_per_unit?.toFixed(2)}/Pc</span>
+                                  item.rate_per_kg ? (
+                                    <span>₹{item.rate_per_kg?.toFixed(2)}/Kg</span>
+                                  ) : (
+                                    <span>₹{item.rate_per_unit?.toFixed(2)}/Pc</span>
+                                  )
                                 )}
                               </td>
                               <td className="text-right font-semibold">₹{item.amount?.toFixed(2)}</td>
@@ -2703,6 +2879,22 @@ export default function QuickCommerce() {
                                   {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(2)}
                                 </span>
                               </td>
+                              <td className="text-center">
+                                {isEditing ? (
+                                  <Button size="sm" variant="ghost" onClick={handleSaveGrnItemEdit} className="h-7 px-2 text-green-600">
+                                    <Check size={14} />
+                                  </Button>
+                                ) : (
+                                  <div className="flex items-center justify-center gap-1">
+                                    <Button size="sm" variant="ghost" onClick={() => handleEditGrnItem(originalIndex)} className="h-7 px-2 text-blue-600">
+                                      <Pencil size={14} />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => handleDeleteGrnItem(originalIndex)} className="h-7 px-2 text-red-600">
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  </div>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
@@ -2710,23 +2902,22 @@ export default function QuickCommerce() {
                       <tfoot>
                         <tr className="bg-gray-50">
                           <td colSpan={4} className="font-semibold">Totals:</td>
-                          <td className="text-right font-bold">{grnMatchedItems.reduce((sum, i) => sum + i.supplied_qty, 0)}</td>
-                          <td className="text-right font-bold">{grnMatchedItems.reduce((sum, i) => sum + i.grn_qty, 0).toFixed(2)}</td>
+                          <td className="text-right font-bold">{filteredGrnItems.reduce((sum, i) => sum + i.supplied_qty, 0)}</td>
+                          <td className="text-right font-bold">{filteredGrnItems.reduce((sum, i) => sum + i.grn_qty, 0).toFixed(2)}</td>
                           <td className="text-right">
                             <span className={`font-bold ${
-                              grnMatchedItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? 'text-green-600' : 
-                              grnMatchedItems.reduce((sum, i) => sum + i.difference, 0) < 0 ? 'text-red-600' : 'text-gray-600'
+                              filteredGrnItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? 'text-green-600' : 
+                              filteredGrnItems.reduce((sum, i) => sum + i.difference, 0) < 0 ? 'text-red-600' : 'text-gray-600'
                             }`}>
-                              {grnMatchedItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? '+' : ''}
-                              {grnMatchedItems.reduce((sum, i) => sum + i.difference, 0).toFixed(2)}
+                              {filteredGrnItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? '+' : ''}
+                              {filteredGrnItems.reduce((sum, i) => sum + i.difference, 0).toFixed(2)}
                             </span>
                           </td>
                           <td className="text-right">-</td>
-                          <td className="text-right font-bold">₹{grnMatchedItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(2)}</td>
+                          <td className="text-right font-bold">₹{filteredGrnItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(2)}</td>
                           <td className="text-right">
                             {(() => {
-                              const totalLossGain = grnMatchedItems.reduce((sum, i) => {
-                                // Use loss_gain_amount from backend if available
+                              const totalLossGain = filteredGrnItems.reduce((sum, i) => {
                                 const itemLossGain = i.loss_gain_amount !== undefined 
                                   ? i.loss_gain_amount 
                                   : (i.difference || 0) * (i.rate_per_unit || 0);
@@ -2739,6 +2930,7 @@ export default function QuickCommerce() {
                               );
                             })()}
                           </td>
+                          <td></td>
                         </tr>
                       </tfoot>
                     </table>

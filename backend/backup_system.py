@@ -50,12 +50,46 @@ SENSITIVE_FIELDS = ["password", "refresh_token", "access_token"]
 
 
 async def generate_backup_excel(db) -> bytes:
-    """Generate Excel file with all collections data"""
+    """Generate Excel file with all collections data plus P&L reports"""
     
     # Create Excel writer in memory
     output = io.BytesIO()
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # First, add P&L Daily Summary sheet
+        try:
+            pnl_daily = await generate_pnl_daily_report(db)
+            if pnl_daily:
+                df_pnl = pd.DataFrame(pnl_daily)
+                df_pnl.to_excel(writer, sheet_name="PNL_Daily_Summary", index=False)
+                logger.info(f"Exported {len(pnl_daily)} days of P&L data")
+        except Exception as e:
+            logger.error(f"Error exporting P&L Daily: {e}")
+            pd.DataFrame({"error": [str(e)]}).to_excel(writer, sheet_name="ERR_PNL_Daily", index=False)
+        
+        # Add P&L Product-Level breakdown sheet
+        try:
+            pnl_products = await generate_pnl_product_report(db)
+            if pnl_products:
+                df_products = pd.DataFrame(pnl_products)
+                df_products.to_excel(writer, sheet_name="PNL_Product_Detail", index=False)
+                logger.info(f"Exported {len(pnl_products)} product line items")
+        except Exception as e:
+            logger.error(f"Error exporting P&L Products: {e}")
+            pd.DataFrame({"error": [str(e)]}).to_excel(writer, sheet_name="ERR_PNL_Products", index=False)
+        
+        # Add Stock Status Summary sheet (processed view)
+        try:
+            stock_summary = await generate_stock_status_report(db)
+            if stock_summary:
+                df_stock = pd.DataFrame(stock_summary)
+                df_stock.to_excel(writer, sheet_name="Stock_Status_Summary", index=False)
+                logger.info(f"Exported {len(stock_summary)} stock status records")
+        except Exception as e:
+            logger.error(f"Error exporting Stock Summary: {e}")
+            pd.DataFrame({"error": [str(e)]}).to_excel(writer, sheet_name="ERR_Stock_Summary", index=False)
+        
+        # Export all raw collections
         for collection_name in COLLECTIONS_TO_BACKUP:
             try:
                 # Fetch all documents from collection
@@ -94,6 +128,226 @@ async def generate_backup_excel(db) -> bytes:
     
     output.seek(0)
     return output.getvalue()
+
+
+async def generate_pnl_daily_report(db) -> list:
+    """Generate P&L daily summary data"""
+    # Get current month date range
+    today = datetime.now(timezone.utc)
+    from_date = today.replace(day=1).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+    
+    daily_data = []
+    
+    # Aggregate sales by date from QC GRN
+    qc_grns = await db.qc_grns.find({
+        "grn_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    sales_by_date = {}
+    for grn in qc_grns:
+        grn_date = grn.get("grn_date", "")[:10]
+        if grn_date not in sales_by_date:
+            sales_by_date[grn_date] = {"qc_sales": 0, "qc_qty": 0, "retailer_sales": 0, "retailer_qty": 0}
+        for item in grn.get("items", []):
+            amount = item.get("grn_amount", 0) or item.get("amount", 0) or 0
+            qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
+            sales_by_date[grn_date]["qc_sales"] += amount
+            sales_by_date[grn_date]["qc_qty"] += qty
+    
+    # Aggregate sales from Retailer Dispatches
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for dispatch in retailer_dispatches:
+        dispatch_date = dispatch.get("dispatch_date", "")[:10]
+        if dispatch_date not in sales_by_date:
+            sales_by_date[dispatch_date] = {"qc_sales": 0, "qc_qty": 0, "retailer_sales": 0, "retailer_qty": 0}
+        net_payable = dispatch.get("net_payable", 0) or 0
+        dispatch_qty = sum(item.get("supplied_qty", 0) or 0 for item in dispatch.get("items", []))
+        sales_by_date[dispatch_date]["retailer_sales"] += net_payable
+        sales_by_date[dispatch_date]["retailer_qty"] += dispatch_qty
+    
+    # Aggregate purchases by date
+    procurements = await db.procurements.find({
+        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    purchase_by_date = {}
+    for proc in procurements:
+        proc_date = proc.get("date", "")[:10]
+        if proc_date not in purchase_by_date:
+            purchase_by_date[proc_date] = {"amount": 0, "qty": 0}
+        for item in proc.get("products", []):
+            purchase_by_date[proc_date]["amount"] += item.get("total", 0) or 0
+            purchase_by_date[proc_date]["qty"] += item.get("quantity", 0) or 0
+    
+    # Aggregate wastage by date
+    stock_status = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date},
+        "status": "closed"
+    }, {"_id": 0}).to_list(1000)
+    
+    wastage_by_date = {}
+    for status in stock_status:
+        status_date = status.get("date", "")[:10]
+        if status_date not in wastage_by_date:
+            wastage_by_date[status_date] = 0
+        wastage_by_date[status_date] += status.get("wastage_value", 0) or 0
+    
+    # Aggregate expenses by date
+    var_expenses = await db.variable_expenses.find({
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(1000)
+    
+    var_exp_by_date = {}
+    for exp in var_expenses:
+        exp_date = exp.get("date", "")[:10]
+        if exp_date not in var_exp_by_date:
+            var_exp_by_date[exp_date] = 0
+        var_exp_by_date[exp_date] += exp.get("amount", 0) or 0
+    
+    fixed_expenses = await db.fixed_expenses.find({
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(1000)
+    
+    fixed_exp_by_date = {}
+    for exp in fixed_expenses:
+        exp_date = exp.get("date", "")[:10]
+        if exp_date not in fixed_exp_by_date:
+            fixed_exp_by_date[exp_date] = 0
+        fixed_exp_by_date[exp_date] += exp.get("amount", 0) or 0
+    
+    # Combine all dates
+    all_dates = set(sales_by_date.keys()) | set(purchase_by_date.keys()) | set(wastage_by_date.keys())
+    
+    for date_key in sorted(all_dates):
+        sales_data = sales_by_date.get(date_key, {"qc_sales": 0, "qc_qty": 0, "retailer_sales": 0, "retailer_qty": 0})
+        purchase_data = purchase_by_date.get(date_key, {"amount": 0, "qty": 0})
+        wastage = wastage_by_date.get(date_key, 0)
+        var_exp = var_exp_by_date.get(date_key, 0)
+        fixed_exp = fixed_exp_by_date.get(date_key, 0)
+        
+        total_sales = sales_data["qc_sales"] + sales_data["retailer_sales"]
+        total_qty = sales_data["qc_qty"] + sales_data["retailer_qty"]
+        gross_profit = total_sales - purchase_data["amount"] - wastage
+        net_profit = gross_profit - var_exp - fixed_exp
+        gross_margin = (gross_profit / total_sales * 100) if total_sales > 0 else 0
+        net_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
+        
+        daily_data.append({
+            "Date": date_key,
+            "QC_Sales": round(sales_data["qc_sales"], 2),
+            "QC_Qty": round(sales_data["qc_qty"], 2),
+            "Retailer_Sales": round(sales_data["retailer_sales"], 2),
+            "Retailer_Qty": round(sales_data["retailer_qty"], 2),
+            "Total_Sales": round(total_sales, 2),
+            "Total_Qty": round(total_qty, 2),
+            "Purchase_Cost": round(purchase_data["amount"], 2),
+            "Purchase_Qty": round(purchase_data["qty"], 2),
+            "Wastage_Value": round(wastage, 2),
+            "Variable_Expenses": round(var_exp, 2),
+            "Fixed_Expenses": round(fixed_exp, 2),
+            "Gross_Profit": round(gross_profit, 2),
+            "Gross_Margin_%": round(gross_margin, 1),
+            "Net_Profit": round(net_profit, 2),
+            "Net_Margin_%": round(net_margin, 1)
+        })
+    
+    return daily_data
+
+
+async def generate_pnl_product_report(db) -> list:
+    """Generate P&L product-level detail data (Customer -> Product breakdown)"""
+    today = datetime.now(timezone.utc)
+    from_date = today.replace(day=1).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+    
+    product_data = []
+    
+    # QC GRN line items
+    qc_grns = await db.qc_grns.find({
+        "grn_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for grn in qc_grns:
+        customer = grn.get("customer_name", "Unknown")
+        grn_date = grn.get("grn_date", "")[:10]
+        
+        for item in grn.get("items", []):
+            product_data.append({
+                "Date": grn_date,
+                "Customer": customer,
+                "Customer_Type": "QC",
+                "Product": item.get("product_name", "Unknown"),
+                "Unit": item.get("packaging_name", "") or item.get("product_unit", "Kg"),
+                "Supplied_Qty": item.get("supplied_qty", 0) or 0,
+                "GRN_Qty": item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0,
+                "Rate_Per_Kg": item.get("rate_per_kg", 0) or 0,
+                "Rate_Per_Unit": item.get("rate_per_unit", 0) or 0,
+                "Revenue": item.get("grn_amount", 0) or item.get("amount", 0) or 0
+            })
+    
+    # Retailer Dispatch line items
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for dispatch in retailer_dispatches:
+        customer = dispatch.get("retailer_name", "Unknown")
+        dispatch_date = dispatch.get("dispatch_date", "")[:10]
+        commission_pct = dispatch.get("commission_percentage", 0) or 0
+        
+        for item in dispatch.get("items", []):
+            item_value = item.get("total_value", 0) or 0
+            net_value = item_value * (1 - commission_pct / 100)
+            
+            product_data.append({
+                "Date": dispatch_date,
+                "Customer": customer,
+                "Customer_Type": "Retail",
+                "Product": item.get("product_name", "Unknown"),
+                "Unit": item.get("variant_name", "") or "Kg",
+                "Supplied_Qty": item.get("supplied_qty", 0) or 0,
+                "GRN_Qty": item.get("supplied_qty", 0) or 0,
+                "Rate_Per_Kg": item.get("mrp", 0) or 0,
+                "Rate_Per_Unit": item.get("mrp", 0) or 0,
+                "Revenue": round(net_value, 2)
+            })
+    
+    return product_data
+
+
+async def generate_stock_status_report(db) -> list:
+    """Generate processed stock status summary"""
+    today = datetime.now(timezone.utc)
+    from_date = today.replace(day=1).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+    
+    stock_data = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(1000)
+    
+    processed_data = []
+    for item in stock_data:
+        processed_data.append({
+            "Date": item.get("date", ""),
+            "Product": item.get("product_name", ""),
+            "Status": item.get("status", ""),
+            "Opening_Qty": item.get("opening_qty", 0),
+            "Avg_Price": item.get("avg_price", 0),
+            "Opening_Value": round((item.get("opening_qty", 0) or 0) * (item.get("avg_price", 0) or 0), 2),
+            "Purchase_Qty": item.get("purchase_qty", 0),
+            "Dispatch_Qty": item.get("dispatch_qty", 0),
+            "Wastage_Qty": item.get("wastage_qty", 0),
+            "Wastage_Percent": item.get("wastage_percent", 0),
+            "Wastage_Value": item.get("wastage_value", 0),
+            "Closing_Qty": item.get("closing_qty", 0),
+            "Closing_Value": round((item.get("closing_qty", 0) or 0) * (item.get("avg_price", 0) or 0), 2)
+        })
+    
+    return processed_data
 
 
 async def send_backup_email(excel_data: bytes, recipients: List[str]):

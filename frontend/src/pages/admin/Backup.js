@@ -197,15 +197,16 @@ export default function BackupPage() {
               <div className="bg-gray-50 p-4 rounded-lg mt-4">
                 <p className="text-sm font-medium text-gray-700 mb-2">Data Included:</p>
                 <div className="grid grid-cols-2 gap-1 text-xs text-gray-600">
+                  <span className="font-semibold text-green-700">• P&L Daily Summary</span>
+                  <span className="font-semibold text-green-700">• P&L Product Detail</span>
+                  <span className="font-semibold text-blue-700">• Stock Status Summary</span>
                   <span>• Users & Products</span>
                   <span>• Farmers</span>
                   <span>• Procurements</span>
-                  <span>• QC Customers</span>
-                  <span>• QC Indents/Dispatches</span>
+                  <span>• QC Orders/Dispatches</span>
                   <span>• QC Invoices/GRN</span>
                   <span>• Retailer Orders</span>
                   <span>• Retailer Payments</span>
-                  <span>• Stock Status</span>
                   <span>• Variable Expenses</span>
                   <span>• Fixed Expenses</span>
                 </div>

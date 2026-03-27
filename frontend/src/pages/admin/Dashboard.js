@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart
+  BarChart3, PieChart, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
@@ -25,6 +25,14 @@ export default function AdminDashboard() {
   });
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [expandedDates, setExpandedDates] = useState({});
+
+  const toggleDateExpand = (date) => {
+    setExpandedDates(prev => ({
+      ...prev,
+      [date]: !prev[date]
+    }));
+  };
 
   const loadPnlData = useCallback(async () => {
     setLoading(true);
@@ -297,59 +305,159 @@ export default function AdminDashboard() {
             {/* Daily P&L Table */}
             <Card className="lg:col-span-2">
               <CardHeader className="py-3">
-                <CardTitle className="text-sm">Daily P&L Breakdown</CardTitle>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span>Daily P&L Breakdown</span>
+                  <span className="text-[10px] font-normal text-gray-500">Click row to expand product details</span>
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50 border-b">
                       <tr>
+                        <th className="p-2 text-left font-medium text-gray-500 w-8"></th>
                         <th className="p-2 text-left font-medium text-gray-500">DATE</th>
                         <th className="p-2 text-right font-medium text-gray-500">SALES</th>
+                        <th className="p-2 text-right font-medium text-gray-500">QTY</th>
                         <th className="p-2 text-right font-medium text-gray-500">PURCHASE</th>
                         <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
                         <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
-                        <th className="p-2 text-right font-medium text-gray-500">VAR. EXP</th>
-                        <th className="p-2 text-right font-medium text-gray-500">FIX. EXP</th>
+                        <th className="p-2 text-right font-medium text-gray-500">MARGIN %</th>
+                        <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
                         <th className="p-2 text-right font-medium text-gray-500">NET P/L</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={10} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
                         dailyPnl.map((day, idx) => (
-                          <tr key={idx} className="border-b hover:bg-gray-50">
-                            <td className="p-2 font-medium">{formatDate(day.date)}</td>
-                            <td className="p-2 text-right text-green-600">₹{day.sales.toLocaleString()}</td>
-                            <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
-                            <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
-                            <td className={`p-2 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                              {day.gross_profit >= 0 ? '+' : ''}₹{day.gross_profit.toLocaleString()}
-                            </td>
-                            <td className="p-2 text-right text-purple-600">₹{day.variable_exp.toLocaleString()}</td>
-                            <td className="p-2 text-right text-gray-600">₹{day.fixed_exp.toLocaleString()}</td>
-                            <td className={`p-2 text-right font-bold ${day.net_profit >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
-                              {day.net_profit >= 0 ? '+' : ''}₹{day.net_profit.toLocaleString()}
-                            </td>
-                          </tr>
+                          <React.Fragment key={idx}>
+                            {/* Main Date Row */}
+                            <tr 
+                              className="border-b hover:bg-gray-50 cursor-pointer"
+                              onClick={() => toggleDateExpand(day.date)}
+                            >
+                              <td className="p-2 text-center">
+                                {expandedDates[day.date] ? (
+                                  <ChevronDown size={14} className="text-gray-500" />
+                                ) : (
+                                  <ChevronRight size={14} className="text-gray-500" />
+                                )}
+                              </td>
+                              <td className="p-2 font-medium">{formatDate(day.date)}</td>
+                              <td className="p-2 text-right text-green-600">₹{day.sales.toLocaleString()}</td>
+                              <td className="p-2 text-right text-gray-600">{day.sales_qty?.toLocaleString() || 0}</td>
+                              <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
+                              <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
+                              <td className={`p-2 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {day.gross_profit >= 0 ? '+' : ''}₹{day.gross_profit.toLocaleString()}
+                              </td>
+                              <td className="p-2 text-right">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  day.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
+                                  day.gross_margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
+                                  day.gross_margin >= 0 ? 'bg-orange-100 text-orange-700' :
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {day.gross_margin}%
+                                </span>
+                              </td>
+                              <td className={`p-2 text-right ${day.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                ₹{day.profit_per_unit?.toFixed(2) || '0.00'}
+                              </td>
+                              <td className={`p-2 text-right font-bold ${day.net_profit >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                                {day.net_profit >= 0 ? '+' : ''}₹{day.net_profit.toLocaleString()}
+                              </td>
+                            </tr>
+                            
+                            {/* Expanded Product Rows */}
+                            {expandedDates[day.date] && day.products && day.products.length > 0 && (
+                              <>
+                                {/* Product Header */}
+                                <tr className="bg-blue-50 border-b">
+                                  <td className="p-1"></td>
+                                  <td className="p-1 pl-6 text-[10px] font-medium text-gray-500">PRODUCT</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">SALES</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">QTY</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">PURCHASE</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">WASTAGE</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">GROSS P/L</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">MARGIN %</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">₹/UNIT</td>
+                                  <td className="p-1"></td>
+                                </tr>
+                                {day.products.map((prod, pidx) => (
+                                  <tr key={pidx} className="bg-blue-50/50 border-b hover:bg-blue-100/50">
+                                    <td className="p-1"></td>
+                                    <td className="p-1 pl-6 text-[10px]">
+                                      <span className="flex items-center gap-1">
+                                        <Package size={10} className="text-gray-400" />
+                                        {prod.product}
+                                      </span>
+                                    </td>
+                                    <td className="p-1 text-right text-[10px] text-green-600">₹{prod.sales.toLocaleString()}</td>
+                                    <td className="p-1 text-right text-[10px] text-gray-600">{prod.sales_qty}</td>
+                                    <td className="p-1 text-right text-[10px] text-orange-600">₹{prod.purchase.toLocaleString()}</td>
+                                    <td className="p-1 text-right text-[10px] text-red-600">₹{prod.wastage.toLocaleString()}</td>
+                                    <td className={`p-1 text-right text-[10px] font-medium ${prod.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                      {prod.gross_profit >= 0 ? '+' : ''}₹{prod.gross_profit.toLocaleString()}
+                                    </td>
+                                    <td className="p-1 text-right">
+                                      <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${
+                                        prod.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
+                                        prod.gross_margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
+                                        prod.gross_margin >= 0 ? 'bg-orange-100 text-orange-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {prod.gross_margin}%
+                                      </span>
+                                    </td>
+                                    <td className={`p-1 text-right text-[10px] ${prod.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      ₹{prod.profit_per_unit?.toFixed(2) || '0.00'}
+                                    </td>
+                                    <td className="p-1"></td>
+                                  </tr>
+                                ))}
+                              </>
+                            )}
+                            {expandedDates[day.date] && (!day.products || day.products.length === 0) && (
+                              <tr className="bg-gray-50">
+                                <td colSpan={10} className="p-2 pl-8 text-[10px] text-gray-400 italic">
+                                  No product breakdown available
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))
                       )}
                     </tbody>
                     {dailyPnl.length > 0 && (
                       <tfoot className="bg-gray-100 font-semibold">
                         <tr>
+                          <td className="p-2"></td>
                           <td className="p-2">TOTAL</td>
                           <td className="p-2 text-right text-green-700">₹{summary.total_sales?.toLocaleString()}</td>
+                          <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
                           <td className="p-2 text-right text-orange-700">₹{summary.total_purchase?.toLocaleString()}</td>
                           <td className="p-2 text-right text-red-700">₹{summary.total_wastage_value?.toLocaleString()}</td>
                           <td className={`p-2 text-right ${summary.gross_profit >= 0 ? 'text-green-800' : 'text-red-800'}`}>
                             ₹{summary.gross_profit?.toLocaleString()}
                           </td>
-                          <td className="p-2 text-right text-purple-700">₹{summary.total_variable_expenses?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-gray-700">₹{summary.total_fixed_expenses?.toLocaleString()}</td>
+                          <td className="p-2 text-right">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              summary.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
+                              summary.gross_margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
+                              'bg-orange-100 text-orange-700'
+                            }`}>
+                              {summary.gross_margin}%
+                            </span>
+                          </td>
+                          <td className="p-2 text-right">
+                            ₹{summary.total_sales_qty > 0 ? (summary.gross_profit / summary.total_sales_qty).toFixed(2) : '0.00'}
+                          </td>
                           <td className={`p-2 text-right ${summary.net_profit >= 0 ? 'text-blue-800' : 'text-red-800'}`}>
                             ₹{summary.net_profit?.toLocaleString()}
                           </td>
@@ -442,14 +550,15 @@ export default function AdminDashboard() {
                       <th className="p-2 text-right font-medium text-gray-500">PURCHASE (₹)</th>
                       <th className="p-2 text-right font-medium text-gray-500">PURCHASE QTY</th>
                       <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
-                      <th className="p-2 text-right font-medium text-gray-500">PROFIT</th>
+                      <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
                       <th className="p-2 text-right font-medium text-gray-500">MARGIN %</th>
+                      <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
                     </tr>
                   </thead>
                   <tbody>
                     {productPnl.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-4 text-center text-gray-400">No products</td>
+                        <td colSpan={9} className="p-4 text-center text-gray-400">No products</td>
                       </tr>
                     ) : (
                       productPnl.map((p, idx) => (
@@ -467,10 +576,14 @@ export default function AdminDashboard() {
                             <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                               p.margin >= 20 ? 'bg-green-100 text-green-700' : 
                               p.margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
+                              p.margin >= 0 ? 'bg-orange-100 text-orange-700' :
                               'bg-red-100 text-red-700'
                             }`}>
                               {p.margin}%
                             </span>
+                          </td>
+                          <td className={`p-2 text-right ${p.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ₹{p.profit_per_unit?.toFixed(2) || '0.00'}
                           </td>
                         </tr>
                       ))

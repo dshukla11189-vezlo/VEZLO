@@ -1485,6 +1485,8 @@ async def get_pnl_report(
     sales_by_customer = {}
     sales_by_date = {}
     sales_by_product = {}
+    # NEW: Product-level breakdown per date
+    product_by_date = {}  # {date: {product: {sales, purchase, wastage, qty}}}
     total_sales = 0
     total_sales_qty = 0
     
@@ -1495,7 +1497,9 @@ async def get_pnl_report(
         if customer not in sales_by_customer:
             sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0}
         if inv_date not in sales_by_date:
-            sales_by_date[inv_date] = {"sales": 0, "purchase": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+            sales_by_date[inv_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+        if inv_date not in product_by_date:
+            product_by_date[inv_date] = {}
         
         for item in inv.get("items", []):
             amount = item.get("amount", 0) or 0
@@ -1507,11 +1511,18 @@ async def get_pnl_report(
             sales_by_customer[customer]["amount"] += amount
             sales_by_customer[customer]["qty"] += qty
             sales_by_date[inv_date]["sales"] += amount
+            sales_by_date[inv_date]["sales_qty"] += qty
             
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
             sales_by_product[product]["sales_amount"] += amount
             sales_by_product[product]["sales_qty"] += qty
+            
+            # Product breakdown per date
+            if product not in product_by_date[inv_date]:
+                product_by_date[inv_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0}
+            product_by_date[inv_date][product]["sales"] += amount
+            product_by_date[inv_date][product]["sales_qty"] += qty
         
         sales_by_customer[customer]["invoices"] += 1
     
@@ -1531,7 +1542,9 @@ async def get_pnl_report(
         if farmer not in purchase_by_farmer:
             purchase_by_farmer[farmer] = {"amount": 0, "qty": 0}
         if proc_date not in sales_by_date:
-            sales_by_date[proc_date] = {"sales": 0, "purchase": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+            sales_by_date[proc_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+        if proc_date not in product_by_date:
+            product_by_date[proc_date] = {}
         
         for item in proc.get("products", []):
             qty = item.get("quantity", 0) or 0
@@ -1555,11 +1568,18 @@ async def get_pnl_report(
             purchase_by_farmer[farmer]["amount"] += total_item
             purchase_by_farmer[farmer]["qty"] += qty_kg
             sales_by_date[proc_date]["purchase"] += total_item
+            sales_by_date[proc_date]["purchase_qty"] += qty_kg
             
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
             sales_by_product[product]["purchase_amount"] += total_item
             sales_by_product[product]["purchase_qty"] += qty_kg
+            
+            # Product breakdown per date
+            if product not in product_by_date[proc_date]:
+                product_by_date[proc_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0}
+            product_by_date[proc_date][product]["purchase"] += total_item
+            product_by_date[proc_date][product]["purchase_qty"] += qty_kg
     
     # ========== WASTAGE (from Daily Stock Status) ==========
     stock_status = await db.daily_stock_status.find({
@@ -1584,6 +1604,10 @@ async def get_pnl_report(
         
         if product in sales_by_product:
             sales_by_product[product]["wastage_amount"] += wastage_value
+        
+        # Product breakdown per date
+        if status_date in product_by_date and product in product_by_date[status_date]:
+            product_by_date[status_date][product]["wastage"] += wastage_value
     
     # ========== VARIABLE EXPENSES ==========
     variable_expenses = await db.variable_expenses.find({
@@ -1641,21 +1665,48 @@ async def get_pnl_report(
     net_profit = gross_profit - total_variable - total_fixed
     net_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
     
-    # Daily P&L breakdown
+    # Daily P&L breakdown with product details
     daily_pnl = []
     for date_key in sorted(sales_by_date.keys()):
         day_data = sales_by_date[date_key]
         day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"]
         day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
+        day_sales_qty = day_data.get("sales_qty", 0)
+        day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
+        day_profit_per_unit = (day_gross / day_sales_qty) if day_sales_qty > 0 else 0
+        
+        # Product breakdown for this date
+        products_detail = []
+        if date_key in product_by_date:
+            for prod_name, prod_data in sorted(product_by_date[date_key].items(), key=lambda x: x[1]["sales"], reverse=True):
+                prod_gross = prod_data["sales"] - prod_data["purchase"] - prod_data["wastage"]
+                prod_margin = (prod_gross / prod_data["sales"] * 100) if prod_data["sales"] > 0 else 0
+                prod_profit_per_unit = (prod_gross / prod_data["sales_qty"]) if prod_data["sales_qty"] > 0 else 0
+                products_detail.append({
+                    "product": prod_name,
+                    "sales": round(prod_data["sales"], 2),
+                    "sales_qty": round(prod_data["sales_qty"], 2),
+                    "purchase": round(prod_data["purchase"], 2),
+                    "purchase_qty": round(prod_data["purchase_qty"], 2),
+                    "wastage": round(prod_data["wastage"], 2),
+                    "gross_profit": round(prod_gross, 2),
+                    "gross_margin": round(prod_margin, 1),
+                    "profit_per_unit": round(prod_profit_per_unit, 2)
+                })
+        
         daily_pnl.append({
             "date": date_key,
             "sales": round(day_data["sales"], 2),
+            "sales_qty": round(day_sales_qty, 2),
             "purchase": round(day_data["purchase"], 2),
             "wastage": round(day_data["wastage"], 2),
             "gross_profit": round(day_gross, 2),
+            "gross_margin": round(day_gross_margin, 1),
+            "profit_per_unit": round(day_profit_per_unit, 2),
             "variable_exp": round(day_data["variable_exp"], 2),
             "fixed_exp": round(day_data["fixed_exp"], 2),
-            "net_profit": round(day_net, 2)
+            "net_profit": round(day_net, 2),
+            "products": products_detail
         })
     
     # Customer P&L
@@ -1668,11 +1719,12 @@ async def get_pnl_report(
             "invoices": data["invoices"]
         })
     
-    # Product P&L
+    # Product P&L with additional metrics
     product_pnl = []
     for product, data in sorted(sales_by_product.items(), key=lambda x: x[1]["sales_amount"], reverse=True):
         profit = data["sales_amount"] - data["purchase_amount"] - data["wastage_amount"]
         margin = (profit / data["sales_amount"] * 100) if data["sales_amount"] > 0 else 0
+        profit_per_unit = (profit / data["sales_qty"]) if data["sales_qty"] > 0 else 0
         product_pnl.append({
             "product": product,
             "sales_amount": round(data["sales_amount"], 2),
@@ -1681,7 +1733,8 @@ async def get_pnl_report(
             "purchase_qty": round(data["purchase_qty"], 2),
             "wastage_amount": round(data["wastage_amount"], 2),
             "profit": round(profit, 2),
-            "margin": round(margin, 1)
+            "margin": round(margin, 1),
+            "profit_per_unit": round(profit_per_unit, 2)
         })
     
     return {

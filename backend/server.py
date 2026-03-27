@@ -613,6 +613,47 @@ async def delete_qc_grn(grn_id: str, current_user: dict = Depends(get_current_us
     
     return {"message": "GRN deleted successfully"}
 
+@api_router.delete("/qc-grns/{grn_id}/items/{item_index}")
+async def delete_qc_grn_item(grn_id: str, item_index: int, current_user: dict = Depends(get_current_user)):
+    """Delete a single item from a GRN record"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the GRN
+    grn = await db.qc_grns.find_one({"id": grn_id}, {"_id": 0})
+    if not grn:
+        raise HTTPException(status_code=404, detail="GRN not found")
+    
+    items = grn.get("items", [])
+    if item_index < 0 or item_index >= len(items):
+        raise HTTPException(status_code=400, detail="Invalid item index")
+    
+    # Remove the item
+    items.pop(item_index)
+    
+    if len(items) == 0:
+        # If no items left, delete the entire GRN
+        await db.qc_grns.delete_one({"id": grn_id})
+        return {"message": "GRN deleted (no items remaining)"}
+    
+    # Recalculate totals
+    total_supplied = sum(item.get("supplied_qty", 0) for item in items)
+    total_grn = sum(item.get("grn_qty", 0) for item in items)
+    total_difference = sum(item.get("difference", 0) for item in items)
+    
+    # Update the GRN
+    await db.qc_grns.update_one(
+        {"id": grn_id},
+        {"$set": {
+            "items": items,
+            "total_supplied": total_supplied,
+            "total_grn": total_grn,
+            "total_difference": total_difference
+        }}
+    )
+    
+    return {"message": "Item removed from GRN"}
+
 @api_router.post("/qc-grns/upload-ninjacart-csv")
 async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """

@@ -1250,7 +1250,7 @@ export default function QuickCommerce() {
   };
 
   const handleDeleteGrn = async (grnId) => {
-    if (!window.confirm('Are you sure you want to delete this GRN?')) return;
+    if (!window.confirm('Are you sure you want to delete this entire GRN record?')) return;
     
     try {
       await api.delete(`/api/qc-grns/${grnId}`);
@@ -1258,6 +1258,20 @@ export default function QuickCommerce() {
       loadData();
     } catch (error) {
       toast.error('Failed to delete GRN');
+    }
+  };
+
+  // Delete a single item from a saved GRN
+  const handleDeleteSavedGrnItem = async (grnId, itemIndex) => {
+    if (!window.confirm('Remove this item from GRN?')) return;
+    
+    try {
+      const response = await api.delete(`/api/qc-grns/${grnId}/items/${itemIndex}`);
+      toast.success('Item removed from GRN');
+      loadData();
+    } catch (error) {
+      console.error('Delete GRN item error:', error);
+      toast.error('Failed to remove item');
     }
   };
 
@@ -3198,10 +3212,11 @@ export default function QuickCommerce() {
               {grns.length > 0 && (
                 <div className="mt-6">
                   <h4 className="font-semibold text-sm mb-2">Saved GRN Records</h4>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {grns.map((grn) => (
-                      <div key={grn.id} className="border rounded-lg p-3 bg-gray-50">
-                        <div className="flex items-center justify-between mb-2">
+                      <div key={grn.id} className="border rounded-lg overflow-hidden">
+                        {/* GRN Header */}
+                        <div className="flex items-center justify-between p-3 bg-gray-50 border-b">
                           <div className="flex items-center gap-4">
                             <span className="font-semibold">{formatDate(grn.grn_date)}</span>
                             <span className="text-sm text-gray-600">{grn.file_name}</span>
@@ -3215,9 +3230,73 @@ export default function QuickCommerce() {
                               Diff: {grn.total_difference > 0 ? '+' : ''}{grn.total_difference?.toFixed(2)}
                             </span>
                           </div>
-                          <Button size="sm" variant="ghost" onClick={() => handleDeleteGrn(grn.id)}>
-                            <Trash2 size={14} className="text-red-600" />
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteGrn(grn.id)} className="text-red-600">
+                            <Trash2 size={14} className="mr-1" /> Delete All
                           </Button>
+                        </div>
+                        
+                        {/* GRN Items Table */}
+                        <div className="data-table overflow-x-auto">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>DATE</th>
+                                <th>PRODUCT</th>
+                                <th>PACKAGING</th>
+                                <th className="text-right">SUPPLIED</th>
+                                <th className="text-right">GRN</th>
+                                <th className="text-right">DIFF</th>
+                                <th className="text-right">RATE</th>
+                                <th className="text-right">AMOUNT</th>
+                                <th className="text-right">LOSS/GAIN</th>
+                                <th className="text-center">ACTIONS</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {grn.items?.map((item, idx) => {
+                                const lossGain = item.loss_gain_amount || (item.difference * (item.rate_per_unit || 0));
+                                return (
+                                  <tr key={idx}>
+                                    <td>{item.dispatch_date || '-'}</td>
+                                    <td className="font-medium">{item.product_name}</td>
+                                    <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
+                                    <td className="text-right">{item.supplied_qty}</td>
+                                    <td className="text-right font-semibold">{item.grn_qty}</td>
+                                    <td className="text-right">
+                                      <span className={`font-bold ${
+                                        item.difference > 0 ? 'text-green-600' : 
+                                        item.difference < 0 ? 'text-red-600' : 'text-gray-600'
+                                      }`}>
+                                        {item.difference > 0 ? '+' : ''}{item.difference?.toFixed(2)}
+                                      </span>
+                                    </td>
+                                    <td className="text-right">
+                                      {item.rate_per_kg ? `₹${item.rate_per_kg?.toFixed(2)}/Kg` : `₹${item.rate_per_unit?.toFixed(2) || '0.00'}`}
+                                    </td>
+                                    <td className="text-right font-semibold">₹{item.amount?.toFixed(2) || '0.00'}</td>
+                                    <td className="text-right">
+                                      <span className={`font-bold ${
+                                        lossGain > 0 ? 'text-green-600' : 
+                                        lossGain < 0 ? 'text-red-600' : 'text-gray-600'
+                                      }`}>
+                                        {lossGain > 0 ? '+' : ''}₹{lossGain?.toFixed(2) || '0.00'}
+                                      </span>
+                                    </td>
+                                    <td className="text-center">
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost" 
+                                        onClick={() => handleDeleteSavedGrnItem(grn.id, idx)}
+                                        className="h-7 px-2 text-red-600"
+                                      >
+                                        <Trash2 size={14} />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     ))}

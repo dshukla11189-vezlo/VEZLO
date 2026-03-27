@@ -15,6 +15,7 @@ export default function WastageDashboard() {
 
   useEffect(() => {
     loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod]);
 
   const loadDashboardData = async () => {

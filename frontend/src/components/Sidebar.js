@@ -40,6 +40,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     if (isMobile && onClose) {
       onClose();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
   // Sidebar should be visible on desktop, hideable on mobile

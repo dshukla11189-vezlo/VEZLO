@@ -324,13 +324,12 @@ export default function AdminDashboard() {
                         <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
                         <th className="p-2 text-right font-medium text-gray-500">MARGIN %</th>
                         <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
-                        <th className="p-2 text-right font-medium text-gray-500">NET P/L</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={9} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
                         dailyPnl.map((day, idx) => (
@@ -368,9 +367,6 @@ export default function AdminDashboard() {
                               <td className={`p-2 text-right ${day.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 ₹{day.profit_per_unit?.toFixed(2) || '0.00'}
                               </td>
-                              <td className={`p-2 text-right font-bold ${day.net_profit >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
-                                {day.net_profit >= 0 ? '+' : ''}₹{day.net_profit.toLocaleString()}
-                              </td>
                             </tr>
                             
                             {/* Expanded Product Rows */}
@@ -380,10 +376,9 @@ export default function AdminDashboard() {
                                 <tr className="bg-blue-50 border-b">
                                   <td className="p-1"></td>
                                   <td className="p-1 pl-6 text-[10px] font-medium text-gray-500">PRODUCT</td>
+                                  <td className="p-1 text-[10px] font-medium text-gray-500">CUSTOMER</td>
                                   <td className="p-1 text-right text-[10px] font-medium text-gray-500">SALES</td>
                                   <td className="p-1 text-right text-[10px] font-medium text-gray-500">QTY</td>
-                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">PURCHASE</td>
-                                  <td className="p-1 text-right text-[10px] font-medium text-gray-500">WASTAGE</td>
                                   <td className="p-1 text-right text-[10px] font-medium text-gray-500">GROSS P/L</td>
                                   <td className="p-1 text-right text-[10px] font-medium text-gray-500">MARGIN %</td>
                                   <td className="p-1 text-right text-[10px] font-medium text-gray-500">₹/UNIT</td>
@@ -398,10 +393,11 @@ export default function AdminDashboard() {
                                         {prod.product}
                                       </span>
                                     </td>
+                                    <td className="p-1 text-[10px] text-blue-600 max-w-[100px] truncate" title={prod.customers}>
+                                      {prod.customers || '-'}
+                                    </td>
                                     <td className="p-1 text-right text-[10px] text-green-600">₹{prod.sales.toLocaleString()}</td>
                                     <td className="p-1 text-right text-[10px] text-gray-600">{prod.sales_qty}</td>
-                                    <td className="p-1 text-right text-[10px] text-orange-600">₹{prod.purchase.toLocaleString()}</td>
-                                    <td className="p-1 text-right text-[10px] text-red-600">₹{prod.wastage.toLocaleString()}</td>
                                     <td className={`p-1 text-right text-[10px] font-medium ${prod.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                       {prod.gross_profit >= 0 ? '+' : ''}₹{prod.gross_profit.toLocaleString()}
                                     </td>
@@ -425,7 +421,7 @@ export default function AdminDashboard() {
                             )}
                             {expandedDates[day.date] && (!day.products || day.products.length === 0) && (
                               <tr className="bg-gray-50">
-                                <td colSpan={10} className="p-2 pl-8 text-[10px] text-gray-400 italic">
+                                <td colSpan={9} className="p-2 pl-8 text-[10px] text-gray-400 italic">
                                   No product breakdown available
                                 </td>
                               </tr>
@@ -457,9 +453,6 @@ export default function AdminDashboard() {
                           </td>
                           <td className="p-2 text-right">
                             ₹{summary.total_sales_qty > 0 ? (summary.gross_profit / summary.total_sales_qty).toFixed(2) : '0.00'}
-                          </td>
-                          <td className={`p-2 text-right ${summary.net_profit >= 0 ? 'text-blue-800' : 'text-red-800'}`}>
-                            ₹{summary.net_profit?.toLocaleString()}
                           </td>
                         </tr>
                       </tfoot>

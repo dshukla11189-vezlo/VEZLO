@@ -1460,6 +1460,259 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "today_wastage": round(today_wastage, 2)
     }
 
+@api_router.get("/reports/pnl")
+async def get_pnl_report(
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get comprehensive P&L report with daily breakdown and customer-wise analysis"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Default to current month if no dates provided
+    if not from_date:
+        from_date = datetime.now(timezone.utc).replace(day=1).strftime('%Y-%m-%d')
+    if not to_date:
+        to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # ========== SALES (from QC Invoices) ==========
+    invoices = await db.qc_invoices.find({
+        "invoice_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Sales by customer
+    sales_by_customer = {}
+    sales_by_date = {}
+    sales_by_product = {}
+    total_sales = 0
+    total_sales_qty = 0
+    
+    for inv in invoices:
+        customer = inv.get("customer_name", "Unknown")
+        inv_date = inv.get("invoice_date", "")[:10]
+        
+        if customer not in sales_by_customer:
+            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0}
+        if inv_date not in sales_by_date:
+            sales_by_date[inv_date] = {"sales": 0, "purchase": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+        
+        for item in inv.get("items", []):
+            amount = item.get("amount", 0) or 0
+            qty = item.get("supplied_qty", 0) or 0
+            product = item.get("product_name", "Unknown")
+            
+            total_sales += amount
+            total_sales_qty += qty
+            sales_by_customer[customer]["amount"] += amount
+            sales_by_customer[customer]["qty"] += qty
+            sales_by_date[inv_date]["sales"] += amount
+            
+            if product not in sales_by_product:
+                sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
+            sales_by_product[product]["sales_amount"] += amount
+            sales_by_product[product]["sales_qty"] += qty
+        
+        sales_by_customer[customer]["invoices"] += 1
+    
+    # ========== PURCHASES (from Procurements) ==========
+    procurements = await db.procurements.find({
+        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    purchase_by_farmer = {}
+    total_purchase = 0
+    total_purchase_qty = 0
+    
+    for proc in procurements:
+        farmer = proc.get("farmer_name", "Unknown")
+        proc_date = proc.get("date", "")[:10]
+        
+        if farmer not in purchase_by_farmer:
+            purchase_by_farmer[farmer] = {"amount": 0, "qty": 0}
+        if proc_date not in sales_by_date:
+            sales_by_date[proc_date] = {"sales": 0, "purchase": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+        
+        for item in proc.get("products", []):
+            qty = item.get("quantity", 0) or 0
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            total_item = item.get("total", 0) or 0
+            product = item.get("product_name", "Unknown")
+            
+            # Convert to Kg if unit is Bunch/Piece with unit_size
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    weight_per_unit_gm = float(unit_size)
+                    qty_kg = (qty * weight_per_unit_gm) / 1000
+                except (ValueError, TypeError):
+                    qty_kg = qty
+            else:
+                qty_kg = qty
+            
+            total_purchase += total_item
+            total_purchase_qty += qty_kg
+            purchase_by_farmer[farmer]["amount"] += total_item
+            purchase_by_farmer[farmer]["qty"] += qty_kg
+            sales_by_date[proc_date]["purchase"] += total_item
+            
+            if product not in sales_by_product:
+                sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
+            sales_by_product[product]["purchase_amount"] += total_item
+            sales_by_product[product]["purchase_qty"] += qty_kg
+    
+    # ========== WASTAGE (from Daily Stock Status) ==========
+    stock_status = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date},
+        "status": "closed"
+    }, {"_id": 0}).to_list(1000)
+    
+    total_wastage_qty = 0
+    total_wastage_value = 0
+    
+    for status in stock_status:
+        wastage_qty = status.get("wastage_qty", 0) or 0
+        wastage_value = status.get("wastage_value", 0) or 0
+        status_date = status.get("date", "")[:10]
+        product = status.get("product_name", "Unknown")
+        
+        total_wastage_qty += wastage_qty
+        total_wastage_value += wastage_value
+        
+        if status_date in sales_by_date:
+            sales_by_date[status_date]["wastage"] += wastage_value
+        
+        if product in sales_by_product:
+            sales_by_product[product]["wastage_amount"] += wastage_value
+    
+    # ========== VARIABLE EXPENSES ==========
+    variable_expenses = await db.variable_expenses.find({
+        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    variable_by_category = {}
+    total_variable = 0
+    
+    for exp in variable_expenses:
+        category = exp.get("category", "Other")
+        amount = exp.get("amount", 0) or 0
+        exp_date = exp.get("date", "")[:10]
+        
+        total_variable += amount
+        if category not in variable_by_category:
+            variable_by_category[category] = 0
+        variable_by_category[category] += amount
+        
+        if exp_date in sales_by_date:
+            sales_by_date[exp_date]["variable_exp"] += amount
+    
+    # ========== FIXED EXPENSES ==========
+    # Get current month's fixed expenses
+    current_month = datetime.now(timezone.utc).month - 1  # 0-indexed
+    current_year = datetime.now(timezone.utc).year
+    
+    fixed_expenses = await db.fixed_expenses.find({
+        "month": current_month,
+        "year": current_year
+    }, {"_id": 0}).to_list(100)
+    
+    fixed_by_category = {}
+    total_fixed = 0
+    
+    for exp in fixed_expenses:
+        category = exp.get("category", "Other")
+        amount = exp.get("amount", 0) or 0
+        
+        total_fixed += amount
+        if category not in fixed_by_category:
+            fixed_by_category[category] = 0
+        fixed_by_category[category] += amount
+    
+    # Distribute fixed expenses across days in period
+    days_in_period = max(1, len(sales_by_date))
+    daily_fixed = total_fixed / days_in_period
+    for date_key in sales_by_date:
+        sales_by_date[date_key]["fixed_exp"] = round(daily_fixed, 2)
+    
+    # ========== CALCULATE P&L ==========
+    gross_profit = total_sales - total_purchase - total_wastage_value
+    gross_margin = (gross_profit / total_sales * 100) if total_sales > 0 else 0
+    
+    net_profit = gross_profit - total_variable - total_fixed
+    net_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
+    
+    # Daily P&L breakdown
+    daily_pnl = []
+    for date_key in sorted(sales_by_date.keys()):
+        day_data = sales_by_date[date_key]
+        day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"]
+        day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
+        daily_pnl.append({
+            "date": date_key,
+            "sales": round(day_data["sales"], 2),
+            "purchase": round(day_data["purchase"], 2),
+            "wastage": round(day_data["wastage"], 2),
+            "gross_profit": round(day_gross, 2),
+            "variable_exp": round(day_data["variable_exp"], 2),
+            "fixed_exp": round(day_data["fixed_exp"], 2),
+            "net_profit": round(day_net, 2)
+        })
+    
+    # Customer P&L
+    customer_pnl = []
+    for customer, data in sorted(sales_by_customer.items(), key=lambda x: x[1]["amount"], reverse=True):
+        customer_pnl.append({
+            "customer": customer,
+            "sales_amount": round(data["amount"], 2),
+            "sales_qty": round(data["qty"], 2),
+            "invoices": data["invoices"]
+        })
+    
+    # Product P&L
+    product_pnl = []
+    for product, data in sorted(sales_by_product.items(), key=lambda x: x[1]["sales_amount"], reverse=True):
+        profit = data["sales_amount"] - data["purchase_amount"] - data["wastage_amount"]
+        margin = (profit / data["sales_amount"] * 100) if data["sales_amount"] > 0 else 0
+        product_pnl.append({
+            "product": product,
+            "sales_amount": round(data["sales_amount"], 2),
+            "sales_qty": round(data["sales_qty"], 2),
+            "purchase_amount": round(data["purchase_amount"], 2),
+            "purchase_qty": round(data["purchase_qty"], 2),
+            "wastage_amount": round(data["wastage_amount"], 2),
+            "profit": round(profit, 2),
+            "margin": round(margin, 1)
+        })
+    
+    return {
+        "period": {"from": from_date, "to": to_date},
+        "summary": {
+            "total_sales": round(total_sales, 2),
+            "total_sales_qty": round(total_sales_qty, 2),
+            "total_purchase": round(total_purchase, 2),
+            "total_purchase_qty": round(total_purchase_qty, 2),
+            "total_wastage_qty": round(total_wastage_qty, 2),
+            "total_wastage_value": round(total_wastage_value, 2),
+            "gross_profit": round(gross_profit, 2),
+            "gross_margin": round(gross_margin, 1),
+            "total_variable_expenses": round(total_variable, 2),
+            "total_fixed_expenses": round(total_fixed, 2),
+            "net_profit": round(net_profit, 2),
+            "net_margin": round(net_margin, 1)
+        },
+        "daily_pnl": daily_pnl,
+        "customer_pnl": customer_pnl,
+        "product_pnl": product_pnl,
+        "expenses": {
+            "variable_by_category": variable_by_category,
+            "fixed_by_category": fixed_by_category
+        },
+        "purchase_by_farmer": [
+            {"farmer": f, "amount": round(d["amount"], 2), "qty": round(d["qty"], 2)} 
+            for f, d in sorted(purchase_by_farmer.items(), key=lambda x: x[1]["amount"], reverse=True)
+        ]
+    }
+
 # ==================== STOCK STATUS ROUTES ====================
 
 @api_router.get("/stock-status/today")

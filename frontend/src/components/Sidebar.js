@@ -76,7 +76,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
           )}
         </div>
         
-        <nav className="p-4">
+        <nav className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
           {links.map((link) => {
             const Icon = link.icon;
             const isActive = location.pathname === link.path;
@@ -85,11 +85,11 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
                 key={link.path}
                 to={link.path}
                 data-testid={`nav-${t(link.labelKey).toLowerCase().replace(' ', '-')}`}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg mb-1 hover:bg-gray-100 ${
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg mb-1 hover:bg-gray-100 ${
                   isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
                 }`}
               >
-                <Icon size={20} />
+                <Icon size={18} />
                 <span className="text-sm font-medium">{t(link.labelKey)}</span>
               </Link>
             );

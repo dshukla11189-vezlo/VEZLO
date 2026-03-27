@@ -36,7 +36,14 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 ### Phase 1: Core MVP (COMPLETED)
 - [x] Role-based authentication (Admin, Retailer, Staff)
 - [x] Responsive mobile-friendly layouts with sidebar navigation
-- [x] Dashboard with statistics cards
+- [x] **P&L Dashboard** with Gross/Net profit calculations (COMPLETED - Mar 2026)
+  - [x] Summary cards: Sales, Purchase, Wastage, Gross Profit, Variable Exp, Net Profit
+  - [x] Daily P&L breakdown with charts (Bar & Line)
+  - [x] Customer-wise sales analysis
+  - [x] Product-wise P&L with margin %
+  - [x] Expense breakdown (Variable & Fixed categories)
+  - [x] Purchase by Farmer/Supplier
+  - [x] Date range filter
 - [x] Products management (CRUD)
 - [x] Currency localization (Indian Rupee)
 

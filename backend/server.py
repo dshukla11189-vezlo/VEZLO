@@ -1799,6 +1799,19 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
     
     return {"message": "Stock status updated"}
 
+@api_router.delete("/stock-status/{status_id}")
+async def delete_stock_status(status_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a stock status entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.daily_stock_status.delete_one({"id": status_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Stock status not found")
+    
+    return {"message": "Stock status deleted"}
+
 # Include router
 app.include_router(api_router)
 

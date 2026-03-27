@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
@@ -49,25 +50,24 @@ export default function WastageDashboard() {
     return Math.min(100, (value / max) * 100);
   };
 
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
-      </div>
-    );
-  }
-
   const summary = dashboardData?.summary || {};
   const dailyTrend = dashboardData?.daily_trend || [];
   const topProducts = dashboardData?.top_wastage_products || [];
   const maxDailyWastage = Math.max(...dailyTrend.map(d => d.total_wastage_kg), 1);
 
   return (
-    <div className="p-6" data-testid="wastage-dashboard-page">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Wastage Dashboard</h1>
+    <Layout>
+      <div data-testid="wastage-dashboard-page">
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Wastage Dashboard</h1>
           <p className="text-gray-500 mt-1">
             {dashboardData?.start_date} to {dashboardData?.end_date}
           </p>
@@ -338,6 +338,9 @@ export default function WastageDashboard() {
           </CardContent>
         </Card>
       )}
-    </div>
+          </>
+        )}
+      </div>
+    </Layout>
   );
 }

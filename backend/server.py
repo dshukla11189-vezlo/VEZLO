@@ -1548,7 +1548,8 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             weight_gm = packaging_map.get(packaging_name, 100)
             qty_kg = (supplied_qty * weight_gm) / 1000
             
-            rate = item.get("rate", 0)
+            # Handle None rate
+            rate = item.get("rate") or 0
             value = supplied_qty * rate
             
             if product_id not in dispatches_by_product:

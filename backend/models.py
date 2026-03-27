@@ -205,10 +205,11 @@ class QCDispatchItem(BaseModel):
     product_unit: str
     packaging_id: Optional[str] = None
     packaging_name: Optional[str] = None
-    indent_qty: float  # Original indent quantity
+    indent_qty: Optional[float] = None  # Original indent quantity (optional)
+    required_qty: Optional[float] = None  # Alias for indent_qty
     supplied_qty: float  # Quantity supplied in this dispatch
-    lot_size: int
-    no_of_crates: float  # Auto-calculated from supplied_qty
+    lot_size: Optional[int] = 1  # packets per crate (optional, default 1)
+    no_of_crates: Optional[float] = 0  # Auto-calculated from supplied_qty (optional)
     rate: Optional[float] = None  # Rate per unit (optional, for invoicing)
 
 # QC Dispatch Models (Log-based - multiple dispatches per indent)

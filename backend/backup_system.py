@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # Backup recipients
 BACKUP_RECIPIENTS = [
-    "mrorganixmushroom@gmail.com",
     "dshukla11189@gmail.com"
 ]
 

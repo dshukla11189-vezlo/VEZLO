@@ -3517,7 +3517,7 @@ async def get_backup_status(current_user: dict = Depends(get_current_user)):
     return {
         "scheduler_running": backup_scheduler is not None and backup_scheduler.running if backup_scheduler else False,
         "next_backup_time": "11:59 PM IST (18:29 UTC)",
-        "recipients": ["mrorganixmushroom@gmail.com", "dshukla11189@gmail.com"],
+        "recipients": ["dshukla11189@gmail.com"],
         "collections_backed_up": [
             "users", "products", "farmers", "procurements",
             "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",

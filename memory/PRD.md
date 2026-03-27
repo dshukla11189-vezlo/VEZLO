@@ -180,6 +180,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Sales Calculation Fix** (VALIDATED - Mar 27, 2026) - Sales now correctly aggregates:
     - QC GRN data (grn_amount or amount from qc_grns collection)
     - Retailer Dispatches (net_payable after commission deduction)
+  - [x] **Detailed Line Items P&L Breakdown** (COMPLETED - Mar 27, 2026)
+    - Customer → Product hierarchy (not Product → Customer)
+    - Columns: Customer, Product, Unit, Qty, Kg, Revenue, COGS, Wastage (Kg), Wastage (₹), Gross Profit, S.P./Kg, P.P./Kg, Margin %, Profit/Qty
+    - Separate entries per customer - if same product sold to both Ninjacart and Tamanna, shows 2 rows
+    - **Bug Fix**: Fixed variable shadowing issue where `gross_profit` was being overwritten in loop
 - [x] **Role-Based Access Control** (COMPLETED - Mar 27, 2026)
   - [x] **Admin**: Full access to all tabs including P&L Dashboard, Fixed Expenses, Payments, User Management
   - [x] **Staff**: Limited access to Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Invoices

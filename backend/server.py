@@ -1685,6 +1685,8 @@ async def get_pnl_report(
     sales_by_product = {}
     # Product-level breakdown per date with customer info
     product_by_date = {}  # {date: {product: {sales, purchase, wastage, qty, customers: []}}}
+    # NEW: Detailed line items per date for Customer->Product breakdown
+    line_items_by_date = {}  # {date: [line_item, ...]}
     total_sales = 0
     total_sales_qty = 0
     
@@ -1703,12 +1705,24 @@ async def get_pnl_report(
             sales_by_date[grn_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
         if grn_date not in product_by_date:
             product_by_date[grn_date] = {}
+        if grn_date not in line_items_by_date:
+            line_items_by_date[grn_date] = []
         
         for item in grn.get("items", []):
             # Use GRN amount (actual received value)
             amount = item.get("grn_amount", 0) or item.get("amount", 0) or 0
             qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
+            supplied_qty_units = item.get("supplied_qty", 0) or qty
             product = item.get("product_name", "Unknown")
+            unit = item.get("packaging_name", "") or item.get("product_unit", "Kg")
+            packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
+            rate_per_kg = item.get("rate_per_kg", 0) or 0
+            rate_per_unit = item.get("rate_per_unit", 0) or 0
+            
+            # Calculate kg from units if packaging weight available
+            supplied_kg = qty
+            if packaging_weight_gm > 0:
+                supplied_kg = (qty * packaging_weight_gm) / 1000
             
             total_sales += amount
             total_sales_qty += qty
@@ -1732,6 +1746,23 @@ async def get_pnl_report(
                 product_by_date[grn_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
             product_by_date[grn_date][product]["customers"][customer]["sales"] += amount
             product_by_date[grn_date][product]["customers"][customer]["qty"] += qty
+            
+            # Add detailed line item for this customer-product combination
+            line_items_by_date[grn_date].append({
+                "customer": customer,
+                "customer_type": "QC",
+                "product": product,
+                "unit": unit,
+                "supplied_qty": round(supplied_qty_units, 2),
+                "supplied_kg": round(supplied_kg, 3),
+                "revenue": round(amount, 2),
+                "rate_per_kg": round(rate_per_kg, 2),
+                "rate_per_unit": round(rate_per_unit, 2),
+                # COGS and wastage will be calculated after we aggregate procurements
+                "cogs": 0,
+                "wastage_kg": 0,
+                "wastage_value": 0
+            })
         
         sales_by_customer[customer]["invoices"] += 1
     
@@ -1745,6 +1776,7 @@ async def get_pnl_report(
         dispatch_date = dispatch.get("dispatch_date", "")[:10]
         # Use net_payable (after commission deduction) as the actual sales value
         net_payable = dispatch.get("net_payable", 0) or 0
+        commission_pct = dispatch.get("commission_percentage", 0) or 0
         
         if customer not in sales_by_customer:
             sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail"}
@@ -1752,14 +1784,17 @@ async def get_pnl_report(
             sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
         if dispatch_date not in product_by_date:
             product_by_date[dispatch_date] = {}
+        if dispatch_date not in line_items_by_date:
+            line_items_by_date[dispatch_date] = []
         
         dispatch_qty = 0
         for item in dispatch.get("items", []):
             qty = item.get("supplied_qty", 0) or 0
             product = item.get("product_name", "Unknown")
+            unit = item.get("variant_name", "") or "Kg"
             item_value = item.get("total_value", 0) or 0
+            mrp = item.get("mrp", 0) or 0
             # Calculate proportional net value after commission
-            commission_pct = dispatch.get("commission_percentage", 0) or 0
             item_net_value = item_value * (1 - commission_pct / 100)
             
             dispatch_qty += qty
@@ -1778,6 +1813,22 @@ async def get_pnl_report(
                 product_by_date[dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
             product_by_date[dispatch_date][product]["customers"][customer]["sales"] += item_net_value
             product_by_date[dispatch_date][product]["customers"][customer]["qty"] += qty
+            
+            # Add detailed line item for retailer
+            line_items_by_date[dispatch_date].append({
+                "customer": customer,
+                "customer_type": "Retail",
+                "product": product,
+                "unit": unit,
+                "supplied_qty": round(qty, 2),
+                "supplied_kg": round(qty, 3),  # Retailers typically use Kg directly
+                "revenue": round(item_net_value, 2),
+                "rate_per_kg": round(mrp, 2),  # MRP as rate
+                "rate_per_unit": round(mrp, 2),
+                "cogs": 0,
+                "wastage_kg": 0,
+                "wastage_value": 0
+            })
         
         total_sales += net_payable
         total_sales_qty += dispatch_qty
@@ -1936,7 +1987,7 @@ async def get_pnl_report(
         day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
         day_profit_per_unit = (day_gross / day_sales_qty) if day_sales_qty > 0 else 0
         
-        # Product breakdown for this date
+        # Product breakdown for this date (legacy - kept for backward compatibility)
         products_detail = []
         if date_key in product_by_date:
             for prod_name, prod_data in sorted(product_by_date[date_key].items(), key=lambda x: x[1]["sales"], reverse=True):
@@ -1959,6 +2010,93 @@ async def get_pnl_report(
                     "profit_per_unit": round(prod_profit_per_unit, 2)
                 })
         
+        # NEW: Generate detailed line items (Customer → Product) with calculated metrics
+        detailed_line_items = []
+        if date_key in line_items_by_date:
+            # Group by customer first, then by product
+            customer_product_map = {}
+            for line in line_items_by_date[date_key]:
+                key = (line["customer"], line["product"], line["unit"])
+                if key not in customer_product_map:
+                    customer_product_map[key] = {
+                        "customer": line["customer"],
+                        "customer_type": line["customer_type"],
+                        "product": line["product"],
+                        "unit": line["unit"],
+                        "supplied_qty": 0,
+                        "supplied_kg": 0,
+                        "revenue": 0,
+                        "rate_per_kg": line["rate_per_kg"],
+                        "rate_per_unit": line["rate_per_unit"]
+                    }
+                customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
+                customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
+                customer_product_map[key]["revenue"] += line["revenue"]
+            
+            # Now calculate COGS and wastage allocation per line item
+            # Get product-level COGS rate (purchase_amount / purchase_qty)
+            product_cogs_rate = {}
+            if date_key in product_by_date:
+                for prod_name, prod_data in product_by_date[date_key].items():
+                    purch_qty = prod_data.get("purchase_qty", 0)
+                    purch_amt = prod_data.get("purchase", 0)
+                    if purch_qty > 0:
+                        product_cogs_rate[prod_name] = purch_amt / purch_qty
+                    else:
+                        product_cogs_rate[prod_name] = 0
+            
+            # Get product-level wastage rate (wastage_value / total_sales_qty)
+            product_wastage_rate = {}
+            if date_key in product_by_date:
+                for prod_name, prod_data in product_by_date[date_key].items():
+                    sales_qty = prod_data.get("sales_qty", 0)
+                    wastage_val = prod_data.get("wastage", 0)
+                    if sales_qty > 0:
+                        product_wastage_rate[prod_name] = wastage_val / sales_qty
+                    else:
+                        product_wastage_rate[prod_name] = 0
+            
+            # Build detailed line items sorted by customer then by product
+            for key in sorted(customer_product_map.keys(), key=lambda x: (x[0], x[1])):
+                item = customer_product_map[key]
+                product = item["product"]
+                
+                # Calculate COGS for this line item
+                cogs_rate = product_cogs_rate.get(product, 0)
+                cogs = item["supplied_kg"] * cogs_rate
+                
+                # Calculate wastage for this line item
+                wastage_rate = product_wastage_rate.get(product, 0)
+                wastage_value = item["supplied_qty"] * wastage_rate
+                wastage_kg = item["supplied_kg"] * (wastage_rate / cogs_rate) if cogs_rate > 0 else 0
+                
+                # Calculate gross profit and margins for this line item
+                line_gross_profit = item["revenue"] - cogs - wastage_value
+                line_gross_margin = (line_gross_profit / item["revenue"] * 100) if item["revenue"] > 0 else 0
+                
+                # Calculate price/kg metrics
+                selling_price_per_kg = (item["revenue"] / item["supplied_kg"]) if item["supplied_kg"] > 0 else 0
+                purchase_price_per_kg = cogs_rate
+                profit_per_qty = (line_gross_profit / item["supplied_qty"]) if item["supplied_qty"] > 0 else 0
+                
+                detailed_line_items.append({
+                    "customer": item["customer"],
+                    "customer_type": item["customer_type"],
+                    "product": product,
+                    "unit": item["unit"],
+                    "supplied_qty": round(item["supplied_qty"], 2),
+                    "supplied_kg": round(item["supplied_kg"], 3),
+                    "revenue": round(item["revenue"], 2),
+                    "cogs": round(cogs, 2),
+                    "wastage_kg": round(wastage_kg, 3),
+                    "wastage_value": round(wastage_value, 2),
+                    "gross_profit": round(line_gross_profit, 2),
+                    "gross_margin": round(line_gross_margin, 1),
+                    "selling_price_per_kg": round(selling_price_per_kg, 2),
+                    "purchase_price_per_kg": round(purchase_price_per_kg, 2),
+                    "profit_per_qty": round(profit_per_qty, 2)
+                })
+        
         daily_pnl.append({
             "date": date_key,
             "sales": round(day_data["sales"], 2),
@@ -1971,7 +2109,8 @@ async def get_pnl_report(
             "variable_exp": round(day_data["variable_exp"], 2),
             "fixed_exp": round(day_data["fixed_exp"], 2),
             "net_profit": round(day_net, 2),
-            "products": products_detail
+            "products": products_detail,
+            "line_items": detailed_line_items  # NEW: Customer→Product breakdown
         })
     
     # Customer P&L

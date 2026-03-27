@@ -572,6 +572,47 @@ async def delete_qc_dispatch(dispatch_id: str, current_user: dict = Depends(get_
     
     return {"message": "Dispatch deleted successfully"}
 
+@api_router.delete("/qc-dispatches/{dispatch_id}/items/{product_id}")
+async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a single item from a dispatch record"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the dispatch
+    dispatch = await db.qc_dispatches.find_one({"id": dispatch_id}, {"_id": 0})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    items = dispatch.get("items", [])
+    original_count = len(items)
+    
+    # Filter out the item with matching product_id
+    items = [item for item in items if item.get("product_id") != product_id]
+    
+    if len(items) == original_count:
+        raise HTTPException(status_code=404, detail="Item not found in dispatch")
+    
+    if len(items) == 0:
+        # If no items left, delete the entire dispatch
+        await db.qc_dispatches.delete_one({"id": dispatch_id})
+        
+        # Update indent status
+        indent_id = dispatch.get("indent_id")
+        if indent_id:
+            remaining_dispatches = await db.qc_dispatches.count_documents({"indent_id": indent_id})
+            if remaining_dispatches == 0:
+                await db.qc_indents.update_one({"id": indent_id}, {"$set": {"status": "pending"}})
+        
+        return {"message": "Dispatch deleted (no items remaining)"}
+    
+    # Update the dispatch with remaining items
+    await db.qc_dispatches.update_one(
+        {"id": dispatch_id},
+        {"$set": {"items": items}}
+    )
+    
+    return {"message": "Item removed from dispatch"}
+
 # QC GRN Routes
 @api_router.get("/qc-grns")
 async def get_qc_grns(current_user: dict = Depends(get_current_user)):

@@ -1275,6 +1275,20 @@ export default function QuickCommerce() {
     }
   };
 
+  // Delete a pending dispatch item (removes from dispatch)
+  const handleDeletePendingDispatchItem = async (dispatchId, productId) => {
+    if (!window.confirm('Remove this item from pending dispatches? This will delete it from the dispatch record.')) return;
+    
+    try {
+      const response = await api.delete(`/api/qc-dispatches/${dispatchId}/items/${productId}`);
+      toast.success('Item removed from dispatch');
+      loadData();
+    } catch (error) {
+      console.error('Delete pending dispatch item error:', error);
+      toast.error('Failed to remove item');
+    }
+  };
+
   // GRN Item Edit/Delete handlers (for matched items before saving)
   const handleEditGrnItem = (index) => {
     setEditingGrnItem(index);
@@ -3180,9 +3194,19 @@ export default function QuickCommerce() {
                                       </Button>
                                     </div>
                                   ) : (
-                                    <Button size="sm" variant="ghost" onClick={() => setEditingPendingGrn(itemKey)} className="h-7 px-2 text-blue-600">
-                                      <Pencil size={14} />
-                                    </Button>
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Button size="sm" variant="ghost" onClick={() => setEditingPendingGrn(itemKey)} className="h-7 px-2 text-blue-600">
+                                        <Pencil size={14} />
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost" 
+                                        onClick={() => handleDeletePendingDispatchItem(item.dispatch_id, item.product_id)} 
+                                        className="h-7 px-2 text-red-600"
+                                      >
+                                        <Trash2 size={14} />
+                                      </Button>
+                                    </div>
                                   )}
                                 </td>
                               </tr>

@@ -6,6 +6,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/admin/Dashboard';
 import Products from './pages/admin/Products';
+import StockStatus from './pages/admin/StockStatus';
+import WastageDashboard from './pages/admin/WastageDashboard';
 import Procurement from './pages/admin/Procurement';
 import QuickCommerce from './pages/admin/QuickCommerce';
 import RetailerOrders from './pages/admin/RetailerOrders';
@@ -69,6 +71,22 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin', 'staff']}>
                 <Products />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/stock-status"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <StockStatus />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/wastage-dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <WastageDashboard />
               </ProtectedRoute>
             }
           />

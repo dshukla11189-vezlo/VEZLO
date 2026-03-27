@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
-import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X } from 'lucide-react';
+import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose, isMobile }) {
   const { t } = useTranslation();
@@ -11,11 +11,11 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
   
   const adminLinks = [
     { path: '/admin/dashboard', icon: Home, labelKey: 'app.dashboard' },
-    { path: '/admin/products', icon: Package, labelKey: 'app.products' },
+    { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
     { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
     { path: '/admin/quick-commerce', icon: ShoppingCart, labelKey: 'app.quickCommerce' },
     { path: '/admin/retailer-orders', icon: ShoppingCart, labelKey: 'app.retailerOrders' },
-    { path: '/admin/wastage', icon: Trash2, labelKey: 'app.wastage' },
+    { path: '/admin/wastage-dashboard', icon: Trash2, labelKey: 'app.wastageDashboard' },
     { path: '/admin/payments', icon: DollarSign, labelKey: 'app.payments' },
     { path: '/admin/invoices', icon: FileText, labelKey: 'app.invoices' },
   ];
@@ -26,9 +26,9 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
 
   const staffLinks = [
     { path: '/staff/dashboard', icon: Home, labelKey: 'app.dashboard' },
-    { path: '/admin/products', icon: Package, labelKey: 'app.products' },
+    { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
     { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
-    { path: '/admin/wastage', icon: Trash2, labelKey: 'app.wastage' },
+    { path: '/admin/wastage-dashboard', icon: Trash2, labelKey: 'app.wastageDashboard' },
   ];
 
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'retailer' ? retailerLinks : staffLinks;

@@ -14,6 +14,7 @@ import jwt
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import io
 import csv
+import uuid
 
 from models import *
 from ocr_processor import process_excel_image
@@ -1458,6 +1459,342 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "pending_payments": round(pending_payments, 2),
         "today_wastage": round(today_wastage, 2)
     }
+
+# ==================== STOCK STATUS ROUTES ====================
+
+@api_router.get("/stock-status/today")
+async def get_today_stock_status(current_user: dict = Depends(get_current_user)):
+    """Get today's stock status for all products with opening qty, purchases, dispatches"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Get all products
+    products = await db.products.find({}, {"_id": 0}).to_list(1000)
+    
+    # Get yesterday's closing stock (for opening)
+    yesterday_status = await db.daily_stock_status.find(
+        {"date": yesterday, "status": "closed"},
+        {"_id": 0}
+    ).to_list(1000)
+    yesterday_map = {s["product_id"]: s for s in yesterday_status}
+    
+    # Get today's existing status
+    today_status = await db.daily_stock_status.find(
+        {"date": today},
+        {"_id": 0}
+    ).to_list(1000)
+    today_map = {s["product_id"]: s for s in today_status}
+    
+    # Get today's procurements (purchases from farmers)
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    procurements = await db.procurements.find({
+        "procurement_date": {"$gte": today_start.isoformat()}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Calculate purchases by product
+    purchases_by_product = {}
+    for proc in procurements:
+        for item in proc.get("items", []):
+            product_id = item.get("product_id")
+            qty = item.get("quantity", 0)  # in Kg
+            rate = item.get("rate", 0)
+            value = qty * rate
+            if product_id not in purchases_by_product:
+                purchases_by_product[product_id] = {"qty": 0, "value": 0}
+            purchases_by_product[product_id]["qty"] += qty
+            purchases_by_product[product_id]["value"] += value
+    
+    # Get today's QC dispatches
+    qc_dispatches = await db.qc_dispatches.find({
+        "dispatch_date": {"$regex": f"^{today}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Get today's retailer dispatches (if exists)
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$regex": f"^{today}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Get packaging weights for unit conversion
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {p['name'].lower(): p.get('weight_gm', 100) for p in packaging_variants}
+    
+    # Calculate dispatches by product (convert units to Kg)
+    dispatches_by_product = {}
+    for dispatch in qc_dispatches + retailer_dispatches:
+        for item in dispatch.get("items", []):
+            product_name = item.get("product_name", "").lower()
+            product_id = item.get("product_id")
+            supplied_qty = item.get("supplied_qty", 0)  # in units
+            packaging_name = item.get("packaging_name", "").lower()
+            
+            # Convert units to Kg based on packaging weight
+            weight_gm = packaging_map.get(packaging_name, 100)
+            qty_kg = (supplied_qty * weight_gm) / 1000
+            
+            rate = item.get("rate", 0)
+            value = supplied_qty * rate
+            
+            if product_id not in dispatches_by_product:
+                dispatches_by_product[product_id] = {"qty": 0, "value": 0}
+            dispatches_by_product[product_id]["qty"] += qty_kg
+            dispatches_by_product[product_id]["value"] += value
+    
+    # Build stock status for each product
+    result = []
+    for product in products:
+        product_id = product["id"]
+        product_name = product["name"]
+        
+        # Get or create today's status
+        if product_id in today_map:
+            status = today_map[product_id]
+        else:
+            # Calculate opening from yesterday's closing or start with 0
+            if product_id in yesterday_map:
+                opening_qty = yesterday_map[product_id].get("closing_qty", 0) or 0
+                opening_price = yesterday_map[product_id].get("avg_price", 0) or 0
+            else:
+                opening_qty = 0
+                opening_price = product.get("price_per_kg", 0) or 0
+            
+            purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
+            dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
+            
+            # Calculate weighted average price
+            total_qty = opening_qty + purchase_data["qty"]
+            if total_qty > 0:
+                opening_value = opening_qty * opening_price
+                avg_price = (opening_value + purchase_data["value"]) / total_qty
+            else:
+                avg_price = opening_price or purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0
+            
+            status = {
+                "id": str(uuid.uuid4()),
+                "date": today,
+                "product_id": product_id,
+                "product_name": product_name,
+                "product_unit": product.get("unit", "Kg"),
+                "opening_qty": round(opening_qty, 2),
+                "opening_price": round(opening_price, 2),
+                "purchase_qty": round(purchase_data["qty"], 2),
+                "purchase_value": round(purchase_data["value"], 2),
+                "dispatch_qty": round(dispatch_data["qty"], 2),
+                "dispatch_value": round(dispatch_data["value"], 2),
+                "closing_qty": None,
+                "wastage_qty": 0,
+                "wastage_value": 0,
+                "wastage_percent": 0,
+                "avg_price": round(avg_price, 2),
+                "status": "open"
+            }
+            
+            # Save to database
+            await db.daily_stock_status.insert_one(status)
+        
+        result.append(status)
+    
+    return result
+
+@api_router.post("/stock-status/close")
+async def close_stock_status(entries: StockClosingBulkEntry, current_user: dict = Depends(get_current_user)):
+    """Staff enters closing quantities for products"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    updated = []
+    
+    for entry in entries.entries:
+        # Get today's status for this product
+        status = await db.daily_stock_status.find_one(
+            {"date": today, "product_id": entry.product_id},
+            {"_id": 0}
+        )
+        
+        if not status:
+            continue
+        
+        closing_qty = entry.closing_qty
+        opening_qty = status.get("opening_qty", 0)
+        purchase_qty = status.get("purchase_qty", 0)
+        dispatch_qty = status.get("dispatch_qty", 0)
+        avg_price = status.get("avg_price", 0)
+        
+        # Calculate wastage: Opening + Purchase - Dispatch - Closing
+        total_available = opening_qty + purchase_qty - dispatch_qty
+        wastage_qty = max(0, total_available - closing_qty)
+        wastage_value = wastage_qty * avg_price
+        
+        # Calculate wastage percentage
+        total_input = opening_qty + purchase_qty
+        wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
+        
+        # Update status
+        update_data = {
+            "closing_qty": round(closing_qty, 2),
+            "wastage_qty": round(wastage_qty, 2),
+            "wastage_value": round(wastage_value, 2),
+            "wastage_percent": round(wastage_percent, 2),
+            "status": "closed",
+            "closed_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.daily_stock_status.update_one(
+            {"date": today, "product_id": entry.product_id},
+            {"$set": update_data}
+        )
+        
+        updated.append({
+            "product_id": entry.product_id,
+            "product_name": status.get("product_name"),
+            **update_data
+        })
+    
+    return {"message": f"Closed {len(updated)} products", "updated": updated}
+
+@api_router.get("/stock-status/history")
+async def get_stock_status_history(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    product_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get historical stock status data"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if from_date:
+        query["date"] = {"$gte": from_date}
+    if to_date:
+        if "date" in query:
+            query["date"]["$lte"] = to_date
+        else:
+            query["date"] = {"$lte": to_date}
+    if product_id:
+        query["product_id"] = product_id
+    
+    history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    return history
+
+@api_router.get("/stock-status/wastage-dashboard")
+async def get_wastage_dashboard(
+    days: int = 7,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get wastage dashboard data with trends"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get data for the specified number of days
+    end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d')
+    
+    history = await db.daily_stock_status.find(
+        {"date": {"$gte": start_date, "$lte": end_date}, "status": "closed"},
+        {"_id": 0}
+    ).to_list(5000)
+    
+    # Aggregate by date
+    daily_totals = {}
+    product_totals = {}
+    
+    for record in history:
+        date = record["date"]
+        product_name = record["product_name"]
+        wastage_qty = record.get("wastage_qty", 0)
+        wastage_value = record.get("wastage_value", 0)
+        wastage_percent = record.get("wastage_percent", 0)
+        opening_qty = record.get("opening_qty", 0)
+        purchase_qty = record.get("purchase_qty", 0)
+        
+        # Daily totals
+        if date not in daily_totals:
+            daily_totals[date] = {
+                "date": date,
+                "total_wastage_kg": 0,
+                "total_wastage_value": 0,
+                "total_input": 0,
+                "avg_wastage_percent": 0
+            }
+        daily_totals[date]["total_wastage_kg"] += wastage_qty
+        daily_totals[date]["total_wastage_value"] += wastage_value
+        daily_totals[date]["total_input"] += opening_qty + purchase_qty
+        
+        # Product totals
+        if product_name not in product_totals:
+            product_totals[product_name] = {
+                "product_name": product_name,
+                "total_wastage_kg": 0,
+                "total_wastage_value": 0,
+                "avg_wastage_percent": 0,
+                "days_count": 0
+            }
+        product_totals[product_name]["total_wastage_kg"] += wastage_qty
+        product_totals[product_name]["total_wastage_value"] += wastage_value
+        product_totals[product_name]["days_count"] += 1
+    
+    # Calculate averages
+    for date in daily_totals:
+        total_input = daily_totals[date]["total_input"]
+        if total_input > 0:
+            daily_totals[date]["avg_wastage_percent"] = round(
+                (daily_totals[date]["total_wastage_kg"] / total_input) * 100, 2
+            )
+        daily_totals[date]["total_wastage_kg"] = round(daily_totals[date]["total_wastage_kg"], 2)
+        daily_totals[date]["total_wastage_value"] = round(daily_totals[date]["total_wastage_value"], 2)
+    
+    # Sort daily data by date
+    daily_data = sorted(daily_totals.values(), key=lambda x: x["date"])
+    
+    # Top wastage products
+    product_data = sorted(product_totals.values(), key=lambda x: x["total_wastage_kg"], reverse=True)[:10]
+    
+    # Overall summary
+    total_wastage_kg = sum(d["total_wastage_kg"] for d in daily_data)
+    total_wastage_value = sum(d["total_wastage_value"] for d in daily_data)
+    total_input = sum(d["total_input"] for d in daily_data)
+    avg_daily_wastage = total_wastage_kg / len(daily_data) if daily_data else 0
+    overall_wastage_percent = (total_wastage_kg / total_input * 100) if total_input > 0 else 0
+    
+    return {
+        "period_days": days,
+        "start_date": start_date,
+        "end_date": end_date,
+        "summary": {
+            "total_wastage_kg": round(total_wastage_kg, 2),
+            "total_wastage_value": round(total_wastage_value, 2),
+            "avg_daily_wastage_kg": round(avg_daily_wastage, 2),
+            "overall_wastage_percent": round(overall_wastage_percent, 2)
+        },
+        "daily_trend": daily_data,
+        "top_wastage_products": product_data
+    }
+
+@api_router.put("/stock-status/{status_id}")
+async def update_stock_status(status_id: str, updates: dict, current_user: dict = Depends(get_current_user)):
+    """Update a stock status entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Remove protected fields
+    updates.pop("id", None)
+    updates.pop("_id", None)
+    updates.pop("date", None)
+    updates.pop("product_id", None)
+    
+    result = await db.daily_stock_status.update_one(
+        {"id": status_id},
+        {"$set": updates}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Stock status not found")
+    
+    return {"message": "Stock status updated"}
 
 # Include router
 app.include_router(api_router)

@@ -3,10 +3,12 @@
     "title": "FreshFlow",
     "dashboard": "Dashboard",
     "products": "Products",
+    "stockStatus": "Stock Status",
     "procurement": "Procurement",
     "quickCommerce": "Quick Commerce",
     "retailerOrders": "Retailer Orders",
     "wastage": "Wastage",
+    "wastageDashboard": "Wastage Dashboard",
     "payments": "Payments",
     "invoices": "Invoices",
     "logout": "Logout"

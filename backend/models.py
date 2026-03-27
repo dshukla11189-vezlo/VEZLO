@@ -457,3 +457,34 @@ class InvoiceCreate(BaseModel):
     total_amount: float
     paid_amount: float = 0
     pending_amount: float
+
+
+# Daily Stock Status Models
+class DailyStockStatus(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: str  # YYYY-MM-DD format
+    product_id: str
+    product_name: str
+    product_unit: str = "Kg"
+    opening_qty: float = 0  # Opening quantity in Kg
+    opening_price: float = 0  # Average price at opening
+    purchase_qty: float = 0  # Total purchased today from procurement
+    purchase_value: float = 0  # Total purchase value
+    dispatch_qty: float = 0  # Total dispatched today (QC + Retail)
+    dispatch_value: float = 0  # Total dispatch value
+    closing_qty: Optional[float] = None  # Entered by staff at end of day
+    wastage_qty: float = 0  # Auto-calculated: Opening + Purchase - Dispatch - Closing
+    wastage_value: float = 0  # Wastage in rupees
+    wastage_percent: float = 0  # Wastage as % of (Opening + Purchase)
+    avg_price: float = 0  # Weighted average price
+    status: Literal["open", "closed"] = "open"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    closed_at: Optional[datetime] = None
+
+class StockClosingEntry(BaseModel):
+    product_id: str
+    closing_qty: float  # Actual closing quantity in Kg
+
+class StockClosingBulkEntry(BaseModel):
+    entries: List[StockClosingEntry]

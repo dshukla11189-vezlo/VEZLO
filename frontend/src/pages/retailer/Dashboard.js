@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { 
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
-  TrendingUp, TrendingDown, Clock, CheckCircle, ShoppingCart,
+  TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight
 } from 'lucide-react';
 
@@ -16,11 +16,13 @@ export default function RetailerDashboard() {
   const [dashboardData, setDashboardData] = useState(null);
   const [indents, setIndents] = useState([]);
   const [dispatches, setDispatches] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [rejections, setRejections] = useState([]);
   const [products, setProducts] = useState([]);
   const [packagings, setPackagings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedDispatches, setExpandedDispatches] = useState({});
+  const [expandedInvoices, setExpandedInvoices] = useState({});
   
   // Indent form
   const [showIndentModal, setShowIndentModal] = useState(false);
@@ -38,10 +40,11 @@ export default function RetailerDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, rejectionsRes, productsRes, packagingsRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
+        api.get('/api/retailer-invoices'),
         api.get('/api/retailer-rejections'),
         api.get('/api/products'),
         api.get('/api/qc-packaging')
@@ -49,6 +52,7 @@ export default function RetailerDashboard() {
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
       setDispatches(dispatchesRes.data);
+      setInvoices(invoicesRes.data);
       setRejections(rejectionsRes.data);
       setProducts(productsRes.data);
       setPackagings(packagingsRes.data);
@@ -190,16 +194,102 @@ export default function RetailerDashboard() {
     setExpandedDispatches(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Check if GRN exists for dispatch
-  const hasGrn = (dispatchId) => {
-    // We'd need to fetch GRN data - for now assume no GRN if status is dispatched
-    return false; // Will be enhanced later
+  const toggleInvoiceExpand = (id) => {
+    setExpandedInvoices(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const downloadInvoicePdf = (invoice) => {
+    const printWindow = window.open('', '_blank');
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Invoice ${invoice.invoice_number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .header h1 { color: #14532D; margin: 0; }
+          .info-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
+          .info-box { padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+          th { background: #f5f5f5; }
+          .text-right { text-align: right; }
+          .summary { margin-top: 20px; }
+          .summary-row { display: flex; justify-content: flex-end; gap: 20px; padding: 5px 0; }
+          .total-row { font-weight: bold; font-size: 1.2em; border-top: 2px solid #14532D; padding-top: 10px; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>FreshFlow</h1>
+          <p>INVOICE</p>
+        </div>
+        <div class="info-row">
+          <div class="info-box">
+            <strong>Invoice #:</strong> ${invoice.invoice_number}<br>
+            <strong>Date:</strong> ${formatDate(invoice.invoice_date)}<br>
+          </div>
+          <div class="info-box">
+            <strong>Bill To:</strong><br>
+            ${invoice.retailer_name}<br>
+            ${dashboardData?.retailer?.company_name || ''}<br>
+            ${dashboardData?.retailer?.address || ''}
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Product</th>
+              <th>Variant</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">MRP</th>
+              <th class="text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoice.items.map((item, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td>${item.product_name}</td>
+                <td>${item.variant_name || '-'}</td>
+                <td class="text-right">${item.quantity}</td>
+                <td class="text-right">₹${item.mrp.toFixed(2)}</td>
+                <td class="text-right">₹${item.total_value.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="summary">
+          <div class="summary-row">
+            <span>Total MRP Value:</span>
+            <span>₹${invoice.total_mrp_value.toFixed(2)}</span>
+          </div>
+          <div class="summary-row">
+            <span>Commission (${invoice.commission_percentage}%):</span>
+            <span style="color: green;">- ₹${invoice.commission_amount.toFixed(2)}</span>
+          </div>
+          <div class="summary-row total-row">
+            <span>Net Payable:</span>
+            <span>₹${invoice.net_payable.toFixed(2)}</span>
+          </div>
+        </div>
+        <br><br>
+        <button onclick="window.print()">Print Invoice</button>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
     { id: 'indents', label: 'My Indents', icon: Package },
     { id: 'orders', label: 'My Orders', icon: Truck },
+    { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'rejections', label: 'Rejections', icon: AlertTriangle }
   ];
 
@@ -547,6 +637,96 @@ export default function RetailerDashboard() {
                       </React.Fragment>
                     ))}
                   </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== INVOICES TAB ==================== */}
+        {activeTab === 'invoices' && (
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">My Invoices</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left w-8"></th>
+                      <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
+                      <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
+                      <th className="p-3 text-right font-medium text-gray-500">COMMISSION</th>
+                      <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">DOWNLOAD</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.length === 0 ? (
+                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">No invoices found</td></tr>
+                    ) : invoices.map(invoice => (
+                      <React.Fragment key={invoice.id}>
+                        <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleInvoiceExpand(invoice.id)}>
+                          <td className="p-3">
+                            {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </td>
+                          <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
+                          <td className="p-3">{formatDate(invoice.invoice_date)}</td>
+                          <td className="p-3 text-center">{invoice.items?.length || 0}</td>
+                          <td className="p-3 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
+                          <td className="p-3 text-right text-green-600">- {formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
+                          <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
+                          <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
+                            <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
+                              <Download size={14} className="text-blue-600" />
+                            </Button>
+                          </td>
+                        </tr>
+                        {expandedInvoices[invoice.id] && (
+                          <tr className="bg-green-50">
+                            <td colSpan={8} className="p-3">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="p-2 text-left">Product</th>
+                                    <th className="p-2 text-left">Variant</th>
+                                    <th className="p-2 text-right">Qty</th>
+                                    <th className="p-2 text-right">MRP</th>
+                                    <th className="p-2 text-right">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {invoice.items?.map((item, idx) => (
+                                    <tr key={idx}>
+                                      <td className="p-2">{item.product_name}</td>
+                                      <td className="p-2">{item.variant_name || '-'}</td>
+                                      <td className="p-2 text-right">{item.quantity}</td>
+                                      <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
+                                      <td className="p-2 text-right">{formatCurrency(item.total_value)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                  {invoices.length > 0 && (
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td colSpan={4} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.total_mrp_value || 0), 0))}</td>
+                        <td className="p-3 text-right text-green-600">- {formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}</td>
+                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </CardContent>

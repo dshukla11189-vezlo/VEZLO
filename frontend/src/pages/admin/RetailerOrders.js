@@ -6,9 +6,8 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { 
-  Plus, Package, Truck, ClipboardCheck, AlertTriangle, DollarSign, 
-  Search, Edit, Trash2, X, ChevronDown, ChevronRight, Eye,
-  FileText, Calendar, User
+  Plus, Package, Truck, AlertTriangle, DollarSign, 
+  Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check
 } from 'lucide-react';
 
 export default function RetailerOrders() {
@@ -31,10 +30,22 @@ export default function RetailerOrders() {
   // Dispatches state
   const [dispatches, setDispatches] = useState([]);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [editingDispatch, setEditingDispatch] = useState(null);
   const [selectedIndent, setSelectedIndent] = useState(null);
   const [dispatchForm, setDispatchForm] = useState({
     dispatch_date: new Date().toISOString().split('T')[0],
     items: [],
+    remarks: ''
+  });
+  
+  // Invoices state
+  const [invoices, setInvoices] = useState([]);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [uninvoicedDispatches, setUninvoicedDispatches] = useState([]);
+  const [selectedDispatchIds, setSelectedDispatchIds] = useState([]);
+  const [invoiceForm, setInvoiceForm] = useState({
+    retailer_id: '',
+    invoice_date: new Date().toISOString().split('T')[0],
     remarks: ''
   });
   
@@ -67,6 +78,7 @@ export default function RetailerOrders() {
   
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
+  const [expandedInvoices, setExpandedInvoices] = useState({});
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -104,6 +116,16 @@ export default function RetailerOrders() {
     }
   }, [selectedRetailer]);
 
+  const loadInvoices = useCallback(async () => {
+    try {
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/retailer-invoices${params}`);
+      setInvoices(response.data);
+    } catch (error) {
+      console.error('Failed to load invoices:', error);
+    }
+  }, [selectedRetailer]);
+
   const loadRejections = useCallback(async () => {
     try {
       const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
@@ -128,11 +150,11 @@ export default function RetailerOrders() {
     const loadAll = async () => {
       setLoading(true);
       await loadBaseData();
-      await Promise.all([loadIndents(), loadDispatches(), loadRejections(), loadPayments()]);
+      await Promise.all([loadIndents(), loadDispatches(), loadInvoices(), loadRejections(), loadPayments()]);
       setLoading(false);
     };
     loadAll();
-  }, [loadBaseData, loadIndents, loadDispatches, loadRejections, loadPayments]);
+  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -209,18 +231,14 @@ export default function RetailerOrders() {
     setIndentForm(prev => {
       const items = [...prev.items];
       items[index] = { ...items[index], [field]: value };
-      
-      // Auto-fill product name
       if (field === 'product_id') {
         const product = products.find(p => p.id === value);
         items[index].product_name = product?.name || '';
       }
-      // Auto-fill variant name
       if (field === 'variant_id') {
         const variant = packagings.find(p => p.id === value);
         items[index].variant_name = variant?.name || '';
       }
-      
       return { ...prev, items };
     });
   };
@@ -228,6 +246,7 @@ export default function RetailerOrders() {
   // ==================== DISPATCH HANDLERS ====================
   const openDispatchModal = (indent) => {
     setSelectedIndent(indent);
+    setEditingDispatch(null);
     setDispatchForm({
       dispatch_date: new Date().toISOString().split('T')[0],
       items: indent.items.map(item => ({
@@ -245,6 +264,26 @@ export default function RetailerOrders() {
     setShowDispatchModal(true);
   };
 
+  const openEditDispatchModal = (dispatch) => {
+    setSelectedIndent(null);
+    setEditingDispatch(dispatch);
+    setDispatchForm({
+      dispatch_date: dispatch.dispatch_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      items: dispatch.items.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id,
+        variant_name: item.variant_name,
+        indent_qty: item.indent_qty,
+        supplied_qty: item.supplied_qty,
+        mrp: item.mrp,
+        total_value: item.total_value
+      })),
+      remarks: dispatch.remarks || ''
+    });
+    setShowDispatchModal(true);
+  };
+
   const updateDispatchItem = (index, field, value) => {
     setDispatchForm(prev => {
       const items = [...prev.items];
@@ -254,7 +293,7 @@ export default function RetailerOrders() {
     });
   };
 
-  const handleCreateDispatch = async (e) => {
+  const handleCreateOrUpdateDispatch = async (e) => {
     e.preventDefault();
     if (dispatchForm.items.some(item => !item.mrp || item.mrp <= 0)) {
       toast.error('MRP is mandatory for all items');
@@ -262,20 +301,199 @@ export default function RetailerOrders() {
     }
 
     try {
-      await api.post('/api/retailer-dispatches', {
-        indent_id: selectedIndent.id,
-        dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
-        items: dispatchForm.items,
-        remarks: dispatchForm.remarks
-      });
-      toast.success('Dispatch created successfully');
+      if (editingDispatch) {
+        // Update existing dispatch
+        await api.put(`/api/retailer-dispatches/${editingDispatch.id}`, {
+          indent_id: editingDispatch.indent_id,
+          dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
+          items: dispatchForm.items,
+          remarks: dispatchForm.remarks
+        });
+        toast.success('Dispatch updated successfully');
+      } else {
+        // Create new dispatch
+        await api.post('/api/retailer-dispatches', {
+          indent_id: selectedIndent.id,
+          dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
+          items: dispatchForm.items,
+          remarks: dispatchForm.remarks
+        });
+        toast.success('Dispatch created successfully');
+      }
       setShowDispatchModal(false);
       setSelectedIndent(null);
+      setEditingDispatch(null);
       loadIndents();
       loadDispatches();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create dispatch');
+      toast.error(error.response?.data?.detail || 'Failed to save dispatch');
     }
+  };
+
+  const handleDeleteDispatch = async (dispatchId) => {
+    if (!window.confirm('Are you sure you want to delete this dispatch?')) return;
+    try {
+      await api.delete(`/api/retailer-dispatches/${dispatchId}`);
+      toast.success('Dispatch deleted');
+      loadDispatches();
+      loadIndents();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete dispatch');
+    }
+  };
+
+  // ==================== INVOICE HANDLERS ====================
+  const openInvoiceModal = async () => {
+    if (!invoiceForm.retailer_id) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    try {
+      const response = await api.get(`/api/retailer-dispatches/uninvoiced?retailer_id=${invoiceForm.retailer_id}`);
+      setUninvoicedDispatches(response.data);
+      setSelectedDispatchIds([]);
+      setShowInvoiceModal(true);
+    } catch (error) {
+      toast.error('Failed to load uninvoiced dispatches');
+    }
+  };
+
+  const toggleDispatchSelection = (dispatchId) => {
+    setSelectedDispatchIds(prev => 
+      prev.includes(dispatchId) 
+        ? prev.filter(id => id !== dispatchId)
+        : [...prev, dispatchId]
+    );
+  };
+
+  const handleCreateInvoice = async (e) => {
+    e.preventDefault();
+    if (selectedDispatchIds.length === 0) {
+      toast.error('Please select at least one dispatch');
+      return;
+    }
+
+    try {
+      const response = await api.post('/api/retailer-invoices', {
+        retailer_id: invoiceForm.retailer_id,
+        invoice_date: new Date(invoiceForm.invoice_date).toISOString(),
+        dispatch_ids: selectedDispatchIds,
+        remarks: invoiceForm.remarks
+      });
+      toast.success(`Invoice ${response.data.invoice_number} created successfully`);
+      setShowInvoiceModal(false);
+      setSelectedDispatchIds([]);
+      setInvoiceForm({
+        retailer_id: '',
+        invoice_date: new Date().toISOString().split('T')[0],
+        remarks: ''
+      });
+      loadInvoices();
+      loadDispatches();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create invoice');
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceId) => {
+    if (!window.confirm('Are you sure you want to delete this invoice?')) return;
+    try {
+      await api.delete(`/api/retailer-invoices/${invoiceId}`);
+      toast.success('Invoice deleted');
+      loadInvoices();
+      loadDispatches();
+    } catch (error) {
+      toast.error('Failed to delete invoice');
+    }
+  };
+
+  const downloadInvoicePdf = (invoice) => {
+    // Create a printable invoice
+    const printWindow = window.open('', '_blank');
+    const retailer = retailers.find(r => r.id === invoice.retailer_id) || {};
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Invoice ${invoice.invoice_number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .header h1 { color: #14532D; margin: 0; }
+          .info-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
+          .info-box { padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+          th { background: #f5f5f5; }
+          .text-right { text-align: right; }
+          .summary { margin-top: 20px; }
+          .summary-row { display: flex; justify-content: flex-end; gap: 20px; padding: 5px 0; }
+          .total-row { font-weight: bold; font-size: 1.2em; border-top: 2px solid #14532D; padding-top: 10px; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>FreshFlow</h1>
+          <p>INVOICE</p>
+        </div>
+        <div class="info-row">
+          <div class="info-box">
+            <strong>Invoice #:</strong> ${invoice.invoice_number}<br>
+            <strong>Date:</strong> ${formatDate(invoice.invoice_date)}<br>
+          </div>
+          <div class="info-box">
+            <strong>Bill To:</strong><br>
+            ${invoice.retailer_name}<br>
+            ${retailer.company_name || ''}<br>
+            ${retailer.address || ''}
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Product</th>
+              <th>Variant</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">MRP</th>
+              <th class="text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoice.items.map((item, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td>${item.product_name}</td>
+                <td>${item.variant_name || '-'}</td>
+                <td class="text-right">${item.quantity}</td>
+                <td class="text-right">₹${item.mrp.toFixed(2)}</td>
+                <td class="text-right">₹${item.total_value.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="summary">
+          <div class="summary-row">
+            <span>Total MRP Value:</span>
+            <span>₹${invoice.total_mrp_value.toFixed(2)}</span>
+          </div>
+          <div class="summary-row">
+            <span>Commission (${invoice.commission_percentage}%):</span>
+            <span style="color: green;">- ₹${invoice.commission_amount.toFixed(2)}</span>
+          </div>
+          <div class="summary-row total-row">
+            <span>Net Payable:</span>
+            <span>₹${invoice.net_payable.toFixed(2)}</span>
+          </div>
+        </div>
+        <br><br>
+        <button onclick="window.print()">Print Invoice</button>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   // ==================== REJECTION HANDLERS ====================
@@ -373,12 +591,22 @@ export default function RetailerOrders() {
     setExpandedIndents(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const toggleInvoiceExpand = (id) => {
+    setExpandedInvoices(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const tabs = [
     { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
     { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
+    { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
     { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
     { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length }
   ];
+
+  // Calculate totals for selected dispatches (for invoice modal)
+  const selectedDispatchTotal = uninvoicedDispatches
+    .filter(d => selectedDispatchIds.includes(d.id))
+    .reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
 
   return (
     <Layout title="Retailer Orders">
@@ -387,7 +615,7 @@ export default function RetailerOrders() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
-            <p className="text-sm text-gray-500">Manage retailer indents, dispatches, and payments</p>
+            <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
           </div>
           
           {/* Retailer Filter */}
@@ -505,7 +733,6 @@ export default function RetailerOrders() {
                                   ))}
                                 </tbody>
                               </table>
-                              {indent.remarks && <p className="text-xs text-gray-500 mt-2">Remarks: {indent.remarks}</p>}
                             </td>
                           </tr>
                         )}
@@ -529,21 +756,21 @@ export default function RetailerOrders() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
                       <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
                       <th className="p-3 text-center font-medium text-gray-500">COMM %</th>
                       <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">INVOICE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {dispatches.length === 0 ? (
-                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No dispatches found</td></tr>
+                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">No dispatches found</td></tr>
                     ) : dispatches.map(dispatch => (
                       <tr key={dispatch.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 font-medium text-blue-600">{dispatch.invoice_number}</td>
                         <td className="p-3">{formatDate(dispatch.dispatch_date)}</td>
                         <td className="p-3 font-medium">{dispatch.retailer_name}</td>
                         <td className="p-3 text-center">{dispatch.items?.length || 0}</td>
@@ -552,16 +779,148 @@ export default function RetailerOrders() {
                           <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs">{dispatch.commission_percentage}%</span>
                         </td>
                         <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(dispatch.net_payable)}</td>
+                        <td className="p-3 text-center">
+                          {dispatch.invoice_number ? (
+                            <span className="text-blue-600 text-xs">{dispatch.invoice_number}</span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => openEditDispatchModal(dispatch)}>
+                              <Edit size={14} className="text-blue-600" />
+                            </Button>
+                            {!dispatch.invoice_number && (
+                              <Button size="sm" variant="ghost" onClick={() => handleDeleteDispatch(dispatch.id)}>
+                                <Trash2 size={14} className="text-red-600" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                   {dispatches.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
-                        <td colSpan={4} className="p-3 text-right">TOTAL:</td>
+                        <td colSpan={3} className="p-3 text-right">TOTAL:</td>
                         <td className="p-3 text-right">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
                         <td></td>
                         <td className="p-3 text-right text-green-700">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== INVOICES TAB ==================== */}
+        {activeTab === 'invoices' && (
+          <Card>
+            <CardHeader className="py-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Invoices</CardTitle>
+              <div className="flex gap-2 items-center">
+                <select
+                  value={invoiceForm.retailer_id}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
+                  className="h-8 px-2 rounded border text-sm"
+                >
+                  <option value="">Select Retailer</option>
+                  {retailers.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                <Button size="sm" className="bg-[#14532D]" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
+                  <Plus size={14} className="mr-1" /> Create Invoice
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left w-8"></th>
+                      <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
+                      <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
+                      <th className="p-3 text-right font-medium text-gray-500">COMMISSION</th>
+                      <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.length === 0 ? (
+                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">No invoices found</td></tr>
+                    ) : invoices.map(invoice => (
+                      <React.Fragment key={invoice.id}>
+                        <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleInvoiceExpand(invoice.id)}>
+                          <td className="p-3">
+                            {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </td>
+                          <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
+                          <td className="p-3">{formatDate(invoice.invoice_date)}</td>
+                          <td className="p-3 font-medium">{invoice.retailer_name}</td>
+                          <td className="p-3 text-center">{invoice.items?.length || 0}</td>
+                          <td className="p-3 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
+                          <td className="p-3 text-right text-green-600">- {formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
+                          <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
+                          <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
+                                <Download size={14} className="text-blue-600" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
+                                <Trash2 size={14} className="text-red-600" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedInvoices[invoice.id] && (
+                          <tr className="bg-green-50">
+                            <td colSpan={9} className="p-3">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="p-2 text-left">Product</th>
+                                    <th className="p-2 text-left">Variant</th>
+                                    <th className="p-2 text-right">Qty</th>
+                                    <th className="p-2 text-right">MRP</th>
+                                    <th className="p-2 text-right">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {invoice.items?.map((item, idx) => (
+                                    <tr key={idx}>
+                                      <td className="p-2">{item.product_name}</td>
+                                      <td className="p-2">{item.variant_name || '-'}</td>
+                                      <td className="p-2 text-right">{item.quantity}</td>
+                                      <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
+                                      <td className="p-2 text-right">{formatCurrency(item.total_value)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                  {invoices.length > 0 && (
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td colSpan={5} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.total_mrp_value || 0), 0))}</td>
+                        <td className="p-3 text-right text-green-600">- {formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}</td>
+                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>
+                        <td></td>
                       </tr>
                     </tfoot>
                   )}
@@ -615,17 +974,6 @@ export default function RetailerOrders() {
                       </tr>
                     ))}
                   </tbody>
-                  {rejections.length > 0 && (
-                    <tfoot className="bg-gray-100 font-semibold">
-                      <tr>
-                        <td colSpan={3} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-center text-red-600">{rejections.reduce((sum, r) => sum + (r.quantity || 0), 0)}</td>
-                        <td></td>
-                        <td className="p-3 text-right text-red-600">{formatCurrency(rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0))}</td>
-                        <td colSpan={2}></td>
-                      </tr>
-                    </tfoot>
-                  )}
                 </table>
               </div>
             </CardContent>
@@ -676,15 +1024,6 @@ export default function RetailerOrders() {
                       </tr>
                     ))}
                   </tbody>
-                  {payments.length > 0 && (
-                    <tfoot className="bg-gray-100 font-semibold">
-                      <tr>
-                        <td colSpan={2} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right text-green-700">{formatCurrency(payments.reduce((sum, p) => sum + (p.amount || 0), 0))}</td>
-                        <td colSpan={4}></td>
-                      </tr>
-                    </tfoot>
-                  )}
                 </table>
               </div>
             </CardContent>
@@ -778,15 +1117,6 @@ export default function RetailerOrders() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
-                  <Input
-                    value={indentForm.remarks}
-                    onChange={(e) => setIndentForm(prev => ({ ...prev, remarks: e.target.value }))}
-                    placeholder="Optional remarks"
-                  />
-                </div>
-
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => { setShowIndentModal(false); resetIndentForm(); }} className="flex-1">
                     Cancel
@@ -799,19 +1129,21 @@ export default function RetailerOrders() {
         )}
 
         {/* ==================== DISPATCH MODAL ==================== */}
-        {showDispatchModal && selectedIndent && (
+        {showDispatchModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
                 <div>
-                  <h3 className="text-lg font-semibold">Dispatch to {selectedIndent.retailer_name}</h3>
-                  <p className="text-sm text-gray-500">Indent: {formatDate(selectedIndent.indent_date)}</p>
+                  <h3 className="text-lg font-semibold">
+                    {editingDispatch ? 'Edit Dispatch' : `Dispatch to ${selectedIndent?.retailer_name}`}
+                  </h3>
+                  {selectedIndent && <p className="text-sm text-gray-500">Indent: {formatDate(selectedIndent?.indent_date)}</p>}
                 </div>
-                <button onClick={() => { setShowDispatchModal(false); setSelectedIndent(null); }} className="p-1 hover:bg-gray-100 rounded">
+                <button onClick={() => { setShowDispatchModal(false); setSelectedIndent(null); setEditingDispatch(null); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleCreateDispatch} className="p-4 space-y-4">
+              <form onSubmit={handleCreateOrUpdateDispatch} className="p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Dispatch Date *</label>
                   <Input
@@ -875,20 +1207,91 @@ export default function RetailerOrders() {
                   </div>
                 </div>
 
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowDispatchModal(false); setSelectedIndent(null); setEditingDispatch(null); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">
+                    {editingDispatch ? 'Update Dispatch' : 'Create Dispatch'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== INVOICE MODAL ==================== */}
+        {showInvoiceModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <h3 className="text-lg font-semibold">Create Invoice</h3>
+                  <p className="text-sm text-gray-500">Select dispatches to include in this invoice</p>
+                </div>
+                <button onClick={() => { setShowInvoiceModal(false); setSelectedDispatchIds([]); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateInvoice} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date *</label>
                   <Input
-                    value={dispatchForm.remarks}
-                    onChange={(e) => setDispatchForm(prev => ({ ...prev, remarks: e.target.value }))}
-                    placeholder="Optional remarks"
+                    type="date"
+                    value={invoiceForm.invoice_date}
+                    onChange={(e) => setInvoiceForm(prev => ({ ...prev, invoice_date: e.target.value }))}
+                    required
                   />
                 </div>
 
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Select Dispatches ({selectedDispatchIds.length} selected)
+                  </label>
+                  {uninvoicedDispatches.length === 0 ? (
+                    <p className="text-gray-400 text-center py-4">No uninvoiced dispatches found for this retailer</p>
+                  ) : (
+                    <div className="border rounded max-h-60 overflow-y-auto">
+                      {uninvoicedDispatches.map(dispatch => (
+                        <div
+                          key={dispatch.id}
+                          className={`flex items-center gap-3 p-3 border-b cursor-pointer hover:bg-gray-50 ${
+                            selectedDispatchIds.includes(dispatch.id) ? 'bg-green-50' : ''
+                          }`}
+                          onClick={() => toggleDispatchSelection(dispatch.id)}
+                        >
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                            selectedDispatchIds.includes(dispatch.id) ? 'bg-[#14532D] border-[#14532D]' : 'border-gray-300'
+                          }`}>
+                            {selectedDispatchIds.includes(dispatch.id) && <Check size={14} className="text-white" />}
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{formatDate(dispatch.dispatch_date)}</p>
+                            <p className="text-xs text-gray-500">{dispatch.items?.length || 0} items</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold">{formatCurrency(dispatch.total_mrp_value)}</p>
+                            <p className="text-xs text-green-600">Net: {formatCurrency(dispatch.net_payable)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {selectedDispatchIds.length > 0 && (
+                  <div className="bg-green-50 p-3 rounded">
+                    <p className="text-sm font-medium">Selected Total: {formatCurrency(selectedDispatchTotal)}</p>
+                  </div>
+                )}
+
                 <div className="flex gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => { setShowDispatchModal(false); setSelectedIndent(null); }} className="flex-1">
+                  <Button type="button" variant="outline" onClick={() => { setShowInvoiceModal(false); setSelectedDispatchIds([]); }} className="flex-1">
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1 bg-[#14532D]">Create Dispatch</Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]" disabled={selectedDispatchIds.length === 0}>
+                    Create Invoice
+                  </Button>
                 </div>
               </form>
             </div>
@@ -984,14 +1387,6 @@ export default function RetailerOrders() {
                     <option value="Other">Other</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
-                  <Input
-                    value={rejectionForm.remarks}
-                    onChange={(e) => setRejectionForm(prev => ({ ...prev, remarks: e.target.value }))}
-                    placeholder="Optional remarks"
-                  />
-                </div>
 
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="flex-1">
@@ -1070,14 +1465,6 @@ export default function RetailerOrders() {
                     value={paymentForm.reference_number}
                     onChange={(e) => setPaymentForm(prev => ({ ...prev, reference_number: e.target.value }))}
                     placeholder="UPI ref / Cheque no / Transaction ID"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
-                  <Input
-                    value={paymentForm.remarks}
-                    onChange={(e) => setPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
-                    placeholder="Optional remarks"
                   />
                 </div>
 

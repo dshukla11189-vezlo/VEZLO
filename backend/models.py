@@ -640,3 +640,38 @@ class RetailerPaymentCreate(BaseModel):
     payment_mode: Literal["cash", "upi", "bank_transfer", "cheque", "other"] = "cash"
     reference_number: Optional[str] = None
     remarks: Optional[str] = None
+
+
+# Retailer Invoice Models
+class RetailerInvoiceItem(BaseModel):
+    dispatch_id: str
+    product_id: str
+    product_name: str
+    variant_name: Optional[str] = None
+    quantity: float
+    mrp: float
+    total_value: float
+
+class RetailerInvoice(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    invoice_number: str
+    retailer_id: str
+    retailer_name: str
+    invoice_date: datetime
+    dispatch_ids: List[str]  # Multiple dispatches can be in one invoice
+    items: List[RetailerInvoiceItem]
+    total_mrp_value: float = 0
+    commission_percentage: float = 0
+    commission_amount: float = 0
+    net_payable: float = 0
+    status: Literal["pending", "partial", "paid"] = "pending"
+    created_by: str
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerInvoiceCreate(BaseModel):
+    retailer_id: str
+    invoice_date: datetime
+    dispatch_ids: List[str]
+    remarks: Optional[str] = None

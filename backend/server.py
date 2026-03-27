@@ -2744,13 +2744,6 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
     
     net_payable = total_mrp_value * (1 - commission / 100)
     
-    # Generate invoice number: RET-DDMMMYYYY-NNN
-    today = input.dispatch_date.strftime("%d%b%Y").upper()
-    count = await db.retailer_dispatches.count_documents({
-        "dispatch_date": {"$regex": f"^{input.dispatch_date.strftime('%Y-%m-%d')}"}
-    })
-    invoice_number = f"RET-{today}-{str(count + 1).zfill(3)}"
-    
     dispatch = RetailerDispatch(
         indent_id=input.indent_id,
         retailer_id=indent["retailer_id"],
@@ -2761,7 +2754,7 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
         commission_percentage=commission,
         net_payable=round(net_payable, 2),
         dispatched_by=current_user["user_id"],
-        invoice_number=invoice_number,
+        invoice_number=None,  # Invoice created separately
         remarks=input.remarks
     )
     
@@ -2777,7 +2770,69 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
         {"$set": {"status": "dispatched"}}
     )
     
-    return {"id": dispatch.id, "invoice_number": invoice_number, "message": "Dispatch created successfully"}
+    return {"id": dispatch.id, "message": "Dispatch created successfully"}
+
+# Edit Retailer Dispatch
+@api_router.put("/retailer-dispatches/{dispatch_id}")
+async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update dispatches")
+    
+    existing = await db.retailer_dispatches.find_one({"id": dispatch_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Get retailer info for commission
+    retailer = await db.users.find_one({"id": existing["retailer_id"]}, {"_id": 0})
+    commission = retailer.get("commission_percentage", 0) if retailer else 0
+    
+    # Calculate totals
+    total_mrp_value = 0
+    items_with_totals = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        item_dict["total_value"] = item.supplied_qty * item.mrp
+        total_mrp_value += item_dict["total_value"]
+        items_with_totals.append(item_dict)
+    
+    net_payable = total_mrp_value * (1 - commission / 100)
+    
+    update_data = {
+        "dispatch_date": input.dispatch_date.isoformat(),
+        "items": items_with_totals,
+        "total_mrp_value": round(total_mrp_value, 2),
+        "commission_percentage": commission,
+        "net_payable": round(net_payable, 2),
+        "remarks": input.remarks
+    }
+    
+    await db.retailer_dispatches.update_one({"id": dispatch_id}, {"$set": update_data})
+    return {"id": dispatch_id, "message": "Dispatch updated successfully"}
+
+# Delete Retailer Dispatch
+@api_router.delete("/retailer-dispatches/{dispatch_id}")
+async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete dispatches")
+    
+    existing = await db.retailer_dispatches.find_one({"id": dispatch_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Check if dispatch is part of an invoice
+    invoice = await db.retailer_invoices.find_one({"dispatch_ids": dispatch_id})
+    if invoice:
+        raise HTTPException(status_code=400, detail="Cannot delete dispatch that is part of an invoice")
+    
+    await db.retailer_dispatches.delete_one({"id": dispatch_id})
+    
+    # Revert indent status back to pending if needed
+    await db.retailer_indents.update_one(
+        {"id": existing.get("indent_id")},
+        {"$set": {"status": "pending"}}
+    )
+    
+    return {"message": "Dispatch deleted successfully"}
 
 # Retailer GRN
 @api_router.get("/retailer-grn")
@@ -2959,6 +3014,166 @@ async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(
         raise HTTPException(status_code=404, detail="Payment not found")
     
     return {"message": "Payment deleted successfully"}
+
+# Retailer Invoices
+@api_router.get("/retailer-invoices")
+async def get_retailer_invoices(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(1000)
+    return invoices
+
+@api_router.get("/retailer-invoices/{invoice_id}")
+async def get_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Retailers can only see their own invoices
+    if current_user["role"] == "retailer" and invoice["retailer_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    return invoice
+
+@api_router.post("/retailer-invoices")
+async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create invoices")
+    
+    if not input.dispatch_ids:
+        raise HTTPException(status_code=400, detail="At least one dispatch is required")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    commission = retailer.get("commission_percentage", 0)
+    
+    # Get all dispatches and aggregate items
+    dispatches = await db.retailer_dispatches.find(
+        {"id": {"$in": input.dispatch_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    if len(dispatches) != len(input.dispatch_ids):
+        raise HTTPException(status_code=400, detail="Some dispatches not found")
+    
+    # Check if any dispatch is already in another invoice
+    for dispatch in dispatches:
+        existing_invoice = await db.retailer_invoices.find_one({"dispatch_ids": dispatch["id"]})
+        if existing_invoice:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dispatch is already in invoice {existing_invoice.get('invoice_number')}"
+            )
+    
+    # Aggregate items from all dispatches
+    all_items = []
+    total_mrp_value = 0
+    for dispatch in dispatches:
+        for item in dispatch.get("items", []):
+            all_items.append(RetailerInvoiceItem(
+                dispatch_id=dispatch["id"],
+                product_id=item.get("product_id", ""),
+                product_name=item.get("product_name", ""),
+                variant_name=item.get("variant_name"),
+                quantity=item.get("supplied_qty", 0),
+                mrp=item.get("mrp", 0),
+                total_value=item.get("total_value", 0)
+            ))
+            total_mrp_value += item.get("total_value", 0)
+    
+    commission_amount = total_mrp_value * commission / 100
+    net_payable = total_mrp_value - commission_amount
+    
+    # Generate invoice number: RET-INV-DDMMMYYYY-NNN
+    today = input.invoice_date.strftime("%d%b%Y").upper()
+    count = await db.retailer_invoices.count_documents({
+        "invoice_date": {"$regex": f"^{input.invoice_date.strftime('%Y-%m-%d')}"}
+    })
+    invoice_number = f"RET-INV-{today}-{str(count + 1).zfill(3)}"
+    
+    invoice = RetailerInvoice(
+        invoice_number=invoice_number,
+        retailer_id=input.retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        invoice_date=input.invoice_date,
+        dispatch_ids=input.dispatch_ids,
+        items=[item.model_dump() for item in all_items],
+        total_mrp_value=round(total_mrp_value, 2),
+        commission_percentage=commission,
+        commission_amount=round(commission_amount, 2),
+        net_payable=round(net_payable, 2),
+        created_by=current_user["user_id"],
+        remarks=input.remarks
+    )
+    
+    doc = invoice.model_dump()
+    doc["invoice_date"] = doc["invoice_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_invoices.insert_one(doc)
+    
+    # Update dispatches with invoice number
+    await db.retailer_dispatches.update_many(
+        {"id": {"$in": input.dispatch_ids}},
+        {"$set": {"invoice_number": invoice_number, "invoice_id": invoice.id}}
+    )
+    
+    return {"id": invoice.id, "invoice_number": invoice_number, "message": "Invoice created successfully"}
+
+@api_router.delete("/retailer-invoices/{invoice_id}")
+async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete invoices")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Remove invoice reference from dispatches
+    await db.retailer_dispatches.update_many(
+        {"id": {"$in": invoice.get("dispatch_ids", [])}},
+        {"$set": {"invoice_number": None, "invoice_id": None}}
+    )
+    
+    await db.retailer_invoices.delete_one({"id": invoice_id})
+    return {"message": "Invoice deleted successfully"}
+
+# Get uninvoiced dispatches for a retailer (for creating invoices)
+@api_router.get("/retailer-dispatches/uninvoiced")
+async def get_uninvoiced_dispatches(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can view uninvoiced dispatches")
+    
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": retailer_id,
+        "$or": [
+            {"invoice_id": None}, 
+            {"invoice_id": {"$exists": False}},
+            {"invoice_number": None},
+            {"invoice_number": {"$exists": False}}
+        ]
+    }, {"_id": 0}).sort("dispatch_date", -1).to_list(100)
+    
+    # Filter to only truly uninvoiced (both invoice_id and invoice_number must be None/missing)
+    uninvoiced = [
+        d for d in dispatches 
+        if not d.get("invoice_id") and not d.get("invoice_number")
+    ]
+    
+    return uninvoiced
 
 # Retailer Dashboard Summary
 @api_router.get("/retailer-dashboard")

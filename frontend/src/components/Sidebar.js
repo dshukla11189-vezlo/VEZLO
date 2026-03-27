@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
-import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator } from 'lucide-react';
+import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator, Users } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose, isMobile }) {
   const { t } = useTranslation();
   const location = useLocation();
   const user = getUser();
   
+  // Admin has access to ALL tabs
   const adminLinks = [
     { path: '/admin/dashboard', icon: Home, labelKey: 'app.dashboard' },
     { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
@@ -20,20 +21,26 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     { path: '/admin/fixed-expenses', icon: Calculator, labelKey: 'app.fixedExpenses' },
     { path: '/admin/payments', icon: DollarSign, labelKey: 'app.payments' },
     { path: '/admin/invoices', icon: FileText, labelKey: 'app.invoices' },
+    { path: '/admin/users', icon: Users, labelKey: 'app.userManagement' },
   ];
 
+  // Staff access: Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Invoices
+  const staffLinks = [
+    { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
+    { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
+    { path: '/admin/quick-commerce', icon: ShoppingCart, labelKey: 'app.quickCommerce' },
+    { path: '/admin/retailer-orders', icon: ShoppingCart, labelKey: 'app.retailerOrders' },
+    { path: '/admin/wastage-dashboard', icon: Trash2, labelKey: 'app.wastageDashboard' },
+    { path: '/admin/variable-expenses', icon: Receipt, labelKey: 'app.variableExpenses' },
+    { path: '/admin/invoices', icon: FileText, labelKey: 'app.invoices' },
+  ];
+
+  // Retailer has their own portal (to be built)
   const retailerLinks = [
     { path: '/retailer/dashboard', icon: Home, labelKey: 'app.dashboard' },
   ];
 
-  const staffLinks = [
-    { path: '/staff/dashboard', icon: Home, labelKey: 'app.dashboard' },
-    { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
-    { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
-    { path: '/admin/wastage-dashboard', icon: Trash2, labelKey: 'app.wastageDashboard' },
-  ];
-
-  const links = user?.role === 'admin' ? adminLinks : user?.role === 'retailer' ? retailerLinks : staffLinks;
+  const links = user?.role === 'admin' ? adminLinks : user?.role === 'staff' ? staffLinks : retailerLinks;
 
   // Close sidebar on route change (mobile only)
   useEffect(() => {

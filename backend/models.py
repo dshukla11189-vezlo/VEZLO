@@ -59,6 +59,15 @@ class AuthResponse(BaseModel):
     token: str
     user: UserResponse
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[Literal["admin", "retailer", "staff"]] = None
+    company_name: Optional[str] = None
+    contact: Optional[str] = None
+    address: Optional[str] = None
+
 # Product Models
 class Product(BaseModel):
     model_config = ConfigDict(extra="ignore")

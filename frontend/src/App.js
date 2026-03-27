@@ -16,6 +16,7 @@ import VariableExpenses from './pages/admin/VariableExpenses';
 import FixedExpenses from './pages/admin/FixedExpenses';
 import Payments from './pages/admin/Payments';
 import Invoices from './pages/admin/Invoices';
+import UserManagement from './pages/admin/UserManagement';
 import RetailerDashboard from './pages/retailer/Dashboard';
 import StaffDashboard from './pages/staff/Dashboard';
 import './App.css';
@@ -41,8 +42,9 @@ function App() {
     
     switch (user?.role) {
       case 'admin':
-      case 'staff':
         return '/admin/dashboard';
+      case 'staff':
+        return '/admin/stock-status'; // Staff lands on Stock Status (no P&L access)
       case 'retailer':
         return '/retailer/dashboard';
       default:
@@ -59,11 +61,11 @@ function App() {
           
           <Route path="/" element={<Navigate to={getDefaultRoute()} replace />} />
           
-          {/* Admin & Staff Routes */}
+          {/* Admin Only Routes */}
           <Route
             path="/admin/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+              <ProtectedRoute allowedRoles={['admin']}>
                 <AdminDashboard />
               </ProtectedRoute>
             }
@@ -135,7 +137,7 @@ function App() {
           <Route
             path="/admin/fixed-expenses"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+              <ProtectedRoute allowedRoles={['admin']}>
                 <FixedExpenses />
               </ProtectedRoute>
             }
@@ -143,7 +145,7 @@ function App() {
           <Route
             path="/admin/payments"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+              <ProtectedRoute allowedRoles={['admin']}>
                 <Payments />
               </ProtectedRoute>
             }
@@ -153,6 +155,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin', 'staff']}>
                 <Invoices />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <UserManagement />
               </ProtectedRoute>
             }
           />

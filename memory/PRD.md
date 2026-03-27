@@ -177,6 +177,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Customer Name column in expanded product breakdown
   - [x] NET P/L removed from daily row headers (available in summary cards)
   - [x] **Today's Quick Summary Widget** - Shows dispatches, pending indents, procurements, top products at-a-glance
+- [x] **Role-Based Access Control** (COMPLETED - Mar 27, 2026)
+  - [x] **Admin**: Full access to all tabs including P&L Dashboard, Fixed Expenses, Payments, User Management
+  - [x] **Staff**: Limited access to Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Invoices
+  - [x] **Retailer**: Individual login with own portal (structure ready, portal to be built)
+  - [x] **User Management Page**: Admin can create/edit/delete users with role assignment
+  - [x] Backend APIs: GET/POST/PUT/DELETE /api/users (Admin only)
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Export to Excel for Indent tab (UI buttons exist, logic pending)
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)

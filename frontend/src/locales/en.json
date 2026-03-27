@@ -13,6 +13,7 @@
     "fixedExpenses": "Fixed Expenses",
     "payments": "Payments",
     "invoices": "Invoices",
+    "userManagement": "User Management",
     "logout": "Logout"
   },
   "dashboard": {

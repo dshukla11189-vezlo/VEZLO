@@ -127,7 +127,15 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 
 ### P0 - Critical (Needed for MVP completion)
 - [ ] OCR QC Order Processing - Connect UI to ocr_processor.py
-- [ ] Wastage & Grading Tracking page
+- [x] **Stock Status & Wastage Dashboard** (COMPLETED - Mar 2026)
+  - [x] Daily stock tracking: Opening, Purchase, Dispatch, Closing quantities
+  - [x] Weighted average price calculation
+  - [x] Auto-calculated wastage: (Opening + Purchase - Dispatch - Closing)
+  - [x] Staff can enter closing stock via dialog modal
+  - [x] Wastage Dashboard with 7/15/30 day trends
+  - [x] Top wastage products ranking
+  - [x] Visual bar charts and insights/recommendations
+  - [x] Backend: GET /api/stock-status/today, POST /api/stock-status/close, GET /api/stock-status/wastage-dashboard
 
 ### P1 - High Priority
 - [x] Quick Commerce Dispatch section - Create dispatches from indents (COMPLETED)
@@ -173,6 +181,7 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - `products`: {name, category, stock, unit, price}
 - `farmers`: {name, contact, address, bank_account_number, ifsc_code, bank_name, branch_name, upi_id, materials_supplied}
 - `procurements`: {farmer_id, farmer_name, date, products[], total_amount, paid_amount, pending_amount, payment_status, remark}
+- `daily_stock_status`: {date, product_id, product_name, opening_qty, avg_price, purchase_qty, dispatch_qty, closing_qty, wastage_qty, wastage_percent, status}
 
 ## Test Credentials
 - Admin: admin@freshflow.com / admin123

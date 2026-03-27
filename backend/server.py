@@ -1591,9 +1591,12 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 "status": "open"
             }
             
-            # Save to database
-            await db.daily_stock_status.insert_one(status)
+            # Save to database (creates a copy internally, but mutates status with _id)
+            await db.daily_stock_status.insert_one(status.copy())
         
+        # Ensure no _id field in response (MongoDB insert_one mutates the dict)
+        if "_id" in status:
+            del status["_id"]
         result.append(status)
     
     return result

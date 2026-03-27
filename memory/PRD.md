@@ -158,6 +158,14 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Loss/Gain Calculation**: difference × rate_per_unit with color coding
   - [x] **Export CSV Button**: Downloads GRN data as CSV file
   - [x] **Save GRN**: Persists matched GRN data to database
+- [x] **Variable & Fixed Expenses Tracking** (COMPLETED - Mar 2026)
+  - [x] Variable Expenses: Transportation, Packaging, Labor, Fuel, Loading/Unloading, Commission, Cold Storage, Market Fees
+  - [x] Fixed Expenses: Rent, Salaries, Utilities, Insurance, Vehicle EMI, Loan EMI, Taxes, Software, Internet/Phone
+  - [x] Employee expense claims with reimbursement workflow
+  - [x] Bulk settlement for multiple expenses
+  - [x] Auto-generate recurring monthly fixed expenses
+  - [x] Date/Category/Status filters
+  - [x] Category breakdown summary
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 

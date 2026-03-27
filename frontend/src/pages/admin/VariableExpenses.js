@@ -1,0 +1,691 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import Layout from '../../components/Layout';
+import api from '../../utils/api';
+import { toast } from 'sonner';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Checkbox } from '../../components/ui/checkbox';
+import { 
+  Plus, Receipt, Filter, Calendar, Edit2, Trash2, RefreshCw, 
+  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search
+} from 'lucide-react';
+
+const EXPENSE_CATEGORIES = [
+  'Transportation',
+  'Packaging',
+  'Labor',
+  'Fuel',
+  'Loading/Unloading',
+  'Commission',
+  'Cold Storage',
+  'Market Fees',
+  'Maintenance',
+  'Other'
+];
+
+const PAYMENT_MODES = ['Cash', 'UPI', 'Bank Transfer', 'Cheque'];
+
+export default function VariableExpenses() {
+  const [expenses, setExpenses] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showSettlementDialog, setShowSettlementDialog] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+  
+  // Filters
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterSettled, setFilterSettled] = useState('all');
+  
+  // Form data
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    category: '',
+    description: '',
+    amount: '',
+    paid_to: '',
+    payment_mode: 'Cash',
+    receipt_no: '',
+    paid_by: 'Company', // Company or Employee name
+    is_employee_expense: false,
+    employee_name: '',
+    is_settled: true,
+    settlement_date: '',
+    settlement_remarks: ''
+  });
+  
+  // Bulk settlement
+  const [selectedExpenses, setSelectedExpenses] = useState([]);
+  const [settlementRemarks, setSettlementRemarks] = useState('');
+
+  const loadExpenses = useCallback(async () => {
+    setLoading(true);
+    try {
+      let url = '/api/expenses/variable';
+      const params = new URLSearchParams();
+      if (filterDateFrom) params.append('from_date', filterDateFrom);
+      if (filterDateTo) params.append('to_date', filterDateTo);
+      if (filterCategory !== 'all') params.append('category', filterCategory);
+      if (filterSettled !== 'all') params.append('settled', filterSettled);
+      
+      if (params.toString()) url += '?' + params.toString();
+      
+      const response = await api.get(url);
+      setExpenses(response.data);
+    } catch (error) {
+      console.error('Load expenses error:', error);
+      toast.error('Failed to load expenses');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterDateFrom, filterDateTo, filterCategory, filterSettled]);
+
+  const loadEmployees = async () => {
+    try {
+      const response = await api.get('/api/employees');
+      setEmployees(response.data);
+    } catch (error) {
+      // Employees list might not exist yet, use a default list
+      setEmployees([]);
+    }
+  };
+
+  useEffect(() => {
+    loadExpenses();
+    loadEmployees();
+  }, [loadExpenses]);
+
+  const resetForm = () => {
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      category: '',
+      description: '',
+      amount: '',
+      paid_to: '',
+      payment_mode: 'Cash',
+      receipt_no: '',
+      paid_by: 'Company',
+      is_employee_expense: false,
+      employee_name: '',
+      is_settled: true,
+      settlement_date: '',
+      settlement_remarks: ''
+    });
+    setEditingExpense(null);
+  };
+
+  const handleSubmit = async () => {
+    if (!formData.category || !formData.amount) {
+      toast.error('Category and Amount are required');
+      return;
+    }
+    
+    try {
+      const payload = {
+        ...formData,
+        amount: parseFloat(formData.amount),
+        is_settled: formData.is_employee_expense ? formData.is_settled : true,
+        paid_by: formData.is_employee_expense ? formData.employee_name : 'Company'
+      };
+      
+      if (editingExpense) {
+        await api.put(`/api/expenses/variable/${editingExpense.id}`, payload);
+        toast.success('Expense updated successfully');
+      } else {
+        await api.post('/api/expenses/variable', payload);
+        toast.success('Expense added successfully');
+      }
+      
+      setShowAddDialog(false);
+      resetForm();
+      loadExpenses();
+    } catch (error) {
+      console.error('Save expense error:', error);
+      toast.error('Failed to save expense');
+    }
+  };
+
+  const handleEdit = (expense) => {
+    setEditingExpense(expense);
+    setFormData({
+      date: expense.date?.split('T')[0] || '',
+      category: expense.category || '',
+      description: expense.description || '',
+      amount: expense.amount?.toString() || '',
+      paid_to: expense.paid_to || '',
+      payment_mode: expense.payment_mode || 'Cash',
+      receipt_no: expense.receipt_no || '',
+      paid_by: expense.paid_by || 'Company',
+      is_employee_expense: expense.paid_by !== 'Company',
+      employee_name: expense.paid_by !== 'Company' ? expense.paid_by : '',
+      is_settled: expense.is_settled ?? true,
+      settlement_date: expense.settlement_date?.split('T')[0] || '',
+      settlement_remarks: expense.settlement_remarks || ''
+    });
+    setShowAddDialog(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this expense?')) return;
+    
+    try {
+      await api.delete(`/api/expenses/variable/${id}`);
+      toast.success('Expense deleted');
+      loadExpenses();
+    } catch (error) {
+      console.error('Delete expense error:', error);
+      toast.error('Failed to delete expense');
+    }
+  };
+
+  const handleBulkSettle = async () => {
+    if (selectedExpenses.length === 0) {
+      toast.error('Select expenses to settle');
+      return;
+    }
+    
+    try {
+      await api.post('/api/expenses/variable/bulk-settle', {
+        expense_ids: selectedExpenses,
+        settlement_date: new Date().toISOString().split('T')[0],
+        settlement_remarks: settlementRemarks
+      });
+      toast.success(`${selectedExpenses.length} expenses settled`);
+      setShowSettlementDialog(false);
+      setSelectedExpenses([]);
+      setSettlementRemarks('');
+      loadExpenses();
+    } catch (error) {
+      console.error('Bulk settle error:', error);
+      toast.error('Failed to settle expenses');
+    }
+  };
+
+  const toggleExpenseSelection = (id) => {
+    setSelectedExpenses(prev => 
+      prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]
+    );
+  };
+
+  const unsettledExpenses = expenses.filter(e => !e.is_settled);
+  const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const unsettledAmount = unsettledExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  
+  // Group by category for summary
+  const categoryTotals = expenses.reduce((acc, e) => {
+    acc[e.category] = (acc[e.category] || 0) + (e.amount || 0);
+    return acc;
+  }, {});
+
+  return (
+    <Layout>
+      <div data-testid="variable-expenses-page">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Variable Expenses</h1>
+            <p className="text-sm text-gray-500">Track daily operational expenses</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={loadExpenses}>
+              <RefreshCw size={14} className="mr-1" /> Refresh
+            </Button>
+            {unsettledExpenses.length > 0 && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setShowSettlementDialog(true)}
+                className="text-orange-600 border-orange-300"
+              >
+                <CheckCircle size={14} className="mr-1" /> Settle ({unsettledExpenses.length})
+              </Button>
+            )}
+            <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">
+              <Plus size={14} className="mr-1" /> Add Expense
+            </Button>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Receipt className="text-blue-600" size={18} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Total Expenses</p>
+                <p className="text-lg font-bold">₹{totalAmount.toLocaleString()}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <Clock className="text-orange-600" size={18} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Unsettled</p>
+                <p className="text-lg font-bold text-orange-600">₹{unsettledAmount.toLocaleString()}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <CheckCircle className="text-green-600" size={18} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Settled</p>
+                <p className="text-lg font-bold text-green-600">₹{(totalAmount - unsettledAmount).toLocaleString()}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <Users className="text-purple-600" size={18} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Employee Claims</p>
+                <p className="text-lg font-bold">{unsettledExpenses.length}</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Filters */}
+        <Card className="mb-4">
+          <CardContent className="py-3">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">From Date</label>
+                <Input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">To Date</label>
+                <Input
+                  type="date"
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Category</label>
+                <Select value={filterCategory} onValueChange={setFilterCategory}>
+                  <SelectTrigger className="w-36 h-8 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {EXPENSE_CATEGORIES.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Status</label>
+                <Select value={filterSettled} onValueChange={setFilterSettled}>
+                  <SelectTrigger className="w-32 h-8 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="true">Settled</SelectItem>
+                    <SelectItem value="false">Unsettled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('all'); setFilterSettled('all'); }}
+              >
+                Clear
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Expenses Table */}
+        <Card>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#14532D]"></div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-2 text-left w-8">
+                        <Checkbox 
+                          checked={selectedExpenses.length === unsettledExpenses.length && unsettledExpenses.length > 0}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedExpenses(unsettledExpenses.map(e => e.id));
+                            } else {
+                              setSelectedExpenses([]);
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">DATE</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">CATEGORY</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">DESCRIPTION</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">AMOUNT</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">PAID BY</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">PAID TO</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenses.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="p-8 text-center text-gray-500">
+                          No expenses found. Click "Add Expense" to get started.
+                        </td>
+                      </tr>
+                    ) : (
+                      expenses.map((expense) => (
+                        <tr key={expense.id} className={`border-b hover:bg-gray-50 ${!expense.is_settled ? 'bg-orange-50' : ''}`}>
+                          <td className="p-2">
+                            {!expense.is_settled && (
+                              <Checkbox 
+                                checked={selectedExpenses.includes(expense.id)}
+                                onCheckedChange={() => toggleExpenseSelection(expense.id)}
+                              />
+                            )}
+                          </td>
+                          <td className="p-2 text-xs">
+                            {new Date(expense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                          </td>
+                          <td className="p-2">
+                            <span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{expense.category}</span>
+                          </td>
+                          <td className="p-2 text-xs max-w-[150px] truncate">{expense.description || '-'}</td>
+                          <td className="p-2 text-right font-medium">₹{expense.amount?.toLocaleString()}</td>
+                          <td className="p-2 text-xs">
+                            {expense.paid_by === 'Company' ? (
+                              <span className="text-green-600">Company</span>
+                            ) : (
+                              <span className="text-blue-600">{expense.paid_by}</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-xs">{expense.paid_to || '-'}</td>
+                          <td className="p-2 text-center">
+                            {expense.is_settled ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">
+                                <CheckCircle size={10} /> Settled
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
+                                <Clock size={10} /> Pending
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleEdit(expense)}>
+                                <Edit2 size={12} className="text-blue-600" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleDelete(expense.id)}>
+                                <Trash2 size={12} className="text-red-600" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Category Summary */}
+        {Object.keys(categoryTotals).length > 0 && (
+          <Card className="mt-4">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Category Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent className="py-2">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                {Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).map(([cat, total]) => (
+                  <div key={cat} className="p-2 bg-gray-50 rounded text-center">
+                    <p className="text-xs text-gray-500">{cat}</p>
+                    <p className="font-semibold text-sm">₹{total.toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Add/Edit Dialog */}
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingExpense ? 'Edit Expense' : 'Add Variable Expense'}</DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-3 py-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Date *</label>
+                  <Input
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Category *</label>
+                  <Select value={formData.category} onValueChange={(v) => setFormData(prev => ({ ...prev, category: v }))}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPENSE_CATEGORIES.map(cat => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Description</label>
+                <Input
+                  placeholder="Brief description"
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Amount (₹) *</label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={formData.amount}
+                    onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Payment Mode</label>
+                  <Select value={formData.payment_mode} onValueChange={(v) => setFormData(prev => ({ ...prev, payment_mode: v }))}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_MODES.map(mode => (
+                        <SelectItem key={mode} value={mode}>{mode}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Paid To</label>
+                  <Input
+                    placeholder="Vendor/Person name"
+                    value={formData.paid_to}
+                    onChange={(e) => setFormData(prev => ({ ...prev, paid_to: e.target.value }))}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Receipt/Bill No</label>
+                  <Input
+                    placeholder="Optional"
+                    value={formData.receipt_no}
+                    onChange={(e) => setFormData(prev => ({ ...prev, receipt_no: e.target.value }))}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              
+              {/* Employee Expense Section */}
+              <div className="border-t pt-3 mt-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Checkbox 
+                    checked={formData.is_employee_expense}
+                    onCheckedChange={(checked) => setFormData(prev => ({ 
+                      ...prev, 
+                      is_employee_expense: checked,
+                      is_settled: !checked 
+                    }))}
+                  />
+                  <label className="text-xs font-medium text-gray-700">Paid by Employee (Reimbursement)</label>
+                </div>
+                
+                {formData.is_employee_expense && (
+                  <div className="space-y-3 pl-5 border-l-2 border-blue-200">
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 mb-1 block">Employee Name *</label>
+                      <Input
+                        placeholder="Who paid this expense?"
+                        value={formData.employee_name}
+                        onChange={(e) => setFormData(prev => ({ ...prev, employee_name: e.target.value }))}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <Checkbox 
+                        checked={formData.is_settled}
+                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_settled: checked }))}
+                      />
+                      <label className="text-xs text-gray-700">Already Settled</label>
+                    </div>
+                    
+                    {formData.is_settled && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-700 mb-1 block">Settlement Date</label>
+                          <Input
+                            type="date"
+                            value={formData.settlement_date}
+                            onChange={(e) => setFormData(prev => ({ ...prev, settlement_date: e.target.value }))}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-700 mb-1 block">Remarks</label>
+                          <Input
+                            placeholder="Settlement notes"
+                            value={formData.settlement_remarks}
+                            onChange={(e) => setFormData(prev => ({ ...prev, settlement_remarks: e.target.value }))}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => { setShowAddDialog(false); resetForm(); }}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSubmit} className="bg-[#14532D] hover:bg-[#166534]">
+                {editingExpense ? 'Update' : 'Add Expense'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Bulk Settlement Dialog */}
+        <Dialog open={showSettlementDialog} onOpenChange={setShowSettlementDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Settle Employee Expenses</DialogTitle>
+            </DialogHeader>
+            
+            <div className="py-4">
+              <p className="text-sm text-gray-600 mb-3">
+                Select expenses to settle from the table, then click "Settle Selected" below.
+              </p>
+              
+              <div className="bg-gray-50 p-3 rounded mb-3">
+                <p className="text-xs text-gray-500">Selected Expenses</p>
+                <p className="text-xl font-bold">{selectedExpenses.length} items</p>
+                <p className="text-sm text-gray-600">
+                  Total: ₹{expenses.filter(e => selectedExpenses.includes(e.id)).reduce((sum, e) => sum + (e.amount || 0), 0).toLocaleString()}
+                </p>
+              </div>
+              
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Settlement Remarks</label>
+                <Input
+                  placeholder="e.g., Paid via bank transfer on..."
+                  value={settlementRemarks}
+                  onChange={(e) => setSettlementRemarks(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowSettlementDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                size="sm" 
+                onClick={handleBulkSettle} 
+                disabled={selectedExpenses.length === 0}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <CheckCircle size={14} className="mr-1" /> Settle Selected
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Layout>
+  );
+}

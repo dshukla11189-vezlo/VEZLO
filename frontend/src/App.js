@@ -12,6 +12,8 @@ import Procurement from './pages/admin/Procurement';
 import QuickCommerce from './pages/admin/QuickCommerce';
 import RetailerOrders from './pages/admin/RetailerOrders';
 import Wastage from './pages/admin/Wastage';
+import VariableExpenses from './pages/admin/VariableExpenses';
+import FixedExpenses from './pages/admin/FixedExpenses';
 import Payments from './pages/admin/Payments';
 import Invoices from './pages/admin/Invoices';
 import RetailerDashboard from './pages/retailer/Dashboard';
@@ -119,6 +121,22 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin', 'staff']}>
                 <Wastage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/variable-expenses"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <VariableExpenses />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/fixed-expenses"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
+                <FixedExpenses />
               </ProtectedRoute>
             }
           />

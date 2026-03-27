@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
-import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList } from 'lucide-react';
+import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose, isMobile }) {
   const { t } = useTranslation();
@@ -16,6 +16,8 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     { path: '/admin/quick-commerce', icon: ShoppingCart, labelKey: 'app.quickCommerce' },
     { path: '/admin/retailer-orders', icon: ShoppingCart, labelKey: 'app.retailerOrders' },
     { path: '/admin/wastage-dashboard', icon: Trash2, labelKey: 'app.wastageDashboard' },
+    { path: '/admin/variable-expenses', icon: Receipt, labelKey: 'app.variableExpenses' },
+    { path: '/admin/fixed-expenses', icon: Calculator, labelKey: 'app.fixedExpenses' },
     { path: '/admin/payments', icon: DollarSign, labelKey: 'app.payments' },
     { path: '/admin/invoices', icon: FileText, labelKey: 'app.invoices' },
   ];

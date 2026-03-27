@@ -9,6 +9,8 @@
     "retailerOrders": "Retailer Orders",
     "wastage": "Wastage",
     "wastageDashboard": "Wastage Dashboard",
+    "variableExpenses": "Variable Expenses",
+    "fixedExpenses": "Fixed Expenses",
     "payments": "Payments",
     "invoices": "Invoices",
     "logout": "Logout"

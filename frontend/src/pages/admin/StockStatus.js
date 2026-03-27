@@ -306,105 +306,97 @@ export default function StockStatus() {
         </Card>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Opening Stock</p>
-                  <p className="text-2xl font-bold text-gray-900">{totalOpeningKg.toFixed(2)} Kg</p>
-                </div>
-                <div className="p-3 bg-blue-100 rounded-full">
-                  <Package className="text-blue-600" size={24} />
-                </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Package className="text-blue-600" size={18} />
               </div>
-            </CardContent>
+              <div>
+                <p className="text-xs text-gray-500">Opening Stock</p>
+                <p className="text-lg font-bold text-gray-900">{totalOpeningKg.toFixed(2)} Kg</p>
+              </div>
+            </div>
           </Card>
 
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Purchased</p>
-                  <p className="text-2xl font-bold text-green-600">+{totalPurchaseKg.toFixed(2)} Kg</p>
-                </div>
-                <div className="p-3 bg-green-100 rounded-full">
-                  <TrendingUp className="text-green-600" size={24} />
-                </div>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <TrendingUp className="text-green-600" size={18} />
               </div>
-            </CardContent>
+              <div>
+                <p className="text-xs text-gray-500">Purchased</p>
+                <p className="text-lg font-bold text-green-600">+{totalPurchaseKg.toFixed(2)} Kg</p>
+              </div>
+            </div>
           </Card>
 
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Dispatched</p>
-                  <p className="text-2xl font-bold text-orange-600">-{totalDispatchKg.toFixed(2)} Kg</p>
-                </div>
-                <div className="p-3 bg-orange-100 rounded-full">
-                  <TrendingDown className="text-orange-600" size={24} />
-                </div>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <TrendingDown className="text-orange-600" size={18} />
               </div>
-            </CardContent>
+              <div>
+                <p className="text-xs text-gray-500">Dispatched</p>
+                <p className="text-lg font-bold text-orange-600">-{totalDispatchKg.toFixed(2)} Kg</p>
+              </div>
+            </div>
           </Card>
 
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Wastage</p>
-                  <p className="text-2xl font-bold text-red-600">{totalWastageKg.toFixed(2)} Kg</p>
-                </div>
-                <div className="p-3 bg-red-100 rounded-full">
-                  <AlertTriangle className="text-red-600" size={24} />
-                </div>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <AlertTriangle className="text-red-600" size={18} />
               </div>
-            </CardContent>
+              <div>
+                <p className="text-xs text-gray-500">Wastage</p>
+                <p className="text-lg font-bold text-red-600">{totalWastageKg.toFixed(2)} Kg</p>
+              </div>
+            </div>
           </Card>
         </div>
 
         {/* Stock Status Table */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
+          <CardHeader className="py-3">
+            <CardTitle className="flex items-center justify-between text-base">
               <span>Daily Stock Status</span>
               <div className="flex gap-2">
-                <span className="text-sm font-normal bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full">
+                <span className="text-xs font-normal bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
                   {openProducts.length} Open
                 </span>
-                <span className="text-sm font-normal bg-green-100 text-green-700 px-3 py-1 rounded-full">
+                <span className="text-xs font-normal bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
                   {closedProducts.length} Closed
                 </span>
               </div>
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {loading ? (
               <div className="flex items-center justify-center h-32">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#14532D]"></div>
               </div>
             ) : (
-              <div className="data-table overflow-x-auto">
-                <table>
-                  <thead>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th>PRODUCT</th>
-                      <th className="text-right">OPENING (Kg)</th>
-                      <th className="text-right">AVG PRICE (₹/Kg)</th>
-                      <th className="text-right">PURCHASE (Kg)</th>
-                      <th className="text-right">DISPATCH (Kg)</th>
-                      <th className="text-right">CLOSING (Kg)</th>
-                      <th className="text-right">WASTAGE (Kg)</th>
-                      <th className="text-right">WASTAGE %</th>
-                      <th className="text-center">STATUS</th>
-                      <th className="text-center">ACTIONS</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">PRODUCT</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">OPENING</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">PRICE</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">PURCHASE</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">DISPATCH</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">CLOSING</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">WASTAGE</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">%</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">ACT</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredStockStatus.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="text-center text-gray-500 py-8">
+                        <td colSpan={10} className="p-6 text-center text-gray-500 text-sm">
                           No stock data found for this date/product.
                         </td>
                       </tr>
@@ -412,26 +404,26 @@ export default function StockStatus() {
                       filteredStockStatus.map((item) => {
                         const available = item.opening_qty + item.purchase_qty - item.dispatch_qty;
                         return (
-                          <tr key={item.id} className={item.status === 'closed' ? 'bg-green-50' : ''}>
-                            <td className="font-medium">{item.product_name}</td>
-                            <td className="text-right">{item.opening_qty?.toFixed(2)}</td>
-                            <td className="text-right">₹{item.avg_price?.toFixed(2)}</td>
-                            <td className="text-right text-green-600">
+                          <tr key={item.id} className={`border-b hover:bg-gray-50 ${item.status === 'closed' ? 'bg-green-50' : ''}`}>
+                            <td className="p-2 font-medium text-xs">{item.product_name}</td>
+                            <td className="p-2 text-right text-xs">{item.opening_qty?.toFixed(2)}</td>
+                            <td className="p-2 text-right text-xs">₹{item.avg_price?.toFixed(2)}</td>
+                            <td className="p-2 text-right text-xs text-green-600">
                               {item.purchase_qty > 0 ? `+${item.purchase_qty.toFixed(2)}` : '-'}
                             </td>
-                            <td className="text-right text-orange-600">
+                            <td className="p-2 text-right text-xs text-orange-600">
                               {item.dispatch_qty > 0 ? `-${item.dispatch_qty.toFixed(2)}` : '-'}
                             </td>
-                            <td className="text-right font-semibold">
+                            <td className="p-2 text-right text-xs font-semibold">
                               {item.status === 'closed' ? (
                                 item.closing_qty?.toFixed(2)
                               ) : (
-                                <span className="text-gray-400">
-                                  (Avail: {available.toFixed(2)})
+                                <span className="text-gray-400 text-[10px]">
+                                  ({available.toFixed(2)})
                                 </span>
                               )}
                             </td>
-                            <td className="text-right">
+                            <td className="p-2 text-right text-xs">
                               {item.status === 'closed' ? (
                                 <span className={`font-bold ${item.wastage_qty > 0 ? 'text-red-600' : 'text-gray-600'}`}>
                                   {item.wastage_qty?.toFixed(2)}
@@ -440,7 +432,7 @@ export default function StockStatus() {
                                 <span className="text-gray-400">-</span>
                               )}
                             </td>
-                            <td className="text-right">
+                            <td className="p-2 text-right text-xs">
                               {item.status === 'closed' ? (
                                 <span className={`font-bold ${item.wastage_percent > 5 ? 'text-red-600' : item.wastage_percent > 2 ? 'text-orange-600' : 'text-green-600'}`}>
                                   {item.wastage_percent?.toFixed(1)}%
@@ -449,36 +441,36 @@ export default function StockStatus() {
                                 <span className="text-gray-400">-</span>
                               )}
                             </td>
-                            <td className="text-center">
+                            <td className="p-2 text-center">
                               {item.status === 'closed' ? (
-                                <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-medium">
-                                  <CheckCircle size={12} /> Closed
+                                <span className="inline-flex items-center gap-0.5 bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                  <CheckCircle size={10} /> Done
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-medium">
-                                  <Clock size={12} /> Open
+                                <span className="inline-flex items-center gap-0.5 bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                  <Clock size={10} /> Open
                                 </span>
                               )}
                             </td>
-                            <td className="text-center">
-                              <div className="flex items-center justify-center gap-1">
+                            <td className="p-2 text-center">
+                              <div className="flex items-center justify-center gap-0.5">
                                 <Button 
                                   variant="ghost" 
                                   size="sm" 
                                   onClick={() => handleEdit(item)}
-                                  className="h-8 w-8 p-0"
+                                  className="h-6 w-6 p-0"
                                   data-testid={`edit-${item.product_id}`}
                                 >
-                                  <Edit2 size={14} className="text-blue-600" />
+                                  <Edit2 size={12} className="text-blue-600" />
                                 </Button>
                                 <Button 
                                   variant="ghost" 
                                   size="sm" 
                                   onClick={() => handleDelete(item)}
-                                  className="h-8 w-8 p-0"
+                                  className="h-6 w-6 p-0"
                                   data-testid={`delete-${item.product_id}`}
                                 >
-                                  <Trash2 size={14} className="text-red-600" />
+                                  <Trash2 size={12} className="text-red-600" />
                                 </Button>
                               </div>
                             </td>

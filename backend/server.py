@@ -1489,15 +1489,16 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
     today_map = {s["product_id"]: s for s in today_status}
     
     # Get today's procurements (purchases from farmers)
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Use regex to match today's date (handles different timezone formats)
     procurements = await db.procurements.find({
-        "procurement_date": {"$gte": today_start.isoformat()}
+        "date": {"$regex": f"^{today}"}
     }, {"_id": 0}).to_list(1000)
     
     # Calculate purchases by product
     purchases_by_product = {}
     for proc in procurements:
-        for item in proc.get("items", []):
+        # Note: Procurement uses 'products' field, not 'items'
+        for item in proc.get("products", []):
             product_id = item.get("product_id")
             qty = item.get("quantity", 0)  # in Kg
             rate = item.get("rate", 0)
@@ -1548,9 +1549,44 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
         product_id = product["id"]
         product_name = product["name"]
         
+        # Always get fresh purchase and dispatch data
+        purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
+        dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
+        
         # Get or create today's status
         if product_id in today_map:
             status = today_map[product_id]
+            
+            # For open entries, always update purchase and dispatch values (real-time sync)
+            if status.get("status") == "open":
+                opening_qty = status.get("opening_qty", 0)
+                opening_price = status.get("opening_price", 0)
+                
+                # Calculate weighted average price
+                total_qty = opening_qty + purchase_data["qty"]
+                if total_qty > 0:
+                    opening_value = opening_qty * opening_price
+                    avg_price = (opening_value + purchase_data["value"]) / total_qty
+                else:
+                    avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
+                
+                # Update the status with fresh data
+                update_data = {
+                    "purchase_qty": round(purchase_data["qty"], 2),
+                    "purchase_value": round(purchase_data["value"], 2),
+                    "dispatch_qty": round(dispatch_data["qty"], 2),
+                    "dispatch_value": round(dispatch_data["value"], 2),
+                    "avg_price": round(avg_price, 2)
+                }
+                
+                # Update in database
+                await db.daily_stock_status.update_one(
+                    {"id": status["id"]},
+                    {"$set": update_data}
+                )
+                
+                # Update local status for response
+                status.update(update_data)
         else:
             # Calculate opening from yesterday's closing or start with 0
             if product_id in yesterday_map:
@@ -1560,16 +1596,13 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 opening_qty = 0
                 opening_price = product.get("price_per_kg", 0) or 0
             
-            purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
-            dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
-            
             # Calculate weighted average price
             total_qty = opening_qty + purchase_data["qty"]
             if total_qty > 0:
                 opening_value = opening_qty * opening_price
                 avg_price = (opening_value + purchase_data["value"]) / total_qty
             else:
-                avg_price = opening_price or purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0
+                avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
             
             status = {
                 "id": str(uuid.uuid4()),

@@ -129,13 +129,14 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [ ] OCR QC Order Processing - Connect UI to ocr_processor.py
 - [x] **Stock Status & Wastage Dashboard** (COMPLETED - Mar 2026)
   - [x] Daily stock tracking: Opening, Purchase, Dispatch, Closing quantities
+  - [x] **Real-time sync**: Purchases from Procurement and Dispatches from QC automatically update
   - [x] Weighted average price calculation
   - [x] Auto-calculated wastage: (Opening + Purchase - Dispatch - Closing)
   - [x] Staff can enter closing stock via dialog modal
   - [x] **Closing dialog filters**: Only shows products with activity (opening > 0 OR purchase > 0)
   - [x] **Date & Product filters**: View historical data for any past date
   - [x] **Edit/Delete line items**: Admin can correct any stock entry
-  - [x] **Real-time updates**: 30-second auto-refresh for live data
+  - [x] **30-second auto-refresh** for live data
   - [x] Wastage Dashboard with 7/15/30 day trends
   - [x] Top wastage products ranking
   - [x] Visual bar charts and insights/recommendations

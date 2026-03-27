@@ -14,6 +14,7 @@
     "payments": "Payments",
     "invoices": "Invoices",
     "userManagement": "User Management",
+    "backup": "Data Backup",
     "logout": "Logout"
   },
   "dashboard": {

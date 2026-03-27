@@ -17,6 +17,7 @@ import FixedExpenses from './pages/admin/FixedExpenses';
 import Payments from './pages/admin/Payments';
 import Invoices from './pages/admin/Invoices';
 import UserManagement from './pages/admin/UserManagement';
+import Backup from './pages/admin/Backup';
 import RetailerDashboard from './pages/retailer/Dashboard';
 import StaffDashboard from './pages/staff/Dashboard';
 import './App.css';
@@ -163,6 +164,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <UserManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/backup"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <Backup />
               </ProtectedRoute>
             }
           />

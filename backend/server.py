@@ -19,6 +19,7 @@ import uuid
 from models import *
 from ocr_processor import process_excel_image
 from pdf_generator import generate_invoice_pdf
+from backup_system import setup_backup_scheduler, trigger_manual_backup, generate_backup_excel
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -27,6 +28,9 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Setup backup scheduler on startup
+backup_scheduler = None
 
 # Security
 security = HTTPBearer()
@@ -3474,6 +3478,55 @@ async def get_retailer_dashboard(
         }
     }
 
+# ==================== BACKUP ROUTES ====================
+
+@api_router.post("/backup/trigger")
+async def trigger_backup(current_user: dict = Depends(get_current_user)):
+    """Manually trigger a backup and send to configured email addresses"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can trigger backups")
+    
+    result = await trigger_manual_backup(db)
+    return result
+
+@api_router.get("/backup/download")
+async def download_backup(current_user: dict = Depends(get_current_user)):
+    """Download backup Excel file directly"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can download backups")
+    
+    try:
+        excel_data = await generate_backup_excel(db)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        filename = f"FreshFlow_Backup_{today}.xlsx"
+        
+        return StreamingResponse(
+            io.BytesIO(excel_data),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate backup: {str(e)}")
+
+@api_router.get("/backup/status")
+async def get_backup_status(current_user: dict = Depends(get_current_user)):
+    """Get backup scheduler status"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view backup status")
+    
+    return {
+        "scheduler_running": backup_scheduler is not None and backup_scheduler.running if backup_scheduler else False,
+        "next_backup_time": "11:59 PM IST (18:29 UTC)",
+        "recipients": ["mrorganixmushroom@gmail.com", "dshukla11189@gmail.com"],
+        "collections_backed_up": [
+            "users", "products", "farmers", "procurements",
+            "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
+            "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+            "retailer_grn", "retailer_rejections", "retailer_payments",
+            "daily_stock_status", "variable_expenses", "fixed_expenses"
+        ]
+    }
+
 # Include router
 app.include_router(api_router)
 
@@ -3491,6 +3544,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize backup scheduler on startup"""
+    global backup_scheduler
+    try:
+        backup_scheduler = setup_backup_scheduler(db)
+        logger.info("Backup scheduler initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize backup scheduler: {e}")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    global backup_scheduler
+    if backup_scheduler:
+        backup_scheduler.shutdown()
     client.close()

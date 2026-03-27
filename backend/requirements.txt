@@ -18,3 +18,5 @@ numpy==2.4.2
 stripe==14.4.0
 openpyxl==3.1.5
 xlsxwriter==3.2.9
+resend==2.26.0
+apscheduler==3.11.2

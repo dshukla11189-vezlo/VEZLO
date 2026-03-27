@@ -177,6 +177,9 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Customer Name column in expanded product breakdown
   - [x] NET P/L removed from daily row headers (available in summary cards)
   - [x] **Today's Quick Summary Widget** - Shows dispatches, pending indents, procurements, top products at-a-glance
+  - [x] **Sales Calculation Fix** (VALIDATED - Mar 27, 2026) - Sales now correctly aggregates:
+    - QC GRN data (grn_amount or amount from qc_grns collection)
+    - Retailer Dispatches (net_payable after commission deduction)
 - [x] **Role-Based Access Control** (COMPLETED - Mar 27, 2026)
   - [x] **Admin**: Full access to all tabs including P&L Dashboard, Fixed Expenses, Payments, User Management
   - [x] **Staff**: Limited access to Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Invoices

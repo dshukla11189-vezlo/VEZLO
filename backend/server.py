@@ -157,6 +157,8 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["contact"] = input.contact
     if input.address is not None:
         update_data["address"] = input.address
+    if input.commission_percentage is not None:
+        update_data["commission_percentage"] = input.commission_percentage
     
     if update_data:
         await db.users.update_one({"id": user_id}, {"$set": update_data})
@@ -226,6 +228,25 @@ async def delete_product(product_id: str, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=404, detail="Product not found")
     
     return {"message": "Product deleted successfully"}
+
+# QC Packaging Routes
+@api_router.get("/qc-packaging")
+async def get_qc_packaging(current_user: dict = Depends(get_current_user)):
+    packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    return packagings
+
+@api_router.post("/qc-packaging")
+async def create_qc_packaging(name: str, weight_gm: float = 0, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    packaging = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "weight_gm": weight_gm
+    }
+    await db.qc_packaging.insert_one(packaging)
+    return {"id": packaging["id"], "message": "Packaging created"}
 
 # Farmer Routes
 @api_router.get("/farmers", response_model=List[Farmer])
@@ -2590,6 +2611,438 @@ async def bulk_settle_fixed_expenses(data: dict, current_user: dict = Depends(ge
     )
     
     return {"message": f"Settled {result.modified_count} expenses", "count": result.modified_count}
+
+# ==================== RETAILER PORTAL APIs ====================
+
+# Get all retailers (for dropdowns)
+@api_router.get("/retailers")
+async def get_retailers(current_user: dict = Depends(get_current_user)):
+    retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "password": 0}).to_list(500)
+    return retailers
+
+# Retailer Indents
+@api_router.get("/retailer-indents")
+async def get_retailer_indents(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    # If retailer, only show their own indents
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(1000)
+    return indents
+
+@api_router.post("/retailer-indents")
+async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict = Depends(get_current_user)):
+    # Get retailer info
+    if current_user["role"] == "retailer":
+        retailer_id = current_user["user_id"]
+    else:
+        retailer_id = input.retailer_id
+    
+    retailer = await db.users.find_one({"id": retailer_id, "role": "retailer"}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    indent = RetailerIndent(
+        retailer_id=retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        indent_date=input.indent_date,
+        items=input.items,
+        remarks=input.remarks,
+        created_by=current_user["user_id"],
+        created_by_role=current_user["role"]
+    )
+    
+    doc = indent.model_dump()
+    doc["indent_date"] = doc["indent_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_indents.insert_one(doc)
+    return {"id": indent.id, "message": "Indent created successfully"}
+
+@api_router.put("/retailer-indents/{indent_id}")
+async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, current_user: dict = Depends(get_current_user)):
+    existing = await db.retailer_indents.find_one({"id": indent_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Retailers can only update their own pending indents
+    if current_user["role"] == "retailer":
+        if existing["retailer_id"] != current_user["user_id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        if existing["status"] != "pending":
+            raise HTTPException(status_code=400, detail="Cannot edit non-pending indent")
+    
+    update_data = {
+        "indent_date": input.indent_date.isoformat(),
+        "items": [item.model_dump() for item in input.items],
+        "remarks": input.remarks
+    }
+    
+    await db.retailer_indents.update_one({"id": indent_id}, {"$set": update_data})
+    return {"id": indent_id, "message": "Indent updated successfully"}
+
+@api_router.delete("/retailer-indents/{indent_id}")
+async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(get_current_user)):
+    existing = await db.retailer_indents.find_one({"id": indent_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Only allow deleting pending indents
+    if existing["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Cannot delete non-pending indent")
+    
+    # Retailers can only delete their own indents
+    if current_user["role"] == "retailer" and existing["retailer_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.retailer_indents.delete_one({"id": indent_id})
+    return {"message": "Indent deleted successfully"}
+
+# Retailer Dispatches
+@api_router.get("/retailer-dispatches")
+async def get_retailer_dispatches(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    dispatches = await db.retailer_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(1000)
+    return dispatches
+
+@api_router.post("/retailer-dispatches")
+async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create dispatches")
+    
+    # Get indent
+    indent = await db.retailer_indents.find_one({"id": input.indent_id})
+    if not indent:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Get retailer info for commission
+    retailer = await db.users.find_one({"id": indent["retailer_id"]}, {"_id": 0})
+    commission = retailer.get("commission_percentage", 0) if retailer else 0
+    
+    # Calculate totals
+    total_mrp_value = 0
+    items_with_totals = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        item_dict["total_value"] = item.supplied_qty * item.mrp
+        total_mrp_value += item_dict["total_value"]
+        items_with_totals.append(item_dict)
+    
+    net_payable = total_mrp_value * (1 - commission / 100)
+    
+    # Generate invoice number: RET-DDMMMYYYY-NNN
+    today = input.dispatch_date.strftime("%d%b%Y").upper()
+    count = await db.retailer_dispatches.count_documents({
+        "dispatch_date": {"$regex": f"^{input.dispatch_date.strftime('%Y-%m-%d')}"}
+    })
+    invoice_number = f"RET-{today}-{str(count + 1).zfill(3)}"
+    
+    dispatch = RetailerDispatch(
+        indent_id=input.indent_id,
+        retailer_id=indent["retailer_id"],
+        retailer_name=indent["retailer_name"],
+        dispatch_date=input.dispatch_date,
+        items=items_with_totals,
+        total_mrp_value=round(total_mrp_value, 2),
+        commission_percentage=commission,
+        net_payable=round(net_payable, 2),
+        dispatched_by=current_user["user_id"],
+        invoice_number=invoice_number,
+        remarks=input.remarks
+    )
+    
+    doc = dispatch.model_dump()
+    doc["dispatch_date"] = doc["dispatch_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_dispatches.insert_one(doc)
+    
+    # Update indent status
+    await db.retailer_indents.update_one(
+        {"id": input.indent_id},
+        {"$set": {"status": "dispatched"}}
+    )
+    
+    return {"id": dispatch.id, "invoice_number": invoice_number, "message": "Dispatch created successfully"}
+
+# Retailer GRN
+@api_router.get("/retailer-grn")
+async def get_retailer_grn(
+    retailer_id: str = None,
+    dispatch_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    if dispatch_id:
+        query["dispatch_id"] = dispatch_id
+    
+    grns = await db.retailer_grn.find(query, {"_id": 0}).sort("grn_date", -1).to_list(1000)
+    return grns
+
+@api_router.post("/retailer-grn")
+async def create_retailer_grn(input: RetailerGRNCreate, current_user: dict = Depends(get_current_user)):
+    # Get dispatch
+    dispatch = await db.retailer_dispatches.find_one({"id": input.dispatch_id})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Retailers can only create GRN for their own dispatches
+    if current_user["role"] == "retailer" and dispatch["retailer_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if GRN already exists
+    existing = await db.retailer_grn.find_one({"dispatch_id": input.dispatch_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="GRN already exists for this dispatch")
+    
+    # Calculate differences
+    items_with_diff = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        item_dict["difference"] = item.received_qty - item.supplied_qty
+        items_with_diff.append(item_dict)
+    
+    grn = RetailerGRN(
+        dispatch_id=input.dispatch_id,
+        retailer_id=dispatch["retailer_id"],
+        retailer_name=dispatch["retailer_name"],
+        grn_date=datetime.now(timezone.utc),
+        items=items_with_diff,
+        confirmed_by=current_user["user_id"],
+        remarks=input.remarks
+    )
+    
+    doc = grn.model_dump()
+    doc["grn_date"] = doc["grn_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_grn.insert_one(doc)
+    
+    # Update indent status to received
+    await db.retailer_indents.update_one(
+        {"id": dispatch["indent_id"]},
+        {"$set": {"status": "received"}}
+    )
+    
+    return {"id": grn.id, "message": "GRN confirmed successfully"}
+
+# Retailer Rejections
+@api_router.get("/retailer-rejections")
+async def get_retailer_rejections(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", -1).to_list(1000)
+    return rejections
+
+@api_router.post("/retailer-rejections")
+async def create_retailer_rejection(input: RetailerRejectionCreate, current_user: dict = Depends(get_current_user)):
+    # Only admin/staff can create rejections
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can record rejections")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id, "role": "retailer"}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    rejection_value = input.quantity * input.mrp
+    
+    rejection = RetailerRejection(
+        retailer_id=input.retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        rejection_date=input.rejection_date,
+        product_id=input.product_id,
+        product_name=input.product_name,
+        variant_name=input.variant_name,
+        quantity=input.quantity,
+        reason=input.reason,
+        dispatch_id=input.dispatch_id,
+        recorded_by=current_user["user_id"],
+        mrp=input.mrp,
+        rejection_value=round(rejection_value, 2),
+        remarks=input.remarks
+    )
+    
+    doc = rejection.model_dump()
+    doc["rejection_date"] = doc["rejection_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_rejections.insert_one(doc)
+    return {"id": rejection.id, "message": "Rejection recorded successfully"}
+
+@api_router.delete("/retailer-rejections/{rejection_id}")
+async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete rejections")
+    
+    result = await db.retailer_rejections.delete_one({"id": rejection_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Rejection not found")
+    
+    return {"message": "Rejection deleted successfully"}
+
+# Retailer Payments
+@api_router.get("/retailer-payments")
+async def get_retailer_payments(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    payments = await db.retailer_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    return payments
+
+@api_router.post("/retailer-payments")
+async def create_retailer_payment(input: RetailerPaymentCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can record payments")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id, "role": "retailer"}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    payment = RetailerPayment(
+        retailer_id=input.retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        payment_date=input.payment_date,
+        amount=input.amount,
+        payment_mode=input.payment_mode,
+        reference_number=input.reference_number,
+        recorded_by=current_user["user_id"],
+        remarks=input.remarks
+    )
+    
+    doc = payment.model_dump()
+    doc["payment_date"] = doc["payment_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_payments.insert_one(doc)
+    return {"id": payment.id, "message": "Payment recorded successfully"}
+
+@api_router.delete("/retailer-payments/{payment_id}")
+async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete payments")
+    
+    result = await db.retailer_payments.delete_one({"id": payment_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    return {"message": "Payment deleted successfully"}
+
+# Retailer Dashboard Summary
+@api_router.get("/retailer-dashboard")
+async def get_retailer_dashboard(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    # Determine which retailer's data to show
+    if current_user["role"] == "retailer":
+        target_retailer_id = current_user["user_id"]
+    elif retailer_id:
+        target_retailer_id = retailer_id
+    else:
+        raise HTTPException(status_code=400, detail="Retailer ID required")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": target_retailer_id}, {"_id": 0, "password": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Get all dispatches for this retailer
+    dispatches = await db.retailer_dispatches.find(
+        {"retailer_id": target_retailer_id}, 
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get all rejections
+    rejections = await db.retailer_rejections.find(
+        {"retailer_id": target_retailer_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get all payments
+    payments = await db.retailer_payments.find(
+        {"retailer_id": target_retailer_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get pending indents
+    pending_indents = await db.retailer_indents.count_documents({
+        "retailer_id": target_retailer_id,
+        "status": {"$in": ["pending", "partial"]}
+    })
+    
+    # Calculate totals
+    total_mrp_value = sum(d.get("total_mrp_value", 0) for d in dispatches)
+    total_net_payable = sum(d.get("net_payable", 0) for d in dispatches)
+    total_rejection_value = sum(r.get("rejection_value", 0) for r in rejections)
+    total_paid = sum(p.get("amount", 0) for p in payments)
+    
+    # Adjusted payable after rejections
+    adjusted_payable = total_net_payable - total_rejection_value
+    pending_amount = max(0, adjusted_payable - total_paid)
+    
+    # Total items received
+    total_items_received = 0
+    for d in dispatches:
+        for item in d.get("items", []):
+            total_items_received += item.get("supplied_qty", 0)
+    
+    # Total items rejected
+    total_items_rejected = sum(r.get("quantity", 0) for r in rejections)
+    
+    return {
+        "retailer": {
+            "id": retailer.get("id"),
+            "name": retailer.get("name"),
+            "company_name": retailer.get("company_name"),
+            "commission_percentage": retailer.get("commission_percentage", 0)
+        },
+        "summary": {
+            "total_mrp_value": round(total_mrp_value, 2),
+            "total_net_payable": round(total_net_payable, 2),
+            "total_rejection_value": round(total_rejection_value, 2),
+            "adjusted_payable": round(adjusted_payable, 2),
+            "total_paid": round(total_paid, 2),
+            "pending_amount": round(pending_amount, 2),
+            "total_items_received": total_items_received,
+            "total_items_rejected": total_items_rejected,
+            "pending_indents": pending_indents,
+            "total_dispatches": len(dispatches),
+            "total_payments": len(payments)
+        }
+    }
 
 # Include router
 app.include_router(api_router)

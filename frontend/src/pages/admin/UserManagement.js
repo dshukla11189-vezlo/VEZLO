@@ -33,7 +33,8 @@ export default function UserManagement() {
     role: 'staff',
     contact: '',
     company_name: '',
-    address: ''
+    address: '',
+    commission_percentage: 0
   });
 
   const loadUsers = useCallback(async () => {
@@ -99,7 +100,8 @@ export default function UserManagement() {
       role: user.role || 'staff',
       contact: user.contact || '',
       company_name: user.company_name || '',
-      address: user.address || ''
+      address: user.address || '',
+      commission_percentage: user.commission_percentage || 0
     });
     setShowModal(true);
   };
@@ -126,7 +128,8 @@ export default function UserManagement() {
       role: 'staff',
       contact: '',
       company_name: '',
-      address: ''
+      address: '',
+      commission_percentage: 0
     });
     setShowPassword(false);
   };
@@ -216,19 +219,20 @@ export default function UserManagement() {
                     <th className="p-3 text-left font-medium text-gray-500">ROLE</th>
                     <th className="p-3 text-left font-medium text-gray-500">CONTACT</th>
                     <th className="p-3 text-left font-medium text-gray-500">COMPANY</th>
+                    <th className="p-3 text-center font-medium text-gray-500">COMMISSION</th>
                     <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-gray-400">
+                      <td colSpan={7} className="p-8 text-center text-gray-400">
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-gray-400">
+                      <td colSpan={7} className="p-8 text-center text-gray-400">
                         No users found
                       </td>
                     </tr>
@@ -256,6 +260,13 @@ export default function UserManagement() {
                           </td>
                           <td className="p-3 text-gray-600">{user.contact || '-'}</td>
                           <td className="p-3 text-gray-600">{user.company_name || '-'}</td>
+                          <td className="p-3 text-center">
+                            {user.role === 'retailer' ? (
+                              <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium">
+                                {user.commission_percentage || 0}%
+                              </span>
+                            ) : '-'}
+                          </td>
                           <td className="p-3">
                             <div className="flex items-center justify-center gap-1">
                               <Button
@@ -420,6 +431,29 @@ export default function UserManagement() {
                       placeholder="Enter address"
                       data-testid="user-address-input"
                     />
+                  </div>
+                )}
+
+                {/* Commission Percentage (show for retailer) */}
+                {formData.role === 'retailer' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Commission %</label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        value={formData.commission_percentage}
+                        onChange={(e) => setFormData(prev => ({ ...prev, commission_percentage: parseFloat(e.target.value) || 0 }))}
+                        placeholder="e.g., 20"
+                        data-testid="user-commission-input"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                    </div>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Retailer pays {100 - (formData.commission_percentage || 0)}% of MRP
+                    </p>
                   </div>
                 )}
 

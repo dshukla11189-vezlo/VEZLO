@@ -183,6 +183,21 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Retailer**: Individual login with own portal (structure ready, portal to be built)
   - [x] **User Management Page**: Admin can create/edit/delete users with role assignment
   - [x] Backend APIs: GET/POST/PUT/DELETE /api/users (Admin only)
+- [x] **Retailer Portal System** (COMPLETED - Mar 27, 2026)
+  - [x] **Admin/Staff Retailer Orders Page** with tabs: Indents, Dispatches, Rejections, Payments
+  - [x] **Create Indent on behalf of Retailer** with product/variant/quantity selection
+  - [x] **Dispatch with mandatory MRP** - auto-calculates total value and net payable (commission applied)
+  - [x] **Commission System**: Each retailer has configurable commission % (set in User Management)
+  - [x] **Net Payable Calculation**: MRP Value × (1 - commission%) 
+  - [x] **Record Rejections**: Staff/Admin can record product rejections with reason
+  - [x] **Record Payments**: Track payments from retailers (Cash, UPI, Bank Transfer, Cheque)
+  - [x] **Retailer Portal Dashboard**: Shows Items Received, Total Invoice, Amount Paid, Pending Amount
+  - [x] **Payment Summary**: Detailed breakdown with MRP, Commission, Net Payable, Rejections, Balance Due
+  - [x] **Quick Stats**: Pending Indents, Total Dispatches, Items Rejected, Payments Made
+  - [x] **Retailer Create Indent**: Retailers can create their own indents
+  - [x] **Retailer Confirm GRN**: Retailers can confirm received quantities vs supplied
+  - [x] **Retailer View Rejections**: Read-only view of rejected items
+  - [x] Backend APIs: /api/retailer-indents, /api/retailer-dispatches, /api/retailer-grn, /api/retailer-rejections, /api/retailer-payments, /api/retailer-dashboard
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Export to Excel for Indent tab (UI buttons exist, logic pending)
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)

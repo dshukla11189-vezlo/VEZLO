@@ -1,102 +1,1094 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { 
+  Plus, Package, Truck, ClipboardCheck, AlertTriangle, DollarSign, 
+  Search, Edit, Trash2, X, ChevronDown, ChevronRight, Eye,
+  FileText, Calendar, User
+} from 'lucide-react';
 
 export default function RetailerOrders() {
-  const [orders, setOrders] = useState([]);
+  const [activeTab, setActiveTab] = useState('indents');
+  const [retailers, setRetailers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [packagings, setPackagings] = useState([]);
+  const [selectedRetailer, setSelectedRetailer] = useState('');
+  
+  // Indents state
+  const [indents, setIndents] = useState([]);
+  const [showIndentModal, setShowIndentModal] = useState(false);
+  const [indentForm, setIndentForm] = useState({
+    retailer_id: '',
+    indent_date: new Date().toISOString().split('T')[0],
+    items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
+    remarks: ''
+  });
+  
+  // Dispatches state
+  const [dispatches, setDispatches] = useState([]);
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [selectedIndent, setSelectedIndent] = useState(null);
+  const [dispatchForm, setDispatchForm] = useState({
+    dispatch_date: new Date().toISOString().split('T')[0],
+    items: [],
+    remarks: ''
+  });
+  
+  // Rejections state
+  const [rejections, setRejections] = useState([]);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [rejectionForm, setRejectionForm] = useState({
+    retailer_id: '',
+    rejection_date: new Date().toISOString().split('T')[0],
+    product_id: '',
+    product_name: '',
+    variant_name: '',
+    quantity: 0,
+    reason: '',
+    mrp: 0,
+    remarks: ''
+  });
+  
+  // Payments state
+  const [payments, setPayments] = useState([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    retailer_id: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    amount: 0,
+    payment_mode: 'cash',
+    reference_number: '',
+    remarks: ''
+  });
+  
   const [loading, setLoading] = useState(true);
+  const [expandedIndents, setExpandedIndents] = useState({});
 
-  useEffect(() => {
-    loadOrders();
+  // Load base data
+  const loadBaseData = useCallback(async () => {
+    try {
+      const [retailersRes, productsRes, packagingsRes] = await Promise.all([
+        api.get('/api/retailers'),
+        api.get('/api/products'),
+        api.get('/api/qc-packaging')
+      ]);
+      setRetailers(retailersRes.data);
+      setProducts(productsRes.data);
+      setPackagings(packagingsRes.data);
+    } catch (error) {
+      console.error('Failed to load base data:', error);
+    }
   }, []);
 
-  const loadOrders = async () => {
+  const loadIndents = useCallback(async () => {
     try {
-      const response = await api.get('/api/retailer-orders');
-      setOrders(response.data);
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/retailer-indents${params}`);
+      setIndents(response.data);
     } catch (error) {
-      toast.error('Failed to load retailer orders');
-    } finally {
-      setLoading(false);
+      console.error('Failed to load indents:', error);
     }
-  };
+  }, [selectedRetailer]);
+
+  const loadDispatches = useCallback(async () => {
+    try {
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/retailer-dispatches${params}`);
+      setDispatches(response.data);
+    } catch (error) {
+      console.error('Failed to load dispatches:', error);
+    }
+  }, [selectedRetailer]);
+
+  const loadRejections = useCallback(async () => {
+    try {
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/retailer-rejections${params}`);
+      setRejections(response.data);
+    } catch (error) {
+      console.error('Failed to load rejections:', error);
+    }
+  }, [selectedRetailer]);
+
+  const loadPayments = useCallback(async () => {
+    try {
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/retailer-payments${params}`);
+      setPayments(response.data);
+    } catch (error) {
+      console.error('Failed to load payments:', error);
+    }
+  }, [selectedRetailer]);
+
+  useEffect(() => {
+    const loadAll = async () => {
+      setLoading(true);
+      await loadBaseData();
+      await Promise.all([loadIndents(), loadDispatches(), loadRejections(), loadPayments()]);
+      setLoading(false);
+    };
+    loadAll();
+  }, [loadBaseData, loadIndents, loadDispatches, loadRejections, loadPayments]);
 
   const formatDate = (date) => {
+    if (!date) return '-';
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  const handleStatusUpdate = async (orderId, status) => {
+  const formatCurrency = (amount) => {
+    return `₹${(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // ==================== INDENT HANDLERS ====================
+  const handleCreateIndent = async (e) => {
+    e.preventDefault();
+    if (!indentForm.retailer_id) {
+      toast.error('Please select a retailer');
+      return;
+    }
+    if (indentForm.items.some(item => !item.product_id || !item.quantity)) {
+      toast.error('Please fill all product details');
+      return;
+    }
+
     try {
-      await api.put(`/api/retailer-orders/${orderId}/status`, { status });
-      toast.success('Order status updated');
-      loadOrders();
+      await api.post('/api/retailer-indents', {
+        retailer_id: indentForm.retailer_id,
+        indent_date: new Date(indentForm.indent_date).toISOString(),
+        items: indentForm.items,
+        remarks: indentForm.remarks
+      });
+      toast.success('Indent created successfully');
+      setShowIndentModal(false);
+      resetIndentForm();
+      loadIndents();
     } catch (error) {
-      toast.error('Failed to update status');
+      toast.error(error.response?.data?.detail || 'Failed to create indent');
     }
   };
 
+  const handleDeleteIndent = async (indentId) => {
+    if (!window.confirm('Are you sure you want to delete this indent?')) return;
+    try {
+      await api.delete(`/api/retailer-indents/${indentId}`);
+      toast.success('Indent deleted');
+      loadIndents();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete indent');
+    }
+  };
+
+  const resetIndentForm = () => {
+    setIndentForm({
+      retailer_id: '',
+      indent_date: new Date().toISOString().split('T')[0],
+      items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
+      remarks: ''
+    });
+  };
+
+  const addIndentItem = () => {
+    setIndentForm(prev => ({
+      ...prev,
+      items: [...prev.items, { product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }]
+    }));
+  };
+
+  const removeIndentItem = (index) => {
+    setIndentForm(prev => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateIndentItem = (index, field, value) => {
+    setIndentForm(prev => {
+      const items = [...prev.items];
+      items[index] = { ...items[index], [field]: value };
+      
+      // Auto-fill product name
+      if (field === 'product_id') {
+        const product = products.find(p => p.id === value);
+        items[index].product_name = product?.name || '';
+      }
+      // Auto-fill variant name
+      if (field === 'variant_id') {
+        const variant = packagings.find(p => p.id === value);
+        items[index].variant_name = variant?.name || '';
+      }
+      
+      return { ...prev, items };
+    });
+  };
+
+  // ==================== DISPATCH HANDLERS ====================
+  const openDispatchModal = (indent) => {
+    setSelectedIndent(indent);
+    setDispatchForm({
+      dispatch_date: new Date().toISOString().split('T')[0],
+      items: indent.items.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id,
+        variant_name: item.variant_name,
+        indent_qty: item.quantity,
+        supplied_qty: item.quantity,
+        mrp: 0,
+        total_value: 0
+      })),
+      remarks: ''
+    });
+    setShowDispatchModal(true);
+  };
+
+  const updateDispatchItem = (index, field, value) => {
+    setDispatchForm(prev => {
+      const items = [...prev.items];
+      items[index] = { ...items[index], [field]: value };
+      items[index].total_value = items[index].supplied_qty * items[index].mrp;
+      return { ...prev, items };
+    });
+  };
+
+  const handleCreateDispatch = async (e) => {
+    e.preventDefault();
+    if (dispatchForm.items.some(item => !item.mrp || item.mrp <= 0)) {
+      toast.error('MRP is mandatory for all items');
+      return;
+    }
+
+    try {
+      await api.post('/api/retailer-dispatches', {
+        indent_id: selectedIndent.id,
+        dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
+        items: dispatchForm.items,
+        remarks: dispatchForm.remarks
+      });
+      toast.success('Dispatch created successfully');
+      setShowDispatchModal(false);
+      setSelectedIndent(null);
+      loadIndents();
+      loadDispatches();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create dispatch');
+    }
+  };
+
+  // ==================== REJECTION HANDLERS ====================
+  const handleCreateRejection = async (e) => {
+    e.preventDefault();
+    if (!rejectionForm.retailer_id || !rejectionForm.product_id || !rejectionForm.quantity) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    try {
+      await api.post('/api/retailer-rejections', {
+        ...rejectionForm,
+        rejection_date: new Date(rejectionForm.rejection_date).toISOString()
+      });
+      toast.success('Rejection recorded');
+      setShowRejectionModal(false);
+      resetRejectionForm();
+      loadRejections();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to record rejection');
+    }
+  };
+
+  const handleDeleteRejection = async (rejectionId) => {
+    if (!window.confirm('Are you sure you want to delete this rejection?')) return;
+    try {
+      await api.delete(`/api/retailer-rejections/${rejectionId}`);
+      toast.success('Rejection deleted');
+      loadRejections();
+    } catch (error) {
+      toast.error('Failed to delete rejection');
+    }
+  };
+
+  const resetRejectionForm = () => {
+    setRejectionForm({
+      retailer_id: '',
+      rejection_date: new Date().toISOString().split('T')[0],
+      product_id: '',
+      product_name: '',
+      variant_name: '',
+      quantity: 0,
+      reason: '',
+      mrp: 0,
+      remarks: ''
+    });
+  };
+
+  // ==================== PAYMENT HANDLERS ====================
+  const handleCreatePayment = async (e) => {
+    e.preventDefault();
+    if (!paymentForm.retailer_id || !paymentForm.amount) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    try {
+      await api.post('/api/retailer-payments', {
+        ...paymentForm,
+        payment_date: new Date(paymentForm.payment_date).toISOString()
+      });
+      toast.success('Payment recorded');
+      setShowPaymentModal(false);
+      resetPaymentForm();
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to record payment');
+    }
+  };
+
+  const handleDeletePayment = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) return;
+    try {
+      await api.delete(`/api/retailer-payments/${paymentId}`);
+      toast.success('Payment deleted');
+      loadPayments();
+    } catch (error) {
+      toast.error('Failed to delete payment');
+    }
+  };
+
+  const resetPaymentForm = () => {
+    setPaymentForm({
+      retailer_id: '',
+      payment_date: new Date().toISOString().split('T')[0],
+      amount: 0,
+      payment_mode: 'cash',
+      reference_number: '',
+      remarks: ''
+    });
+  };
+
+  const toggleIndentExpand = (id) => {
+    setExpandedIndents(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const tabs = [
+    { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
+    { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
+    { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
+    { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length }
+  ];
+
   return (
     <Layout title="Retailer Orders">
-      <div className="data-table">
-        <table>
-          <thead>
-            <tr>
-              <th>DATE</th>
-              <th>RETAILER</th>
-              <th>PRODUCTS</th>
-              <th className="text-right">TOTAL AMOUNT</th>
-              <th>STATUS</th>
-              <th className="text-center">ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => (
-              <tr key={order.id} data-testid={`retailer-order-row-${order.id}`}>
-                <td>{formatDate(order.order_date)}</td>
-                <td className="font-medium">{order.retailer_name}</td>
-                <td>{order.products?.length || 0} items</td>
-                <td className="text-right font-semibold">₹{order.total_amount?.toFixed(2)}</td>
-                <td>
-                  <span className={`badge ${
-                    order.status === 'approved' ? 'badge-success' : 
-                    order.status === 'rejected' ? 'badge-error' : 'badge-warning'
-                  }`}>
-                    {order.status}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center justify-center gap-2">
-                    {order.status === 'pending' && (
-                      <>
-                        <Button
-                          size="sm"
-                          className="bg-green-600 hover:bg-green-700"
-                          onClick={() => handleStatusUpdate(order.id, 'approved')}
-                          data-testid={`approve-order-${order.id}`}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleStatusUpdate(order.id, 'rejected')}
-                          data-testid={`reject-order-${order.id}`}
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    )}
+      <div data-testid="retailer-orders-page">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
+            <p className="text-sm text-gray-500">Manage retailer indents, dispatches, and payments</p>
+          </div>
+          
+          {/* Retailer Filter */}
+          <div className="flex gap-2 items-center">
+            <select
+              value={selectedRetailer}
+              onChange={(e) => setSelectedRetailer(e.target.value)}
+              className="h-9 px-3 rounded-md border border-gray-200 text-sm"
+            >
+              <option value="">All Retailers</option>
+              {retailers.map(r => (
+                <option key={r.id} value={r.id}>{r.name} ({r.commission_percentage || 0}%)</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex flex-wrap gap-2 mb-4 border-b pb-2">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <Button
+                key={tab.id}
+                variant={activeTab === tab.id ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab(tab.id)}
+                className={activeTab === tab.id ? 'bg-[#14532D]' : ''}
+              >
+                <Icon size={14} className="mr-1" />
+                {tab.label}
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-white/20 text-xs">{tab.count}</span>
+              </Button>
+            );
+          })}
+        </div>
+
+        {/* ==================== INDENTS TAB ==================== */}
+        {activeTab === 'indents' && (
+          <Card>
+            <CardHeader className="py-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Retailer Indents</CardTitle>
+              <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
+                <Plus size={14} className="mr-1" /> New Indent
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left w-8"></th>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
+                      <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {indents.length === 0 ? (
+                      <tr><td colSpan={6} className="p-8 text-center text-gray-400">No indents found</td></tr>
+                    ) : indents.map(indent => (
+                      <React.Fragment key={indent.id}>
+                        <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleIndentExpand(indent.id)}>
+                          <td className="p-3 text-center">
+                            {expandedIndents[indent.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </td>
+                          <td className="p-3">{formatDate(indent.indent_date)}</td>
+                          <td className="p-3 font-medium">{indent.retailer_name}</td>
+                          <td className="p-3 text-center">{indent.items?.length || 0}</td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              indent.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                              indent.status === 'dispatched' ? 'bg-blue-100 text-blue-700' :
+                              indent.status === 'received' ? 'bg-green-100 text-green-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {indent.status}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1">
+                              {indent.status === 'pending' && (
+                                <Button size="sm" variant="outline" onClick={() => openDispatchModal(indent)}>
+                                  <Truck size={14} className="mr-1" /> Dispatch
+                                </Button>
+                              )}
+                              {indent.status === 'pending' && (
+                                <Button size="sm" variant="ghost" onClick={() => handleDeleteIndent(indent.id)}>
+                                  <Trash2 size={14} className="text-red-600" />
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedIndents[indent.id] && (
+                          <tr className="bg-blue-50">
+                            <td colSpan={6} className="p-3">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="p-2 text-left">Product</th>
+                                    <th className="p-2 text-left">Variant</th>
+                                    <th className="p-2 text-right">Quantity</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {indent.items?.map((item, idx) => (
+                                    <tr key={idx}>
+                                      <td className="p-2">{item.product_name}</td>
+                                      <td className="p-2">{item.variant_name || '-'}</td>
+                                      <td className="p-2 text-right">{item.quantity}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              {indent.remarks && <p className="text-xs text-gray-500 mt-2">Remarks: {indent.remarks}</p>}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== DISPATCHES TAB ==================== */}
+        {activeTab === 'dispatches' && (
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Dispatches</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
+                      <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">COMM %</th>
+                      <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dispatches.length === 0 ? (
+                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No dispatches found</td></tr>
+                    ) : dispatches.map(dispatch => (
+                      <tr key={dispatch.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-medium text-blue-600">{dispatch.invoice_number}</td>
+                        <td className="p-3">{formatDate(dispatch.dispatch_date)}</td>
+                        <td className="p-3 font-medium">{dispatch.retailer_name}</td>
+                        <td className="p-3 text-center">{dispatch.items?.length || 0}</td>
+                        <td className="p-3 text-right">{formatCurrency(dispatch.total_mrp_value)}</td>
+                        <td className="p-3 text-center">
+                          <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs">{dispatch.commission_percentage}%</span>
+                        </td>
+                        <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(dispatch.net_payable)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {dispatches.length > 0 && (
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td colSpan={4} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-right">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
+                        <td></td>
+                        <td className="p-3 text-right text-green-700">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== REJECTIONS TAB ==================== */}
+        {activeTab === 'rejections' && (
+          <Card>
+            <CardHeader className="py-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Rejections</CardTitle>
+              <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => setShowRejectionModal(true)}>
+                <Plus size={14} className="mr-1" /> Record Rejection
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
+                      <th className="p-3 text-left font-medium text-gray-500">PRODUCT</th>
+                      <th className="p-3 text-center font-medium text-gray-500">QTY</th>
+                      <th className="p-3 text-right font-medium text-gray-500">MRP</th>
+                      <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">REASON</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rejections.length === 0 ? (
+                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">No rejections found</td></tr>
+                    ) : rejections.map(rejection => (
+                      <tr key={rejection.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3">{formatDate(rejection.rejection_date)}</td>
+                        <td className="p-3 font-medium">{rejection.retailer_name}</td>
+                        <td className="p-3">{rejection.product_name} {rejection.variant_name && `(${rejection.variant_name})`}</td>
+                        <td className="p-3 text-center text-red-600 font-medium">{rejection.quantity}</td>
+                        <td className="p-3 text-right">{formatCurrency(rejection.mrp)}</td>
+                        <td className="p-3 text-right text-red-600">{formatCurrency(rejection.rejection_value)}</td>
+                        <td className="p-3">{rejection.reason}</td>
+                        <td className="p-3 text-center">
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteRejection(rejection.id)}>
+                            <Trash2 size={14} className="text-red-600" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {rejections.length > 0 && (
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td colSpan={3} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-center text-red-600">{rejections.reduce((sum, r) => sum + (r.quantity || 0), 0)}</td>
+                        <td></td>
+                        <td className="p-3 text-right text-red-600">{formatCurrency(rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0))}</td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== PAYMENTS TAB ==================== */}
+        {activeTab === 'payments' && (
+          <Card>
+            <CardHeader className="py-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Payments</CardTitle>
+              <Button size="sm" className="bg-[#14532D]" onClick={() => setShowPaymentModal(true)}>
+                <Plus size={14} className="mr-1" /> Record Payment
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
+                      <th className="p-3 text-right font-medium text-gray-500">AMOUNT</th>
+                      <th className="p-3 text-center font-medium text-gray-500">MODE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">REFERENCE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">REMARKS</th>
+                      <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payments.length === 0 ? (
+                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No payments found</td></tr>
+                    ) : payments.map(payment => (
+                      <tr key={payment.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3">{formatDate(payment.payment_date)}</td>
+                        <td className="p-3 font-medium">{payment.retailer_name}</td>
+                        <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(payment.amount)}</td>
+                        <td className="p-3 text-center">
+                          <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs uppercase">{payment.payment_mode}</span>
+                        </td>
+                        <td className="p-3">{payment.reference_number || '-'}</td>
+                        <td className="p-3 text-gray-500">{payment.remarks || '-'}</td>
+                        <td className="p-3 text-center">
+                          <Button size="sm" variant="ghost" onClick={() => handleDeletePayment(payment.id)}>
+                            <Trash2 size={14} className="text-red-600" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {payments.length > 0 && (
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td colSpan={2} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-right text-green-700">{formatCurrency(payments.reduce((sum, p) => sum + (p.amount || 0), 0))}</td>
+                        <td colSpan={4}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== INDENT MODAL ==================== */}
+        {showIndentModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-semibold">Create Indent for Retailer</h3>
+                <button onClick={() => { setShowIndentModal(false); resetIndentForm(); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateIndent} className="p-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
+                    <select
+                      value={indentForm.retailer_id}
+                      onChange={(e) => setIndentForm(prev => ({ ...prev, retailer_id: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                      required
+                    >
+                      <option value="">Select Retailer</option>
+                      {retailers.map(r => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {orders.length === 0 && !loading && (
-          <div className="p-8 text-center text-gray-500">
-            No retailer orders found.
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                    <Input
+                      type="date"
+                      value={indentForm.indent_date}
+                      onChange={(e) => setIndentForm(prev => ({ ...prev, indent_date: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">Items *</label>
+                    <Button type="button" size="sm" variant="outline" onClick={addIndentItem}>
+                      <Plus size={14} className="mr-1" /> Add Item
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {indentForm.items.map((item, index) => (
+                      <div key={index} className="flex gap-2 items-center bg-gray-50 p-2 rounded">
+                        <select
+                          value={item.product_id}
+                          onChange={(e) => updateIndentItem(index, 'product_id', e.target.value)}
+                          className="flex-1 h-8 px-2 rounded border text-sm"
+                          required
+                        >
+                          <option value="">Select Product</option>
+                          {products.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={item.variant_id}
+                          onChange={(e) => updateIndentItem(index, 'variant_id', e.target.value)}
+                          className="w-32 h-8 px-2 rounded border text-sm"
+                        >
+                          <option value="">Variant</option>
+                          {packagings.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => updateIndentItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                          placeholder="Qty"
+                          className="w-20 h-8"
+                          required
+                        />
+                        {indentForm.items.length > 1 && (
+                          <Button type="button" size="sm" variant="ghost" onClick={() => removeIndentItem(index)}>
+                            <X size={14} className="text-red-600" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    value={indentForm.remarks}
+                    onChange={(e) => setIndentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowIndentModal(false); resetIndentForm(); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">Create Indent</Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== DISPATCH MODAL ==================== */}
+        {showDispatchModal && selectedIndent && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">Dispatch to {selectedIndent.retailer_name}</h3>
+                  <p className="text-sm text-gray-500">Indent: {formatDate(selectedIndent.indent_date)}</p>
+                </div>
+                <button onClick={() => { setShowDispatchModal(false); setSelectedIndent(null); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateDispatch} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Dispatch Date *</label>
+                  <Input
+                    type="date"
+                    value={dispatchForm.dispatch_date}
+                    onChange={(e) => setDispatchForm(prev => ({ ...prev, dispatch_date: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Items (MRP is mandatory)</label>
+                  <div className="border rounded overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="p-2 text-left">Product</th>
+                          <th className="p-2 text-center">Indent Qty</th>
+                          <th className="p-2 text-center">Supply Qty</th>
+                          <th className="p-2 text-center">MRP *</th>
+                          <th className="p-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dispatchForm.items.map((item, index) => (
+                          <tr key={index} className="border-t">
+                            <td className="p-2">{item.product_name} {item.variant_name && `(${item.variant_name})`}</td>
+                            <td className="p-2 text-center text-gray-500">{item.indent_qty}</td>
+                            <td className="p-2 text-center">
+                              <Input
+                                type="number"
+                                min="0"
+                                value={item.supplied_qty}
+                                onChange={(e) => updateDispatchItem(index, 'supplied_qty', parseFloat(e.target.value) || 0)}
+                                className="w-20 h-7 text-center mx-auto"
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.mrp}
+                                onChange={(e) => updateDispatchItem(index, 'mrp', parseFloat(e.target.value) || 0)}
+                                className="w-24 h-7 text-center mx-auto"
+                                placeholder="₹ MRP"
+                                required
+                              />
+                            </td>
+                            <td className="p-2 text-right font-medium">{formatCurrency(item.total_value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50 font-semibold">
+                        <tr>
+                          <td colSpan={4} className="p-2 text-right">Total MRP Value:</td>
+                          <td className="p-2 text-right">{formatCurrency(dispatchForm.items.reduce((sum, i) => sum + i.total_value, 0))}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    value={dispatchForm.remarks}
+                    onChange={(e) => setDispatchForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowDispatchModal(false); setSelectedIndent(null); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">Create Dispatch</Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== REJECTION MODAL ==================== */}
+        {showRejectionModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-semibold">Record Rejection</h3>
+                <button onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateRejection} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
+                  <select
+                    value={rejectionForm.retailer_id}
+                    onChange={(e) => setRejectionForm(prev => ({ ...prev, retailer_id: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    required
+                  >
+                    <option value="">Select Retailer</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                  <Input
+                    type="date"
+                    value={rejectionForm.rejection_date}
+                    onChange={(e) => setRejectionForm(prev => ({ ...prev, rejection_date: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+                  <select
+                    value={rejectionForm.product_id}
+                    onChange={(e) => {
+                      const product = products.find(p => p.id === e.target.value);
+                      setRejectionForm(prev => ({ ...prev, product_id: e.target.value, product_name: product?.name || '' }));
+                    }}
+                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    required
+                  >
+                    <option value="">Select Product</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={rejectionForm.quantity}
+                      onChange={(e) => setRejectionForm(prev => ({ ...prev, quantity: parseFloat(e.target.value) || 0 }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">MRP per unit</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={rejectionForm.mrp}
+                      onChange={(e) => setRejectionForm(prev => ({ ...prev, mrp: parseFloat(e.target.value) || 0 }))}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason *</label>
+                  <select
+                    value={rejectionForm.reason}
+                    onChange={(e) => setRejectionForm(prev => ({ ...prev, reason: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    required
+                  >
+                    <option value="">Select Reason</option>
+                    <option value="Rotten">Rotten</option>
+                    <option value="Damaged">Damaged</option>
+                    <option value="Quality Issue">Quality Issue</option>
+                    <option value="Expired">Expired</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    value={rejectionForm.remarks}
+                    onChange={(e) => setRejectionForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-red-600 hover:bg-red-700">Record Rejection</Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT MODAL ==================== */}
+        {showPaymentModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-semibold">Record Payment</h3>
+                <button onClick={() => { setShowPaymentModal(false); resetPaymentForm(); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleCreatePayment} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
+                  <select
+                    value={paymentForm.retailer_id}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, retailer_id: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    required
+                  >
+                    <option value="">Select Retailer</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                  <Input
+                    type="date"
+                    value={paymentForm.payment_date}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={paymentForm.amount}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Mode *</label>
+                  <select
+                    value={paymentForm.payment_mode}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, payment_mode: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    required
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference Number</label>
+                  <Input
+                    value={paymentForm.reference_number}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, reference_number: e.target.value }))}
+                    placeholder="UPI ref / Cheque no / Transaction ID"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    value={paymentForm.remarks}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowPaymentModal(false); resetPaymentForm(); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">Record Payment</Button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </div>

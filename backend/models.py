@@ -30,6 +30,7 @@ class User(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+    commission_percentage: Optional[float] = 0  # For retailers: their commission %
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class RegisterRequest(BaseModel):
@@ -40,6 +41,7 @@ class RegisterRequest(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+    commission_percentage: Optional[float] = 0
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -54,6 +56,7 @@ class UserResponse(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+    commission_percentage: Optional[float] = 0
 
 class AuthResponse(BaseModel):
     token: str
@@ -67,6 +70,7 @@ class UserUpdate(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+    commission_percentage: Optional[float] = None
 
 # Product Models
 class Product(BaseModel):
@@ -497,3 +501,142 @@ class StockClosingEntry(BaseModel):
 
 class StockClosingBulkEntry(BaseModel):
     entries: List[StockClosingEntry]
+
+
+
+# ==================== RETAILER MODELS ====================
+
+class RetailerIndentItem(BaseModel):
+    product_id: str
+    product_name: str
+    variant_id: Optional[str] = None
+    variant_name: Optional[str] = None  # e.g., "100g", "200g"
+    quantity: float  # Number of packets/units
+    status: Literal["pending", "dispatched", "received"] = "pending"
+
+class RetailerIndent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    retailer_id: str
+    retailer_name: str
+    indent_date: datetime
+    items: List[RetailerIndentItem]
+    status: Literal["pending", "partial", "dispatched", "received"] = "pending"
+    created_by: str  # user_id of creator (retailer or admin/staff)
+    created_by_role: str  # "retailer", "admin", "staff"
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerIndentCreate(BaseModel):
+    retailer_id: str
+    indent_date: datetime
+    items: List[RetailerIndentItem]
+    remarks: Optional[str] = None
+
+class RetailerDispatchItem(BaseModel):
+    product_id: str
+    product_name: str
+    variant_id: Optional[str] = None
+    variant_name: Optional[str] = None
+    indent_qty: float  # Original indent quantity
+    supplied_qty: float  # Actually supplied
+    mrp: float  # Mandatory MRP per unit
+    total_value: float = 0  # supplied_qty × mrp
+
+class RetailerDispatch(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    indent_id: str
+    retailer_id: str
+    retailer_name: str
+    dispatch_date: datetime
+    items: List[RetailerDispatchItem]
+    total_mrp_value: float = 0  # Sum of all items' total_value
+    commission_percentage: float = 0  # Retailer's commission at time of dispatch
+    net_payable: float = 0  # total_mrp_value × (1 - commission/100)
+    dispatched_by: str  # staff/admin user_id
+    invoice_number: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerDispatchCreate(BaseModel):
+    indent_id: str
+    dispatch_date: datetime
+    items: List[RetailerDispatchItem]
+    remarks: Optional[str] = None
+
+class RetailerGRNItem(BaseModel):
+    product_id: str
+    product_name: str
+    variant_name: Optional[str] = None
+    supplied_qty: float
+    received_qty: float
+    difference: float = 0  # received - supplied
+
+class RetailerGRN(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dispatch_id: str
+    retailer_id: str
+    retailer_name: str
+    grn_date: datetime
+    items: List[RetailerGRNItem]
+    confirmed_by: str  # retailer user_id
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerGRNCreate(BaseModel):
+    dispatch_id: str
+    items: List[RetailerGRNItem]
+    remarks: Optional[str] = None
+
+class RetailerRejection(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    retailer_id: str
+    retailer_name: str
+    rejection_date: datetime
+    product_id: str
+    product_name: str
+    variant_name: Optional[str] = None
+    quantity: float  # Rejected quantity
+    reason: str  # e.g., "Rotten", "Damaged", "Quality issue"
+    dispatch_id: Optional[str] = None  # Link to original dispatch if applicable
+    recorded_by: str  # staff/admin user_id
+    mrp: float = 0  # MRP at which it was sold
+    rejection_value: float = 0  # quantity × mrp
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerRejectionCreate(BaseModel):
+    retailer_id: str
+    rejection_date: datetime
+    product_id: str
+    product_name: str
+    variant_name: Optional[str] = None
+    quantity: float
+    reason: str
+    dispatch_id: Optional[str] = None
+    mrp: float = 0
+    remarks: Optional[str] = None
+
+class RetailerPayment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    retailer_id: str
+    retailer_name: str
+    payment_date: datetime
+    amount: float
+    payment_mode: Literal["cash", "upi", "bank_transfer", "cheque", "other"] = "cash"
+    reference_number: Optional[str] = None  # UPI ref, cheque no, etc.
+    recorded_by: str  # staff/admin user_id
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerPaymentCreate(BaseModel):
+    retailer_id: str
+    payment_date: datetime
+    amount: float
+    payment_mode: Literal["cash", "upi", "bank_transfer", "cheque", "other"] = "cash"
+    reference_number: Optional[str] = None
+    remarks: Optional[str] = None

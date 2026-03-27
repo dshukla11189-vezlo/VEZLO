@@ -176,6 +176,7 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **P&L Dashboard UI Updates** (VALIDATED - Mar 27, 2026)
   - [x] Customer Name column in expanded product breakdown
   - [x] NET P/L removed from daily row headers (available in summary cards)
+  - [x] **Today's Quick Summary Widget** - Shows dispatches, pending indents, procurements, top products at-a-glance
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Export to Excel for Indent tab (UI buttons exist, logic pending)
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)

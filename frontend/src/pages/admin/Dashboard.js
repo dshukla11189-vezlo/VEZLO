@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
@@ -17,6 +17,7 @@ const COLORS = ['#14532D', '#D97706', '#3B82F6', '#8B5CF6', '#EF4444', '#10B981'
 export default function AdminDashboard() {
   const { t } = useTranslation();
   const [pnlData, setPnlData] = useState(null);
+  const [todaySummary, setTodaySummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
@@ -37,10 +38,14 @@ export default function AdminDashboard() {
   const loadPnlData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get(`/api/reports/pnl?from_date=${dateFrom}&to_date=${dateTo}`);
-      setPnlData(response.data);
+      const [pnlResponse, summaryResponse] = await Promise.all([
+        api.get(`/api/reports/pnl?from_date=${dateFrom}&to_date=${dateTo}`),
+        api.get('/api/reports/today-summary')
+      ]);
+      setPnlData(pnlResponse.data);
+      setTodaySummary(summaryResponse.data);
     } catch (error) {
-      console.error('Failed to load P&L data:', error);
+      console.error('Failed to load data:', error);
     } finally {
       setLoading(false);
     }
@@ -220,6 +225,113 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Today's Quick Summary Widget */}
+        {todaySummary && (
+          <Card className="mb-4 border-l-4 border-l-[#14532D] bg-gradient-to-r from-green-50/50 to-white" data-testid="today-summary-widget">
+            <CardContent className="py-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap size={18} className="text-[#14532D]" />
+                <h3 className="font-semibold text-gray-800">Today's Quick Summary</h3>
+                <span className="text-xs text-gray-400 ml-auto">
+                  {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                {/* Today's Dispatches */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border">
+                  <div className="p-1.5 bg-blue-100 rounded">
+                    <Truck size={14} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase">Dispatches</p>
+                    <p className="text-sm font-bold text-gray-800">{todaySummary.today_dispatches}</p>
+                  </div>
+                </div>
+
+                {/* Dispatch Value */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border">
+                  <div className="p-1.5 bg-green-100 rounded">
+                    <DollarSign size={14} className="text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase">Dispatch ₹</p>
+                    <p className="text-sm font-bold text-green-700">{formatCurrency(todaySummary.today_dispatch_value)}</p>
+                  </div>
+                </div>
+
+                {/* Pending Indents */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border">
+                  <div className="p-1.5 bg-orange-100 rounded">
+                    <Clock size={14} className="text-orange-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase">Pending</p>
+                    <p className="text-sm font-bold text-orange-700">{todaySummary.pending_indents} indents</p>
+                  </div>
+                </div>
+
+                {/* Today's Procurements */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border">
+                  <div className="p-1.5 bg-purple-100 rounded">
+                    <Package size={14} className="text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase">Procurements</p>
+                    <p className="text-sm font-bold text-gray-800">{todaySummary.today_procurements}</p>
+                  </div>
+                </div>
+
+                {/* Procurement Value */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border">
+                  <div className="p-1.5 bg-amber-100 rounded">
+                    <ShoppingCart size={14} className="text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase">Procure ₹</p>
+                    <p className="text-sm font-bold text-amber-700">{formatCurrency(todaySummary.today_procurement_value)}</p>
+                  </div>
+                </div>
+
+                {/* Top Selling Product Today */}
+                <div className="flex items-center gap-2 p-2 bg-white rounded-lg border">
+                  <div className="p-1.5 bg-emerald-100 rounded">
+                    <TrendingUp size={14} className="text-emerald-600" />
+                  </div>
+                  <div className="overflow-hidden">
+                    <p className="text-[10px] text-gray-500 uppercase">Top Product</p>
+                    <p className="text-xs font-bold text-gray-800 truncate" title={todaySummary.top_products?.[0]?.name}>
+                      {todaySummary.top_products?.[0]?.name || '-'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top Products Mini List */}
+              {todaySummary.top_products?.length > 0 && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-[10px] text-gray-500 uppercase mb-2">Today's Top Selling Products</p>
+                  <div className="flex flex-wrap gap-2">
+                    {todaySummary.top_products.slice(0, 5).map((prod, idx) => (
+                      <span 
+                        key={idx} 
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-full text-xs"
+                        title={`${prod.qty} units • ₹${prod.amount.toLocaleString()}`}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-[#14532D] text-white text-[10px] flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                        <span className="font-medium truncate max-w-[100px]">{prod.name}</span>
+                        <span className="text-gray-500">{prod.qty}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b pb-2">

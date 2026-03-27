@@ -1460,6 +1460,86 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "today_wastage": round(today_wastage, 2)
     }
 
+@api_router.get("/reports/today-summary")
+async def get_today_summary(current_user: dict = Depends(get_current_user)):
+    """Get today's quick summary for dashboard widget"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # Today's dispatches
+    dispatches = await db.qc_dispatches.find({
+        "dispatch_date": {"$regex": f"^{today}"}
+    }, {"_id": 0}).to_list(500)
+    
+    today_dispatch_count = len(dispatches)
+    today_dispatch_value = 0
+    product_sales = {}  # Track top selling products
+    
+    for d in dispatches:
+        for item in d.get('items', []):
+            qty = item.get('supplied_qty', 0) or 0
+            rate = item.get('rate', 0) or 0
+            amount = qty * rate
+            today_dispatch_value += amount
+            
+            product_name = item.get('product_name', 'Unknown')
+            if product_name not in product_sales:
+                product_sales[product_name] = {"qty": 0, "amount": 0}
+            product_sales[product_name]["qty"] += qty
+            product_sales[product_name]["amount"] += amount
+    
+    # Pending indents (not fully dispatched)
+    pending_indents = await db.qc_indents.count_documents({
+        "status": {"$in": ["pending", "partial"]}
+    })
+    
+    # Today's procurements
+    procurements = await db.procurements.find({
+        "date": {"$regex": f"^{today}"}
+    }, {"_id": 0}).to_list(500)
+    
+    today_procurement_count = len(procurements)
+    today_procurement_value = sum(p.get('total_amount', 0) or 0 for p in procurements)
+    
+    # Top 5 selling products today
+    top_products = sorted(
+        [{"name": k, **v} for k, v in product_sales.items()],
+        key=lambda x: x["amount"],
+        reverse=True
+    )[:5]
+    
+    # Recent activity - last 5 dispatches/procurements
+    recent_activity = []
+    
+    for d in dispatches[:3]:
+        total_items = sum(item.get('supplied_qty', 0) for item in d.get('items', []))
+        recent_activity.append({
+            "type": "dispatch",
+            "customer": d.get('customer_name', 'Unknown'),
+            "items": total_items,
+            "time": d.get('dispatch_time', '')
+        })
+    
+    for p in procurements[:2]:
+        recent_activity.append({
+            "type": "procurement",
+            "farmer": p.get('farmer_name', 'Unknown'),
+            "amount": p.get('total_amount', 0),
+            "time": ""
+        })
+    
+    return {
+        "today_dispatches": today_dispatch_count,
+        "today_dispatch_value": round(today_dispatch_value, 2),
+        "pending_indents": pending_indents,
+        "today_procurements": today_procurement_count,
+        "today_procurement_value": round(today_procurement_value, 2),
+        "top_products": top_products,
+        "recent_activity": recent_activity[:5]
+    }
+
 @api_router.get("/reports/pnl")
 async def get_pnl_report(
     from_date: str = None,

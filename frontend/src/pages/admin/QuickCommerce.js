@@ -180,13 +180,14 @@ export default function QuickCommerce() {
   };
 
   // Load packaging variants from localStorage
-  const loadPackagingVariants = () => {
+  const loadPackagingVariants = async () => {
     try {
-      const stored = localStorage.getItem('qc_packaging_variants');
-      if (stored) {
-        setPackagingVariants(JSON.parse(stored));
+      // Always fetch from API to ensure sync across devices
+      const response = await api.get('/api/qc-packaging');
+      if (response.data && response.data.length > 0) {
+        setPackagingVariants(response.data);
       } else {
-        // Default packaging variants
+        // No data from API, use defaults for first time setup
         const defaults = [
           { id: '1', name: 'Packet 100 gm', weight_gm: 100 },
           { id: '2', name: 'Packet 250 gm', weight_gm: 250 },
@@ -195,17 +196,22 @@ export default function QuickCommerce() {
           { id: '5', name: 'Bunch 500 gm', weight_gm: 500 }
         ];
         setPackagingVariants(defaults);
-        localStorage.setItem('qc_packaging_variants', JSON.stringify(defaults));
       }
     } catch (e) {
-      console.error('Error loading packaging variants:', e);
+      console.error('Failed to load packaging variants:', e);
+      // Fallback to defaults on error
+      const defaults = [
+        { id: '1', name: 'Packet 100 gm', weight_gm: 100 },
+        { id: '2', name: 'Packet 250 gm', weight_gm: 250 }
+      ];
+      setPackagingVariants(defaults);
     }
   };
 
-  // Save packaging variants to localStorage
-  const savePackagingVariants = (variants) => {
-    localStorage.setItem('qc_packaging_variants', JSON.stringify(variants));
-    setPackagingVariants(variants);
+  // Save packaging variant - now uses API
+  const savePackagingVariant = async (variant) => {
+    // This is called after API save, just update local state
+    await loadPackagingVariants(); // Refresh from API
   };
 
   // Apply filters to indents
@@ -431,7 +437,7 @@ export default function QuickCommerce() {
   };
 
   // Packaging management handlers
-  const handleSubmitPackaging = (e) => {
+  const handleSubmitPackaging = async (e) => {
     e.preventDefault();
     
     if (!packagingForm.name || !packagingForm.weight_gm) {
@@ -439,24 +445,26 @@ export default function QuickCommerce() {
       return;
     }
 
-    const newPackaging = {
-      id: editingPackaging?.id || Date.now().toString(),
-      name: packagingForm.name,
-      weight_gm: parseFloat(packagingForm.weight_gm)
-    };
-
-    let updatedVariants;
-    if (editingPackaging) {
-      updatedVariants = packagingVariants.map(p => p.id === editingPackaging.id ? newPackaging : p);
-      toast.success('Packaging updated successfully');
-    } else {
-      updatedVariants = [...packagingVariants, newPackaging];
-      toast.success('Packaging added successfully');
+    try {
+      if (editingPackaging) {
+        // Update existing - delete and re-add since API may not have PUT
+        await api.delete(`/api/qc-packaging/${editingPackaging.id}`);
+        await api.post(`/api/qc-packaging?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}`);
+        toast.success('Packaging updated successfully');
+      } else {
+        // Add new
+        await api.post(`/api/qc-packaging?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}`);
+        toast.success('Packaging added successfully');
+      }
+      
+      // Refresh from API
+      await loadPackagingVariants();
+      resetPackagingForm();
+      setOpenPackaging(false);
+    } catch (error) {
+      console.error('Error saving packaging:', error);
+      toast.error('Failed to save packaging');
     }
-
-    savePackagingVariants(updatedVariants);
-    resetPackagingForm();
-    setOpenPackaging(false);
   };
 
   const handleEditPackaging = (packaging) => {
@@ -468,12 +476,17 @@ export default function QuickCommerce() {
     setOpenPackaging(true);
   };
 
-  const handleDeletePackaging = (packagingId) => {
+  const handleDeletePackaging = async (packagingId) => {
     if (!window.confirm('Are you sure you want to delete this packaging?')) return;
     
-    const updatedVariants = packagingVariants.filter(p => p.id !== packagingId);
-    savePackagingVariants(updatedVariants);
-    toast.success('Packaging deleted successfully');
+    try {
+      await api.delete(`/api/qc-packaging/${packagingId}`);
+      await loadPackagingVariants(); // Refresh from API
+      toast.success('Packaging deleted successfully');
+    } catch (error) {
+      console.error('Error deleting packaging:', error);
+      toast.error('Failed to delete packaging');
+    }
   };
 
   const resetPackagingForm = () => {
@@ -953,12 +966,17 @@ export default function QuickCommerce() {
     
     // Company Details
     const companyName = "Mr Organix";
-    const companyAddress = `MR ORGANIX M.NO. 1638,<br/>
-Taleranwadi, Kesnand Taluka - Haveli<br/>
-Pune - 412207, Maharashtra`;
     const companyPhone = "8530418069";
     const companyEmail = "mrorganixmushroom@gmail.com";
     const companyState = "27-Maharashtra";
+    const companyFullAddress = `MR ORGANIX M.NO. 1638,
+Taleranwadi, Kesnand Taluka - Haveli
+Pune - 412207, Maharashtra
+Phone: ${companyPhone}
+Email: ${companyEmail}`;
+    
+    // Customer address (from invoice data or default)
+    const customerAddress = invoice.customer_address || invoice.address || '';
     
     // Calculate total (only for non-Ninjacart)
     const totalAmount = !isNinjacart ? (invoice.items?.reduce((sum, item) => sum + (item.amount || item.supplied_qty * (item.rate || 0) || 0), 0) || invoice.total_amount || 0) : 0;
@@ -987,12 +1005,11 @@ Pune - 412207, Maharashtra`;
           body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background: white; font-size: 12px; }
           
           .tax-invoice-title { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-          .company-name { text-align: center; font-size: 20px; font-weight: bold; color: #1a1a2e; margin-bottom: 15px; }
+          .company-name { text-align: center; font-size: 22px; font-weight: bold; color: #1a1a2e; margin-bottom: 15px; }
           
           .header-table { width: 100%; border: 1px solid #000; border-collapse: collapse; margin-bottom: 15px; }
-          .header-table td { padding: 8px; vertical-align: top; border: 1px solid #000; }
-          .header-table .company-cell { font-size: 11px; line-height: 1.5; }
-          .header-table .label { font-weight: bold; font-size: 10px; color: #333; }
+          .header-table td { padding: 8px; vertical-align: top; border: 1px solid #000; font-size: 11px; line-height: 1.5; }
+          .header-table .label { font-weight: bold; font-size: 10px; color: #333; margin-bottom: 3px; }
           
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
           .items-table th { background: #fff; border: 1px solid #000; padding: 8px; font-size: 11px; font-weight: bold; }
@@ -1005,14 +1022,12 @@ Pune - 412207, Maharashtra`;
           
           .footer-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
           .footer-table td { border: 1px solid #000; padding: 10px; vertical-align: top; font-size: 10px; }
-          .footer-table .terms-header { font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 5px; }
-          .footer-table .address-details { line-height: 1.6; }
+          .footer-table .terms-header { font-weight: bold; margin-bottom: 5px; }
+          .footer-table .address-details { line-height: 1.6; white-space: pre-line; }
           .footer-table .signatory { text-align: right; }
           .footer-table .signatory-name { margin-top: 40px; font-weight: bold; }
           
-          @media print { 
-            body { padding: 10px; }
-          }
+          @media print { body { padding: 10px; } }
         </style>
       </head>
       <body>
@@ -1021,18 +1036,10 @@ Pune - 412207, Maharashtra`;
         
         <table class="header-table">
           <tr>
-            <td colspan="2" class="company-cell">
-              <strong>${companyAddress}</strong><br/>
-              Phone: ${companyPhone}<br/>
-              Email: ${companyEmail}<br/>
-              State: ${companyState}
-            </td>
-          </tr>
-          <tr>
             <td style="width: 50%;">
               <div class="label">Bill To:</div>
               <strong>${invoice.customer_name}</strong><br/>
-              ${isNinjacart ? 'Quick Commerce Partner' : 'Retail Partner'}
+              ${customerAddress ? customerAddress.replace(/\n/g, '<br/>') : ''}
             </td>
             <td style="width: 50%;">
               <div class="label">Invoice Details:</div>
@@ -1105,14 +1112,7 @@ Pune - 412207, Maharashtra`;
               <div class="terms-header">Terms & Conditions:</div>
               Thanks for doing business with us!
               <br/><br/>
-              <div class="address-details">
-                <strong>${companyName}</strong><br/>
-                MR ORGANIX M.NO. 1638,<br/>
-                Taleranwadi, Kesnand Taluka - Haveli<br/>
-                Pune - 412207, Maharashtra<br/>
-                Phone: ${companyPhone}<br/>
-                Email: ${companyEmail}
-              </div>
+              <div class="address-details">${companyFullAddress}</div>
             </td>
             <td class="signatory">
               <strong>For ${companyName}:</strong>
@@ -1128,7 +1128,6 @@ Pune - 412207, Maharashtra`;
       </html>
     `;
     
-    // Open in new window for printing/saving as PDF
     const printWindow = window.open('', '_blank');
     printWindow.document.write(htmlContent);
     printWindow.document.close();

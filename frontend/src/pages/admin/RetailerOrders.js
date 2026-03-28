@@ -634,23 +634,25 @@ export default function RetailerOrders() {
         </div>
 
         {/* Tabs */}
-        <div className="flex flex-wrap gap-2 mb-4 border-b pb-2">
-          {tabs.map(tab => {
-            const Icon = tab.icon;
-            return (
-              <Button
-                key={tab.id}
-                variant={activeTab === tab.id ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveTab(tab.id)}
-                className={activeTab === tab.id ? 'bg-[#14532D]' : ''}
-              >
-                <Icon size={14} className="mr-1" />
-                {tab.label}
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-white/20 text-xs">{tab.count}</span>
-              </Button>
-            );
-          })}
+        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 mb-4 border-b pb-2">
+          <div className="inline-flex gap-2 min-w-max">
+            {tabs.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <Button
+                  key={tab.id}
+                  variant={activeTab === tab.id ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`whitespace-nowrap text-xs md:text-sm ${activeTab === tab.id ? 'bg-[#14532D]' : ''}`}
+                >
+                  <Icon size={14} className="mr-1" />
+                  {tab.label}
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-white/20 text-xs">{tab.count}</span>
+                </Button>
+              );
+            })}
+          </div>
         </div>
 
         {/* ==================== INDENTS TAB ==================== */}

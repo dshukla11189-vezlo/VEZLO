@@ -1658,14 +1658,16 @@ export default function QuickCommerce() {
 
       {/* Tabs */}
       <Tabs defaultValue="indent" className="w-full">
-        <TabsList className="grid w-full grid-cols-6 max-w-3xl">
-          <TabsTrigger value="indent">Indent</TabsTrigger>
-          <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
-          <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
-          <TabsTrigger value="grn">GRN</TabsTrigger>
-          <TabsTrigger value="packaging">Packaging ({packagingVariants.length})</TabsTrigger>
-          <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-2">
+          <TabsList className="inline-flex w-max gap-1 p-1 md:grid md:w-full md:grid-cols-6 md:max-w-3xl">
+            <TabsTrigger value="indent" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[60px]">Indent</TabsTrigger>
+            <TabsTrigger value="dispatch" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[70px]">Dispatch</TabsTrigger>
+            <TabsTrigger value="invoices" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[80px]">Invoices ({invoices.length})</TabsTrigger>
+            <TabsTrigger value="grn" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[50px]">GRN</TabsTrigger>
+            <TabsTrigger value="packaging" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[100px]">Packaging ({packagingVariants.length})</TabsTrigger>
+            <TabsTrigger value="customers" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[100px]">Customers ({customers.length})</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* INDENT TAB */}
         <TabsContent value="indent" className="mt-6">

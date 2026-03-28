@@ -1514,14 +1514,29 @@ async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
     
     # Get party details
     party_name = ""
+    party_address = ""
+    is_ninjacart = False
+    
     if invoice["party_type"] == "retailer":
         user = await db.users.find_one({"id": invoice["party_id"]}, {"_id": 0})
-        party_name = user.get("name", "") if user else ""
+        if user:
+            party_name = user.get("name", "")
+            party_address = user.get("address", "")
     elif invoice["party_type"] == "qc":
-        order = await db.qc_orders.find_one({"id": invoice["order_id"]}, {"_id": 0})
-        party_name = order.get("company_name", "") if order else ""
+        # Try to get from qc_customers first
+        customer = await db.qc_customers.find_one({"id": invoice.get("customer_id")}, {"_id": 0})
+        if customer:
+            party_name = customer.get("name", "")
+            party_address = customer.get("address", "")
+        else:
+            # Fallback to qc_orders
+            order = await db.qc_orders.find_one({"id": invoice["order_id"]}, {"_id": 0})
+            party_name = order.get("company_name", "") if order else ""
+        
+        # Check if Ninjacart
+        is_ninjacart = 'ninjacart' in party_name.lower() if party_name else False
     
-    pdf_buffer = generate_invoice_pdf(invoice, party_name)
+    pdf_buffer = generate_invoice_pdf(invoice, party_name, party_address, is_ninjacart)
     
     return StreamingResponse(
         io.BytesIO(pdf_buffer),

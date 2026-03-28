@@ -951,6 +951,38 @@ export default function QuickCommerce() {
     const isNinjacart = invoice.customer_type === 'ninjacart';
     const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     
+    // Company Details
+    const companyName = "Mr Organix";
+    const companyAddress = `MR ORGANIX M.NO. 1638,<br/>
+Taleranwadi, Kesnand Taluka - Haveli<br/>
+Pune - 412207, Maharashtra`;
+    const companyPhone = "8530418069";
+    const companyEmail = "mrorganixmushroom@gmail.com";
+    const companyState = "27-Maharashtra";
+    
+    // Bank Details
+    const bankName = "Cosmos Bank Co-Op Bank Limited";
+    const bankAccount = "128100101946";
+    const bankIFSC = "COSB0000128";
+    const accountHolder = "Mr Organix";
+    
+    // Calculate total
+    const totalAmount = invoice.items?.reduce((sum, item) => sum + (item.amount || item.supplied_qty * (item.rate || 0) || 0), 0) || invoice.total_amount || 0;
+    
+    // Number to words
+    const numberToWords = (num) => {
+      if (num === 0) return "Zero Rupees Only";
+      const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+      const below100 = (n) => n < 20 ? ones[n] : tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
+      const below1000 = (n) => n < 100 ? below100(n) : ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + below100(n%100) : '');
+      num = Math.floor(num);
+      if (num < 1000) return below1000(num) + ' Rupees Only';
+      if (num < 100000) return below1000(Math.floor(num/1000)) + ' Thousand ' + (num%1000 ? below1000(num%1000) : '') + ' Rupees Only';
+      if (num < 10000000) return below1000(Math.floor(num/100000)) + ' Lakh ' + (num%100000 ? numberToWords(num%100000).replace(' Rupees Only', '') : '') + ' Rupees Only';
+      return below1000(Math.floor(num/10000000)) + ' Crore ' + (num%10000000 ? numberToWords(num%10000000).replace(' Rupees Only', '') : '') + ' Rupees Only';
+    };
+    
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -958,207 +990,145 @@ export default function QuickCommerce() {
         <title>Invoice ${invoice.invoice_number}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; max-width: 850px; margin: 0 auto; background: white; }
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background: white; font-size: 12px; }
           
-          .invoice-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: flex-start;
-            border-bottom: 3px solid #14532D; 
-            padding-bottom: 20px; 
-            margin-bottom: 25px; 
-          }
-          .company-info h1 { 
-            color: #14532D; 
-            font-size: 32px; 
-            font-weight: bold; 
-            margin-bottom: 5px;
-          }
-          .company-info p { color: #666; font-size: 14px; }
+          .tax-invoice-title { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+          .company-name { text-align: center; font-size: 20px; font-weight: bold; color: #1a1a2e; margin-bottom: 15px; }
           
-          .invoice-details { text-align: right; }
-          .invoice-details .invoice-number { 
-            font-size: 24px; 
-            color: #14532D; 
-            font-weight: bold; 
-            margin-bottom: 8px;
-          }
-          .invoice-details .invoice-date { 
-            font-size: 16px; 
-            color: #333;
-          }
+          .header-table { width: 100%; border: 1px solid #000; border-collapse: collapse; margin-bottom: 15px; }
+          .header-table td { padding: 8px; vertical-align: top; border: 1px solid #000; }
+          .header-table .company-cell { font-size: 11px; line-height: 1.5; }
+          .header-table .label { font-weight: bold; font-size: 10px; color: #333; }
           
-          .customer-section {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 25px;
-          }
-          .customer-section h3 { 
-            color: #14532D; 
-            font-size: 18px; 
-            margin-bottom: 5px;
-          }
-          .customer-section p { color: #555; }
+          .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+          .items-table th { background: #fff; border: 1px solid #000; padding: 8px; font-size: 11px; font-weight: bold; }
+          .items-table td { border: 1px solid #000; padding: 6px 8px; font-size: 11px; }
+          .items-table .text-right { text-align: right; }
+          .items-table .text-center { text-align: center; }
+          .items-table .total-row { background: #f5f5f5; font-weight: bold; }
           
-          .invoice-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
-            font-size: 14px;
-          }
-          .invoice-table th {
-            background: #14532D;
-            color: white;
-            padding: 12px 10px;
-            text-align: left;
-            font-weight: 600;
-          }
-          .invoice-table th.text-right { text-align: right; }
-          .invoice-table th.text-center { text-align: center; }
+          .amount-words { font-size: 11px; margin: 10px 0; padding: 5px; }
           
-          .invoice-table td {
-            padding: 12px 10px;
-            border-bottom: 1px solid #e0e0e0;
-          }
-          .invoice-table td.text-right { text-align: right; }
-          .invoice-table td.text-center { text-align: center; }
-          
-          .invoice-table tbody tr:nth-child(even) { background: #f9f9f9; }
-          .invoice-table tbody tr:hover { background: #f0f7f0; }
-          
-          .invoice-table tfoot td {
-            padding: 12px 10px;
-            font-weight: bold;
-          }
-          .invoice-table .total-row { background: #e8f5e9; }
-          .invoice-table .grand-total { 
-            background: #14532D; 
-            color: white;
-            font-size: 16px;
-          }
-          
-          .remarks-section {
-            background: #fff9e6;
-            padding: 12px 15px;
-            border-radius: 6px;
-            border-left: 4px solid #ffc107;
-            margin-bottom: 25px;
-          }
-          .remarks-section strong { color: #856404; }
-          
-          .footer {
-            text-align: center;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
-            color: #888;
-            font-size: 12px;
-          }
-          
-          .signature-section {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 50px;
-            padding-top: 30px;
-          }
-          .signature-box {
-            text-align: center;
-            width: 200px;
-          }
-          .signature-line {
-            border-top: 1px solid #333;
-            margin-top: 40px;
-            padding-top: 8px;
-            font-size: 12px;
-            color: #666;
-          }
+          .footer-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          .footer-table td { border: 1px solid #000; padding: 10px; vertical-align: top; font-size: 10px; }
+          .footer-table .terms-header { font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 5px; }
+          .footer-table .bank-details { line-height: 1.6; }
+          .footer-table .signatory { text-align: right; }
+          .footer-table .signatory-name { margin-top: 40px; font-weight: bold; }
           
           @media print { 
-            body { padding: 15px; }
-            .invoice-table { font-size: 12px; }
+            body { padding: 10px; }
           }
         </style>
       </head>
       <body>
-        <div class="invoice-header">
-          <div class="company-info">
-            <h1>FreshFlow</h1>
-            <p>Fresh Produce Supply Chain</p>
-          </div>
-          <div class="invoice-details">
-            <div class="invoice-number">${invoice.invoice_number}</div>
-            <div class="invoice-date">${invoiceDate}</div>
-          </div>
-        </div>
+        <div class="tax-invoice-title">Tax Invoice</div>
+        <div class="company-name">${companyName}</div>
         
-        <div class="customer-section">
-          <h3>${invoice.customer_name}</h3>
-          <p>${isNinjacart ? 'Quick Commerce Partner' : 'Retail Partner'}</p>
-        </div>
+        <table class="header-table">
+          <tr>
+            <td colspan="2" class="company-cell">
+              <strong>${companyAddress}</strong><br/>
+              Phone: ${companyPhone}<br/>
+              Email: ${companyEmail}<br/>
+              State: ${companyState}
+            </td>
+          </tr>
+          <tr>
+            <td style="width: 50%;">
+              <div class="label">Bill To:</div>
+              <strong>${invoice.customer_name}</strong><br/>
+              ${isNinjacart ? 'Quick Commerce Partner' : 'Retail Partner'}
+            </td>
+            <td style="width: 50%;">
+              <div class="label">Invoice Details:</div>
+              Invoice No: <strong>${invoice.invoice_number}</strong><br/>
+              Date: ${invoiceDate}<br/>
+              Place Of Supply: ${companyState}
+            </td>
+          </tr>
+        </table>
         
-        <table class="invoice-table">
+        <table class="items-table">
           <thead>
             <tr>
-              <th class="text-center" style="width: 50px;">S.No</th>
-              <th>Product Name</th>
-              <th>Packaging / Variant</th>
-              <th class="text-right">Indent Qty</th>
-              <th class="text-right">Supplied Qty</th>
-              <th class="text-right">Lot Size</th>
-              <th class="text-right">Crates</th>
-              ${isNinjacart ? '<th class="text-right">Receiving Qty</th>' : '<th class="text-right">Rate (₹)</th><th class="text-right">Amount (₹)</th>'}
+              <th class="text-center" style="width: 30px;">#</th>
+              <th style="width: 180px;">Item name</th>
+              ${isNinjacart ? `
+                <th class="text-center">Crates</th>
+                <th class="text-center">Lot Size</th>
+                <th class="text-center">Qty</th>
+                <th class="text-right">Rate</th>
+                <th class="text-right">Amount</th>
+              ` : `
+                <th class="text-center">Indent</th>
+                <th class="text-center">Supply</th>
+                <th class="text-right">Rate</th>
+                <th class="text-right">Amount</th>
+                <th class="text-center">Receiving</th>
+              `}
             </tr>
           </thead>
           <tbody>
-            ${invoice.items?.map((item, idx) => `
-              <tr>
-                <td class="text-center">${idx + 1}</td>
-                <td><strong>${item.product_name}</strong></td>
-                <td>${item.packaging_name || '-'}</td>
-                <td class="text-right">${item.indent_qty || '-'}</td>
-                <td class="text-right"><strong>${item.supplied_qty}</strong></td>
-                <td class="text-right">${item.lot_size || '-'}</td>
-                <td class="text-right">${item.no_of_crates || '-'}</td>
-                ${isNinjacart 
-                  ? `<td class="text-right">${item.receiving_qty || ''}</td>` 
-                  : `<td class="text-right">${item.rate ? '₹' + item.rate.toFixed(2) : '-'}</td><td class="text-right"><strong>${item.amount ? '₹' + item.amount.toFixed(2) : '-'}</strong></td>`}
-              </tr>
-            `).join('')}
-          </tbody>
-          ${!isNinjacart && invoice.total_amount > 0 ? `
-            <tfoot>
-              <tr class="total-row">
-                <td colspan="8" class="text-right">Subtotal:</td>
-                <td class="text-right">₹${invoice.subtotal?.toFixed(2) || '0.00'}</td>
-              </tr>
-              ${invoice.discount > 0 ? `
+            ${invoice.items?.map((item, idx) => {
+              const rate = item.rate || item.mrp || 0;
+              const amount = item.amount || (item.supplied_qty * rate) || 0;
+              return `
                 <tr>
-                  <td colspan="8" class="text-right">Discount:</td>
-                  <td class="text-right">- ₹${invoice.discount?.toFixed(2)}</td>
+                  <td class="text-center">${idx + 1}</td>
+                  <td>${item.product_name}${item.packaging_name ? ' - ' + item.packaging_name : ''}</td>
+                  ${isNinjacart ? `
+                    <td class="text-center">${item.no_of_crates || '-'}</td>
+                    <td class="text-center">${item.lot_size || '-'}</td>
+                    <td class="text-center">${item.supplied_qty}</td>
+                    <td class="text-right">${rate ? '₹' + rate.toFixed(2) : ''}</td>
+                    <td class="text-right">${amount ? '₹' + amount.toFixed(2) : ''}</td>
+                  ` : `
+                    <td class="text-center">${item.indent_qty || item.supplied_qty || '-'}</td>
+                    <td class="text-center">${item.supplied_qty}</td>
+                    <td class="text-right">${rate ? '₹' + rate.toFixed(2) : ''}</td>
+                    <td class="text-right">${amount ? '₹' + amount.toFixed(2) : ''}</td>
+                    <td class="text-center"></td>
+                  `}
                 </tr>
-              ` : ''}
-              <tr class="grand-total">
-                <td colspan="8" class="text-right">Grand Total:</td>
-                <td class="text-right">₹${invoice.total_amount?.toFixed(2) || '0.00'}</td>
-              </tr>
-            </tfoot>
-          ` : ''}
+              `;
+            }).join('')}
+            <tr class="total-row">
+              <td colspan="${isNinjacart ? 6 : 5}" class="text-right">Total Amount</td>
+              <td class="text-right">₹${totalAmount.toFixed(2)}</td>
+              ${!isNinjacart ? '<td></td>' : ''}
+            </tr>
+          </tbody>
         </table>
         
-        ${invoice.remarks ? `<div class="remarks-section"><strong>Remarks:</strong> ${invoice.remarks}</div>` : ''}
-        
-        <div class="signature-section">
-          <div class="signature-box">
-            <div class="signature-line">Prepared By</div>
-          </div>
-          <div class="signature-box">
-            <div class="signature-line">Received By</div>
-          </div>
+        <div class="amount-words">
+          <strong>Total Amount in words:</strong> ${numberToWords(totalAmount)}
         </div>
         
-        <div class="footer">
-          <p>Generated on ${new Date().toLocaleString('en-IN')} | FreshFlow - Quality Fresh Produce</p>
-        </div>
+        <table class="footer-table">
+          <tr>
+            <td style="width: 60%;">
+              <div class="terms-header">Terms & Conditions:</div>
+              Thanks for doing business with us!
+              <br/><br/>
+              <div class="bank-details">
+                <strong>Bank Details:</strong><br/>
+                Name: ${bankName}<br/>
+                Account No.: ${bankAccount}<br/>
+                IFSC code: ${bankIFSC}<br/>
+                Account holder's name: ${accountHolder}
+              </div>
+            </td>
+            <td class="signatory">
+              <strong>For ${companyName}:</strong>
+              <div class="signatory-name">
+                <br/><br/><br/>
+                Authorized Signatory<br/>
+                <strong>Ankush K.</strong>
+              </div>
+            </td>
+          </tr>
+        </table>
       </body>
       </html>
     `;

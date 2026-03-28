@@ -102,6 +102,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Edit/Delete invoices from Invoices tab
   - [x] Backdated invoice support
   - [x] **Receiving Qty blank** for Ninjacart invoices (Mar 2026)
+  - [x] **Invoice Layout Format Verification** (Mar 28, 2026):
+    - [x] **Ninjacart Format**: Indent, Supplied Qty, Lot Size, Crates, Receiving (blank). Total row shows Indent, Supplied Qty, Crates.
+    - [x] **Standard Format**: Indent, Supplied Qty, Rate, Amount, Receiving (blank). Total row shows Indent, Supplied Qty, Amount. Includes "Total Amount in words" section.
+    - [x] Complete borders on all four sides of all sections (header, items table, footer)
+    - [x] `numberToWords()` function for Indian number system (Lakhs, Crores)
   - [x] Backend API: GET/POST/PUT/DELETE /api/qc-invoices
 - [x] **Dispatch Section UI Update** (Mar 2026):
   - [x] Product name and packaging visible in collapsed header row
@@ -231,6 +236,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] Direct Excel download button
 - [x] Reset Data for Production feature (clears test data, keeps admin accounts)
 - [x] Admin-only access to backup features
+
+### Mar 28, 2026: Invoice Layout Verification
+- [x] Verified Ninjacart invoice format (Lot Size, Crates columns - no Rate/Amount)
+- [x] Verified Standard invoice format (Rate, Amount columns + "Amount in words")
+- [x] Confirmed complete borders on all sections
+- [x] `numberToWords()` function working correctly for Indian number system
 
 ---
 

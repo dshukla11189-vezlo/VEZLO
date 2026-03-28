@@ -978,8 +978,19 @@ Email: ${companyEmail}`;
     // Customer address (from invoice data or default)
     const customerAddress = invoice.customer_address || invoice.address || '';
     
-    // Calculate total (only for non-Ninjacart)
-    const totalAmount = !isNinjacart ? (invoice.items?.reduce((sum, item) => sum + (item.amount || item.supplied_qty * (item.rate || 0) || 0), 0) || invoice.total_amount || 0) : 0;
+    // Calculate totals
+    let totalIndent = 0;
+    let totalSupplied = 0;
+    let totalCrates = 0;
+    let totalAmount = 0;
+    
+    invoice.items?.forEach(item => {
+      totalIndent += item.indent_qty || item.supplied_qty || 0;
+      totalSupplied += item.supplied_qty || 0;
+      totalCrates += item.no_of_crates || 0;
+      const rate = item.rate || item.mrp || 0;
+      totalAmount += item.amount || (item.supplied_qty * rate) || 0;
+    });
     
     // Number to words
     const numberToWords = (num) => {
@@ -1007,25 +1018,32 @@ Email: ${companyEmail}`;
           .tax-invoice-title { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
           .company-name { text-align: center; font-size: 22px; font-weight: bold; color: #1a1a2e; margin-bottom: 15px; }
           
-          .header-table { width: 100%; border: 1px solid #000; border-collapse: collapse; margin-bottom: 15px; }
-          .header-table td { padding: 8px; vertical-align: top; border: 1px solid #000; font-size: 11px; line-height: 1.5; }
-          .header-table .label { font-weight: bold; font-size: 10px; color: #333; margin-bottom: 3px; }
+          .header-section { border: 1px solid #000; margin-bottom: 15px; }
+          .header-row { display: flex; border-bottom: 1px solid #000; }
+          .header-row:last-child { border-bottom: none; }
+          .header-cell { padding: 10px; flex: 1; }
+          .header-cell:first-child { border-right: 1px solid #000; }
+          .header-cell .label { font-weight: bold; font-size: 10px; color: #333; margin-bottom: 5px; }
           
-          .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-          .items-table th { background: #fff; border: 1px solid #000; padding: 8px; font-size: 11px; font-weight: bold; }
-          .items-table td { border: 1px solid #000; padding: 6px 8px; font-size: 11px; }
-          .items-table .text-right { text-align: right; }
-          .items-table .text-center { text-align: center; }
+          .items-section { border: 1px solid #000; margin-bottom: 15px; }
+          .items-table { width: 100%; border-collapse: collapse; }
+          .items-table th { background: #fff; border-bottom: 1px solid #000; padding: 10px 8px; font-size: 11px; font-weight: bold; text-align: center; }
+          .items-table th:not(:last-child) { border-right: 1px solid #000; }
+          .items-table td { padding: 8px; font-size: 11px; text-align: center; border-bottom: 1px solid #000; }
+          .items-table td:not(:last-child) { border-right: 1px solid #000; }
+          .items-table td.text-left { text-align: left; }
+          .items-table td.text-right { text-align: right; }
+          .items-table tr:last-child td { border-bottom: none; }
           .items-table .total-row { background: #f5f5f5; font-weight: bold; }
           
-          .amount-words { font-size: 11px; margin: 10px 0; padding: 5px; }
+          .amount-words-section { border: 1px solid #000; padding: 10px; margin-bottom: 15px; font-size: 11px; }
           
-          .footer-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          .footer-table td { border: 1px solid #000; padding: 10px; vertical-align: top; font-size: 10px; }
-          .footer-table .terms-header { font-weight: bold; margin-bottom: 5px; }
-          .footer-table .address-details { line-height: 1.6; white-space: pre-line; }
-          .footer-table .signatory { text-align: right; }
-          .footer-table .signatory-name { margin-top: 40px; font-weight: bold; }
+          .footer-section { border: 1px solid #000; display: flex; }
+          .footer-left { flex: 1; padding: 10px; border-right: 1px solid #000; font-size: 10px; line-height: 1.6; }
+          .footer-right { width: 200px; padding: 10px; text-align: right; font-size: 10px; }
+          .footer-left .terms-header { font-weight: bold; margin-bottom: 8px; }
+          .footer-right .signatory-label { font-weight: bold; margin-bottom: 50px; }
+          .footer-right .signatory-name { font-weight: bold; }
           
           @media print { body { padding: 10px; } }
         </style>
@@ -1034,96 +1052,103 @@ Email: ${companyEmail}`;
         <div class="tax-invoice-title">Tax Invoice</div>
         <div class="company-name">${companyName}</div>
         
-        <table class="header-table">
-          <tr>
-            <td style="width: 50%;">
+        <div class="header-section">
+          <div class="header-row">
+            <div class="header-cell">
               <div class="label">Bill To:</div>
               <strong>${invoice.customer_name}</strong><br/>
               ${customerAddress ? customerAddress.replace(/\n/g, '<br/>') : ''}
-            </td>
-            <td style="width: 50%;">
+            </div>
+            <div class="header-cell">
               <div class="label">Invoice Details:</div>
               Invoice No: <strong>${invoice.invoice_number}</strong><br/>
               Date: ${invoiceDate}<br/>
               Place Of Supply: ${companyState}
-            </td>
-          </tr>
-        </table>
+            </div>
+          </div>
+        </div>
         
-        <table class="items-table">
-          <thead>
-            <tr>
-              <th class="text-center" style="width: 30px;">#</th>
-              <th style="width: 200px;">Item name</th>
-              ${isNinjacart ? `
-                <th class="text-center">Crates</th>
-                <th class="text-center">Lot Size</th>
-                <th class="text-center">Qty</th>
-              ` : `
-                <th class="text-center">Indent</th>
-                <th class="text-center">Supply</th>
-                <th class="text-right">Rate</th>
-                <th class="text-right">Amount</th>
-                <th class="text-center">Receiving</th>
-              `}
-            </tr>
-          </thead>
-          <tbody>
-            ${invoice.items?.map((item, idx) => {
-              const rate = item.rate || item.mrp || 0;
-              const amount = item.amount || (item.supplied_qty * rate) || 0;
-              return `
-                <tr>
-                  <td class="text-center">${idx + 1}</td>
-                  <td>${item.product_name}${item.packaging_name ? ' - ' + item.packaging_name : ''}</td>
-                  ${isNinjacart ? `
-                    <td class="text-center">${item.no_of_crates || '-'}</td>
-                    <td class="text-center">${item.lot_size || '-'}</td>
-                    <td class="text-center">${item.supplied_qty}</td>
-                  ` : `
-                    <td class="text-center">${item.indent_qty || item.supplied_qty || '-'}</td>
-                    <td class="text-center">${item.supplied_qty}</td>
-                    <td class="text-right">${rate ? '₹' + rate.toFixed(2) : ''}</td>
-                    <td class="text-right">${amount ? '₹' + amount.toFixed(2) : ''}</td>
-                    <td class="text-center"></td>
-                  `}
-                </tr>
-              `;
-            }).join('')}
-            ${!isNinjacart ? `
+        <div class="items-section">
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th style="width: 30px;">#</th>
+                <th style="width: 180px; text-align: left;">Item name</th>
+                <th>Indent</th>
+                <th>Supplied Qty</th>
+                ${isNinjacart ? `
+                  <th>Lot Size</th>
+                  <th>Crates</th>
+                ` : `
+                  <th>Rate</th>
+                  <th>Amount</th>
+                `}
+                <th>Receiving</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${invoice.items?.map((item, idx) => {
+                const rate = item.rate || item.mrp || 0;
+                const amount = item.amount || (item.supplied_qty * rate) || 0;
+                const indentQty = item.indent_qty || item.supplied_qty || 0;
+                return `
+                  <tr>
+                    <td>${idx + 1}</td>
+                    <td class="text-left">${item.product_name}${item.packaging_name ? ' - ' + item.packaging_name : ''}</td>
+                    <td>${indentQty}</td>
+                    <td>${item.supplied_qty || 0}</td>
+                    ${isNinjacart ? `
+                      <td>${item.lot_size || '-'}</td>
+                      <td>${item.no_of_crates || '-'}</td>
+                    ` : `
+                      <td class="text-right">${rate ? '₹' + rate.toFixed(2) : '-'}</td>
+                      <td class="text-right">${amount ? '₹' + amount.toFixed(2) : '-'}</td>
+                    `}
+                    <td></td>
+                  </tr>
+                `;
+              }).join('')}
               <tr class="total-row">
-                <td colspan="6" class="text-right">Total Amount</td>
-                <td class="text-right">₹${totalAmount.toFixed(2)}</td>
+                <td></td>
+                <td class="text-left"><strong>Total</strong></td>
+                <td><strong>${totalIndent}</strong></td>
+                <td><strong>${totalSupplied}</strong></td>
+                ${isNinjacart ? `
+                  <td></td>
+                  <td><strong>${totalCrates}</strong></td>
+                ` : `
+                  <td></td>
+                  <td class="text-right"><strong>₹${totalAmount.toFixed(2)}</strong></td>
+                `}
                 <td></td>
               </tr>
-            ` : ''}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
         
         ${!isNinjacart ? `
-          <div class="amount-words">
+          <div class="amount-words-section">
             <strong>Total Amount in words:</strong> ${numberToWords(totalAmount)}
           </div>
         ` : ''}
         
-        <table class="footer-table">
-          <tr>
-            <td style="width: 60%;">
-              <div class="terms-header">Terms & Conditions:</div>
-              Thanks for doing business with us!
-              <br/><br/>
-              <div class="address-details">${companyFullAddress}</div>
-            </td>
-            <td class="signatory">
-              <strong>For ${companyName}:</strong>
-              <div class="signatory-name">
-                <br/><br/><br/>
-                Authorized Signatory<br/>
-                <strong>Ankush K.</strong>
-              </div>
-            </td>
-          </tr>
-        </table>
+        <div class="footer-section">
+          <div class="footer-left">
+            <div class="terms-header">Terms & Conditions:</div>
+            Thanks for doing business with us!
+            <br/><br/>
+            MR ORGANIX M.NO. 1638,<br/>
+            Taleranwadi, Kesnand Taluka - Haveli<br/>
+            Pune - 412207, Maharashtra<br/>
+            Phone: ${companyPhone}<br/>
+            Email: ${companyEmail}
+          </div>
+          <div class="footer-right">
+            <div class="signatory-label">For ${companyName}:</div>
+            <div>Authorized Signatory</div>
+            <div class="signatory-name">Ankush K.</div>
+          </div>
+        </div>
       </body>
       </html>
     `;

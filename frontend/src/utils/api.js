@@ -6,6 +6,9 @@ const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
   },
 });
 
@@ -13,6 +16,13 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Add timestamp to bust cache for GET requests
+  if (config.method === 'get') {
+    config.params = {
+      ...config.params,
+      _t: Date.now()
+    };
   }
   return config;
 });

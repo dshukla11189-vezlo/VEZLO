@@ -3577,6 +3577,21 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
 # Include router
 app.include_router(api_router)
 
+# Add no-cache middleware for API responses
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class NoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith('/api/'):
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
+
+app.add_middleware(NoCacheMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

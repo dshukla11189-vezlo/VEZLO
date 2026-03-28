@@ -960,14 +960,8 @@ Pune - 412207, Maharashtra`;
     const companyEmail = "mrorganixmushroom@gmail.com";
     const companyState = "27-Maharashtra";
     
-    // Bank Details
-    const bankName = "Cosmos Bank Co-Op Bank Limited";
-    const bankAccount = "128100101946";
-    const bankIFSC = "COSB0000128";
-    const accountHolder = "Mr Organix";
-    
-    // Calculate total
-    const totalAmount = invoice.items?.reduce((sum, item) => sum + (item.amount || item.supplied_qty * (item.rate || 0) || 0), 0) || invoice.total_amount || 0;
+    // Calculate total (only for non-Ninjacart)
+    const totalAmount = !isNinjacart ? (invoice.items?.reduce((sum, item) => sum + (item.amount || item.supplied_qty * (item.rate || 0) || 0), 0) || invoice.total_amount || 0) : 0;
     
     // Number to words
     const numberToWords = (num) => {
@@ -1012,7 +1006,7 @@ Pune - 412207, Maharashtra`;
           .footer-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
           .footer-table td { border: 1px solid #000; padding: 10px; vertical-align: top; font-size: 10px; }
           .footer-table .terms-header { font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 5px; }
-          .footer-table .bank-details { line-height: 1.6; }
+          .footer-table .address-details { line-height: 1.6; }
           .footer-table .signatory { text-align: right; }
           .footer-table .signatory-name { margin-top: 40px; font-weight: bold; }
           
@@ -1053,13 +1047,11 @@ Pune - 412207, Maharashtra`;
           <thead>
             <tr>
               <th class="text-center" style="width: 30px;">#</th>
-              <th style="width: 180px;">Item name</th>
+              <th style="width: 200px;">Item name</th>
               ${isNinjacart ? `
                 <th class="text-center">Crates</th>
                 <th class="text-center">Lot Size</th>
                 <th class="text-center">Qty</th>
-                <th class="text-right">Rate</th>
-                <th class="text-right">Amount</th>
               ` : `
                 <th class="text-center">Indent</th>
                 <th class="text-center">Supply</th>
@@ -1081,8 +1073,6 @@ Pune - 412207, Maharashtra`;
                     <td class="text-center">${item.no_of_crates || '-'}</td>
                     <td class="text-center">${item.lot_size || '-'}</td>
                     <td class="text-center">${item.supplied_qty}</td>
-                    <td class="text-right">${rate ? '₹' + rate.toFixed(2) : ''}</td>
-                    <td class="text-right">${amount ? '₹' + amount.toFixed(2) : ''}</td>
                   ` : `
                     <td class="text-center">${item.indent_qty || item.supplied_qty || '-'}</td>
                     <td class="text-center">${item.supplied_qty}</td>
@@ -1093,17 +1083,21 @@ Pune - 412207, Maharashtra`;
                 </tr>
               `;
             }).join('')}
-            <tr class="total-row">
-              <td colspan="${isNinjacart ? 6 : 5}" class="text-right">Total Amount</td>
-              <td class="text-right">₹${totalAmount.toFixed(2)}</td>
-              ${!isNinjacart ? '<td></td>' : ''}
-            </tr>
+            ${!isNinjacart ? `
+              <tr class="total-row">
+                <td colspan="6" class="text-right">Total Amount</td>
+                <td class="text-right">₹${totalAmount.toFixed(2)}</td>
+                <td></td>
+              </tr>
+            ` : ''}
           </tbody>
         </table>
         
-        <div class="amount-words">
-          <strong>Total Amount in words:</strong> ${numberToWords(totalAmount)}
-        </div>
+        ${!isNinjacart ? `
+          <div class="amount-words">
+            <strong>Total Amount in words:</strong> ${numberToWords(totalAmount)}
+          </div>
+        ` : ''}
         
         <table class="footer-table">
           <tr>
@@ -1111,12 +1105,13 @@ Pune - 412207, Maharashtra`;
               <div class="terms-header">Terms & Conditions:</div>
               Thanks for doing business with us!
               <br/><br/>
-              <div class="bank-details">
-                <strong>Bank Details:</strong><br/>
-                Name: ${bankName}<br/>
-                Account No.: ${bankAccount}<br/>
-                IFSC code: ${bankIFSC}<br/>
-                Account holder's name: ${accountHolder}
+              <div class="address-details">
+                <strong>${companyName}</strong><br/>
+                MR ORGANIX M.NO. 1638,<br/>
+                Taleranwadi, Kesnand Taluka - Haveli<br/>
+                Pune - 412207, Maharashtra<br/>
+                Phone: ${companyPhone}<br/>
+                Email: ${companyEmail}
               </div>
             </td>
             <td class="signatory">

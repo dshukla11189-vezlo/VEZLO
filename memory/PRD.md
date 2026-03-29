@@ -214,6 +214,17 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Retailer View Rejections**: Read-only view of rejected items
   - [x] **Retailer View & Download Invoices**: Retailers can see and print/download their invoices
   - [x] Backend APIs: /api/retailer-indents, /api/retailer-dispatches, /api/retailer-invoices, /api/retailer-grn, /api/retailer-rejections, /api/retailer-payments, /api/retailer-dashboard
+  - [x] **Retailer Orders UI Enhancement** (COMPLETED - Mar 29, 2026):
+    - [x] **Dashboard Summary Cards**: Indents, Dispatches, Net Receivable, Payments with pending amounts
+    - [x] **Shop Name Display**: All tables show company_name instead of owner name
+    - [x] **Search-based Product Selection**: Autocomplete dropdown in New Indent modal (like QC)
+    - [x] **Edit/Delete Indents**: Edit and Delete buttons in Actions column
+    - [x] **"Net Receivable" Column**: Renamed from "Net Payable" in Dispatches table
+    - [x] **Transport Charges Field**: Optional field in Dispatch modal, shown in TRANSPORT column
+    - [x] **Improved Rejection Workflow**: Select retailer + date → auto-populates dispatch items table with checkboxes, supplied qty, MRP (auto-filled), reason dropdown
+    - [x] **Rejection Validation**: qty cannot exceed supplied qty, remarks field added
+    - [x] **Payment Context Summary**: Shows Total MRP, Commission, Net Receivable, Rejections, Already Paid, Pending Amount before recording payment
+- [ ] Retailer Invoice Creation (like QC module - NOT YET IMPLEMENTED)
 - [ ] Retailer Rejection Adjustment workflow
 - [ ] Export to Excel for Indent tab (UI buttons exist, logic pending)
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)

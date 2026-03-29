@@ -86,16 +86,16 @@ export default function StockStatus() {
     loadStockStatus();
   }, [loadProducts, loadStockStatus]);
 
-  // Auto-refresh for real-time updates (only for today's view)
+  // Auto-refresh for real-time updates (only for today's view, paused when closing dialog is open)
   useEffect(() => {
-    if (!isHistoricalView) {
+    if (!isHistoricalView && !showClosingDialog && !showEditDialog) {
       const interval = setInterval(() => {
         loadStockStatus();
       }, AUTO_REFRESH_INTERVAL);
       
       return () => clearInterval(interval);
     }
-  }, [isHistoricalView, loadStockStatus]);
+  }, [isHistoricalView, showClosingDialog, showEditDialog, loadStockStatus]);
 
   const handleDateChange = (newDate) => {
     setFilterDate(newDate);

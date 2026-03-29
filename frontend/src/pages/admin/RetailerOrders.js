@@ -433,10 +433,35 @@ export default function RetailerOrders() {
       const response = await api.get(`/api/retailer-dispatches/uninvoiced?retailer_id=${invoiceForm.retailer_id}`);
       setUninvoicedDispatches(response.data);
       
+      // Get rejections for this retailer to match with dispatch items
+      const rejectionsRes = await api.get(`/api/retailer-rejections?retailer_id=${invoiceForm.retailer_id}`);
+      const allRejections = rejectionsRes.data || [];
+      
+      // Create a map of rejections by product_id for quick lookup
+      const rejectionsByProduct = {};
+      allRejections.forEach(r => {
+        const key = r.product_id;
+        if (!rejectionsByProduct[key]) {
+          rejectionsByProduct[key] = [];
+        }
+        rejectionsByProduct[key].push({
+          quantity: r.quantity,
+          date: r.rejection_date,
+          reason: r.reason,
+          mrp: r.mrp
+        });
+      });
+      
       // Flatten all items from uninvoiced dispatches for item-level selection
       const allItems = [];
       response.data.forEach(dispatch => {
         (dispatch.items || []).forEach((item, idx) => {
+          // Find rejections for this product
+          const productRejections = rejectionsByProduct[item.product_id] || [];
+          const totalRejectedQty = productRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
+          const netQty = Math.max(0, (item.supplied_qty || 0) - totalRejectedQty);
+          const netValue = netQty * (item.mrp || 0);
+          
           allItems.push({
             dispatch_id: dispatch.id,
             dispatch_date: dispatch.dispatch_date,
@@ -447,8 +472,12 @@ export default function RetailerOrders() {
             variant_name: item.variant_name,
             indent_qty: item.indent_qty,
             supplied_qty: item.supplied_qty,
+            rejected_qty: totalRejectedQty,
+            rejections: productRejections,
+            net_qty: netQty,
             mrp: item.mrp,
-            total_value: item.total_value
+            total_value: item.total_value,
+            net_value: netValue
           });
         });
       });
@@ -506,8 +535,12 @@ export default function RetailerOrders() {
           variant_name: i.variant_name,
           indent_qty: i.indent_qty,
           supplied_qty: i.supplied_qty,
+          rejected_qty: i.rejected_qty || 0,
+          rejections: i.rejections || [],
+          net_qty: i.net_qty,
+          quantity: i.net_qty, // Use net qty for invoice
           mrp: i.mrp,
-          total_value: i.total_value
+          total_value: i.net_value // Use net value
         })),
         remarks: invoiceForm.remarks
       });

@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -89,6 +89,10 @@ export default function Procurement() {
     payment_mode: 'cash',
     reference: ''
   });
+  
+  // Previous day procurements for auto-populate
+  const [previousDayProcurements, setPreviousDayProcurements] = useState([]);
+  const [showPreviousDayItems, setShowPreviousDayItems] = useState(true);
 
   useEffect(() => {
     loadData();
@@ -120,6 +124,21 @@ export default function Procurement() {
     } catch (error) {
       console.error('Error loading templates:', error);
     }
+  };
+
+  const loadPreviousDayProcurements = async () => {
+    try {
+      const response = await api.get('/api/procurement/previous-day');
+      setPreviousDayProcurements(response.data || []);
+    } catch (error) {
+      console.error('Error loading previous day procurements:', error);
+    }
+  };
+
+  const handleOpenProcurementForm = async () => {
+    await loadPreviousDayProcurements();
+    setShowPreviousDayItems(true);
+    setOpenProcurement(true);
   };
 
   // Filter procurements
@@ -788,17 +807,119 @@ export default function Procurement() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={openProcurement} onOpenChange={setOpenProcurement}>
+        <Dialog open={openProcurement} onOpenChange={(open) => {
+          if (open) {
+            handleOpenProcurementForm();
+          } else {
+            setOpenProcurement(false);
+          }
+        }}>
           <DialogTrigger asChild>
             <Button className="bg-[#14532D] hover:bg-[#166534]" data-testid="add-procurement-button">
               <Plus size={16} className="mr-2" />
               {t('procurement.recordPurchase')}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t('procurement.recordPurchase')}</DialogTitle>
             </DialogHeader>
+            
+            {/* Previous Day Procurements Section */}
+            {showPreviousDayItems && previousDayProcurements.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-amber-800">Yesterday's Purchases ({previousDayProcurements.length})</h4>
+                    <p className="text-sm text-amber-600">Click "Use as Template" to pre-fill the form</p>
+                  </div>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setShowPreviousDayItems(false)}>
+                    <X size={16} />
+                  </Button>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {previousDayProcurements.map((proc, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border">
+                      <div className="flex-1">
+                        <span className="font-medium">{proc.farmer_name}</span>
+                        <span className="text-gray-500 text-sm ml-2">
+                          ({proc.products?.length || 0} items - ₹{proc.total_amount?.toLocaleString()})
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setProcurementForm({
+                            ...procurementForm,
+                            farmer_id: proc.farmer_id,
+                            farmer_name: proc.farmer_name,
+                            products: proc.products?.map(p => ({
+                              product_id: p.product_id,
+                              product_name: p.product_name,
+                              quantity: p.quantity || 0,
+                              unit: p.unit || 'Kg',
+                              unit_size: p.unit_size || '',
+                              rate: p.rate || 0,
+                              total: (p.quantity || 0) * (p.rate || 0)
+                            })) || [],
+                            total_amount: proc.total_amount || 0,
+                            pending_amount: proc.total_amount || 0
+                          });
+                          setShowPreviousDayItems(false);
+                          toast.success(`Loaded ${proc.farmer_name}'s purchase data`);
+                        }}
+                        className="text-amber-700 border-amber-300 hover:bg-amber-100"
+                      >
+                        Use as Template
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-3 w-full bg-amber-600 hover:bg-amber-700"
+                  onClick={() => {
+                    // Load ALL previous day items into form
+                    if (previousDayProcurements.length > 0) {
+                      const firstProc = previousDayProcurements[0];
+                      let allProducts = [];
+                      previousDayProcurements.forEach(proc => {
+                        proc.products?.forEach(p => {
+                          allProducts.push({
+                            product_id: p.product_id,
+                            product_name: p.product_name,
+                            quantity: p.quantity || 0,
+                            unit: p.unit || 'Kg',
+                            unit_size: p.unit_size || '',
+                            rate: p.rate || 0,
+                            total: (p.quantity || 0) * (p.rate || 0),
+                            farmer_id: proc.farmer_id,
+                            farmer_name: proc.farmer_name
+                          });
+                        });
+                      });
+                      const totalAmount = allProducts.reduce((sum, p) => sum + p.total, 0);
+                      setProcurementForm({
+                        ...procurementForm,
+                        farmer_id: firstProc.farmer_id,
+                        farmer_name: firstProc.farmer_name,
+                        products: allProducts.length > 0 ? allProducts : [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }],
+                        total_amount: totalAmount,
+                        pending_amount: totalAmount
+                      });
+                      setShowPreviousDayItems(false);
+                      toast.success(`Loaded ${allProducts.length} items from yesterday`);
+                    }
+                  }}
+                >
+                  Load All Items ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)})
+                </Button>
+              </div>
+            )}
+            
             <form onSubmit={handleSubmitProcurement} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>

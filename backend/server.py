@@ -315,6 +315,44 @@ async def get_procurements(current_user: dict = Depends(get_current_user)):
             p['created_at'] = datetime.fromisoformat(p['created_at'])
     return [Procurement(**p) for p in procurements]
 
+
+@api_router.get("/procurement/previous-day")
+async def get_previous_day_procurements(current_user: dict = Depends(get_current_user)):
+    """Get previous day's procurements to use as template for today's entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get yesterday's date
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Find procurements from yesterday
+    all_procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
+    
+    yesterday_procs = []
+    for p in all_procurements:
+        proc_date = p.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str == yesterday:
+            yesterday_procs.append(p)
+    
+    # Convert to template format (remove IDs and payment status)
+    templates = []
+    for p in yesterday_procs:
+        templates.append({
+            "farmer_id": p.get("farmer_id"),
+            "farmer_name": p.get("farmer_name"),
+            "products": p.get("products", []),
+            "total_amount": p.get("total_amount", 0),
+            "date": yesterday
+        })
+    
+    return templates
+
+
 @api_router.post("/procurement", response_model=Procurement, status_code=status.HTTP_201_CREATED)
 async def create_procurement(input: ProcurementCreate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:

@@ -155,6 +155,30 @@ class ProcurementCreate(BaseModel):
     remark: Optional[str] = None
     status: str = "completed"
 
+
+# Procurement Template Models (for quick entry)
+class ProcurementTemplateItem(BaseModel):
+    product_id: str
+    product_name: str
+    unit: str
+
+class ProcurementTemplate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    farmer_id: str
+    farmer_name: str
+    items: List[ProcurementTemplateItem]
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ProcurementTemplateCreate(BaseModel):
+    name: str
+    farmer_id: str
+    farmer_name: str
+    items: List[ProcurementTemplateItem]
+
+
 # QC Order Models
 class QCOrder(BaseModel):
     model_config = ConfigDict(extra="ignore")

@@ -390,6 +390,47 @@ async def delete_procurement(procurement_id: str, current_user: dict = Depends(g
     
     return {"message": "Procurement deleted successfully"}
 
+
+# Procurement Template Routes
+@api_router.get("/procurement-templates")
+async def get_procurement_templates(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    templates = await db.procurement_templates.find({}, {"_id": 0}).to_list(100)
+    return templates
+
+@api_router.post("/procurement-templates")
+async def create_procurement_template(input: ProcurementTemplateCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    template = ProcurementTemplate(
+        name=input.name,
+        farmer_id=input.farmer_id,
+        farmer_name=input.farmer_name,
+        items=input.items,
+        created_by=current_user["user_id"]
+    )
+    
+    doc = template.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.procurement_templates.insert_one(doc)
+    
+    return {"id": template.id, "message": "Template created successfully"}
+
+@api_router.delete("/procurement-templates/{template_id}")
+async def delete_procurement_template(template_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.procurement_templates.delete_one({"id": template_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    return {"message": "Template deleted successfully"}
+
+
 # QC Order Routes
 @api_router.get("/qc-orders", response_model=List[QCOrder])
 async def get_qc_orders(current_user: dict = Depends(get_current_user)):

@@ -113,14 +113,12 @@ export default function Procurement() {
     }
   };
 
-  const loadTemplates = () => {
-    const saved = localStorage.getItem('procurement_templates');
-    if (saved) {
-      try {
-        setTemplates(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error loading templates:', e);
-      }
+  const loadTemplates = async () => {
+    try {
+      const response = await api.get('/api/procurement-templates');
+      setTemplates(response.data || []);
+    } catch (error) {
+      console.error('Error loading templates:', error);
     }
   };
 
@@ -441,7 +439,7 @@ export default function Procurement() {
   };
 
   // Save as template
-  const handleSaveAsTemplate = () => {
+  const handleSaveAsTemplate = async () => {
     if (!procurementForm.farmer_name || procurementForm.products.length === 0 || !procurementForm.products[0].product_id) {
       toast.error('Please fill in farmer and at least one product to save as template');
       return;
@@ -451,19 +449,24 @@ export default function Procurement() {
     if (!templateName) return;
 
     const template = {
-      id: Date.now().toString(),
       name: templateName,
       farmer_id: procurementForm.farmer_id,
       farmer_name: procurementForm.farmer_name,
-      products: procurementForm.products.filter(p => p.product_id),
-      created_at: new Date().toISOString()
+      items: procurementForm.products.filter(p => p.product_id).map(p => ({
+        product_id: p.product_id,
+        product_name: p.product_name,
+        unit: p.unit
+      }))
     };
 
-    const updatedTemplates = [...templates, template];
-    setTemplates(updatedTemplates);
-    localStorage.setItem('procurement_templates', JSON.stringify(updatedTemplates));
-    
-    toast.success(`Template "${templateName}" saved successfully!`);
+    try {
+      const response = await api.post('/api/procurement-templates', template);
+      await loadTemplates(); // Reload from server
+      toast.success(`Template "${templateName}" saved successfully!`);
+    } catch (error) {
+      console.error('Error saving template:', error);
+      toast.error('Failed to save template');
+    }
   };
 
   // Load template
@@ -472,23 +475,35 @@ export default function Procurement() {
       ...procurementForm,
       farmer_id: template.farmer_id,
       farmer_name: template.farmer_name,
-      products: template.products.map(p => ({ ...p, total: p.quantity * p.rate })),
-      total_amount: template.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0),
-      pending_amount: template.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0)
+      products: template.items.map(item => ({ 
+        product_id: item.product_id,
+        product_name: item.product_name,
+        unit: item.unit,
+        quantity: 0,
+        unit_size: '',
+        rate: 0,
+        total: 0
+      })),
+      total_amount: 0,
+      pending_amount: 0
     });
     setOpenTemplate(false);
     setOpenProcurement(true);
-    toast.success('Template loaded! You can now adjust quantities and rates.');
+    toast.success('Template loaded! You can now enter quantities and rates.');
   };
 
   // Delete template
-  const handleDeleteTemplate = (templateId) => {
+  const handleDeleteTemplate = async (templateId) => {
     if (!window.confirm('Delete this template?')) return;
     
-    const updatedTemplates = templates.filter(t => t.id !== templateId);
-    setTemplates(updatedTemplates);
-    localStorage.setItem('procurement_templates', JSON.stringify(updatedTemplates));
-    toast.success('Template deleted');
+    try {
+      await api.delete(`/api/procurement-templates/${templateId}`);
+      await loadTemplates(); // Reload from server
+      toast.success('Template deleted');
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      toast.error('Failed to delete template');
+    }
   };
 
   // Farmer edit/delete

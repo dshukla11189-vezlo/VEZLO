@@ -314,26 +314,37 @@ export default function Procurement() {
         paid_amount: procurementForm.paid_amount,
         pending_amount: procurementForm.pending_amount,
         payment_status: procurementForm.payment_status,
-        status: 'completed'
+        status: 'completed',
+        remark: procurementForm.remark || ''
       };
       
-      await api.post('/api/procurement', payload);
-      
-      // If payment was made, record it
-      if (procurementForm.paid_amount > 0) {
-        await api.post('/api/payments', {
-          date: new Date().toISOString(),
-          party_type: 'farmer',
-          party_id: procurementForm.farmer_id,
-          party_name: procurementForm.farmer_name,
-          amount: procurementForm.paid_amount,
-          payment_mode: 'cash',
-          reference: `Procurement payment - ${new Date().toLocaleDateString()}`
-        });
+      if (editMode && selectedProcurement?.id) {
+        // Update existing procurement
+        await api.put(`/api/procurement/${selectedProcurement.id}`, payload);
+        toast.success('Procurement updated successfully!');
+      } else {
+        // Create new procurement
+        await api.post('/api/procurement', payload);
+        
+        // If payment was made, record it
+        if (procurementForm.paid_amount > 0) {
+          await api.post('/api/payments', {
+            date: new Date().toISOString(),
+            party_type: 'farmer',
+            party_id: procurementForm.farmer_id,
+            party_name: procurementForm.farmer_name,
+            amount: procurementForm.paid_amount,
+            payment_mode: 'cash',
+            reference: `Procurement payment - ${new Date().toLocaleDateString()}`
+          });
+        }
+        
+        toast.success('Procurement recorded successfully! Inventory updated.');
       }
       
-      toast.success('Procurement recorded successfully! Inventory updated.');
       setOpenProcurement(false);
+      setEditMode(false);
+      setSelectedProcurement(null);
       setProcurementForm({
         date: new Date().toISOString().split('T')[0],
         farmer_id: '',
@@ -813,6 +824,8 @@ export default function Procurement() {
             handleOpenProcurementForm();
           } else {
             setOpenProcurement(false);
+            setEditMode(false);
+            setSelectedProcurement(null);
           }
         }}>
           <DialogTrigger asChild>
@@ -823,7 +836,7 @@ export default function Procurement() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{t('procurement.recordPurchase')}</DialogTitle>
+              <DialogTitle>{editMode ? t('procurement.editPurchase') : t('procurement.recordPurchase')}</DialogTitle>
             </DialogHeader>
             
             {/* Previous Day Procurements Section */}

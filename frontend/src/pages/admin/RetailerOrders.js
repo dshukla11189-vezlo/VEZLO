@@ -37,6 +37,7 @@ export default function RetailerOrders() {
   // Dispatches state
   const [dispatches, setDispatches] = useState([]);
   const [filteredDispatches, setFilteredDispatches] = useState([]);
+  const [expandedDispatchId, setExpandedDispatchId] = useState(null);  // For showing dispatch items
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [editingDispatch, setEditingDispatch] = useState(null);
   const [selectedIndent, setSelectedIndent] = useState(null);
@@ -69,7 +70,11 @@ export default function RetailerOrders() {
   
   // Rejections state
   const [rejections, setRejections] = useState([]);
+  const [filteredRejections, setFilteredRejections] = useState([]);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [rejectionDateFilter, setRejectionDateFilter] = useState('');
+  const [rejectionRetailerFilter, setRejectionRetailerFilter] = useState('');
+  const [rejectionProductFilter, setRejectionProductFilter] = useState('');
   const [rejectionForm, setRejectionForm] = useState({
     retailer_id: '',
     rejection_date: new Date().toISOString().split('T')[0],
@@ -215,6 +220,27 @@ export default function RetailerOrders() {
       setFilteredDispatches(filtered);
     }
   }, [dispatches, dispatchDateFilter]);
+
+  // Filter rejections by date, retailer, and product
+  useEffect(() => {
+    let filtered = [...rejections];
+    
+    if (rejectionDateFilter) {
+      filtered = filtered.filter(r => r.rejection_date?.split('T')[0] === rejectionDateFilter);
+    }
+    
+    if (rejectionRetailerFilter) {
+      filtered = filtered.filter(r => r.retailer_id === rejectionRetailerFilter);
+    }
+    
+    if (rejectionProductFilter) {
+      filtered = filtered.filter(r => 
+        r.product_name?.toLowerCase().includes(rejectionProductFilter.toLowerCase())
+      );
+    }
+    
+    setFilteredRejections(filtered);
+  }, [rejections, rejectionDateFilter, rejectionRetailerFilter, rejectionProductFilter]);
 
   // Calculate dashboard stats whenever data changes
   useEffect(() => {
@@ -1311,6 +1337,7 @@ export default function RetailerOrders() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="p-3 text-center w-8"></th>
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
@@ -1324,46 +1351,84 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredDispatches.length === 0 ? (
-                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">{dispatchDateFilter ? `No dispatches for ${dispatchDateFilter}` : 'No dispatches found'}</td></tr>
+                      <tr><td colSpan={10} className="p-8 text-center text-gray-400">{dispatchDateFilter ? `No dispatches for ${dispatchDateFilter}` : 'No dispatches found'}</td></tr>
                     ) : filteredDispatches.map(dispatch => (
-                      <tr key={dispatch.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">{formatDate(dispatch.dispatch_date)}</td>
-                        <td className="p-3 font-medium">{getRetailerNameById(dispatch.retailer_id) || dispatch.retailer_name}</td>
-                        <td className="p-3 text-center">{dispatch.items?.length || 0}</td>
-                        <td className="p-3 text-right">{formatCurrency(dispatch.total_mrp_value)}</td>
-                        <td className="p-3 text-center">
-                          <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs">{dispatch.commission_percentage}%</span>
-                        </td>
-                        <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(dispatch.net_payable)}</td>
-                        <td className="p-3 text-center text-xs text-gray-500">
-                          {dispatch.transport_charges ? formatCurrency(dispatch.transport_charges) : '-'}
-                        </td>
-                        <td className="p-3 text-center">
-                          {dispatch.invoice_number ? (
-                            <span className="text-blue-600 text-xs">{dispatch.invoice_number}</span>
-                          ) : (
-                            <span className="text-gray-400 text-xs">-</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button size="sm" variant="ghost" onClick={() => openEditDispatchModal(dispatch)}>
-                              <Edit size={14} className="text-blue-600" />
-                            </Button>
-                            {!dispatch.invoice_number && (
-                              <Button size="sm" variant="ghost" onClick={() => handleDeleteDispatch(dispatch.id)}>
-                                <Trash2 size={14} className="text-red-600" />
-                              </Button>
+                      <React.Fragment key={dispatch.id}>
+                        <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedDispatchId(expandedDispatchId === dispatch.id ? null : dispatch.id)}>
+                          <td className="p-3 text-center">
+                            <ChevronDown size={16} className={`transition-transform ${expandedDispatchId === dispatch.id ? 'rotate-180' : ''}`} />
+                          </td>
+                          <td className="p-3">{formatDate(dispatch.dispatch_date)}</td>
+                          <td className="p-3 font-medium">{getRetailerNameById(dispatch.retailer_id) || dispatch.retailer_name}</td>
+                          <td className="p-3 text-center">{dispatch.items?.length || 0}</td>
+                          <td className="p-3 text-right">{formatCurrency(dispatch.total_mrp_value)}</td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs">{dispatch.commission_percentage}%</span>
+                          </td>
+                          <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(dispatch.net_payable)}</td>
+                          <td className="p-3 text-center text-xs text-gray-500">
+                            {dispatch.transport_charges ? formatCurrency(dispatch.transport_charges) : '-'}
+                          </td>
+                          <td className="p-3 text-center">
+                            {dispatch.invoice_number ? (
+                              <span className="text-blue-600 text-xs">{dispatch.invoice_number}</span>
+                            ) : (
+                              <span className="text-gray-400 text-xs">-</span>
                             )}
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => openEditDispatchModal(dispatch)}>
+                                <Edit size={14} className="text-blue-600" />
+                              </Button>
+                              {!dispatch.invoice_number && (
+                                <Button size="sm" variant="ghost" onClick={() => handleDeleteDispatch(dispatch.id)}>
+                                  <Trash2 size={14} className="text-red-600" />
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {/* Expanded items row */}
+                        {expandedDispatchId === dispatch.id && (
+                          <tr className="bg-gray-50">
+                            <td colSpan={10} className="p-0">
+                              <div className="p-3 pl-8">
+                                <table className="w-full text-xs border rounded">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="p-2 text-left font-medium">Product</th>
+                                      <th className="p-2 text-left font-medium">Variant</th>
+                                      <th className="p-2 text-center font-medium">Indent Qty</th>
+                                      <th className="p-2 text-center font-medium">Supplied Qty</th>
+                                      <th className="p-2 text-right font-medium">MRP</th>
+                                      <th className="p-2 text-right font-medium">Amount</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {dispatch.items?.map((item, idx) => (
+                                      <tr key={idx} className="border-t">
+                                        <td className="p-2 font-medium">{item.product_name}</td>
+                                        <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
+                                        <td className="p-2 text-center">{item.indent_qty || '-'}</td>
+                                        <td className="p-2 text-center font-semibold">{item.supplied_qty}</td>
+                                        <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
+                                        <td className="p-2 text-right font-medium">₹{item.total_value?.toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                   {filteredDispatches.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
-                        <td colSpan={3} className="p-3 text-right">TOTAL:</td>
+                        <td colSpan={4} className="p-3 text-right">TOTAL:</td>
                         <td className="p-3 text-right">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
                         <td></td>
                         <td className="p-3 text-right text-green-700">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
@@ -1496,11 +1561,57 @@ export default function RetailerOrders() {
         {/* ==================== REJECTIONS TAB ==================== */}
         {activeTab === 'rejections' && (
           <Card>
-            <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">Rejections</CardTitle>
-              <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => setShowRejectionModal(true)}>
-                <Plus size={14} className="mr-1" /> Record Rejection
-              </Button>
+            <CardHeader className="py-3 flex flex-col gap-3">
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Rejections</CardTitle>
+                <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => setShowRejectionModal(true)}>
+                  <Plus size={14} className="mr-1" /> Record Rejection
+                </Button>
+              </div>
+              {/* Filters row */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <Input
+                  type="date"
+                  value={rejectionDateFilter}
+                  onChange={(e) => setRejectionDateFilter(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                  placeholder="Filter by date"
+                />
+                <select
+                  value={rejectionRetailerFilter}
+                  onChange={(e) => setRejectionRetailerFilter(e.target.value)}
+                  className="h-8 px-2 rounded border text-xs"
+                >
+                  <option value="">All Retailers</option>
+                  {retailers.map(r => (
+                    <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+                  ))}
+                </select>
+                <Input
+                  type="text"
+                  value={rejectionProductFilter}
+                  onChange={(e) => setRejectionProductFilter(e.target.value)}
+                  className="h-8 w-32 text-xs"
+                  placeholder="Product..."
+                />
+                {(rejectionDateFilter || rejectionRetailerFilter || rejectionProductFilter) && (
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    onClick={() => { 
+                      setRejectionDateFilter(''); 
+                      setRejectionRetailerFilter(''); 
+                      setRejectionProductFilter(''); 
+                    }} 
+                    className="h-8 px-2"
+                  >
+                    <X size={12} /> Clear
+                  </Button>
+                )}
+                <span className="text-xs text-gray-500">
+                  Showing {filteredRejections.length} of {rejections.length}
+                </span>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -1518,12 +1629,12 @@ export default function RetailerOrders() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rejections.length === 0 ? (
+                    {filteredRejections.length === 0 ? (
                       <tr><td colSpan={8} className="p-8 text-center text-gray-400">No rejections found</td></tr>
-                    ) : rejections.map(rejection => (
+                    ) : filteredRejections.map(rejection => (
                       <tr key={rejection.id} className="border-b hover:bg-gray-50">
                         <td className="p-3">{formatDate(rejection.rejection_date)}</td>
-                        <td className="p-3 font-medium">{rejection.retailer_name}</td>
+                        <td className="p-3 font-medium">{getRetailerNameById(rejection.retailer_id) || rejection.retailer_name}</td>
                         <td className="p-3">{rejection.product_name} {rejection.variant_name && `(${rejection.variant_name})`}</td>
                         <td className="p-3 text-center text-red-600 font-medium">{rejection.quantity}</td>
                         <td className="p-3 text-right">{formatCurrency(rejection.mrp)}</td>

@@ -391,7 +391,7 @@ export default function RetailerOrders() {
         variant_id: item.variant_id,
         variant_name: item.variant_name,
         indent_qty: item.quantity,
-        supplied_qty: item.quantity,
+        supplied_qty: '',  // Empty by default - user fills only what they dispatch
         mrp: 0,
         total_value: 0
       })),
@@ -433,8 +433,17 @@ export default function RetailerOrders() {
 
   const handleCreateOrUpdateDispatch = async (e) => {
     e.preventDefault();
-    if (dispatchForm.items.some(item => !item.mrp || item.mrp <= 0)) {
-      toast.error('MRP is mandatory for all items');
+    
+    // Filter items with supplied qty > 0
+    const itemsWithQty = dispatchForm.items.filter(item => item.supplied_qty && parseFloat(item.supplied_qty) > 0);
+    
+    if (itemsWithQty.length === 0) {
+      toast.error('Please enter supplied quantity for at least one item');
+      return;
+    }
+    
+    if (itemsWithQty.some(item => !item.mrp || item.mrp <= 0)) {
+      toast.error('MRP is mandatory for all dispatched items');
       return;
     }
 
@@ -444,7 +453,7 @@ export default function RetailerOrders() {
         await api.put(`/api/retailer-dispatches/${editingDispatch.id}`, {
           indent_id: editingDispatch.indent_id,
           dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
-          items: dispatchForm.items,
+          items: itemsWithQty,  // Only send items with qty > 0
           remarks: dispatchForm.remarks,
           transport_charges: dispatchForm.transport_charges || 0
         });
@@ -454,7 +463,7 @@ export default function RetailerOrders() {
         await api.post('/api/retailer-dispatches', {
           indent_id: selectedIndent.id,
           dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
-          items: dispatchForm.items,
+          items: itemsWithQty,  // Only send items with qty > 0
           remarks: dispatchForm.remarks,
           transport_charges: dispatchForm.transport_charges || 0
         });
@@ -1891,7 +1900,28 @@ export default function RetailerOrders() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-2 block">Items (MRP is mandatory)</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">Items (MRP is mandatory)</label>
+                    {!editingDispatch && selectedIndent && (
+                      <Button 
+                        type="button"
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          setDispatchForm(prev => ({
+                            ...prev,
+                            items: prev.items.map(item => ({
+                              ...item,
+                              supplied_qty: item.indent_qty  // Fill with indent qty
+                            }))
+                          }));
+                        }}
+                        className="text-xs"
+                      >
+                        Fill All Quantities
+                      </Button>
+                    )}
+                  </div>
                   <div className="border rounded overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">

@@ -3308,10 +3308,29 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
     
     await db.retailer_dispatches.insert_one(doc)
     
-    # Update indent status
+    # Update indent status based on dispatch completeness
+    # Get all dispatches for this indent
+    all_dispatches = await db.retailer_dispatches.find({"indent_id": input.indent_id}, {"_id": 0}).to_list(100)
+    
+    # Calculate total dispatched per product
+    total_dispatched = {}
+    for d in all_dispatches:
+        for item in d.get('items', []):
+            key = item.get('product_id', '')
+            total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+    
+    # Check if fully dispatched
+    fully_dispatched = True
+    for item in indent.get('items', []):
+        dispatched = total_dispatched.get(item.get('product_id', ''), 0)
+        if dispatched < item.get('quantity', 0):
+            fully_dispatched = False
+            break
+    
+    new_status = "dispatched" if fully_dispatched else "partial"
     await db.retailer_indents.update_one(
         {"id": input.indent_id},
-        {"$set": {"status": "dispatched"}}
+        {"$set": {"status": new_status}}
     )
     
     return {"id": dispatch.id, "message": "Dispatch created successfully"}

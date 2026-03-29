@@ -772,14 +772,14 @@ export default function QuickCommerce() {
     setDispatchDate(new Date().toISOString().split('T')[0]);  // Default to today
     setDispatchTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }));
     setDispatchRemarks('');
-    // Pre-fill with remaining quantities and default lot_size/crates from indent
+    // Initialize with empty quantities - user will fill only what they want to dispatch
+    // Show lot_size from indent but don't pre-fill supplied qty
     const newDispatchData = {};
     indent.items?.forEach((item, idx) => {
-      const remaining = getRemainingQty(indent, item);
       newDispatchData[idx] = {
-        supplied_qty: remaining > 0 ? remaining.toString() : '',
+        supplied_qty: '',  // Empty by default - user fills only what they dispatch
         lot_size: item.lot_size?.toString() || '',
-        no_of_crates: item.lot_size > 0 && remaining > 0 ? Math.ceil(remaining / item.lot_size).toString() : '0'
+        no_of_crates: '0'
       };
     });
     setDispatchData(prev => ({ ...prev, [indent.id]: newDispatchData }));
@@ -2296,6 +2296,30 @@ Email: ${companyEmail}`;
                   </div>
 
                   <div className="data-table">
+                    <div className="flex justify-end mb-2">
+                      <Button 
+                        type="button"
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          // Fill all remaining quantities
+                          const newDispatchData = {};
+                          currentDispatchIndent.items?.forEach((item, idx) => {
+                            const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id);
+                            const remaining = Math.max(0, item.required_qty - dispatched);
+                            newDispatchData[idx] = {
+                              supplied_qty: remaining > 0 ? remaining.toString() : '',
+                              lot_size: item.lot_size?.toString() || '',
+                              no_of_crates: item.lot_size > 0 && remaining > 0 ? Math.ceil(remaining / item.lot_size).toString() : '0'
+                            };
+                          });
+                          setDispatchData(prev => ({ ...prev, [currentDispatchIndent.id]: newDispatchData }));
+                        }}
+                        className="text-xs"
+                      >
+                        Fill All Remaining
+                      </Button>
+                    </div>
                     <table>
                       <thead>
                         <tr>

@@ -1107,7 +1107,7 @@ export default function RetailerOrders() {
                 >
                   <option value="">Select Retailer</option>
                   {retailers.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
+                    <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                   ))}
                 </select>
                 <Button size="sm" className="bg-[#14532D]" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
@@ -1127,7 +1127,7 @@ export default function RetailerOrders() {
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
                       <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
                       <th className="p-3 text-right font-medium text-gray-500">COMMISSION</th>
-                      <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                      <th className="p-3 text-right font-medium text-gray-500">NET RECEIVABLE</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>

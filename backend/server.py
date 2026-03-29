@@ -2250,15 +2250,30 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             purchases_by_product[product_id]["qty"] += qty_kg
             purchases_by_product[product_id]["value"] += total_value
     
-    # Get today's QC dispatches
-    qc_dispatches = await db.qc_dispatches.find({
-        "dispatch_date": {"$regex": f"^{today}"}
-    }, {"_id": 0}).to_list(1000)
+    # Get today's QC dispatches - handle both string dates and datetime objects
+    # First, get all dispatches and filter by date in Python for reliability
+    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
+    qc_dispatches = []
+    for d in all_qc_dispatches:
+        dispatch_date = d.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date_str = str(dispatch_date)[:10]  # Get YYYY-MM-DD part
+        if dispatch_date_str == today:
+            qc_dispatches.append(d)
     
     # Get today's retailer dispatches (if exists)
-    retailer_dispatches = await db.retailer_dispatches.find({
-        "dispatch_date": {"$regex": f"^{today}"}
-    }, {"_id": 0}).to_list(1000)
+    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
+    retailer_dispatches = []
+    for d in all_retailer_dispatches:
+        dispatch_date = d.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date_str = str(dispatch_date)[:10]
+        if dispatch_date_str == today:
+            retailer_dispatches.append(d)
     
     # Get packaging weights for unit conversion
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
@@ -2378,23 +2393,36 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
     return result
 
 @api_router.post("/stock-status/close")
-async def close_stock_status(entries: StockClosingBulkEntry, current_user: dict = Depends(get_current_user)):
-    """Staff enters closing quantities for products"""
+async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """Staff enters closing quantities for products. Accepts optional date parameter for historical closes."""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    target_date = date if date else datetime.now(timezone.utc).strftime('%Y-%m-%d')
     updated = []
     
     for entry in entries.entries:
-        # Get today's status for this product
+        # Get status for this product on the target date
         status = await db.daily_stock_status.find_one(
-            {"date": today, "product_id": entry.product_id},
+            {"date": target_date, "product_id": entry.product_id},
             {"_id": 0}
         )
         
         if not status:
-            continue
+            # Create a new record if it doesn't exist
+            product = await db.products.find_one({"id": entry.product_id}, {"_id": 0})
+            if not product:
+                continue
+            status = {
+                "product_id": entry.product_id,
+                "product_name": product.get("name", "Unknown"),
+                "date": target_date,
+                "opening_qty": 0,
+                "purchase_qty": 0,
+                "dispatch_qty": 0,
+                "avg_price": 0,
+                "status": "open"
+            }
         
         closing_qty = entry.closing_qty
         opening_qty = status.get("opening_qty", 0)
@@ -2422,8 +2450,9 @@ async def close_stock_status(entries: StockClosingBulkEntry, current_user: dict 
         }
         
         await db.daily_stock_status.update_one(
-            {"date": today, "product_id": entry.product_id},
-            {"$set": update_data}
+            {"date": target_date, "product_id": entry.product_id},
+            {"$set": {**status, **update_data}},
+            upsert=True
         )
         
         updated.append({
@@ -2458,6 +2487,116 @@ async def get_stock_status_history(
     
     history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     return history
+
+
+@api_router.get("/stock-status/closable-products")
+async def get_closable_products_for_date(
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get products that need closing for a specific date - products with activity (opening > 0, purchased, or dispatched)"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    target_date = date
+    yesterday = (datetime.strptime(target_date, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Get all products
+    products = await db.products.find({}, {"_id": 0}).to_list(1000)
+    
+    # Get yesterday's closing stock (for opening)
+    yesterday_status = await db.daily_stock_status.find(
+        {"date": yesterday, "status": "closed"},
+        {"_id": 0}
+    ).to_list(1000)
+    yesterday_map = {s["product_id"]: s for s in yesterday_status}
+    
+    # Get existing status for target date
+    existing_status = await db.daily_stock_status.find(
+        {"date": target_date},
+        {"_id": 0}
+    ).to_list(1000)
+    existing_map = {s["product_id"]: s for s in existing_status}
+    
+    # Get procurements for target date
+    procurements = await db.procurements.find({"date": {"$regex": f"^{target_date}"}}, {"_id": 0}).to_list(1000)
+    purchases_by_product = {}
+    for proc in procurements:
+        for item in proc.get("products", []):
+            product_id = item.get("product_id")
+            qty = item.get("quantity", 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            
+            # Convert to Kg
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    weight_per_unit_gm = float(unit_size)
+                    qty_kg = (qty * weight_per_unit_gm) / 1000
+                except (ValueError, TypeError):
+                    qty_kg = qty
+            else:
+                qty_kg = qty
+            
+            purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
+    
+    # Get dispatches for target date
+    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
+    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
+    
+    # Get packaging weights
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {p['name'].lower(): p.get('weight_gm', 100) for p in packaging_variants}
+    
+    dispatches_by_product = {}
+    for d in all_qc_dispatches + all_retailer_dispatches:
+        dispatch_date = d.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date_str = str(dispatch_date)[:10]
+        
+        if dispatch_date_str == target_date:
+            for item in d.get("items", []):
+                product_id = item.get("product_id")
+                supplied_qty = item.get("supplied_qty", 0)
+                packaging_name = item.get("packaging_name", "").lower()
+                weight_gm = packaging_map.get(packaging_name, 100)
+                qty_kg = (supplied_qty * weight_gm) / 1000
+                dispatches_by_product[product_id] = dispatches_by_product.get(product_id, 0) + qty_kg
+    
+    # Build closable products list
+    closable_products = []
+    for product in products:
+        product_id = product["id"]
+        product_name = product["name"]
+        
+        # Opening = yesterday's closing
+        opening_qty = yesterday_map.get(product_id, {}).get("closing_qty", 0)
+        
+        # Purchase and dispatch quantities
+        purchase_qty = round(purchases_by_product.get(product_id, 0), 2)
+        dispatch_qty = round(dispatches_by_product.get(product_id, 0), 2)
+        
+        # Check existing status
+        existing = existing_map.get(product_id)
+        status = existing.get("status", "open") if existing else "open"
+        closing_qty = existing.get("closing_qty", None) if existing else None
+        
+        # Only include if there's activity (opening > 0, purchased, or dispatched)
+        if opening_qty > 0 or purchase_qty > 0 or dispatch_qty > 0:
+            closable_products.append({
+                "product_id": product_id,
+                "product_name": product_name,
+                "opening_qty": round(opening_qty, 2),
+                "purchase_qty": purchase_qty,
+                "dispatch_qty": dispatch_qty,
+                "closing_qty": closing_qty,
+                "status": status
+            })
+    
+    return closable_products
+
 
 @api_router.get("/stock-status/wastage-dashboard")
 async def get_wastage_dashboard(

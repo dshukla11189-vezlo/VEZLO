@@ -133,6 +133,25 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] Farmer form translations
 - [x] Language preference persistence (localStorage)
 
+### Stock Status Enhancement (COMPLETED - Mar 29, 2026)
+- [x] **"Enter Closing" button** always visible (not just for today)
+- [x] **Closing modal with checkboxes** - Select multiple products for closing at once
+- [x] **Shows products with activity** - Opening > 0 OR purchased OR dispatched
+- [x] **Available qty calculation** - Opening + Purchase - Dispatch
+- [x] **Wastage auto-calculated** - Available - Closing
+- [x] **Select All Open** button for quick selection
+- [x] **Status column** - Open/Closed badges
+- [x] **Date-specific closing** - Can close stock for any historical date
+- [x] **Backend fix**: Dispatch dates now handled correctly (datetime objects and strings)
+- [x] New endpoint: `/api/stock-status/closable-products?date=YYYY-MM-DD`
+
+### Retailer Invoice Creation (COMPLETED - Mar 29, 2026)
+- [x] **Create Invoice button** in Invoices tab (with retailer selector)
+- [x] **Uninvoiced dispatches modal** - Select dispatches to include
+- [x] **Invoice generation** from selected dispatches
+- [x] **Download/Print** functionality
+- [x] All column headers showing "NET RECEIVABLE" (not "Net Payable")
+
 ---
 
 ## Prioritized Backlog

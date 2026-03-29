@@ -18,6 +18,8 @@ export default function StockStatus() {
   const [savingClosing, setSavingClosing] = useState(false);
   const [showClosingDialog, setShowClosingDialog] = useState(false);
   const [products, setProducts] = useState([]);
+  const [closableProductsForDate, setClosableProductsForDate] = useState([]); // Products that need closing (from API)
+  const [selectedForClosing, setSelectedForClosing] = useState({}); // Checkboxes for multi-select
   
   // Filter states
   const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
@@ -107,24 +109,76 @@ export default function StockStatus() {
     }));
   };
 
+  const toggleClosingSelection = (productId) => {
+    setSelectedForClosing(prev => ({
+      ...prev,
+      [productId]: !prev[productId]
+    }));
+  };
+
+  const selectAllForClosing = () => {
+    const allSelected = {};
+    closableProductsForDate.filter(p => p.status === 'open').forEach(p => {
+      allSelected[p.product_id] = true;
+    });
+    setSelectedForClosing(allSelected);
+  };
+
+  const loadClosableProducts = async (date) => {
+    try {
+      const response = await api.get(`/api/stock-status/closable-products?date=${date}`);
+      setClosableProductsForDate(response.data);
+      // Initialize closing data and selection
+      const initialClosingData = {};
+      const initialSelection = {};
+      response.data.forEach(item => {
+        if (item.status === 'open') {
+          initialClosingData[item.product_id] = item.closing_qty !== null ? item.closing_qty : '';
+          initialSelection[item.product_id] = false;
+        }
+      });
+      setClosingData(initialClosingData);
+      setSelectedForClosing(initialSelection);
+    } catch (error) {
+      console.error('Load closable products error:', error);
+    }
+  };
+
+  const handleOpenClosingDialog = async () => {
+    await loadClosableProducts(filterDate);
+    setShowClosingDialog(true);
+  };
+
   const handleSaveClosing = async () => {
+    // Get entries that are selected AND have a closing value
     const entries = Object.keys(closingData)
-      .filter(productId => closingData[productId] !== '' && closingData[productId] !== null)
+      .filter(productId => selectedForClosing[productId] && closingData[productId] !== '' && closingData[productId] !== null)
       .map(productId => ({
         product_id: productId,
         closing_qty: parseFloat(closingData[productId]) || 0
       }));
 
     if (entries.length === 0) {
-      toast.error('Enter closing quantities for at least one product');
+      toast.error('Select products and enter closing quantities');
       return;
+    }
+
+    // Check if any open product is not selected
+    const openProductsForSave = closableProductsForDate.filter(p => p.status === 'open');
+    const unselectedProducts = openProductsForSave.filter(p => !selectedForClosing[p.product_id] || closingData[p.product_id] === '' || closingData[p.product_id] === null);
+    
+    if (unselectedProducts.length > 0) {
+      const proceed = window.confirm(
+        `${unselectedProducts.length} product(s) are not selected or don't have closing values. Do you want to proceed with only the selected products?`
+      );
+      if (!proceed) return;
     }
 
     setSavingClosing(true);
     try {
-      await api.post('/api/stock-status/close', { entries });
+      await api.post(`/api/stock-status/close?date=${filterDate}`, { entries });
       toast.success(`Closed stock for ${entries.length} products`);
-      loadStockStatus();
+      loadStockStatus(filterDate);
       setShowClosingDialog(false);
     } catch (error) {
       console.error('Save closing error:', error);
@@ -245,14 +299,12 @@ export default function StockStatus() {
             <p className="text-gray-500 mt-1">{formatDisplayDate(filterDate)}</p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Button onClick={handleOpenClosingDialog} className="bg-[#14532D] hover:bg-[#166534]" data-testid="enter-closing-btn">
+              <Clock size={16} className="mr-2" /> Enter Closing
+            </Button>
             <Button variant="outline" onClick={() => loadStockStatus()} data-testid="refresh-btn">
               <RefreshCw size={16} className="mr-2" /> Refresh
             </Button>
-            {!isHistoricalView && closableProducts.length > 0 && (
-              <Button onClick={() => setShowClosingDialog(true)} className="bg-[#14532D] hover:bg-[#166534]" data-testid="enter-closing-btn">
-                <Clock size={16} className="mr-2" /> Enter Closing Stock
-              </Button>
-            )}
           </div>
         </div>
 
@@ -504,65 +556,129 @@ export default function StockStatus() {
           </CardContent>
         </Card>
 
-        {/* Closing Entry Dialog - Only show products with activity */}
+        {/* Closing Entry Dialog - With checkboxes for multi-select */}
         <Dialog open={showClosingDialog} onOpenChange={setShowClosingDialog}>
-          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Enter Closing Stock for Today</DialogTitle>
+              <DialogTitle>Enter Closing Stock - {formatDisplayDate(filterDate)}</DialogTitle>
             </DialogHeader>
             
             <div className="py-4">
-              <p className="text-sm text-gray-500 mb-4">
-                Enter the actual closing quantity (in Kg) for products with stock activity. Wastage will be auto-calculated.
-              </p>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-500">
+                  Select products and enter closing quantities (in Kg). Wastage will be auto-calculated.
+                </p>
+                {closableProductsForDate.filter(p => p.status === 'open').length > 0 && (
+                  <Button variant="outline" size="sm" onClick={selectAllForClosing}>
+                    Select All Open
+                  </Button>
+                )}
+              </div>
               
-              {closableProducts.length === 0 ? (
+              {closableProductsForDate.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  No products with stock activity today. Add purchases or dispatches first.
+                  No products with stock activity for this date. Add purchases or dispatches first.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {closableProducts.map((item) => {
-                    const available = item.opening_qty + item.purchase_qty - item.dispatch_qty;
-                    const closingQty = closingData[item.product_id] !== '' ? parseFloat(closingData[item.product_id]) : null;
-                    const wastage = closingQty !== null ? Math.max(0, available - closingQty) : null;
-                    
-                    return (
-                      <div key={item.product_id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
-                        <div className="flex-1">
-                          <p className="font-medium">{item.product_name}</p>
-                          <p className="text-sm text-gray-500">
-                            Opening: {item.opening_qty.toFixed(2)}Kg + Purchase: {item.purchase_qty.toFixed(2)}Kg - Dispatch: {item.dispatch_qty.toFixed(2)}Kg = 
-                            <span className="font-semibold text-blue-600"> Available: {available.toFixed(2)}Kg</span>
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="w-32">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="Closing Kg"
-                              value={closingData[item.product_id] || ''}
-                              onChange={(e) => handleClosingQtyChange(item.product_id, e.target.value)}
-                              className="text-right"
-                              data-testid={`closing-input-${item.product_id}`}
-                            />
-                          </div>
-                          <ArrowRight size={16} className="text-gray-400" />
-                          <div className="w-24 text-right">
-                            {wastage !== null ? (
-                              <span className={`font-bold ${wastage > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                {wastage.toFixed(2)} Kg
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                            <p className="text-xs text-gray-500">Wastage</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100 sticky top-0">
+                      <tr>
+                        <th className="p-2 w-10 text-center">
+                          <CheckCircle size={14} />
+                        </th>
+                        <th className="p-2 text-left">Product</th>
+                        <th className="p-2 text-right">Opening</th>
+                        <th className="p-2 text-right">Purchase</th>
+                        <th className="p-2 text-right">Dispatch</th>
+                        <th className="p-2 text-right">Available</th>
+                        <th className="p-2 text-center w-28">Closing</th>
+                        <th className="p-2 text-right">Wastage</th>
+                        <th className="p-2 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {closableProductsForDate.map((item) => {
+                        const available = item.opening_qty + item.purchase_qty - item.dispatch_qty;
+                        const closingQty = closingData[item.product_id] !== '' && closingData[item.product_id] !== undefined ? parseFloat(closingData[item.product_id]) : null;
+                        const wastage = closingQty !== null ? Math.max(0, available - closingQty) : null;
+                        const isSelected = selectedForClosing[item.product_id];
+                        const isClosed = item.status === 'closed';
+                        
+                        return (
+                          <tr key={item.product_id} className={`border-t ${isSelected ? 'bg-green-50' : ''} ${isClosed ? 'bg-gray-50 opacity-60' : ''}`}>
+                            <td className="p-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected || false}
+                                onChange={() => toggleClosingSelection(item.product_id)}
+                                disabled={isClosed}
+                                className="w-4 h-4"
+                              />
+                            </td>
+                            <td className="p-2 font-medium">{item.product_name}</td>
+                            <td className="p-2 text-right">{item.opening_qty.toFixed(2)}</td>
+                            <td className="p-2 text-right text-green-700">{item.purchase_qty > 0 ? `+${item.purchase_qty.toFixed(2)}` : '-'}</td>
+                            <td className="p-2 text-right text-red-700">{item.dispatch_qty > 0 ? `-${item.dispatch_qty.toFixed(2)}` : '-'}</td>
+                            <td className="p-2 text-right font-semibold text-blue-700">{available.toFixed(2)}</td>
+                            <td className="p-2 text-center">
+                              {isClosed ? (
+                                <span className="text-gray-600">{item.closing_qty?.toFixed(2)}</span>
+                              ) : (
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  value={closingData[item.product_id] || ''}
+                                  onChange={(e) => {
+                                    handleClosingQtyChange(item.product_id, e.target.value);
+                                    // Auto-select when entering value
+                                    if (e.target.value && !isSelected) {
+                                      toggleClosingSelection(item.product_id);
+                                    }
+                                  }}
+                                  className="w-24 h-8 text-right text-sm"
+                                  data-testid={`closing-input-${item.product_id}`}
+                                />
+                              )}
+                            </td>
+                            <td className="p-2 text-right">
+                              {isClosed ? (
+                                <span className="text-red-600">{(item.opening_qty + item.purchase_qty - item.dispatch_qty - (item.closing_qty || 0)).toFixed(2)}</span>
+                              ) : wastage !== null ? (
+                                <span className={`font-bold ${wastage > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                  {wastage.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-center">
+                              {isClosed ? (
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Closed</span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">Open</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              
+              {/* Summary */}
+              {closableProductsForDate.length > 0 && (
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg flex justify-between items-center">
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium">{closableProductsForDate.filter(p => p.status === 'open').length}</span> open, 
+                    <span className="font-medium ml-2">{closableProductsForDate.filter(p => p.status === 'closed').length}</span> closed
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Selected: <span className="font-bold text-green-700">{Object.values(selectedForClosing).filter(Boolean).length}</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -573,7 +689,7 @@ export default function StockStatus() {
               </Button>
               <Button 
                 onClick={handleSaveClosing} 
-                disabled={savingClosing || closableProducts.length === 0}
+                disabled={savingClosing || Object.values(selectedForClosing).filter(Boolean).length === 0}
                 className="bg-[#14532D] hover:bg-[#166534]"
                 data-testid="save-closing-btn"
               >
@@ -583,7 +699,7 @@ export default function StockStatus() {
                   </>
                 ) : (
                   <>
-                    <Save size={16} className="mr-2" /> Save Closing Stock
+                    <Save size={16} className="mr-2" /> Save Closing ({Object.values(selectedForClosing).filter(Boolean).length})
                   </>
                 )}
               </Button>

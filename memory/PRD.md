@@ -62,6 +62,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **Pending Payments Tab** - Farmer-wise pending amounts view (Dec 2026)
 - [x] **Date/Farmer filters** for pending payments
 - [x] **Bulk Payment feature** - Pay multiple farmers at once
+- [x] **Auto-populate from Previous Day** (COMPLETED - Mar 29, 2026):
+  - [x] "Record Purchase" modal shows "Yesterday's Purchases" section
+  - [x] Lists previous day's procurements with farmer name, item count, total amount
+  - [x] "Use as Template" button pre-fills form with selected farmer's purchase data
+  - [x] "Load All Items" button loads all yesterday's items at once
+  - [x] Toast notification confirms data loaded
+  - [x] Backend endpoint: GET /api/procurement/previous-day
 
 ### Phase 4: Quick Commerce Module (IN PROGRESS - Dec 2026)
 - [x] Renamed "QC Orders" to "Quick Commerce" in sidebar
@@ -161,6 +168,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **Download/Print** functionality with new professional layout
 - [x] All column headers showing "NET RECEIVABLE" (not "Net Payable")
 - [x] Invoice table shows company_name instead of owner name
+- [x] **Rejection Details in Invoice Modal** (COMPLETED - Mar 29, 2026):
+  - [x] Shows columns: Dispatch Date, Product, Supplied, Rejected (red), Net Qty (green), MRP, Net Amount
+  - [x] Automatically fetches rejections for retailer and matches to products
+  - [x] Calculates Net Qty = Supplied - Rejected
+  - [x] Calculates Net Amount = Net Qty × MRP
+  - [x] Summary shows: Selected Items count, Net Total, Rejected Deduction amount
+  - [x] Backend updated to accept `selected_items` with rejection data
 
 ---
 

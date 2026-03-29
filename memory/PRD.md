@@ -147,10 +147,20 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 
 ### Retailer Invoice Creation (COMPLETED - Mar 29, 2026)
 - [x] **Create Invoice button** in Invoices tab (with retailer selector)
-- [x] **Uninvoiced dispatches modal** - Select dispatches to include
-- [x] **Invoice generation** from selected dispatches
-- [x] **Download/Print** functionality
+- [x] **Item-level selection** - Select individual items from dispatches (not whole dispatches)
+- [x] **Uninvoiced items modal** - Shows all uninvoiced items with checkboxes
+- [x] **"Select All"** button for quick selection
+- [x] **Invoice generation** from selected items
+- [x] **Edit Invoice functionality** - Update date, item quantities, MRP, remarks
+- [x] **Standard invoice layout** with:
+  - Complete borders on all sections (header, items, footer)
+  - Columns: #, Item name, Indent, Supplied Qty, Rate, Amount, Receiving
+  - Total row with MRP Value, Commission %, and Net Receivable
+  - "Total Amount in words" section
+  - Company footer with address
+- [x] **Download/Print** functionality with new professional layout
 - [x] All column headers showing "NET RECEIVABLE" (not "Net Payable")
+- [x] Invoice table shows company_name instead of owner name
 
 ---
 

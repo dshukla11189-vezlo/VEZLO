@@ -2552,34 +2552,41 @@ async def get_closable_products_for_date(
     ).to_list(1000)
     yesterday_map = {s["product_id"]: s for s in yesterday_status}
     
-    # Get existing status for target date
+    # Get existing status for target date (from daily_stock_status table)
     existing_status = await db.daily_stock_status.find(
         {"date": target_date},
         {"_id": 0}
     ).to_list(1000)
     existing_map = {s["product_id"]: s for s in existing_status}
     
-    # Get procurements for target date
-    procurements = await db.procurements.find({"date": {"$regex": f"^{target_date}"}}, {"_id": 0}).to_list(1000)
+    # Get procurements for target date (check multiple date formats)
+    procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
     purchases_by_product = {}
     for proc in procurements:
-        for item in proc.get("products", []):
-            product_id = item.get("product_id")
-            qty = item.get("quantity", 0)
-            unit = item.get("unit", "Kg")
-            unit_size = item.get("unit_size", "")
-            
-            # Convert to Kg
-            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                try:
-                    weight_per_unit_gm = float(unit_size)
-                    qty_kg = (qty * weight_per_unit_gm) / 1000
-                except (ValueError, TypeError):
+        proc_date = proc.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str == target_date:
+            for item in proc.get("products", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                
+                # Convert to Kg
+                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
+                else:
                     qty_kg = qty
-            else:
-                qty_kg = qty
-            
-            purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
+                
+                purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
     
     # Get dispatches for target date
     all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
@@ -2608,21 +2615,44 @@ async def get_closable_products_for_date(
     
     # Build closable products list
     closable_products = []
+    
+    # First, include all products that have existing status records for this date
+    for product_id, existing in existing_map.items():
+        product = next((p for p in products if p["id"] == product_id), None)
+        if not product:
+            continue
+            
+        product_name = product["name"]
+        opening_qty = existing.get("opening_qty", 0)
+        purchase_qty = existing.get("purchase_qty", 0)
+        dispatch_qty = existing.get("dispatch_qty", 0)
+        status = existing.get("status", "open")
+        closing_qty = existing.get("closing_qty", None)
+        
+        closable_products.append({
+            "product_id": product_id,
+            "product_name": product_name,
+            "opening_qty": round(opening_qty, 2),
+            "purchase_qty": round(purchase_qty, 2),
+            "dispatch_qty": round(dispatch_qty, 2),
+            "closing_qty": closing_qty,
+            "status": status
+        })
+    
+    # Then, add any products with activity that don't have existing status records
     for product in products:
         product_id = product["id"]
+        if product_id in existing_map:
+            continue  # Already added above
+            
         product_name = product["name"]
         
         # Opening = yesterday's closing
         opening_qty = yesterday_map.get(product_id, {}).get("closing_qty", 0)
         
-        # Purchase and dispatch quantities
+        # Purchase and dispatch quantities from today's transactions
         purchase_qty = round(purchases_by_product.get(product_id, 0), 2)
         dispatch_qty = round(dispatches_by_product.get(product_id, 0), 2)
-        
-        # Check existing status
-        existing = existing_map.get(product_id)
-        status = existing.get("status", "open") if existing else "open"
-        closing_qty = existing.get("closing_qty", None) if existing else None
         
         # Only include if there's activity (opening > 0, purchased, or dispatched)
         if opening_qty > 0 or purchase_qty > 0 or dispatch_qty > 0:
@@ -2632,8 +2662,8 @@ async def get_closable_products_for_date(
                 "opening_qty": round(opening_qty, 2),
                 "purchase_qty": purchase_qty,
                 "dispatch_qty": dispatch_qty,
-                "closing_qty": closing_qty,
-                "status": status
+                "closing_qty": None,
+                "status": "open"
             })
     
     return closable_products
@@ -3545,6 +3575,46 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     )
     
     return {"id": invoice.id, "invoice_number": invoice_number, "message": "Invoice created successfully"}
+
+
+@api_router.put("/retailer-invoices/{invoice_id}")
+async def update_retailer_invoice(invoice_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing retailer invoice"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update invoices")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Process items if provided
+    items = input.get("items", invoice.get("items", []))
+    total_mrp_value = sum(item.get("total_value", 0) for item in items)
+    
+    # Get retailer for commission calculation
+    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    commission_percentage = retailer.get("commission_percentage", 0) if retailer else invoice.get("commission_percentage", 0)
+    commission_amount = total_mrp_value * (commission_percentage / 100)
+    net_payable = total_mrp_value - commission_amount
+    
+    # Update invoice
+    update_data = {
+        "invoice_date": input.get("invoice_date", invoice.get("invoice_date")),
+        "items": items,
+        "total_mrp_value": round(total_mrp_value, 2),
+        "commission_percentage": commission_percentage,
+        "commission_amount": round(commission_amount, 2),
+        "net_payable": round(net_payable, 2),
+        "remarks": input.get("remarks", invoice.get("remarks", ""))
+    }
+    
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": update_data}
+    )
+    
+    return {"id": invoice_id, "message": "Invoice updated successfully"}
+
 
 @api_router.delete("/retailer-invoices/{invoice_id}")
 async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):

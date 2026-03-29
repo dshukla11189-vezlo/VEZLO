@@ -48,6 +48,12 @@ export default function RetailerOrders() {
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [uninvoicedDispatches, setUninvoicedDispatches] = useState([]);
   const [selectedDispatchIds, setSelectedDispatchIds] = useState([]);
+  const [editingInvoice, setEditingInvoice] = useState(null);
+  const [showEditInvoiceModal, setShowEditInvoiceModal] = useState(false);
+  const [editInvoiceForm, setEditInvoiceForm] = useState(null);
+  // For item-level selection
+  const [uninvoicedItems, setUninvoicedItems] = useState([]); // All uninvoiced items
+  const [selectedItemIds, setSelectedItemIds] = useState([]);
   const [invoiceForm, setInvoiceForm] = useState({
     retailer_id: '',
     invoice_date: new Date().toISOString().split('T')[0],
@@ -426,11 +432,44 @@ export default function RetailerOrders() {
     try {
       const response = await api.get(`/api/retailer-dispatches/uninvoiced?retailer_id=${invoiceForm.retailer_id}`);
       setUninvoicedDispatches(response.data);
-      setSelectedDispatchIds([]);
+      
+      // Flatten all items from uninvoiced dispatches for item-level selection
+      const allItems = [];
+      response.data.forEach(dispatch => {
+        (dispatch.items || []).forEach((item, idx) => {
+          allItems.push({
+            dispatch_id: dispatch.id,
+            dispatch_date: dispatch.dispatch_date,
+            item_index: idx,
+            item_id: `${dispatch.id}_${idx}`,
+            product_id: item.product_id,
+            product_name: item.product_name,
+            variant_name: item.variant_name,
+            indent_qty: item.indent_qty,
+            supplied_qty: item.supplied_qty,
+            mrp: item.mrp,
+            total_value: item.total_value
+          });
+        });
+      });
+      setUninvoicedItems(allItems);
+      setSelectedItemIds([]);
       setShowInvoiceModal(true);
     } catch (error) {
       toast.error('Failed to load uninvoiced dispatches');
     }
+  };
+
+  const toggleItemSelection = (itemId) => {
+    setSelectedItemIds(prev => 
+      prev.includes(itemId) 
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    );
+  };
+
+  const selectAllItems = () => {
+    setSelectedItemIds(uninvoicedItems.map(i => i.item_id));
   };
 
   const toggleDispatchSelection = (dispatchId) => {
@@ -443,21 +482,38 @@ export default function RetailerOrders() {
 
   const handleCreateInvoice = async (e) => {
     e.preventDefault();
-    if (selectedDispatchIds.length === 0) {
-      toast.error('Please select at least one dispatch');
+    if (selectedItemIds.length === 0) {
+      toast.error('Please select at least one item');
       return;
     }
+
+    // Get selected items and group by dispatch
+    const selectedItems = uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id));
+    
+    // Get unique dispatch IDs from selected items
+    const dispatchIds = [...new Set(selectedItems.map(i => i.dispatch_id))];
 
     try {
       const response = await api.post('/api/retailer-invoices', {
         retailer_id: invoiceForm.retailer_id,
         invoice_date: new Date(invoiceForm.invoice_date).toISOString(),
-        dispatch_ids: selectedDispatchIds,
+        dispatch_ids: dispatchIds,
+        selected_items: selectedItems.map(i => ({
+          dispatch_id: i.dispatch_id,
+          item_index: i.item_index,
+          product_id: i.product_id,
+          product_name: i.product_name,
+          variant_name: i.variant_name,
+          indent_qty: i.indent_qty,
+          supplied_qty: i.supplied_qty,
+          mrp: i.mrp,
+          total_value: i.total_value
+        })),
         remarks: invoiceForm.remarks
       });
       toast.success(`Invoice ${response.data.invoice_number} created successfully`);
       setShowInvoiceModal(false);
-      setSelectedDispatchIds([]);
+      setSelectedItemIds([]);
       setInvoiceForm({
         retailer_id: '',
         invoice_date: new Date().toISOString().split('T')[0],
@@ -467,6 +523,53 @@ export default function RetailerOrders() {
       loadDispatches();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create invoice');
+    }
+  };
+
+  // Edit Invoice
+  const openEditInvoiceModal = (invoice) => {
+    setEditingInvoice(invoice);
+    setEditInvoiceForm({
+      invoice_date: invoice.invoice_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      items: invoice.items.map(item => ({
+        ...item,
+        selected: true
+      })),
+      remarks: invoice.remarks || ''
+    });
+    setShowEditInvoiceModal(true);
+  };
+
+  const updateEditInvoiceItem = (index, field, value) => {
+    setEditInvoiceForm(prev => {
+      const items = [...prev.items];
+      items[index] = { ...items[index], [field]: value };
+      // Recalculate total_value if mrp or quantity changes
+      if (field === 'mrp' || field === 'quantity' || field === 'supplied_qty') {
+        const qty = items[index].quantity || items[index].supplied_qty || 0;
+        const mrp = items[index].mrp || 0;
+        items[index].total_value = qty * mrp;
+      }
+      return { ...prev, items };
+    });
+  };
+
+  const handleUpdateInvoice = async (e) => {
+    e.preventDefault();
+    if (!editingInvoice) return;
+
+    try {
+      await api.put(`/api/retailer-invoices/${editingInvoice.id}`, {
+        invoice_date: new Date(editInvoiceForm.invoice_date).toISOString(),
+        items: editInvoiceForm.items,
+        remarks: editInvoiceForm.remarks
+      });
+      toast.success('Invoice updated successfully');
+      setShowEditInvoiceModal(false);
+      setEditingInvoice(null);
+      loadInvoices();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update invoice');
     }
   };
 
@@ -482,10 +585,41 @@ export default function RetailerOrders() {
     }
   };
 
+  // Number to words function for invoice
+  const numberToWords = (num) => {
+    if (num === 0) return 'Zero Rupees Only';
+    
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+      'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    
+    const numToWords = (n) => {
+      if (n < 20) return ones[n];
+      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + numToWords(n % 100) : '');
+      if (n < 100000) return numToWords(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + numToWords(n % 1000) : '');
+      if (n < 10000000) return numToWords(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + numToWords(n % 100000) : '');
+      return numToWords(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + numToWords(n % 10000000) : '');
+    };
+    
+    const rupees = Math.floor(num);
+    const paise = Math.round((num - rupees) * 100);
+    
+    let result = numToWords(rupees) + ' Rupees';
+    if (paise > 0) result += ' and ' + numToWords(paise) + ' Paise';
+    return result + ' Only';
+  };
+
   const downloadInvoicePdf = (invoice) => {
-    // Create a printable invoice
+    // Create a printable invoice using standard format with borders
     const printWindow = window.open('', '_blank');
     const retailer = retailers.find(r => r.id === invoice.retailer_id) || {};
+    const retailerDisplayName = retailer.company_name || invoice.retailer_name;
+    
+    // Calculate totals
+    const totalIndent = invoice.items.reduce((sum, i) => sum + (i.indent_qty || i.quantity || 0), 0);
+    const totalSupplied = invoice.items.reduce((sum, i) => sum + (i.quantity || i.supplied_qty || 0), 0);
+    const totalAmount = invoice.total_mrp_value || 0;
     
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -493,78 +627,132 @@ export default function RetailerOrders() {
       <head>
         <title>Invoice ${invoice.invoice_number}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .header h1 { color: #14532D; margin: 0; }
-          .info-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
-          .info-box { padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-          th { background: #f5f5f5; }
-          .text-right { text-align: right; }
-          .summary { margin-top: 20px; }
-          .summary-row { display: flex; justify-content: flex-end; gap: 20px; padding: 5px 0; }
-          .total-row { font-weight: bold; font-size: 1.2em; border-top: 2px solid #14532D; padding-top: 10px; }
-          @media print { button { display: none; } }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background: white; font-size: 12px; }
+          
+          .tax-invoice-title { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+          .company-name { text-align: center; font-size: 22px; font-weight: bold; color: #1a1a2e; margin-bottom: 15px; }
+          
+          .header-section { border: 1px solid #000; margin-bottom: 15px; }
+          .header-row { display: flex; border-bottom: 1px solid #000; }
+          .header-row:last-child { border-bottom: none; }
+          .header-cell { padding: 10px; flex: 1; }
+          .header-cell:first-child { border-right: 1px solid #000; }
+          .header-cell .label { font-weight: bold; font-size: 10px; color: #333; margin-bottom: 5px; }
+          
+          .items-section { border: 1px solid #000; margin-bottom: 15px; }
+          .items-table { width: 100%; border-collapse: collapse; }
+          .items-table th { background: #fff; border-bottom: 1px solid #000; padding: 10px 8px; font-size: 11px; font-weight: bold; text-align: center; }
+          .items-table th:not(:last-child) { border-right: 1px solid #000; }
+          .items-table td { padding: 8px; font-size: 11px; text-align: center; border-bottom: 1px solid #000; }
+          .items-table td:not(:last-child) { border-right: 1px solid #000; }
+          .items-table td.text-left { text-align: left; }
+          .items-table td.text-right { text-align: right; }
+          .items-table tr:last-child td { border-bottom: none; }
+          .items-table .total-row { background: #f5f5f5; font-weight: bold; }
+          
+          .amount-words-section { border: 1px solid #000; padding: 10px; margin-bottom: 15px; font-size: 11px; }
+          
+          .footer-section { border: 1px solid #000; display: flex; }
+          .footer-left { flex: 1; padding: 10px; border-right: 1px solid #000; font-size: 10px; line-height: 1.6; }
+          .footer-right { width: 200px; padding: 10px; text-align: right; font-size: 10px; }
+          .footer-left .terms-header { font-weight: bold; margin-bottom: 8px; }
+          .footer-right .signatory-label { font-weight: bold; margin-bottom: 50px; }
+          .footer-right .signatory-name { font-weight: bold; }
+          
+          .print-btn { margin-top: 20px; padding: 10px 20px; font-size: 14px; cursor: pointer; }
+          @media print { .print-btn { display: none; } body { padding: 10px; } }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1>FreshFlow</h1>
-          <p>INVOICE</p>
-        </div>
-        <div class="info-row">
-          <div class="info-box">
-            <strong>Invoice #:</strong> ${invoice.invoice_number}<br>
-            <strong>Date:</strong> ${formatDate(invoice.invoice_date)}<br>
+        <div class="tax-invoice-title">Tax Invoice</div>
+        <div class="company-name">Mr Organix</div>
+        
+        <div class="header-section">
+          <div class="header-row">
+            <div class="header-cell">
+              <div class="label">Bill To:</div>
+              <strong>${retailerDisplayName}</strong><br/>
+              ${retailer.address || ''}
+            </div>
+            <div class="header-cell">
+              <div class="label">Invoice Details:</div>
+              Invoice No: <strong>${invoice.invoice_number}</strong><br/>
+              Date: ${formatDate(invoice.invoice_date)}<br/>
+              Place Of Supply: 27-Maharashtra
+            </div>
           </div>
-          <div class="info-box">
-            <strong>Bill To:</strong><br>
-            ${invoice.retailer_name}<br>
-            ${retailer.company_name || ''}<br>
-            ${retailer.address || ''}
-          </div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Product</th>
-              <th>Variant</th>
-              <th class="text-right">Qty</th>
-              <th class="text-right">MRP</th>
-              <th class="text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${invoice.items.map((item, idx) => `
+        
+        <div class="items-section">
+          <table class="items-table">
+            <thead>
               <tr>
-                <td>${idx + 1}</td>
-                <td>${item.product_name}</td>
-                <td>${item.variant_name || '-'}</td>
-                <td class="text-right">${item.quantity}</td>
-                <td class="text-right">₹${item.mrp.toFixed(2)}</td>
-                <td class="text-right">₹${item.total_value.toFixed(2)}</td>
+                <th style="width: 30px;">#</th>
+                <th style="width: 180px; text-align: left;">Item name</th>
+                <th>Indent</th>
+                <th>Supplied Qty</th>
+                <th>Rate</th>
+                <th>Amount</th>
+                <th>Receiving</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        <div class="summary">
-          <div class="summary-row">
-            <span>Total MRP Value:</span>
-            <span>₹${invoice.total_mrp_value.toFixed(2)}</span>
-          </div>
-          <div class="summary-row">
-            <span>Commission (${invoice.commission_percentage}%):</span>
-            <span style="color: green;">- ₹${invoice.commission_amount.toFixed(2)}</span>
-          </div>
-          <div class="summary-row total-row">
-            <span>Net Payable:</span>
-            <span>₹${invoice.net_payable.toFixed(2)}</span>
+            </thead>
+            <tbody>
+              ${invoice.items.map((item, idx) => `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td class="text-left">${item.product_name}${item.variant_name ? ' (' + item.variant_name + ')' : ''}</td>
+                  <td>${item.indent_qty || item.quantity || 0}</td>
+                  <td>${item.quantity || item.supplied_qty || 0}</td>
+                  <td class="text-right">₹${(item.mrp || 0).toFixed(2)}</td>
+                  <td class="text-right">₹${(item.total_value || 0).toFixed(2)}</td>
+                  <td></td>
+                </tr>
+              `).join('')}
+              <tr class="total-row">
+                <td></td>
+                <td class="text-left"><strong>Total</strong></td>
+                <td><strong>${totalIndent}</strong></td>
+                <td><strong>${totalSupplied}</strong></td>
+                <td></td>
+                <td class="text-right"><strong>₹${totalAmount.toFixed(2)}</strong></td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="items-section" style="padding: 10px;">
+          <div style="display: flex; justify-content: flex-end; gap: 20px;">
+            <div style="text-align: right;">
+              <div style="margin-bottom: 5px;">Total MRP Value: <strong>₹${totalAmount.toFixed(2)}</strong></div>
+              <div style="margin-bottom: 5px; color: #b45309;">Commission (${invoice.commission_percentage}%): <strong>-₹${invoice.commission_amount.toFixed(2)}</strong></div>
+              <div style="font-size: 14px; font-weight: bold; border-top: 2px solid #14532D; padding-top: 5px;">Net Receivable: ₹${invoice.net_payable.toFixed(2)}</div>
+            </div>
           </div>
         </div>
-        <br><br>
-        <button onclick="window.print()">Print Invoice</button>
+        
+        <div class="amount-words-section">
+          <strong>Total Amount in words:</strong> ${numberToWords(invoice.net_payable)}
+        </div>
+        
+        <div class="footer-section">
+          <div class="footer-left">
+            <div class="terms-header">Terms & Conditions:</div>
+            Thanks for doing business with us!
+            <br/><br/>
+            MR ORGANIX M.NO. 1638,<br/>
+            Taleranwadi, Kesnand Taluka - Haveli<br/>
+            Pune - 412207, Maharashtra<br/>
+            Phone: 8530418069
+          </div>
+          <div class="footer-right">
+            <div class="signatory-label">For Mr Organix</div>
+            <div class="signatory-name">Authorized Signatory</div>
+          </div>
+        </div>
+        
+        <button class="print-btn" onclick="window.print()">Print Invoice</button>
       </body>
       </html>
     `);
@@ -1142,7 +1330,7 @@ export default function RetailerOrders() {
                           </td>
                           <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
                           <td className="p-3">{formatDate(invoice.invoice_date)}</td>
-                          <td className="p-3 font-medium">{invoice.retailer_name}</td>
+                          <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
                           <td className="p-3 text-center">{invoice.items?.length || 0}</td>
                           <td className="p-3 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
                           <td className="p-3 text-right text-green-600">- {formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
@@ -1151,6 +1339,9 @@ export default function RetailerOrders() {
                             <div className="flex items-center justify-center gap-1">
                               <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
                                 <Download size={14} className="text-blue-600" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)}>
+                                <Edit size={14} className="text-amber-600" />
                               </Button>
                               <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
                                 <Trash2 size={14} className="text-red-600" />
@@ -1584,13 +1775,13 @@ export default function RetailerOrders() {
         {/* ==================== INVOICE MODAL ==================== */}
         {showInvoiceModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
                 <div>
                   <h3 className="text-lg font-semibold">Create Invoice</h3>
-                  <p className="text-sm text-gray-500">Select dispatches to include in this invoice</p>
+                  <p className="text-sm text-gray-500">Select items to include in this invoice</p>
                 </div>
-                <button onClick={() => { setShowInvoiceModal(false); setSelectedDispatchIds([]); }} className="p-1 hover:bg-gray-100 rounded">
+                <button onClick={() => { setShowInvoiceModal(false); setSelectedItemIds([]); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
@@ -1606,52 +1797,181 @@ export default function RetailerOrders() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-2 block">
-                    Select Dispatches ({selectedDispatchIds.length} selected)
-                  </label>
-                  {uninvoicedDispatches.length === 0 ? (
-                    <p className="text-gray-400 text-center py-4">No uninvoiced dispatches found for this retailer</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Select Items ({selectedItemIds.length} selected)
+                    </label>
+                    {uninvoicedItems.length > 0 && (
+                      <Button type="button" variant="outline" size="sm" onClick={selectAllItems}>
+                        Select All
+                      </Button>
+                    )}
+                  </div>
+                  {uninvoicedItems.length === 0 ? (
+                    <p className="text-gray-400 text-center py-4">No uninvoiced items found for this retailer</p>
                   ) : (
-                    <div className="border rounded max-h-60 overflow-y-auto">
-                      {uninvoicedDispatches.map(dispatch => (
-                        <div
-                          key={dispatch.id}
-                          className={`flex items-center gap-3 p-3 border-b cursor-pointer hover:bg-gray-50 ${
-                            selectedDispatchIds.includes(dispatch.id) ? 'bg-green-50' : ''
-                          }`}
-                          onClick={() => toggleDispatchSelection(dispatch.id)}
-                        >
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                            selectedDispatchIds.includes(dispatch.id) ? 'bg-[#14532D] border-[#14532D]' : 'border-gray-300'
-                          }`}>
-                            {selectedDispatchIds.includes(dispatch.id) && <Check size={14} className="text-white" />}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">{formatDate(dispatch.dispatch_date)}</p>
-                            <p className="text-xs text-gray-500">{dispatch.items?.length || 0} items</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold">{formatCurrency(dispatch.total_mrp_value)}</p>
-                            <p className="text-xs text-green-600">Net: {formatCurrency(dispatch.net_payable)}</p>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="border rounded max-h-80 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="p-2 w-8 text-center">
+                              <Check size={14} />
+                            </th>
+                            <th className="p-2 text-left">Dispatch Date</th>
+                            <th className="p-2 text-left">Product</th>
+                            <th className="p-2 text-center">Qty</th>
+                            <th className="p-2 text-right">MRP</th>
+                            <th className="p-2 text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {uninvoicedItems.map((item) => (
+                            <tr 
+                              key={item.item_id} 
+                              className={`border-t cursor-pointer hover:bg-gray-50 ${selectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''}`}
+                              onClick={() => toggleItemSelection(item.item_id)}
+                            >
+                              <td className="p-2 text-center">
+                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                                  selectedItemIds.includes(item.item_id) ? 'bg-[#14532D] border-[#14532D]' : 'border-gray-300'
+                                }`}>
+                                  {selectedItemIds.includes(item.item_id) && <Check size={12} className="text-white" />}
+                                </div>
+                              </td>
+                              <td className="p-2 text-xs text-gray-600">{formatDate(item.dispatch_date)}</td>
+                              <td className="p-2">
+                                <div className="font-medium">{item.product_name}</div>
+                                {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                              </td>
+                              <td className="p-2 text-center">{item.supplied_qty}</td>
+                              <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
+                              <td className="p-2 text-right font-medium">₹{item.total_value?.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
 
-                {selectedDispatchIds.length > 0 && (
-                  <div className="bg-green-50 p-3 rounded">
-                    <p className="text-sm font-medium">Selected Total: {formatCurrency(selectedDispatchTotal)}</p>
+                {selectedItemIds.length > 0 && (
+                  <div className="bg-green-50 p-3 rounded flex justify-between items-center">
+                    <span className="text-sm font-medium">Selected Items: {selectedItemIds.length}</span>
+                    <span className="text-sm font-bold">
+                      Total: {formatCurrency(uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).reduce((sum, i) => sum + (i.total_value || 0), 0))}
+                    </span>
                   </div>
                 )}
 
                 <div className="flex gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => { setShowInvoiceModal(false); setSelectedDispatchIds([]); }} className="flex-1">
+                  <Button type="button" variant="outline" onClick={() => { setShowInvoiceModal(false); setSelectedItemIds([]); }} className="flex-1">
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1 bg-[#14532D]" disabled={selectedDispatchIds.length === 0}>
-                    Create Invoice
+                  <Button type="submit" className="flex-1 bg-[#14532D]" disabled={selectedItemIds.length === 0}>
+                    Create Invoice ({selectedItemIds.length})
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== EDIT INVOICE MODAL ==================== */}
+        {showEditInvoiceModal && editingInvoice && editInvoiceForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">Edit Invoice - {editingInvoice.invoice_number}</h3>
+                  <p className="text-sm text-gray-500">Update invoice details</p>
+                </div>
+                <button onClick={() => { setShowEditInvoiceModal(false); setEditingInvoice(null); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleUpdateInvoice} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date</label>
+                  <Input
+                    type="date"
+                    value={editInvoiceForm.invoice_date}
+                    onChange={(e) => setEditInvoiceForm(prev => ({ ...prev, invoice_date: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Items</label>
+                  <div className="border rounded overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="p-2 text-left">Product</th>
+                          <th className="p-2 text-center w-24">Qty</th>
+                          <th className="p-2 text-center w-28">MRP</th>
+                          <th className="p-2 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {editInvoiceForm.items.map((item, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="p-2">
+                              <div className="font-medium">{item.product_name}</div>
+                              {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                            </td>
+                            <td className="p-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.quantity || item.supplied_qty || ''}
+                                onChange={(e) => updateEditInvoiceItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                                className="w-20 h-8 text-center"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.mrp || ''}
+                                onChange={(e) => updateEditInvoiceItem(idx, 'mrp', parseFloat(e.target.value) || 0)}
+                                className="w-24 h-8 text-right"
+                              />
+                            </td>
+                            <td className="p-2 text-right font-medium">
+                              ₹{(item.total_value || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50">
+                        <tr>
+                          <td colSpan={3} className="p-2 text-right font-medium">Total:</td>
+                          <td className="p-2 text-right font-bold">
+                            ₹{editInvoiceForm.items.reduce((sum, i) => sum + (i.total_value || 0), 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    type="text"
+                    value={editInvoiceForm.remarks || ''}
+                    onChange={(e) => setEditInvoiceForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowEditInvoiceModal(false); setEditingInvoice(null); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">
+                    Update Invoice
                   </Button>
                 </div>
               </form>

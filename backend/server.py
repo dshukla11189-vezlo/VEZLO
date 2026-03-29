@@ -568,6 +568,67 @@ async def delete_qc_customer(customer_id: str, current_user: dict = Depends(get_
     
     return {"message": "Customer deleted successfully"}
 
+# Customer Product Settings (Lot Size per Customer-Product)
+@api_router.get("/customer-product-settings")
+async def get_customer_product_settings(
+    customer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if customer_id:
+        query["customer_id"] = customer_id
+    
+    settings = await db.customer_product_settings.find(query, {"_id": 0}).to_list(1000)
+    return settings
+
+@api_router.post("/customer-product-settings")
+async def create_or_update_customer_product_setting(
+    input: CustomerProductSettingCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if setting already exists for this customer-product-packaging combo
+    existing = await db.customer_product_settings.find_one({
+        "customer_id": input.customer_id,
+        "product_id": input.product_id,
+        "packaging_id": input.packaging_id or None
+    }, {"_id": 0})
+    
+    if existing:
+        # Update existing
+        await db.customer_product_settings.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "lot_size": input.lot_size,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return {"id": existing["id"], "message": "Setting updated successfully"}
+    else:
+        # Create new
+        setting = CustomerProductSetting(**input.model_dump())
+        doc = setting.model_dump()
+        doc["created_at"] = doc["created_at"].isoformat()
+        doc["updated_at"] = doc["updated_at"].isoformat()
+        await db.customer_product_settings.insert_one(doc)
+        return {"id": setting.id, "message": "Setting created successfully"}
+
+@api_router.delete("/customer-product-settings/{setting_id}")
+async def delete_customer_product_setting(setting_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.customer_product_settings.delete_one({"id": setting_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Setting not found")
+    
+    return {"message": "Setting deleted successfully"}
+
 # QC Indent Routes
 @api_router.get("/qc-indents")
 async def get_qc_indents(current_user: dict = Depends(get_current_user)):

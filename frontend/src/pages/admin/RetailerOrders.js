@@ -18,8 +18,14 @@ export default function RetailerOrders() {
   const [packagings, setPackagings] = useState([]);
   const [selectedRetailer, setSelectedRetailer] = useState('');
   
+  // Date filters - default to today
+  const today = new Date().toISOString().split('T')[0];
+  const [indentDateFilter, setIndentDateFilter] = useState(today);
+  const [dispatchDateFilter, setDispatchDateFilter] = useState(today);
+  
   // Indents state
   const [indents, setIndents] = useState([]);
+  const [filteredIndents, setFilteredIndents] = useState([]);
   const [showIndentModal, setShowIndentModal] = useState(false);
   const [indentForm, setIndentForm] = useState({
     retailer_id: '',
@@ -30,6 +36,7 @@ export default function RetailerOrders() {
   
   // Dispatches state
   const [dispatches, setDispatches] = useState([]);
+  const [filteredDispatches, setFilteredDispatches] = useState([]);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [editingDispatch, setEditingDispatch] = useState(null);
   const [selectedIndent, setSelectedIndent] = useState(null);
@@ -182,6 +189,32 @@ export default function RetailerOrders() {
     };
     loadAll();
   }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments]);
+
+  // Filter indents by date
+  useEffect(() => {
+    if (!indentDateFilter) {
+      setFilteredIndents(indents);
+    } else {
+      const filtered = indents.filter(indent => {
+        const indentDate = indent.indent_date?.split('T')[0];
+        return indentDate === indentDateFilter;
+      });
+      setFilteredIndents(filtered);
+    }
+  }, [indents, indentDateFilter]);
+
+  // Filter dispatches by date
+  useEffect(() => {
+    if (!dispatchDateFilter) {
+      setFilteredDispatches(dispatches);
+    } else {
+      const filtered = dispatches.filter(dispatch => {
+        const dispatchDate = dispatch.dispatch_date?.split('T')[0];
+        return dispatchDate === dispatchDateFilter;
+      });
+      setFilteredDispatches(filtered);
+    }
+  }, [dispatches, dispatchDateFilter]);
 
   // Calculate dashboard stats whenever data changes
   useEffect(() => {
@@ -1148,7 +1181,22 @@ export default function RetailerOrders() {
         {activeTab === 'indents' && (
           <Card>
             <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">Retailer Indents</CardTitle>
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-sm">Retailer Indents</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={indentDateFilter}
+                    onChange={(e) => setIndentDateFilter(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                  />
+                  {indentDateFilter && (
+                    <Button size="sm" variant="ghost" onClick={() => setIndentDateFilter('')} className="h-8 px-2">
+                      <X size={12} /> Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
               <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
                 <Plus size={14} className="mr-1" /> New Indent
               </Button>
@@ -1167,9 +1215,9 @@ export default function RetailerOrders() {
                     </tr>
                   </thead>
                   <tbody>
-                    {indents.length === 0 ? (
-                      <tr><td colSpan={6} className="p-8 text-center text-gray-400">No indents found</td></tr>
-                    ) : indents.map(indent => (
+                    {filteredIndents.length === 0 ? (
+                      <tr><td colSpan={6} className="p-8 text-center text-gray-400">{indentDateFilter ? `No indents for ${indentDateFilter}` : 'No indents found'}</td></tr>
+                    ) : filteredIndents.map(indent => (
                       <React.Fragment key={indent.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleIndentExpand(indent.id)}>
                           <td className="p-3 text-center">
@@ -1240,8 +1288,23 @@ export default function RetailerOrders() {
         {/* ==================== DISPATCHES TAB ==================== */}
         {activeTab === 'dispatches' && (
           <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm">Dispatches</CardTitle>
+            <CardHeader className="py-3 flex flex-row items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-sm">Dispatches</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={dispatchDateFilter}
+                    onChange={(e) => setDispatchDateFilter(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                  />
+                  {dispatchDateFilter && (
+                    <Button size="sm" variant="ghost" onClick={() => setDispatchDateFilter('')} className="h-8 px-2">
+                      <X size={12} /> Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -1260,9 +1323,9 @@ export default function RetailerOrders() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dispatches.length === 0 ? (
-                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">No dispatches found</td></tr>
-                    ) : dispatches.map(dispatch => (
+                    {filteredDispatches.length === 0 ? (
+                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">{dispatchDateFilter ? `No dispatches for ${dispatchDateFilter}` : 'No dispatches found'}</td></tr>
+                    ) : filteredDispatches.map(dispatch => (
                       <tr key={dispatch.id} className="border-b hover:bg-gray-50">
                         <td className="p-3">{formatDate(dispatch.dispatch_date)}</td>
                         <td className="p-3 font-medium">{getRetailerNameById(dispatch.retailer_id) || dispatch.retailer_name}</td>
@@ -1297,14 +1360,14 @@ export default function RetailerOrders() {
                       </tr>
                     ))}
                   </tbody>
-                  {dispatches.length > 0 && (
+                  {filteredDispatches.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
                         <td colSpan={3} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
+                        <td className="p-3 text-right">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
                         <td></td>
-                        <td className="p-3 text-right text-green-700">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
-                        <td className="p-3 text-center text-xs">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.transport_charges || 0), 0))}</td>
+                        <td className="p-3 text-right text-green-700">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
+                        <td className="p-3 text-center text-xs">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.transport_charges || 0), 0))}</td>
                         <td colSpan={2}></td>
                       </tr>
                     </tfoot>

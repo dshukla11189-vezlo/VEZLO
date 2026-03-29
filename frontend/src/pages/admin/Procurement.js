@@ -36,10 +36,11 @@ export default function Procurement() {
   const [selectedProcurement, setSelectedProcurement] = useState(null);
   const [editMode, setEditMode] = useState(false);
   
-  // Filters
+  // Filters - default to today's date
+  const today = new Date().toISOString().split('T')[0];
   const [filters, setFilters] = useState({
-    fromDate: '',
-    toDate: '',
+    fromDate: today,
+    toDate: today,
     farmerName: '',
     productName: ''
   });

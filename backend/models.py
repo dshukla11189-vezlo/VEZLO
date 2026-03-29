@@ -389,6 +389,29 @@ class QCCustomerCreate(BaseModel):
     contact_number: Optional[str] = None
     address: Optional[str] = None
 
+# Customer Product Settings (Lot Size per Customer-Product)
+class CustomerProductSetting(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    customer_id: str
+    customer_name: str
+    product_id: str
+    product_name: str
+    packaging_id: Optional[str] = None
+    packaging_name: Optional[str] = None
+    lot_size: float  # Units per crate for this customer-product combo
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class CustomerProductSettingCreate(BaseModel):
+    customer_id: str
+    customer_name: str
+    product_id: str
+    product_name: str
+    packaging_id: Optional[str] = None
+    packaging_name: Optional[str] = None
+    lot_size: float
+
 # Retailer Order Models
 class RetailerOrder(BaseModel):
     model_config = ConfigDict(extra="ignore")

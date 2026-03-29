@@ -49,13 +49,17 @@ export default function QuickCommerce() {
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [editingPackaging, setEditingPackaging] = useState(null);
 
-  // Filter states
+  // Filter states - default to today
+  const today = new Date().toISOString().split('T')[0];
   const [indentFilters, setIndentFilters] = useState({
-    fromDate: '',
-    toDate: '',
+    fromDate: today,
+    toDate: today,
     customerName: '',
     productName: ''
   });
+  
+  // Customer Product Settings (lot sizes)
+  const [customerProductSettings, setCustomerProductSettings] = useState([]);
 
   // Export states
   const [openExport, setOpenExport] = useState(false);
@@ -93,7 +97,7 @@ export default function QuickCommerce() {
   });
 
   // Dispatch states - log-based dispatch entries
-  const [dispatchData, setDispatchData] = useState({});  // { indentId: { itemIndex: supplied_qty } }
+  const [dispatchData, setDispatchData] = useState({});  // { indentId: { itemIndex: { supplied_qty, lot_size, no_of_crates } } }
   const [savingDispatch, setSavingDispatch] = useState({});  // Track which indents are being saved
   const [expandedIndents, setExpandedIndents] = useState({});  // Track which indent dispatch logs are expanded
   const [openDispatchDialog, setOpenDispatchDialog] = useState(false);
@@ -102,10 +106,10 @@ export default function QuickCommerce() {
   const [dispatchTime, setDispatchTime] = useState('');
   const [dispatchRemarks, setDispatchRemarks] = useState('');
 
-  // Dispatch tab filters
+  // Dispatch tab filters - default to today
   const [dispatchFilters, setDispatchFilters] = useState({
-    fromDate: '',
-    toDate: '',
+    fromDate: new Date().toISOString().split('T')[0],
+    toDate: new Date().toISOString().split('T')[0],
     customerName: '',
     productName: ''
   });
@@ -150,13 +154,14 @@ export default function QuickCommerce() {
 
   const loadData = async () => {
     try {
-      const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes, invoicesRes] = await Promise.all([
+      const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes, invoicesRes, settingsRes] = await Promise.all([
         api.get('/api/qc-indents'),
         api.get('/api/qc-dispatches'),
         api.get('/api/qc-grns'),
         api.get('/api/qc-customers'),
         api.get('/api/products'),
-        api.get('/api/qc-invoices')
+        api.get('/api/qc-invoices'),
+        api.get('/api/customer-product-settings')
       ]);
       setIndents(indentsRes.data);
       setDispatches(dispatchesRes.data);
@@ -164,6 +169,7 @@ export default function QuickCommerce() {
       setCustomers(customersRes.data);
       setProducts(productsRes.data);
       setInvoices(invoicesRes.data);
+      setCustomerProductSettings(settingsRes.data || []);
       
       // Load GRN dispatch summary for Ninjacart
       try {
@@ -214,6 +220,37 @@ export default function QuickCommerce() {
     await loadPackagingVariants(); // Refresh from API
   };
 
+  // Get lot size for a customer-product-packaging combination
+  const getLotSizeForProduct = (customerId, productId, packagingId = null) => {
+    const setting = customerProductSettings.find(s => 
+      s.customer_id === customerId && 
+      s.product_id === productId &&
+      (packagingId ? s.packaging_id === packagingId : true)
+    );
+    return setting?.lot_size || '';
+  };
+
+  // Save lot size for customer-product combo
+  const saveLotSize = async (customerId, customerName, productId, productName, packagingId, packagingName, lotSize) => {
+    if (!lotSize || lotSize <= 0) return;
+    try {
+      await api.post('/api/customer-product-settings', {
+        customer_id: customerId,
+        customer_name: customerName,
+        product_id: productId,
+        product_name: productName,
+        packaging_id: packagingId || null,
+        packaging_name: packagingName || null,
+        lot_size: parseFloat(lotSize)
+      });
+      // Refresh settings
+      const res = await api.get('/api/customer-product-settings');
+      setCustomerProductSettings(res.data || []);
+    } catch (error) {
+      console.error('Failed to save lot size:', error);
+    }
+  };
+
   // Apply filters to indents
   const applyIndentFilters = () => {
     let filtered = [...indents];
@@ -241,7 +278,8 @@ export default function QuickCommerce() {
   };
 
   const clearIndentFilters = () => {
-    setIndentFilters({ fromDate: '', toDate: '', customerName: '', productName: '' });
+    const today = new Date().toISOString().split('T')[0];
+    setIndentFilters({ fromDate: today, toDate: today, customerName: '', productName: '' });
   };
 
   const formatDate = (date) => {
@@ -419,16 +457,41 @@ export default function QuickCommerce() {
     const newItems = [...indentForm.items];
     newItems[index].product_id = product.id;
     newItems[index].product_name = product.name;
-    // Don't override unit here - let packaging selection set it
+    
+    // Try to get saved lot size for this customer-product combo
+    const customer = customers.find(c => c.name === indentForm.customer_name);
+    if (customer) {
+      const savedLotSize = getLotSizeForProduct(customer.id, product.id, newItems[index].packaging_id);
+      if (savedLotSize) {
+        newItems[index].lot_size = savedLotSize.toString();
+        // Recalculate crates
+        const qty = parseFloat(newItems[index].required_qty) || 0;
+        newItems[index].no_of_crates = savedLotSize > 0 ? Math.ceil(qty / savedLotSize) : 0;
+      }
+    }
+    
     setIndentForm({ ...indentForm, items: newItems });
   };
 
-  // Handle packaging selection - auto-fill unit
+  // Handle packaging selection - auto-fill unit and lot size
   const handlePackagingSelect = (index, packaging) => {
     const newItems = [...indentForm.items];
     newItems[index].packaging_id = packaging.id;
     newItems[index].packaging_name = packaging.name;
     newItems[index].product_unit = `${packaging.weight_gm} gm`;  // Auto-set unit from packaging weight
+    
+    // Try to get saved lot size for this customer-product-packaging combo
+    const customer = customers.find(c => c.name === indentForm.customer_name);
+    if (customer && newItems[index].product_id) {
+      const savedLotSize = getLotSizeForProduct(customer.id, newItems[index].product_id, packaging.id);
+      if (savedLotSize) {
+        newItems[index].lot_size = savedLotSize.toString();
+        // Recalculate crates
+        const qty = parseFloat(newItems[index].required_qty) || 0;
+        newItems[index].no_of_crates = savedLotSize > 0 ? Math.ceil(qty / savedLotSize) : 0;
+      }
+    }
+    
     setIndentForm({ ...indentForm, items: newItems });
   };
 
@@ -514,6 +577,22 @@ export default function QuickCommerce() {
     try {
       // Save the date for next time
       localStorage.setItem('last_indent_date', indentForm.indent_date);
+      
+      // Save lot sizes for customer-product combinations (for future auto-fill)
+      const customer = customers.find(c => c.name === indentForm.customer_name);
+      if (customer) {
+        for (const item of validItems) {
+          await saveLotSize(
+            customer.id,
+            customer.name,
+            item.product_id,
+            item.product_name,
+            item.packaging_id,
+            item.packaging_name,
+            item.lot_size
+          );
+        }
+      }
 
       const payload = {
         indent_date: new Date(indentForm.indent_date).toISOString(),
@@ -635,14 +714,29 @@ export default function QuickCommerce() {
   };
 
   // Dispatch Handlers - Log-based dispatch entries
-  const handleSuppliedQtyChange = (indentId, itemIndex, value) => {
-    setDispatchData(prev => ({
-      ...prev,
-      [indentId]: {
-        ...prev[indentId],
-        [itemIndex]: value
-      }
-    }));
+  const handleSuppliedQtyChange = (indentId, itemIndex, field, value) => {
+    setDispatchData(prev => {
+      const existingItem = prev[indentId]?.[itemIndex] || {};
+      return {
+        ...prev,
+        [indentId]: {
+          ...prev[indentId],
+          [itemIndex]: typeof existingItem === 'object' 
+            ? { ...existingItem, [field]: value }
+            : { supplied_qty: field === 'supplied_qty' ? value : '', [field]: value }
+        }
+      };
+    });
+  };
+
+  // Helper to get dispatch item value
+  const getDispatchItemValue = (indentId, itemIndex, field) => {
+    const itemData = dispatchData[indentId]?.[itemIndex];
+    if (typeof itemData === 'object') {
+      return itemData[field] || '';
+    }
+    // Legacy: if it's just a string (old format), treat as supplied_qty
+    return field === 'supplied_qty' ? (itemData || '') : '';
   };
 
   const getDispatchedQtyForIndent = (indentId, productId) => {
@@ -678,11 +772,15 @@ export default function QuickCommerce() {
     setDispatchDate(new Date().toISOString().split('T')[0]);  // Default to today
     setDispatchTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }));
     setDispatchRemarks('');
-    // Pre-fill with remaining quantities
+    // Pre-fill with remaining quantities and default lot_size/crates from indent
     const newDispatchData = {};
     indent.items?.forEach((item, idx) => {
       const remaining = getRemainingQty(indent, item);
-      newDispatchData[idx] = remaining > 0 ? remaining.toString() : '';
+      newDispatchData[idx] = {
+        supplied_qty: remaining > 0 ? remaining.toString() : '',
+        lot_size: item.lot_size?.toString() || '',
+        no_of_crates: item.lot_size > 0 && remaining > 0 ? Math.ceil(remaining / item.lot_size).toString() : '0'
+      };
     });
     setDispatchData(prev => ({ ...prev, [indent.id]: newDispatchData }));
     setOpenDispatchDialog(true);
@@ -695,7 +793,8 @@ export default function QuickCommerce() {
     
     // Validate that at least one item has supplied qty > 0
     const hasSuppliedQty = indent.items.some((_, idx) => {
-      const qty = dispatchData[indent.id]?.[idx];
+      const itemData = dispatchData[indent.id]?.[idx];
+      const qty = typeof itemData === 'object' ? itemData.supplied_qty : itemData;
       return qty !== '' && parseFloat(qty) > 0;
     });
 
@@ -708,7 +807,11 @@ export default function QuickCommerce() {
 
     try {
       const dispatchItems = indent.items.map((item, idx) => {
-        const suppliedQty = parseFloat(dispatchData[indent.id]?.[idx]) || 0;
+        const itemData = dispatchData[indent.id]?.[idx] || {};
+        const suppliedQty = parseFloat(typeof itemData === 'object' ? itemData.supplied_qty : itemData) || 0;
+        const lotSize = parseInt(typeof itemData === 'object' ? itemData.lot_size : item.lot_size) || item.lot_size;
+        const crates = parseInt(typeof itemData === 'object' ? itemData.no_of_crates : null) || (lotSize > 0 ? Math.ceil(suppliedQty / lotSize) : 0);
+        
         return {
           product_id: item.product_id,
           product_name: item.product_name,
@@ -717,8 +820,8 @@ export default function QuickCommerce() {
           packaging_name: item.packaging_name || '',
           indent_qty: item.required_qty,
           supplied_qty: suppliedQty,
-          lot_size: item.lot_size,
-          no_of_crates: item.lot_size > 0 ? Math.ceil(suppliedQty / item.lot_size) : 0,
+          lot_size: lotSize,
+          no_of_crates: crates,
           rate: item.rate || null
         };
       }).filter(item => item.supplied_qty > 0);  // Only include items with qty > 0
@@ -2201,13 +2304,18 @@ Email: ${companyEmail}`;
                           <th className="text-right">INDENT QTY</th>
                           <th className="text-right">ALREADY DISPATCHED</th>
                           <th className="text-right">REMAINING</th>
-                          <th className="text-right" style={{ width: '150px' }}>SUPPLY NOW</th>
+                          <th className="text-right" style={{ width: '100px' }}>SUPPLY NOW</th>
+                          <th className="text-right" style={{ width: '80px' }}>LOT SIZE</th>
+                          <th className="text-right" style={{ width: '80px' }}>CRATES</th>
                         </tr>
                       </thead>
                       <tbody>
                         {currentDispatchIndent.items?.map((item, idx) => {
                           const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id);
                           const remaining = Math.max(0, item.required_qty - dispatched);
+                          const suppliedQty = parseFloat(getDispatchItemValue(currentDispatchIndent.id, idx, 'supplied_qty')) || 0;
+                          const lotSize = parseInt(getDispatchItemValue(currentDispatchIndent.id, idx, 'lot_size')) || item.lot_size || 1;
+                          const autoCrates = lotSize > 0 ? Math.ceil(suppliedQty / lotSize) : 0;
                           return (
                             <tr key={idx}>
                               <td className="font-medium">{item.product_name}</td>
@@ -2223,9 +2331,43 @@ Email: ${companyEmail}`;
                                   step="0.01"
                                   min="0"
                                   placeholder="Qty"
-                                  value={dispatchData[currentDispatchIndent.id]?.[idx] || ''}
-                                  onChange={(e) => handleSuppliedQtyChange(currentDispatchIndent.id, idx, e.target.value)}
-                                  className="w-full h-9 text-right"
+                                  value={getDispatchItemValue(currentDispatchIndent.id, idx, 'supplied_qty')}
+                                  onChange={(e) => {
+                                    handleSuppliedQtyChange(currentDispatchIndent.id, idx, 'supplied_qty', e.target.value);
+                                    // Auto-calculate crates based on lot size
+                                    const newQty = parseFloat(e.target.value) || 0;
+                                    const currentLotSize = parseInt(getDispatchItemValue(currentDispatchIndent.id, idx, 'lot_size')) || item.lot_size || 1;
+                                    const newCrates = currentLotSize > 0 ? Math.ceil(newQty / currentLotSize) : 0;
+                                    handleSuppliedQtyChange(currentDispatchIndent.id, idx, 'no_of_crates', newCrates.toString());
+                                  }}
+                                  className="w-full h-8 text-right text-sm"
+                                />
+                              </td>
+                              <td className="text-right">
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  placeholder="Lot"
+                                  value={getDispatchItemValue(currentDispatchIndent.id, idx, 'lot_size') || item.lot_size || ''}
+                                  onChange={(e) => {
+                                    handleSuppliedQtyChange(currentDispatchIndent.id, idx, 'lot_size', e.target.value);
+                                    // Auto-recalculate crates
+                                    const newLotSize = parseInt(e.target.value) || 1;
+                                    const currentQty = parseFloat(getDispatchItemValue(currentDispatchIndent.id, idx, 'supplied_qty')) || 0;
+                                    const newCrates = newLotSize > 0 ? Math.ceil(currentQty / newLotSize) : 0;
+                                    handleSuppliedQtyChange(currentDispatchIndent.id, idx, 'no_of_crates', newCrates.toString());
+                                  }}
+                                  className="w-full h-8 text-right text-sm"
+                                />
+                              </td>
+                              <td className="text-right">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  placeholder="Crates"
+                                  value={getDispatchItemValue(currentDispatchIndent.id, idx, 'no_of_crates') || autoCrates}
+                                  onChange={(e) => handleSuppliedQtyChange(currentDispatchIndent.id, idx, 'no_of_crates', e.target.value)}
+                                  className="w-full h-8 text-right text-sm"
                                 />
                               </td>
                             </tr>

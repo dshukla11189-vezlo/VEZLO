@@ -2987,6 +2987,7 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
         total_mrp_value=round(total_mrp_value, 2),
         commission_percentage=commission,
         net_payable=round(net_payable, 2),
+        transport_charges=input.transport_charges or 0,
         dispatched_by=current_user["user_id"],
         invoice_number=None,  # Invoice created separately
         remarks=input.remarks
@@ -3037,6 +3038,7 @@ async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCrea
         "total_mrp_value": round(total_mrp_value, 2),
         "commission_percentage": commission,
         "net_payable": round(net_payable, 2),
+        "transport_charges": input.transport_charges or 0,
         "remarks": input.remarks
     }
     

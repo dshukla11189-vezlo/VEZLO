@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
@@ -7,7 +7,8 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
-  Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check
+  Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp
 } from 'lucide-react';
 
 export default function RetailerOrders() {
@@ -35,8 +36,12 @@ export default function RetailerOrders() {
   const [dispatchForm, setDispatchForm] = useState({
     dispatch_date: new Date().toISOString().split('T')[0],
     items: [],
-    remarks: ''
+    remarks: '',
+    transport_charges: 0
   });
+  
+  // Editing indent state
+  const [editingIndent, setEditingIndent] = useState(null);
   
   // Invoices state
   const [invoices, setInvoices] = useState([]);
@@ -55,14 +60,9 @@ export default function RetailerOrders() {
   const [rejectionForm, setRejectionForm] = useState({
     retailer_id: '',
     rejection_date: new Date().toISOString().split('T')[0],
-    product_id: '',
-    product_name: '',
-    variant_name: '',
-    quantity: 0,
-    reason: '',
-    mrp: 0,
-    remarks: ''
+    items: [] // Changed to array of items for multi-item rejection
   });
+  const [rejectionDispatchItems, setRejectionDispatchItems] = useState([]); // Dispatch items for selected date
   
   // Payments state
   const [payments, setPayments] = useState([]);
@@ -74,6 +74,27 @@ export default function RetailerOrders() {
     payment_mode: 'cash',
     reference_number: '',
     remarks: ''
+  });
+  const [paymentContext, setPaymentContext] = useState(null); // Store dispatch details for selected date/retailer
+  
+  // Search states for autocomplete
+  const [productSearch, setProductSearch] = useState('');
+  const [variantSearch, setVariantSearch] = useState('');
+  const [showProductDropdown, setShowProductDropdown] = useState(null); // index of item showing dropdown
+  const [showVariantDropdown, setShowVariantDropdown] = useState(null);
+  const productSearchRef = useRef(null);
+  const variantSearchRef = useRef(null);
+  
+  // Dashboard summary state
+  const [dashboardStats, setDashboardStats] = useState({
+    totalIndents: 0,
+    pendingIndents: 0,
+    totalDispatches: 0,
+    totalMrpValue: 0,
+    totalNetReceivable: 0,
+    totalInvoiced: 0,
+    totalPayments: 0,
+    pendingAmount: 0
   });
   
   const [loading, setLoading] = useState(true);
@@ -156,6 +177,27 @@ export default function RetailerOrders() {
     loadAll();
   }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments]);
 
+  // Calculate dashboard stats whenever data changes
+  useEffect(() => {
+    const totalMrpValue = dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
+    const totalNetReceivable = dispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+    const totalInvoiced = invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0);
+    const totalPaymentsReceived = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalRejections = rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    
+    setDashboardStats({
+      totalIndents: indents.length,
+      pendingIndents: indents.filter(i => i.status === 'pending').length,
+      totalDispatches: dispatches.length,
+      totalMrpValue,
+      totalNetReceivable,
+      totalInvoiced,
+      totalPayments: totalPaymentsReceived,
+      totalRejections,
+      pendingAmount: totalNetReceivable - totalPaymentsReceived - totalRejections
+    });
+  }, [indents, dispatches, invoices, payments, rejections]);
+
   const formatDate = (date) => {
     if (!date) return '-';
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -166,7 +208,7 @@ export default function RetailerOrders() {
   };
 
   // ==================== INDENT HANDLERS ====================
-  const handleCreateIndent = async (e) => {
+  const handleCreateOrUpdateIndent = async (e) => {
     e.preventDefault();
     if (!indentForm.retailer_id) {
       toast.error('Please select a retailer');
@@ -178,19 +220,48 @@ export default function RetailerOrders() {
     }
 
     try {
-      await api.post('/api/retailer-indents', {
-        retailer_id: indentForm.retailer_id,
-        indent_date: new Date(indentForm.indent_date).toISOString(),
-        items: indentForm.items,
-        remarks: indentForm.remarks
-      });
-      toast.success('Indent created successfully');
+      if (editingIndent) {
+        await api.put(`/api/retailer-indents/${editingIndent.id}`, {
+          retailer_id: indentForm.retailer_id,
+          indent_date: new Date(indentForm.indent_date).toISOString(),
+          items: indentForm.items,
+          remarks: indentForm.remarks
+        });
+        toast.success('Indent updated successfully');
+      } else {
+        await api.post('/api/retailer-indents', {
+          retailer_id: indentForm.retailer_id,
+          indent_date: new Date(indentForm.indent_date).toISOString(),
+          items: indentForm.items,
+          remarks: indentForm.remarks
+        });
+        toast.success('Indent created successfully');
+      }
       setShowIndentModal(false);
+      setEditingIndent(null);
       resetIndentForm();
       loadIndents();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create indent');
+      toast.error(error.response?.data?.detail || 'Failed to save indent');
     }
+  };
+
+  const openEditIndentModal = (indent) => {
+    setEditingIndent(indent);
+    setIndentForm({
+      retailer_id: indent.retailer_id,
+      indent_date: indent.indent_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      items: indent.items.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id || '',
+        variant_name: item.variant_name || '',
+        quantity: item.quantity,
+        status: item.status || 'pending'
+      })),
+      remarks: indent.remarks || ''
+    });
+    setShowIndentModal(true);
   };
 
   const handleDeleteIndent = async (indentId) => {
@@ -259,7 +330,8 @@ export default function RetailerOrders() {
         mrp: 0,
         total_value: 0
       })),
-      remarks: ''
+      remarks: '',
+      transport_charges: 0
     });
     setShowDispatchModal(true);
   };
@@ -279,7 +351,8 @@ export default function RetailerOrders() {
         mrp: item.mrp,
         total_value: item.total_value
       })),
-      remarks: dispatch.remarks || ''
+      remarks: dispatch.remarks || '',
+      transport_charges: dispatch.transport_charges || 0
     });
     setShowDispatchModal(true);
   };
@@ -307,7 +380,8 @@ export default function RetailerOrders() {
           indent_id: editingDispatch.indent_id,
           dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
           items: dispatchForm.items,
-          remarks: dispatchForm.remarks
+          remarks: dispatchForm.remarks,
+          transport_charges: dispatchForm.transport_charges || 0
         });
         toast.success('Dispatch updated successfully');
       } else {
@@ -316,7 +390,8 @@ export default function RetailerOrders() {
           indent_id: selectedIndent.id,
           dispatch_date: new Date(dispatchForm.dispatch_date).toISOString(),
           items: dispatchForm.items,
-          remarks: dispatchForm.remarks
+          remarks: dispatchForm.remarks,
+          transport_charges: dispatchForm.transport_charges || 0
         });
         toast.success('Dispatch created successfully');
       }
@@ -497,24 +572,109 @@ export default function RetailerOrders() {
   };
 
   // ==================== REJECTION HANDLERS ====================
-  const handleCreateRejection = async (e) => {
+  // Load dispatch items when date/retailer changes for rejection
+  const loadRejectionDispatchItems = useCallback(async () => {
+    if (!rejectionForm.retailer_id || !rejectionForm.rejection_date) {
+      setRejectionDispatchItems([]);
+      return;
+    }
+    
+    try {
+      // Get dispatches for this retailer on this date
+      const dateStr = rejectionForm.rejection_date;
+      const response = await api.get(`/api/retailer-dispatches?retailer_id=${rejectionForm.retailer_id}`);
+      const dayDispatches = response.data.filter(d => {
+        const dispatchDate = d.dispatch_date?.split('T')[0];
+        return dispatchDate === dateStr;
+      });
+      
+      // Flatten all items from dispatches for that day
+      const items = [];
+      dayDispatches.forEach(dispatch => {
+        dispatch.items?.forEach(item => {
+          items.push({
+            dispatch_id: dispatch.id,
+            product_id: item.product_id,
+            product_name: item.product_name,
+            variant_id: item.variant_id,
+            variant_name: item.variant_name,
+            supplied_qty: item.supplied_qty,
+            mrp: item.mrp,
+            rejection_qty: 0,
+            reason: '',
+            remarks: '',
+            selected: false
+          });
+        });
+      });
+      
+      setRejectionDispatchItems(items);
+    } catch (error) {
+      console.error('Failed to load dispatch items:', error);
+      setRejectionDispatchItems([]);
+    }
+  }, [rejectionForm.retailer_id, rejectionForm.rejection_date]);
+
+  useEffect(() => {
+    if (showRejectionModal && rejectionForm.retailer_id && rejectionForm.rejection_date) {
+      loadRejectionDispatchItems();
+    }
+  }, [showRejectionModal, loadRejectionDispatchItems, rejectionForm.retailer_id, rejectionForm.rejection_date]);
+
+  const updateRejectionItem = (index, field, value) => {
+    setRejectionDispatchItems(prev => {
+      const items = [...prev];
+      items[index] = { ...items[index], [field]: value };
+      return items;
+    });
+  };
+
+  const handleCreateRejections = async (e) => {
     e.preventDefault();
-    if (!rejectionForm.retailer_id || !rejectionForm.product_id || !rejectionForm.quantity) {
-      toast.error('Please fill all required fields');
+    
+    // Get only selected items with valid quantities
+    const selectedItems = rejectionDispatchItems.filter(item => item.selected && item.rejection_qty > 0);
+    
+    if (selectedItems.length === 0) {
+      toast.error('Please select items and enter rejection quantities');
+      return;
+    }
+    
+    // Validate rejection qty doesn't exceed supplied qty
+    const invalidItems = selectedItems.filter(item => item.rejection_qty > item.supplied_qty);
+    if (invalidItems.length > 0) {
+      toast.error('Rejection quantity cannot exceed supplied quantity');
+      return;
+    }
+    
+    // Validate all selected items have a reason
+    const noReasonItems = selectedItems.filter(item => !item.reason);
+    if (noReasonItems.length > 0) {
+      toast.error('Please select a reason for all rejected items');
       return;
     }
 
     try {
-      await api.post('/api/retailer-rejections', {
-        ...rejectionForm,
-        rejection_date: new Date(rejectionForm.rejection_date).toISOString()
-      });
-      toast.success('Rejection recorded');
+      // Create rejections for each selected item
+      for (const item of selectedItems) {
+        await api.post('/api/retailer-rejections', {
+          retailer_id: rejectionForm.retailer_id,
+          rejection_date: new Date(rejectionForm.rejection_date).toISOString(),
+          product_id: item.product_id,
+          product_name: item.product_name,
+          variant_name: item.variant_name,
+          quantity: item.rejection_qty,
+          mrp: item.mrp,
+          reason: item.reason,
+          remarks: item.remarks || ''
+        });
+      }
+      toast.success(`${selectedItems.length} rejection(s) recorded`);
       setShowRejectionModal(false);
       resetRejectionForm();
       loadRejections();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to record rejection');
+      toast.error(error.response?.data?.detail || 'Failed to record rejections');
     }
   };
 
@@ -533,17 +693,65 @@ export default function RetailerOrders() {
     setRejectionForm({
       retailer_id: '',
       rejection_date: new Date().toISOString().split('T')[0],
-      product_id: '',
-      product_name: '',
-      variant_name: '',
-      quantity: 0,
-      reason: '',
-      mrp: 0,
-      remarks: ''
+      items: []
     });
+    setRejectionDispatchItems([]);
   };
 
   // ==================== PAYMENT HANDLERS ====================
+  // Load payment context when date/retailer changes
+  const loadPaymentContext = useCallback(async () => {
+    if (!paymentForm.retailer_id || !paymentForm.payment_date) {
+      setPaymentContext(null);
+      return;
+    }
+    
+    try {
+      // Get all dispatches for this retailer
+      const response = await api.get(`/api/retailer-dispatches?retailer_id=${paymentForm.retailer_id}`);
+      const allDispatches = response.data;
+      
+      // Get all payments for this retailer
+      const paymentsRes = await api.get(`/api/retailer-payments?retailer_id=${paymentForm.retailer_id}`);
+      const allPayments = paymentsRes.data;
+      
+      // Get all rejections for this retailer
+      const rejectionsRes = await api.get(`/api/retailer-rejections?retailer_id=${paymentForm.retailer_id}`);
+      const allRejections = rejectionsRes.data;
+      
+      // Calculate totals
+      const totalMrpValue = allDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
+      const totalCommission = allDispatches.reduce((sum, d) => sum + (d.commission_amount || 0), 0);
+      const totalNetReceivable = allDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+      const totalPaid = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const totalRejections = allRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+      const pendingAmount = totalNetReceivable - totalPaid - totalRejections;
+      
+      // Get retailer info
+      const retailer = retailers.find(r => r.id === paymentForm.retailer_id);
+      
+      setPaymentContext({
+        retailer_name: retailer?.company_name || retailer?.name,
+        commission_percentage: retailer?.commission_percentage || 0,
+        totalMrpValue,
+        totalCommission,
+        totalNetReceivable,
+        totalPaid,
+        totalRejections,
+        pendingAmount
+      });
+    } catch (error) {
+      console.error('Failed to load payment context:', error);
+      setPaymentContext(null);
+    }
+  }, [paymentForm.retailer_id, paymentForm.payment_date, retailers]);
+
+  useEffect(() => {
+    if (showPaymentModal) {
+      loadPaymentContext();
+    }
+  }, [showPaymentModal, loadPaymentContext, paymentForm.retailer_id]);
+
   const handleCreatePayment = async (e) => {
     e.preventDefault();
     if (!paymentForm.retailer_id || !paymentForm.amount) {
@@ -585,7 +793,29 @@ export default function RetailerOrders() {
       reference_number: '',
       remarks: ''
     });
+    setPaymentContext(null);
   };
+
+  // Helper function to get retailer display name (company_name or name)
+  const getRetailerDisplayName = (retailer) => {
+    return retailer?.company_name || retailer?.name || '-';
+  };
+
+  // Get retailer display name by ID
+  const getRetailerNameById = (retailerId) => {
+    const retailer = retailers.find(r => r.id === retailerId);
+    return getRetailerDisplayName(retailer);
+  };
+
+  // Filter products based on search
+  const filteredProducts = products.filter(p => 
+    p.name?.toLowerCase().includes(productSearch.toLowerCase())
+  );
+
+  // Filter variants based on search
+  const filteredVariants = packagings.filter(p => 
+    p.name?.toLowerCase().includes(variantSearch.toLowerCase())
+  );
 
   const toggleIndentExpand = (id) => {
     setExpandedIndents(prev => ({ ...prev, [id]: !prev[id] }));
@@ -627,9 +857,47 @@ export default function RetailerOrders() {
             >
               <option value="">All Retailers</option>
               {retailers.map(r => (
-                <option key={r.id} value={r.id}>{r.name} ({r.commission_percentage || 0}%)</option>
+                <option key={r.id} value={r.id}>{r.company_name || r.name} ({r.commission_percentage || 0}%)</option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/* Dashboard Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-white rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <Package size={14} />
+              <span>Indents</span>
+            </div>
+            <p className="text-lg font-bold">{dashboardStats.totalIndents}</p>
+            <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} pending</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <Truck size={14} />
+              <span>Dispatches</span>
+            </div>
+            <p className="text-lg font-bold">{dashboardStats.totalDispatches}</p>
+            <p className="text-xs text-gray-500">Total: {formatCurrency(dashboardStats.totalMrpValue)}</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <IndianRupee size={14} />
+              <span>Net Receivable</span>
+            </div>
+            <p className="text-lg font-bold text-green-700">{formatCurrency(dashboardStats.totalNetReceivable)}</p>
+            <p className="text-xs text-gray-500">Invoiced: {formatCurrency(dashboardStats.totalInvoiced)}</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+              <CreditCard size={14} />
+              <span>Payments</span>
+            </div>
+            <p className="text-lg font-bold text-blue-700">{formatCurrency(dashboardStats.totalPayments)}</p>
+            <p className={`text-xs ${dashboardStats.pendingAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              Pending: {formatCurrency(dashboardStats.pendingAmount)}
+            </p>
           </div>
         </div>
 
@@ -687,7 +955,7 @@ export default function RetailerOrders() {
                             {expandedIndents[indent.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </td>
                           <td className="p-3">{formatDate(indent.indent_date)}</td>
-                          <td className="p-3 font-medium">{indent.retailer_name}</td>
+                          <td className="p-3 font-medium">{getRetailerNameById(indent.retailer_id) || indent.retailer_name}</td>
                           <td className="p-3 text-center">{indent.items?.length || 0}</td>
                           <td className="p-3 text-center">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -701,16 +969,17 @@ export default function RetailerOrders() {
                           </td>
                           <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => openEditIndentModal(indent)}>
+                                <Edit size={14} className="text-blue-600" />
+                              </Button>
                               {indent.status === 'pending' && (
                                 <Button size="sm" variant="outline" onClick={() => openDispatchModal(indent)}>
                                   <Truck size={14} className="mr-1" /> Dispatch
                                 </Button>
                               )}
-                              {indent.status === 'pending' && (
-                                <Button size="sm" variant="ghost" onClick={() => handleDeleteIndent(indent.id)}>
-                                  <Trash2 size={14} className="text-red-600" />
-                                </Button>
-                              )}
+                              <Button size="sm" variant="ghost" onClick={() => handleDeleteIndent(indent.id)}>
+                                <Trash2 size={14} className="text-red-600" />
+                              </Button>
                             </div>
                           </td>
                         </tr>
@@ -763,24 +1032,28 @@ export default function RetailerOrders() {
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
                       <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
                       <th className="p-3 text-center font-medium text-gray-500">COMM %</th>
-                      <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                      <th className="p-3 text-right font-medium text-gray-500">NET RECEIVABLE</th>
+                      <th className="p-3 text-center font-medium text-gray-500">TRANSPORT</th>
                       <th className="p-3 text-center font-medium text-gray-500">INVOICE</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {dispatches.length === 0 ? (
-                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">No dispatches found</td></tr>
+                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">No dispatches found</td></tr>
                     ) : dispatches.map(dispatch => (
                       <tr key={dispatch.id} className="border-b hover:bg-gray-50">
                         <td className="p-3">{formatDate(dispatch.dispatch_date)}</td>
-                        <td className="p-3 font-medium">{dispatch.retailer_name}</td>
+                        <td className="p-3 font-medium">{getRetailerNameById(dispatch.retailer_id) || dispatch.retailer_name}</td>
                         <td className="p-3 text-center">{dispatch.items?.length || 0}</td>
                         <td className="p-3 text-right">{formatCurrency(dispatch.total_mrp_value)}</td>
                         <td className="p-3 text-center">
                           <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs">{dispatch.commission_percentage}%</span>
                         </td>
                         <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(dispatch.net_payable)}</td>
+                        <td className="p-3 text-center text-xs text-gray-500">
+                          {dispatch.transport_charges ? formatCurrency(dispatch.transport_charges) : '-'}
+                        </td>
                         <td className="p-3 text-center">
                           {dispatch.invoice_number ? (
                             <span className="text-blue-600 text-xs">{dispatch.invoice_number}</span>
@@ -810,6 +1083,7 @@ export default function RetailerOrders() {
                         <td className="p-3 text-right">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
                         <td></td>
                         <td className="p-3 text-right text-green-700">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
+                        <td className="p-3 text-center text-xs">{formatCurrency(dispatches.reduce((sum, d) => sum + (d.transport_charges || 0), 0))}</td>
                         <td colSpan={2}></td>
                       </tr>
                     </tfoot>
@@ -1042,7 +1316,7 @@ export default function RetailerOrders() {
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleCreateIndent} className="p-4 space-y-4">
+              <form onSubmit={handleCreateOrUpdateIndent} className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
@@ -1054,7 +1328,7 @@ export default function RetailerOrders() {
                     >
                       <option value="">Select Retailer</option>
                       {retailers.map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
+                        <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                       ))}
                     </select>
                   </div>
@@ -1079,27 +1353,89 @@ export default function RetailerOrders() {
                   <div className="space-y-2">
                     {indentForm.items.map((item, index) => (
                       <div key={index} className="flex gap-2 items-center bg-gray-50 p-2 rounded">
-                        <select
-                          value={item.product_id}
-                          onChange={(e) => updateIndentItem(index, 'product_id', e.target.value)}
-                          className="flex-1 h-8 px-2 rounded border text-sm"
-                          required
-                        >
-                          <option value="">Select Product</option>
-                          {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={item.variant_id}
-                          onChange={(e) => updateIndentItem(index, 'variant_id', e.target.value)}
-                          className="w-32 h-8 px-2 rounded border text-sm"
-                        >
-                          <option value="">Variant</option>
-                          {packagings.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
+                        {/* Product Search */}
+                        <div className="flex-1 relative">
+                          <Input
+                            type="text"
+                            value={item.product_name || ''}
+                            onChange={(e) => {
+                              updateIndentItem(index, 'product_name', e.target.value);
+                              updateIndentItem(index, 'product_id', '');
+                              setShowProductDropdown(index);
+                              setProductSearch(e.target.value);
+                            }}
+                            onFocus={() => {
+                              setShowProductDropdown(index);
+                              setProductSearch(item.product_name || '');
+                            }}
+                            placeholder="Search product..."
+                            className="h-8 text-sm"
+                            required
+                          />
+                          {showProductDropdown === index && productSearch && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto">
+                              {filteredProducts.length === 0 ? (
+                                <div className="p-2 text-sm text-gray-500">No products found</div>
+                              ) : (
+                                filteredProducts.slice(0, 8).map(p => (
+                                  <div
+                                    key={p.id}
+                                    className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                                    onClick={() => {
+                                      updateIndentItem(index, 'product_id', p.id);
+                                      updateIndentItem(index, 'product_name', p.name);
+                                      setShowProductDropdown(null);
+                                      setProductSearch('');
+                                    }}
+                                  >
+                                    {p.name}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {/* Variant Search */}
+                        <div className="w-32 relative">
+                          <Input
+                            type="text"
+                            value={item.variant_name || ''}
+                            onChange={(e) => {
+                              updateIndentItem(index, 'variant_name', e.target.value);
+                              updateIndentItem(index, 'variant_id', '');
+                              setShowVariantDropdown(index);
+                              setVariantSearch(e.target.value);
+                            }}
+                            onFocus={() => {
+                              setShowVariantDropdown(index);
+                              setVariantSearch(item.variant_name || '');
+                            }}
+                            placeholder="Variant"
+                            className="h-8 text-sm"
+                          />
+                          {showVariantDropdown === index && variantSearch && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto">
+                              {filteredVariants.length === 0 ? (
+                                <div className="p-2 text-sm text-gray-500">No variants found</div>
+                              ) : (
+                                filteredVariants.slice(0, 8).map(p => (
+                                  <div
+                                    key={p.id}
+                                    className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                                    onClick={() => {
+                                      updateIndentItem(index, 'variant_id', p.id);
+                                      updateIndentItem(index, 'variant_name', p.name);
+                                      setShowVariantDropdown(null);
+                                      setVariantSearch('');
+                                    }}
+                                  >
+                                    {p.name}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
                         <Input
                           type="number"
                           min="1"
@@ -1120,10 +1456,10 @@ export default function RetailerOrders() {
                 </div>
 
                 <div className="flex gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => { setShowIndentModal(false); resetIndentForm(); }} className="flex-1">
+                  <Button type="button" variant="outline" onClick={() => { setShowIndentModal(false); setEditingIndent(null); resetIndentForm(); }} className="flex-1">
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1 bg-[#14532D]">Create Indent</Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">{editingIndent ? 'Update Indent' : 'Create Indent'}</Button>
                 </div>
               </form>
             </div>
@@ -1206,6 +1542,29 @@ export default function RetailerOrders() {
                         </tr>
                       </tfoot>
                     </table>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Transport Charges (Optional)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={dispatchForm.transport_charges || ''}
+                      onChange={(e) => setDispatchForm(prev => ({ ...prev, transport_charges: parseFloat(e.target.value) || 0 }))}
+                      placeholder="₹ 0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                    <Input
+                      type="text"
+                      value={dispatchForm.remarks}
+                      onChange={(e) => setDispatchForm(prev => ({ ...prev, remarks: e.target.value }))}
+                      placeholder="Optional remarks"
+                    />
                   </div>
                 </div>
 
@@ -1310,7 +1669,7 @@ export default function RetailerOrders() {
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleCreateRejection} className="p-4 space-y-4">
+              <form onSubmit={handleCreateRejections} className="p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
                   <select
@@ -1321,7 +1680,7 @@ export default function RetailerOrders() {
                   >
                     <option value="">Select Retailer</option>
                     {retailers.map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
                 </div>
@@ -1334,67 +1693,121 @@ export default function RetailerOrders() {
                     required
                   />
                 </div>
+
+                {/* Dispatch Items for selected date/retailer */}
+                {rejectionForm.retailer_id && rejectionForm.rejection_date && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">
+                      Dispatch Items for {formatDate(rejectionForm.rejection_date)}
+                    </label>
+                    {rejectionDispatchItems.length === 0 ? (
+                      <div className="p-4 bg-gray-50 rounded text-sm text-gray-500 text-center">
+                        No dispatches found for this date
+                      </div>
+                    ) : (
+                      <div className="border rounded overflow-hidden max-h-60 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="p-2 text-center w-8">
+                                <Check size={14} />
+                              </th>
+                              <th className="p-2 text-left">Product</th>
+                              <th className="p-2 text-center">Supplied</th>
+                              <th className="p-2 text-center">Reject Qty</th>
+                              <th className="p-2 text-center">MRP</th>
+                              <th className="p-2 text-left">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rejectionDispatchItems.map((item, idx) => (
+                              <tr key={idx} className={`border-t ${item.selected ? 'bg-red-50' : ''}`}>
+                                <td className="p-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.selected}
+                                    onChange={(e) => updateRejectionItem(idx, 'selected', e.target.checked)}
+                                    className="w-4 h-4"
+                                  />
+                                </td>
+                                <td className="p-2">
+                                  <div className="font-medium">{item.product_name}</div>
+                                  {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                                </td>
+                                <td className="p-2 text-center text-gray-600">{item.supplied_qty}</td>
+                                <td className="p-2 text-center">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={item.supplied_qty}
+                                    value={item.rejection_qty || ''}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      if (val > item.supplied_qty) {
+                                        toast.error('Cannot exceed supplied qty');
+                                        return;
+                                      }
+                                      updateRejectionItem(idx, 'rejection_qty', val);
+                                      if (val > 0) updateRejectionItem(idx, 'selected', true);
+                                    }}
+                                    className="w-16 h-7 text-center"
+                                    disabled={!item.selected && !item.rejection_qty}
+                                  />
+                                </td>
+                                <td className="p-2 text-center text-gray-600">₹{item.mrp}</td>
+                                <td className="p-2">
+                                  <select
+                                    value={item.reason || ''}
+                                    onChange={(e) => updateRejectionItem(idx, 'reason', e.target.value)}
+                                    className="w-full h-7 px-1 rounded border text-xs"
+                                    disabled={!item.selected}
+                                  >
+                                    <option value="">Reason</option>
+                                    <option value="Rotten">Rotten</option>
+                                    <option value="Damaged">Damaged</option>
+                                    <option value="Quality Issue">Quality Issue</option>
+                                    <option value="Expired">Expired</option>
+                                    <option value="Other">Other</option>
+                                  </select>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Remarks for all rejections */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
-                  <select
-                    value={rejectionForm.product_id}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks (Optional)</label>
+                  <Input
+                    type="text"
+                    value={rejectionForm.remarks || ''}
                     onChange={(e) => {
-                      const product = products.find(p => p.id === e.target.value);
-                      setRejectionForm(prev => ({ ...prev, product_id: e.target.value, product_name: product?.name || '' }));
+                      // Update remarks for all selected items
+                      const remarks = e.target.value;
+                      setRejectionForm(prev => ({ ...prev, remarks }));
+                      setRejectionDispatchItems(prev => prev.map(item => 
+                        item.selected ? { ...item, remarks } : item
+                      ));
                     }}
-                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
-                    required
-                  >
-                    <option value="">Select Product</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={rejectionForm.quantity}
-                      onChange={(e) => setRejectionForm(prev => ({ ...prev, quantity: parseFloat(e.target.value) || 0 }))}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">MRP per unit</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={rejectionForm.mrp}
-                      onChange={(e) => setRejectionForm(prev => ({ ...prev, mrp: parseFloat(e.target.value) || 0 }))}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason *</label>
-                  <select
-                    value={rejectionForm.reason}
-                    onChange={(e) => setRejectionForm(prev => ({ ...prev, reason: e.target.value }))}
-                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
-                    required
-                  >
-                    <option value="">Select Reason</option>
-                    <option value="Rotten">Rotten</option>
-                    <option value="Damaged">Damaged</option>
-                    <option value="Quality Issue">Quality Issue</option>
-                    <option value="Expired">Expired</option>
-                    <option value="Other">Other</option>
-                  </select>
+                    placeholder="Enter remarks for rejections"
+                  />
                 </div>
 
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="flex-1">
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1 bg-red-600 hover:bg-red-700">Record Rejection</Button>
+                  <Button 
+                    type="submit" 
+                    className="flex-1 bg-red-600 hover:bg-red-700"
+                    disabled={!rejectionDispatchItems.some(i => i.selected && i.rejection_qty > 0)}
+                  >
+                    Record Rejections ({rejectionDispatchItems.filter(i => i.selected && i.rejection_qty > 0).length})
+                  </Button>
                 </div>
               </form>
             </div>
@@ -1422,7 +1835,7 @@ export default function RetailerOrders() {
                   >
                     <option value="">Select Retailer</option>
                     {retailers.map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
                 </div>
@@ -1435,6 +1848,42 @@ export default function RetailerOrders() {
                     required
                   />
                 </div>
+
+                {/* Payment Context - Shows when retailer is selected */}
+                {paymentContext && (
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                    <div className="font-medium text-gray-700 mb-2">{paymentContext.retailer_name} - Account Summary</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-gray-500">Total MRP Value:</span>
+                        <span className="float-right font-medium">{formatCurrency(paymentContext.totalMrpValue)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Commission ({paymentContext.commission_percentage}%):</span>
+                        <span className="float-right font-medium text-amber-600">-{formatCurrency(paymentContext.totalCommission)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Net Receivable:</span>
+                        <span className="float-right font-medium text-green-700">{formatCurrency(paymentContext.totalNetReceivable)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Rejections:</span>
+                        <span className="float-right font-medium text-red-600">-{formatCurrency(paymentContext.totalRejections)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Already Paid:</span>
+                        <span className="float-right font-medium text-blue-600">{formatCurrency(paymentContext.totalPaid)}</span>
+                      </div>
+                      <div className="col-span-2 pt-2 border-t">
+                        <span className="text-gray-700 font-medium">Pending Amount:</span>
+                        <span className={`float-right font-bold text-lg ${paymentContext.pendingAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          {formatCurrency(paymentContext.pendingAmount)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
                   <Input
@@ -1443,6 +1892,7 @@ export default function RetailerOrders() {
                     step="0.01"
                     value={paymentForm.amount}
                     onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
+                    placeholder={paymentContext ? `Pending: ₹${paymentContext.pendingAmount?.toFixed(2)}` : ''}
                     required
                   />
                 </div>
@@ -1467,6 +1917,14 @@ export default function RetailerOrders() {
                     value={paymentForm.reference_number}
                     onChange={(e) => setPaymentForm(prev => ({ ...prev, reference_number: e.target.value }))}
                     placeholder="UPI ref / Cheque no / Transaction ID"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    value={paymentForm.remarks}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
                   />
                 </div>
 

@@ -554,6 +554,7 @@ class RetailerDispatch(BaseModel):
     total_mrp_value: float = 0  # Sum of all items' total_value
     commission_percentage: float = 0  # Retailer's commission at time of dispatch
     net_payable: float = 0  # total_mrp_value × (1 - commission/100)
+    transport_charges: float = 0  # Optional transport charges
     dispatched_by: str  # staff/admin user_id
     invoice_number: Optional[str] = None
     remarks: Optional[str] = None
@@ -564,6 +565,7 @@ class RetailerDispatchCreate(BaseModel):
     dispatch_date: datetime
     items: List[RetailerDispatchItem]
     remarks: Optional[str] = None
+    transport_charges: Optional[float] = 0
 
 class RetailerGRNItem(BaseModel):
     product_id: str

@@ -674,9 +674,11 @@ class RetailerInvoiceItem(BaseModel):
     product_id: str
     product_name: str
     variant_name: Optional[str] = None
-    quantity: float
+    quantity: float  # Net quantity (after rejection)
+    supplied_qty: Optional[float] = None  # Original supplied quantity
+    rejected_qty: Optional[float] = 0  # Rejected quantity
     mrp: float
-    total_value: float
+    total_value: float  # Net value (after rejection)
 
 class RetailerInvoice(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -696,8 +698,24 @@ class RetailerInvoice(BaseModel):
     remarks: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class RetailerInvoiceSelectedItem(BaseModel):
+    dispatch_id: str
+    item_index: int
+    product_id: str
+    product_name: str
+    variant_name: Optional[str] = None
+    indent_qty: Optional[float] = 0
+    supplied_qty: float
+    rejected_qty: float = 0
+    rejections: Optional[List[dict]] = []
+    net_qty: float
+    quantity: float  # Same as net_qty, used for invoice
+    mrp: float
+    total_value: float  # Net value after rejection deduction
+
 class RetailerInvoiceCreate(BaseModel):
     retailer_id: str
     invoice_date: datetime
     dispatch_ids: List[str]
+    selected_items: Optional[List[RetailerInvoiceSelectedItem]] = None
     remarks: Optional[str] = None

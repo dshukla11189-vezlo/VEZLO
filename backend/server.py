@@ -3541,7 +3541,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     
     commission = retailer.get("commission_percentage", 0)
     
-    # Get all dispatches and aggregate items
+    # Get all dispatches for validation
     dispatches = await db.retailer_dispatches.find(
         {"id": {"$in": input.dispatch_ids}},
         {"_id": 0}
@@ -3559,21 +3559,39 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                 detail=f"Dispatch is already in invoice {existing_invoice.get('invoice_number')}"
             )
     
-    # Aggregate items from all dispatches
+    # Use selected_items if provided (includes rejection adjustments), otherwise fall back to dispatch items
     all_items = []
     total_mrp_value = 0
-    for dispatch in dispatches:
-        for item in dispatch.get("items", []):
+    
+    if input.selected_items and len(input.selected_items) > 0:
+        # Use the item-level selection with rejection data
+        for item in input.selected_items:
             all_items.append(RetailerInvoiceItem(
-                dispatch_id=dispatch["id"],
-                product_id=item.get("product_id", ""),
-                product_name=item.get("product_name", ""),
-                variant_name=item.get("variant_name"),
-                quantity=item.get("supplied_qty", 0),
-                mrp=item.get("mrp", 0),
-                total_value=item.get("total_value", 0)
+                dispatch_id=item.dispatch_id,
+                product_id=item.product_id,
+                product_name=item.product_name,
+                variant_name=item.variant_name,
+                quantity=item.net_qty,  # Use net_qty (after rejection deduction)
+                supplied_qty=item.supplied_qty,
+                rejected_qty=item.rejected_qty,
+                mrp=item.mrp,
+                total_value=item.total_value  # This is net_value from frontend
             ))
-            total_mrp_value += item.get("total_value", 0)
+            total_mrp_value += item.total_value
+    else:
+        # Fallback: aggregate items from all dispatches (legacy behavior)
+        for dispatch in dispatches:
+            for item in dispatch.get("items", []):
+                all_items.append(RetailerInvoiceItem(
+                    dispatch_id=dispatch["id"],
+                    product_id=item.get("product_id", ""),
+                    product_name=item.get("product_name", ""),
+                    variant_name=item.get("variant_name"),
+                    quantity=item.get("supplied_qty", 0),
+                    mrp=item.get("mrp", 0),
+                    total_value=item.get("total_value", 0)
+                ))
+                total_mrp_value += item.get("total_value", 0)
     
     commission_amount = total_mrp_value * commission / 100
     net_payable = total_mrp_value - commission_amount

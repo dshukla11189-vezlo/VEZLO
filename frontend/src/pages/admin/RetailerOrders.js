@@ -1852,16 +1852,18 @@ export default function RetailerOrders() {
                             </th>
                             <th className="p-2 text-left">Dispatch Date</th>
                             <th className="p-2 text-left">Product</th>
-                            <th className="p-2 text-center">Qty</th>
+                            <th className="p-2 text-center">Supplied</th>
+                            <th className="p-2 text-center text-red-600">Rejected</th>
+                            <th className="p-2 text-center text-green-700 font-semibold">Net Qty</th>
                             <th className="p-2 text-right">MRP</th>
-                            <th className="p-2 text-right">Amount</th>
+                            <th className="p-2 text-right">Net Amount</th>
                           </tr>
                         </thead>
                         <tbody>
                           {uninvoicedItems.map((item) => (
                             <tr 
                               key={item.item_id} 
-                              className={`border-t cursor-pointer hover:bg-gray-50 ${selectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''}`}
+                              className={`border-t cursor-pointer hover:bg-gray-50 ${selectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''} ${item.rejected_qty > 0 ? 'bg-red-50/30' : ''}`}
                               onClick={() => toggleItemSelection(item.item_id)}
                             >
                               <td className="p-2 text-center">
@@ -1877,8 +1879,12 @@ export default function RetailerOrders() {
                                 {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                               </td>
                               <td className="p-2 text-center">{item.supplied_qty}</td>
+                              <td className="p-2 text-center text-red-600 font-medium">
+                                {item.rejected_qty > 0 ? `-${item.rejected_qty}` : '-'}
+                              </td>
+                              <td className="p-2 text-center text-green-700 font-bold">{item.net_qty}</td>
                               <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
-                              <td className="p-2 text-right font-medium">₹{item.total_value?.toFixed(2)}</td>
+                              <td className="p-2 text-right font-medium">₹{item.net_value?.toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1888,11 +1894,19 @@ export default function RetailerOrders() {
                 </div>
 
                 {selectedItemIds.length > 0 && (
-                  <div className="bg-green-50 p-3 rounded flex justify-between items-center">
-                    <span className="text-sm font-medium">Selected Items: {selectedItemIds.length}</span>
-                    <span className="text-sm font-bold">
-                      Total: {formatCurrency(uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).reduce((sum, i) => sum + (i.total_value || 0), 0))}
-                    </span>
+                  <div className="bg-green-50 p-3 rounded space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">Selected Items: {selectedItemIds.length}</span>
+                      <span className="text-sm font-bold">
+                        Net Total: {formatCurrency(uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).reduce((sum, i) => sum + (i.net_value || 0), 0))}
+                      </span>
+                    </div>
+                    {uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).some(i => i.rejected_qty > 0) && (
+                      <div className="flex justify-between text-xs text-red-600">
+                        <span>Rejected Deduction:</span>
+                        <span>-{formatCurrency(uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0))}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 

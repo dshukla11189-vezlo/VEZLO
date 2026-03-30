@@ -4301,6 +4301,44 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
 # SECTION: GMAIL INTEGRATION ROUTES - Ninjacart GRN Email Automation
 # ============================================================================
 
+@api_router.get("/oauth/gmail/debug-headers")
+async def gmail_oauth_debug_headers(request: Request):
+    """DEBUG: Show what headers the server receives - helps diagnose redirect_uri issues"""
+    host = request.headers.get("host", "")
+    x_forwarded_host = request.headers.get("x-forwarded-host", "")
+    x_forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+    origin = request.headers.get("origin", "")
+    referer = request.headers.get("referer", "")
+    
+    # Determine the actual host - prefer x-forwarded-host for reverse proxy setups
+    actual_host = x_forwarded_host or host
+    
+    # Detect redirect URI based on actual host
+    if "emergent.host" in actual_host:
+        redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
+    elif "preview.emergentagent.com" in actual_host:
+        redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    else:
+        # Fallback: try to detect from referer or origin
+        if "emergent.host" in referer or "emergent.host" in origin:
+            redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
+        else:
+            redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    
+    return {
+        "headers_received": {
+            "host": host,
+            "x-forwarded-host": x_forwarded_host,
+            "x-forwarded-proto": x_forwarded_proto,
+            "origin": origin,
+            "referer": referer
+        },
+        "actual_host_used": actual_host,
+        "redirect_uri_that_would_be_generated": redirect_uri,
+        "expected_google_console_uri": redirect_uri,
+        "message": "The 'redirect_uri_that_would_be_generated' must EXACTLY match the URI in Google Cloud Console Authorized Redirect URIs"
+    }
+
 @api_router.get("/oauth/gmail/status")
 async def get_gmail_connection_status(current_user: dict = Depends(get_current_user)):
     """Check if Gmail is connected"""
@@ -4324,12 +4362,36 @@ async def gmail_oauth_login(request: Request, current_user: dict = Depends(get_c
     # Generate state token
     state = str(uuid.uuid4())
     
-    # Detect redirect URI based on request origin
+    # Debug: Log all relevant headers to understand what we're receiving
     host = request.headers.get("host", "")
-    if "emergent.host" in host:
+    x_forwarded_host = request.headers.get("x-forwarded-host", "")
+    x_forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+    origin = request.headers.get("origin", "")
+    referer = request.headers.get("referer", "")
+    
+    logger.info(f"OAuth Login - Headers Debug:")
+    logger.info(f"  host: {host}")
+    logger.info(f"  x-forwarded-host: {x_forwarded_host}")
+    logger.info(f"  x-forwarded-proto: {x_forwarded_proto}")
+    logger.info(f"  origin: {origin}")
+    logger.info(f"  referer: {referer}")
+    
+    # Determine the actual host - prefer x-forwarded-host for reverse proxy setups
+    actual_host = x_forwarded_host or host
+    
+    # Detect redirect URI based on actual host
+    if "emergent.host" in actual_host:
         redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
-    else:
+    elif "preview.emergentagent.com" in actual_host:
         redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    else:
+        # Fallback: try to detect from referer or origin
+        if "emergent.host" in referer or "emergent.host" in origin:
+            redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
+        else:
+            redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    
+    logger.info(f"  Selected redirect_uri: {redirect_uri}")
     
     # Store state in DB with user_id and redirect_uri
     await db.oauth_states.insert_one({
@@ -4343,7 +4405,9 @@ async def gmail_oauth_login(request: Request, current_user: dict = Depends(get_c
     # Get authorization URL with dynamic redirect URI
     auth_url = get_authorization_url(state, redirect_uri)
     
-    return {"auth_url": auth_url}
+    logger.info(f"  Generated auth_url: {auth_url[:100]}...")
+    
+    return {"auth_url": auth_url, "debug_redirect_uri": redirect_uri}
 
 @api_router.get("/oauth/gmail/callback")
 async def gmail_oauth_callback(code: str = None, state: str = None, error: str = None):

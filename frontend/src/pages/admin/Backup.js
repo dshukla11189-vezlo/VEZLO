@@ -46,6 +46,9 @@ export default function BackupPage() {
     setGmailLoading(true);
     try {
       const response = await api.get('/api/oauth/gmail/login');
+      // Log redirect URI for debugging
+      console.log('Gmail OAuth redirect_uri:', response.data.debug_redirect_uri);
+      console.log('This URI must EXACTLY match what is in Google Cloud Console');
       // Redirect to Google OAuth
       window.location.href = response.data.auth_url;
     } catch (error) {

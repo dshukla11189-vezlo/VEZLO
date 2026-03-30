@@ -8,13 +8,14 @@ import csv
 import io
 import re
 import logging
+import requests
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 import warnings
 from pathlib import Path
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
@@ -41,52 +42,73 @@ GOOGLE_CLIENT_SECRET = "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"
 # Default redirect URI - can be overridden dynamically
 DEFAULT_GMAIL_REDIRECT_URI = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
 
-
-def get_oauth_flow(redirect_uri: str = None):
-    """Create OAuth flow for Gmail authorization"""
-    uri = redirect_uri or DEFAULT_GMAIL_REDIRECT_URI
-    return Flow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token"
-            }
-        },
-        scopes=GMAIL_SCOPES,
-        redirect_uri=uri
-    )
+# Google OAuth endpoints
+GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
 def get_authorization_url(state: str, redirect_uri: str = None) -> str:
-    """Generate Gmail OAuth authorization URL"""
-    flow = get_oauth_flow(redirect_uri)
-    url, _ = flow.authorization_url(
-        access_type='offline',
-        prompt='consent',
-        state=state
-    )
+    """
+    Generate Gmail OAuth authorization URL manually (without PKCE).
+    This avoids the code_verifier mismatch issue that occurs when using
+    google_auth_oauthlib.flow.Flow with separate request/callback handlers.
+    """
+    uri = redirect_uri or DEFAULT_GMAIL_REDIRECT_URI
+    
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": uri,
+        "response_type": "code",
+        "scope": " ".join(GMAIL_SCOPES),
+        "state": state,
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+    
+    url = f"{GOOGLE_AUTH_URI}?{urlencode(params)}"
+    logger.info(f"Generated OAuth URL with redirect_uri: {uri}")
     return url
 
 
 def exchange_code_for_tokens(code: str, redirect_uri: str = None) -> Dict[str, Any]:
-    """Exchange authorization code for tokens"""
-    flow = get_oauth_flow(redirect_uri)
+    """
+    Exchange authorization code for tokens using direct HTTP request.
+    This avoids the PKCE code_verifier mismatch issue.
+    """
+    uri = redirect_uri or DEFAULT_GMAIL_REDIRECT_URI
     
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        flow.fetch_token(code=code)
+    logger.info(f"Exchanging code for tokens with redirect_uri: {uri}")
     
-    creds = flow.credentials
+    # Make token request
+    response = requests.post(
+        GOOGLE_TOKEN_URI,
+        data={
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": uri
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"}
+    )
+    
+    if response.status_code != 200:
+        logger.error(f"Token exchange failed: {response.status_code} - {response.text}")
+        raise Exception(f"Token exchange failed: {response.json().get('error_description', response.text)}")
+    
+    token_data = response.json()
+    
+    # Calculate expiry time
+    expires_in = token_data.get("expires_in", 3600)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     
     return {
-        "access_token": creds.token,
-        "refresh_token": creds.refresh_token,
-        "token_uri": creds.token_uri,
-        "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
-        "expires_at": creds.expiry.replace(tzinfo=timezone.utc) if creds.expiry else None
+        "access_token": token_data["access_token"],
+        "refresh_token": token_data.get("refresh_token"),
+        "token_uri": GOOGLE_TOKEN_URI,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "expires_at": expires_at
     }
 
 

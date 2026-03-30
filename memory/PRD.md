@@ -294,6 +294,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] "Connect Gmail" / "Disconnect" buttons on Backup page
   - [x] "Sync Now" button for manual sync trigger
   - [x] **Removed "Reset All Data" button** from production
+  - [x] **OAuth PKCE Bug Fix** (Mar 30, 2026): 
+    - Fixed redirect_uri_mismatch error caused by PKCE code_verifier mismatch
+    - Now uses manual OAuth URL construction without PKCE (PKCE is optional for server-side flows with client_secret)
+    - Uses x-forwarded-host header for proper reverse-proxy support
+    - Added debug endpoint: `/api/oauth/gmail/debug-headers` for troubleshooting
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

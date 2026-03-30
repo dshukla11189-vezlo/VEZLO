@@ -3259,7 +3259,16 @@ Email: ${companyEmail}`;
               {/* Ninjacart Dispatches Pending GRN - Always show with filters and manual entry */}
               {grnDispatchItems.length > 0 && (
                 <div className="mb-6">
-                  <h4 className="font-semibold text-sm mb-3">Ninjacart Dispatches Pending GRN</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-sm">Ninjacart Dispatches Pending GRN</h4>
+                    {/* Save Manual GRN Button - Moved to top */}
+                    {Object.keys(manualGrnData).some(key => manualGrnData[key].grn_qty) && (
+                      <Button onClick={handleSaveManualGrn} className="bg-green-600 hover:bg-green-700" size="sm">
+                        <Save size={14} className="mr-1" />
+                        Save Manual GRN
+                      </Button>
+                    )}
+                  </div>
                   
                   {/* Filters for Pending Dispatches */}
                   <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
@@ -3427,16 +3436,6 @@ Email: ${companyEmail}`;
                       </tbody>
                     </table>
                   </div>
-                  
-                  {/* Save Manual GRN Button */}
-                  {Object.keys(manualGrnData).some(key => manualGrnData[key].grn_qty) && (
-                    <div className="mt-4 flex justify-end">
-                      <Button onClick={handleSaveManualGrn} className="bg-green-600 hover:bg-green-700">
-                        <Save size={16} className="mr-2" />
-                        Save Manual GRN Entries
-                      </Button>
-                    </div>
-                  )}
                   
                   <p className="text-sm text-gray-500 mt-3">
                     Edit GRN values manually or upload Ninjacart CSV file to auto-match.

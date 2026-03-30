@@ -38,11 +38,13 @@ GMAIL_SCOPES = [
 # Environment variables
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
-GMAIL_REDIRECT_URI = os.environ.get('GMAIL_REDIRECT_URI')
+# Default redirect URI - can be overridden dynamically
+DEFAULT_GMAIL_REDIRECT_URI = os.environ.get('GMAIL_REDIRECT_URI', 'https://harvest-hub-384.emergent.host/api/oauth/gmail/callback')
 
 
-def get_oauth_flow():
+def get_oauth_flow(redirect_uri: str = None):
     """Create OAuth flow for Gmail authorization"""
+    uri = redirect_uri or DEFAULT_GMAIL_REDIRECT_URI
     return Flow.from_client_config(
         {
             "web": {
@@ -53,13 +55,13 @@ def get_oauth_flow():
             }
         },
         scopes=GMAIL_SCOPES,
-        redirect_uri=GMAIL_REDIRECT_URI
+        redirect_uri=uri
     )
 
 
-def get_authorization_url(state: str) -> str:
+def get_authorization_url(state: str, redirect_uri: str = None) -> str:
     """Generate Gmail OAuth authorization URL"""
-    flow = get_oauth_flow()
+    flow = get_oauth_flow(redirect_uri)
     url, _ = flow.authorization_url(
         access_type='offline',
         prompt='consent',
@@ -68,9 +70,9 @@ def get_authorization_url(state: str) -> str:
     return url
 
 
-def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
+def exchange_code_for_tokens(code: str, redirect_uri: str = None) -> Dict[str, Any]:
     """Exchange authorization code for tokens"""
-    flow = get_oauth_flow()
+    flow = get_oauth_flow(redirect_uri)
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

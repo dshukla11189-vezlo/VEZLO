@@ -4316,7 +4316,7 @@ async def get_gmail_connection_status(current_user: dict = Depends(get_current_u
     }
 
 @api_router.get("/oauth/gmail/login")
-async def gmail_oauth_login(current_user: dict = Depends(get_current_user)):
+async def gmail_oauth_login(request: Request, current_user: dict = Depends(get_current_user)):
     """Start Gmail OAuth flow"""
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can connect Gmail")
@@ -4324,16 +4324,24 @@ async def gmail_oauth_login(current_user: dict = Depends(get_current_user)):
     # Generate state token
     state = str(uuid.uuid4())
     
-    # Store state in DB with user_id
+    # Detect redirect URI based on request origin
+    host = request.headers.get("host", "")
+    if "emergent.host" in host:
+        redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
+    else:
+        redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    
+    # Store state in DB with user_id and redirect_uri
     await db.oauth_states.insert_one({
         "state": state,
         "user_id": current_user["user_id"],
+        "redirect_uri": redirect_uri,
         "created_at": datetime.now(timezone.utc),
         "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
     })
     
-    # Get authorization URL
-    auth_url = get_authorization_url(state)
+    # Get authorization URL with dynamic redirect URI
+    auth_url = get_authorization_url(state, redirect_uri)
     
     return {"auth_url": auth_url}
 
@@ -4360,9 +4368,12 @@ async def gmail_oauth_callback(code: str = None, state: str = None, error: str =
     # Delete used state
     await db.oauth_states.delete_one({"state": state})
     
+    # Get redirect URI from state
+    redirect_uri = state_doc.get("redirect_uri")
+    
     try:
         # Exchange code for tokens
-        tokens = exchange_code_for_tokens(code)
+        tokens = exchange_code_for_tokens(code, redirect_uri)
         
         # Get user email
         service = get_gmail_service(tokens)

@@ -11,11 +11,17 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 import warnings
+from pathlib import Path
 
+from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
+
+# Load environment from backend/.env
+env_path = Path(__file__).parent / '.env'
+load_dotenv(env_path)
 
 logger = logging.getLogger("freshflow.gmail")
 

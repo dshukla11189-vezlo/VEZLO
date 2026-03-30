@@ -287,6 +287,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **TYPE Column**: Expanded line items now show QC/Retail badge
   - [x] **Company Name Fix**: Retail customers now show shop name (company_name) instead of owner name
   - [x] **Wastage Allocation**: Proportional wastage distribution based on kg supplied ratio
+- [x] **Gmail Integration for Ninjacart GRN** (COMPLETED - Mar 30, 2026):
+  - [x] OAuth2 Gmail authentication flow
+  - [x] Auto-sync scheduled for 6:00 AM IST daily
+  - [x] Parses CSV attachments and email body for GRN data
+  - [x] "Connect Gmail" / "Disconnect" buttons on Backup page
+  - [x] "Sync Now" button for manual sync trigger
+  - [x] **Removed "Reset All Data" button** from production
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

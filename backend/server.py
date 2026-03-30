@@ -4307,7 +4307,7 @@ async def get_gmail_connection_status(current_user: dict = Depends(get_current_u
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can manage Gmail integration")
     
-    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    token = await db.gmail_tokens.find_one({"user_id": current_user["user_id"]}, {"_id": 0})
     
     return {
         "connected": token is not None and token.get("access_token") is not None,
@@ -4327,7 +4327,7 @@ async def gmail_oauth_login(current_user: dict = Depends(get_current_user)):
     # Store state in DB with user_id
     await db.oauth_states.insert_one({
         "state": state,
-        "user_id": current_user["id"],
+        "user_id": current_user["user_id"],
         "created_at": datetime.now(timezone.utc),
         "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
     })
@@ -4392,7 +4392,7 @@ async def gmail_disconnect(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can disconnect Gmail")
     
-    await db.gmail_tokens.delete_one({"user_id": current_user["id"]})
+    await db.gmail_tokens.delete_one({"user_id": current_user["user_id"]})
     return {"message": "Gmail disconnected successfully"}
 
 @api_router.get("/gmail/ninjacart-emails")
@@ -4405,7 +4405,7 @@ async def get_ninjacart_emails(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # Get Gmail tokens
-    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    token = await db.gmail_tokens.find_one({"user_id": current_user["user_id"]}, {"_id": 0})
     if not token:
         raise HTTPException(status_code=400, detail="Gmail not connected. Please connect Gmail first.")
     
@@ -4443,7 +4443,7 @@ async def process_grn_from_email(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # Get Gmail tokens
-    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    token = await db.gmail_tokens.find_one({"user_id": current_user["user_id"]}, {"_id": 0})
     if not token:
         raise HTTPException(status_code=400, detail="Gmail not connected")
     
@@ -4498,7 +4498,7 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # Get Gmail tokens
-    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    token = await db.gmail_tokens.find_one({"user_id": current_user["user_id"]}, {"_id": 0})
     if not token:
         raise HTTPException(status_code=400, detail="Gmail not connected")
     
@@ -4554,7 +4554,7 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
         
         # Update last sync time
         await db.gmail_tokens.update_one(
-            {"user_id": current_user["id"]},
+            {"user_id": current_user["user_id"]},
             {"$set": {"last_sync": datetime.now(timezone.utc)}}
         )
         

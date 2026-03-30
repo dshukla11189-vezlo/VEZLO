@@ -59,6 +59,14 @@ from models import *
 from ocr_processor import process_excel_image
 from pdf_generator import generate_invoice_pdf
 from backup_system import setup_backup_scheduler, trigger_manual_backup, generate_backup_excel
+from gmail_integration import (
+    get_authorization_url, exchange_code_for_tokens, get_gmail_service,
+    search_ninjacart_emails, get_email_content, download_attachment,
+    parse_ninjacart_csv, parse_ninjacart_email_body, mark_email_as_read,
+    add_label_to_email
+)
+from starlette.responses import RedirectResponse
+from apscheduler.triggers.cron import CronTrigger
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -4289,6 +4297,276 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
         "deleted": deleted_counts
     }
 
+# ============================================================================
+# SECTION: GMAIL INTEGRATION ROUTES - Ninjacart GRN Email Automation
+# ============================================================================
+
+@api_router.get("/oauth/gmail/status")
+async def get_gmail_connection_status(current_user: dict = Depends(get_current_user)):
+    """Check if Gmail is connected"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage Gmail integration")
+    
+    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    
+    return {
+        "connected": token is not None and token.get("access_token") is not None,
+        "email": token.get("email") if token else None,
+        "last_sync": token.get("last_sync") if token else None
+    }
+
+@api_router.get("/oauth/gmail/login")
+async def gmail_oauth_login(current_user: dict = Depends(get_current_user)):
+    """Start Gmail OAuth flow"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can connect Gmail")
+    
+    # Generate state token
+    state = str(uuid.uuid4())
+    
+    # Store state in DB with user_id
+    await db.oauth_states.insert_one({
+        "state": state,
+        "user_id": current_user["id"],
+        "created_at": datetime.now(timezone.utc),
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
+    })
+    
+    # Get authorization URL
+    auth_url = get_authorization_url(state)
+    
+    return {"auth_url": auth_url}
+
+@api_router.get("/oauth/gmail/callback")
+async def gmail_oauth_callback(code: str = None, state: str = None, error: str = None):
+    """Handle Gmail OAuth callback"""
+    if error:
+        return RedirectResponse(url=f"/admin/settings?gmail_error={error}")
+    
+    if not code or not state:
+        return RedirectResponse(url="/admin/settings?gmail_error=missing_params")
+    
+    # Verify state
+    state_doc = await db.oauth_states.find_one({"state": state})
+    if not state_doc:
+        return RedirectResponse(url="/admin/settings?gmail_error=invalid_state")
+    
+    # Check expiry
+    if datetime.now(timezone.utc) > state_doc["expires_at"].replace(tzinfo=timezone.utc):
+        return RedirectResponse(url="/admin/settings?gmail_error=state_expired")
+    
+    user_id = state_doc["user_id"]
+    
+    # Delete used state
+    await db.oauth_states.delete_one({"state": state})
+    
+    try:
+        # Exchange code for tokens
+        tokens = exchange_code_for_tokens(code)
+        
+        # Get user email
+        service = get_gmail_service(tokens)
+        profile = service.users().getProfile(userId='me').execute()
+        email = profile.get('emailAddress', '')
+        
+        # Store tokens
+        await db.gmail_tokens.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "user_id": user_id,
+                "email": email,
+                **tokens,
+                "updated_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+        
+        return RedirectResponse(url="/admin/settings?gmail_success=true")
+    except Exception as e:
+        logger.error(f"Gmail OAuth error: {e}")
+        return RedirectResponse(url=f"/admin/settings?gmail_error={str(e)[:50]}")
+
+@api_router.post("/oauth/gmail/disconnect")
+async def gmail_disconnect(current_user: dict = Depends(get_current_user)):
+    """Disconnect Gmail integration"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can disconnect Gmail")
+    
+    await db.gmail_tokens.delete_one({"user_id": current_user["id"]})
+    return {"message": "Gmail disconnected successfully"}
+
+@api_router.get("/gmail/ninjacart-emails")
+async def get_ninjacart_emails(
+    max_results: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """Fetch recent Ninjacart emails"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get Gmail tokens
+    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    if not token:
+        raise HTTPException(status_code=400, detail="Gmail not connected. Please connect Gmail first.")
+    
+    try:
+        service = get_gmail_service(token)
+        
+        # Search for Ninjacart emails
+        messages = search_ninjacart_emails(service, max_results)
+        
+        emails = []
+        for msg in messages[:5]:  # Limit to 5 for performance
+            content = get_email_content(service, msg['id'])
+            if content:
+                emails.append({
+                    "id": content['id'],
+                    "subject": content['subject'],
+                    "from": content['from'],
+                    "date": content['date'],
+                    "has_attachments": len(content['attachments']) > 0,
+                    "attachments": [a['filename'] for a in content['attachments']]
+                })
+        
+        return {"emails": emails}
+    except Exception as e:
+        logger.error(f"Error fetching emails: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch emails: {str(e)}")
+
+@api_router.post("/gmail/process-grn-email/{message_id}")
+async def process_grn_from_email(
+    message_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Process a specific email and create GRN from it"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get Gmail tokens
+    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    if not token:
+        raise HTTPException(status_code=400, detail="Gmail not connected")
+    
+    try:
+        service = get_gmail_service(token)
+        
+        # Get email content
+        content = get_email_content(service, message_id)
+        if not content:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        grn_items = []
+        
+        # Try to parse CSV attachment first
+        for attachment in content['attachments']:
+            if attachment['filename'].lower().endswith('.csv'):
+                csv_data = download_attachment(service, message_id, attachment['attachment_id'])
+                if csv_data:
+                    grn_items = parse_ninjacart_csv(csv_data)
+                    break
+        
+        # If no CSV, try to parse email body
+        if not grn_items and content['body_text']:
+            grn_items = parse_ninjacart_email_body(content['body_text'])
+        
+        if not grn_items:
+            raise HTTPException(status_code=400, detail="Could not parse GRN data from email")
+        
+        # Mark email as processed
+        mark_email_as_read(service, message_id)
+        add_label_to_email(service, message_id, "FreshFlow-Processed")
+        
+        return {
+            "message": "Email processed successfully",
+            "email_subject": content['subject'],
+            "items_found": len(grn_items),
+            "grn_items": grn_items
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process email: {str(e)}")
+
+@api_router.post("/gmail/auto-sync-grn")
+async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)):
+    """
+    Automatically sync Ninjacart GRN from latest unprocessed email
+    This can be triggered manually or by scheduler
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get Gmail tokens
+    token = await db.gmail_tokens.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    if not token:
+        raise HTTPException(status_code=400, detail="Gmail not connected")
+    
+    try:
+        service = get_gmail_service(token)
+        
+        # Search for unread Ninjacart emails
+        result = service.users().messages().list(
+            userId='me',
+            q='from:ninjacart is:unread',
+            maxResults=5
+        ).execute()
+        
+        messages = result.get('messages', [])
+        
+        if not messages:
+            return {"message": "No new Ninjacart emails found", "processed": 0}
+        
+        processed_count = 0
+        grn_data = []
+        
+        for msg in messages:
+            content = get_email_content(service, msg['id'])
+            if not content:
+                continue
+            
+            items = []
+            
+            # Try CSV first
+            for attachment in content['attachments']:
+                if attachment['filename'].lower().endswith('.csv'):
+                    csv_data = download_attachment(service, msg['id'], attachment['attachment_id'])
+                    if csv_data:
+                        items = parse_ninjacart_csv(csv_data)
+                        break
+            
+            # Fallback to body parsing
+            if not items and content['body_text']:
+                items = parse_ninjacart_email_body(content['body_text'])
+            
+            if items:
+                grn_data.append({
+                    "email_id": msg['id'],
+                    "subject": content['subject'],
+                    "date": content['date'],
+                    "items": items
+                })
+                
+                # Mark as processed
+                mark_email_as_read(service, msg['id'])
+                add_label_to_email(service, msg['id'], "FreshFlow-Processed")
+                processed_count += 1
+        
+        # Update last sync time
+        await db.gmail_tokens.update_one(
+            {"user_id": current_user["id"]},
+            {"$set": {"last_sync": datetime.now(timezone.utc)}}
+        )
+        
+        return {
+            "message": f"Processed {processed_count} Ninjacart emails",
+            "processed": processed_count,
+            "grn_data": grn_data
+        }
+    except Exception as e:
+        logger.error(f"Error in auto-sync: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-sync failed: {str(e)}")
+
 # Include router
 app.include_router(api_router)
 
@@ -4323,13 +4601,104 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize backup scheduler on startup"""
+    """Initialize backup scheduler and Gmail sync scheduler on startup"""
     global backup_scheduler
     try:
         backup_scheduler = setup_backup_scheduler(db)
         logger.info("Backup scheduler initialized successfully")
+        
+        # Add Gmail GRN sync job at 6 AM IST (00:30 UTC)
+        # IST is UTC+5:30, so 6:00 AM IST = 00:30 UTC
+        backup_scheduler.add_job(
+            scheduled_gmail_sync,
+            CronTrigger(hour=0, minute=30),  # 6:00 AM IST
+            id='gmail_grn_sync',
+            replace_existing=True
+        )
+        logger.info("Gmail GRN sync scheduled for 6:00 AM IST daily")
     except Exception as e:
-        logger.error(f"Failed to initialize backup scheduler: {e}")
+        logger.error(f"Failed to initialize schedulers: {e}")
+
+async def scheduled_gmail_sync():
+    """Scheduled job to sync Ninjacart GRN from Gmail at 6 AM"""
+    logger.info("Starting scheduled Gmail GRN sync...")
+    try:
+        # Get all admin users with Gmail connected
+        tokens = await db.gmail_tokens.find({}, {"_id": 0}).to_list(10)
+        
+        if not tokens:
+            logger.info("No Gmail accounts connected for GRN sync")
+            return
+        
+        for token in tokens:
+            try:
+                from gmail_integration import (
+                    get_gmail_service, search_ninjacart_emails, get_email_content,
+                    download_attachment, parse_ninjacart_csv, parse_ninjacart_email_body,
+                    mark_email_as_read, add_label_to_email
+                )
+                
+                service = get_gmail_service(token)
+                
+                # Search for unread Ninjacart emails from last 24 hours
+                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y/%m/%d')
+                result = service.users().messages().list(
+                    userId='me',
+                    q=f'from:ninjacart is:unread after:{yesterday}',
+                    maxResults=10
+                ).execute()
+                
+                messages = result.get('messages', [])
+                
+                if not messages:
+                    logger.info(f"No new Ninjacart emails for {token.get('email')}")
+                    continue
+                
+                processed = 0
+                for msg in messages:
+                    content = get_email_content(service, msg['id'])
+                    if not content:
+                        continue
+                    
+                    items = []
+                    for attachment in content['attachments']:
+                        if attachment['filename'].lower().endswith('.csv'):
+                            csv_data = download_attachment(service, msg['id'], attachment['attachment_id'])
+                            if csv_data:
+                                items = parse_ninjacart_csv(csv_data)
+                                break
+                    
+                    if items:
+                        # Store parsed GRN data for manual review
+                        await db.pending_grn_imports.insert_one({
+                            "email_id": msg['id'],
+                            "subject": content['subject'],
+                            "date": content['date'],
+                            "items": items,
+                            "imported_at": datetime.now(timezone.utc),
+                            "status": "pending_review",
+                            "user_email": token.get('email')
+                        })
+                        
+                        mark_email_as_read(service, msg['id'])
+                        add_label_to_email(service, msg['id'], "FreshFlow-Processed")
+                        processed += 1
+                
+                logger.info(f"Processed {processed} Ninjacart emails for {token.get('email')}")
+                
+                # Update last sync time
+                await db.gmail_tokens.update_one(
+                    {"email": token.get('email')},
+                    {"$set": {"last_sync": datetime.now(timezone.utc)}}
+                )
+                
+            except Exception as e:
+                logger.error(f"Error syncing Gmail for {token.get('email')}: {e}")
+                continue
+        
+        logger.info("Scheduled Gmail GRN sync completed")
+    except Exception as e:
+        logger.error(f"Gmail sync scheduler error: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

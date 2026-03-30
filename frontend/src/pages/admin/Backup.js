@@ -3,7 +3,7 @@ import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Trash2 } from 'lucide-react';
+import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Trash2, Link2, Unlink, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function BackupPage() {
@@ -13,10 +13,81 @@ export default function BackupPage() {
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
+  // Gmail state
+  const [gmailStatus, setGmailStatus] = useState(null);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   useEffect(() => {
     loadStatus();
+    loadGmailStatus();
+    
+    // Check URL params for Gmail OAuth callback
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gmail_success')) {
+      toast.success('Gmail connected successfully!');
+      loadGmailStatus();
+      window.history.replaceState({}, '', '/admin/backup');
+    } else if (params.get('gmail_error')) {
+      toast.error(`Gmail connection failed: ${params.get('gmail_error')}`);
+      window.history.replaceState({}, '', '/admin/backup');
+    }
   }, []);
+
+  const loadGmailStatus = async () => {
+    try {
+      const response = await api.get('/api/oauth/gmail/status');
+      setGmailStatus(response.data);
+    } catch (error) {
+      console.error('Failed to load Gmail status:', error);
+    }
+  };
+
+  const connectGmail = async () => {
+    setGmailLoading(true);
+    try {
+      const response = await api.get('/api/oauth/gmail/login');
+      // Redirect to Google OAuth
+      window.location.href = response.data.auth_url;
+    } catch (error) {
+      console.error('Failed to start Gmail OAuth:', error);
+      toast.error(error.response?.data?.detail || 'Failed to connect Gmail');
+      setGmailLoading(false);
+    }
+  };
+
+  const disconnectGmail = async () => {
+    setGmailLoading(true);
+    try {
+      await api.post('/api/oauth/gmail/disconnect');
+      toast.success('Gmail disconnected');
+      setGmailStatus({ connected: false });
+    } catch (error) {
+      console.error('Failed to disconnect Gmail:', error);
+      toast.error('Failed to disconnect Gmail');
+    } finally {
+      setGmailLoading(false);
+    }
+  };
+
+  const syncGrnNow = async () => {
+    setSyncLoading(true);
+    try {
+      const response = await api.post('/api/gmail/auto-sync-grn');
+      if (response.data.processed > 0) {
+        toast.success(`Synced ${response.data.processed} Ninjacart emails!`);
+      } else {
+        toast.info('No new Ninjacart emails found');
+      }
+      loadGmailStatus();
+    } catch (error) {
+      console.error('Failed to sync:', error);
+      toast.error(error.response?.data?.detail || 'Failed to sync GRN from Gmail');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
 
   const loadStatus = async () => {
     try {
@@ -214,6 +285,98 @@ export default function BackupPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Gmail Integration Card - Full Width */}
+        <Card className="border-blue-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-700">
+              <Mail className="h-5 w-5" />
+              Ninjacart GRN Email Automation
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Connect Gmail to automatically import Ninjacart GRN data from daily emails at 6:00 AM.
+            </p>
+            
+            <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-lg">
+              {gmailStatus?.connected ? (
+                <>
+                  <CheckCircle className="h-8 w-8 text-green-600 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-medium text-green-700">Gmail Connected</p>
+                    <p className="text-sm text-gray-600">{gmailStatus.email}</p>
+                    {gmailStatus.last_sync && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Last synced: {new Date(gmailStatus.last_sync).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={syncGrnNow}
+                      disabled={syncLoading}
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {syncLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                      )}
+                      Sync Now
+                    </Button>
+                    <Button 
+                      onClick={disconnectGmail}
+                      disabled={gmailLoading}
+                      size="sm"
+                      variant="outline"
+                      className="border-red-300 text-red-600 hover:bg-red-50"
+                    >
+                      <Unlink className="h-4 w-4 mr-1" />
+                      Disconnect
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-8 w-8 text-gray-400 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-700">Gmail Not Connected</p>
+                    <p className="text-sm text-gray-500">Connect to enable automatic GRN import</p>
+                  </div>
+                  <Button 
+                    onClick={connectGmail}
+                    disabled={gmailLoading}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {gmailLoading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Link2 className="h-4 w-4 mr-2" />
+                    )}
+                    Connect Gmail
+                  </Button>
+                </>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div className="p-3 bg-gray-50 rounded">
+                <p className="font-medium text-gray-700">Schedule</p>
+                <p className="text-gray-500">Daily at 6:00 AM IST</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded">
+                <p className="font-medium text-gray-700">Email Filter</p>
+                <p className="text-gray-500">From: Ninjacart</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded">
+                <p className="font-medium text-gray-700">Data Parsed</p>
+                <p className="text-gray-500">CSV Attachments / Email Body</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Collections List */}
         <Card>

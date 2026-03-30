@@ -8,11 +8,36 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
 import { Checkbox } from '../../components/ui/checkbox';
+
+// Export utility function
+const exportToCSV = (data, filename, columns) => {
+  if (!data || data.length === 0) {
+    toast.error('No data to export');
+    return;
+  }
+  
+  const headers = columns.map(c => c.label);
+  const rows = data.map(item => 
+    columns.map(c => {
+      const value = c.getter(item);
+      return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }).join(',')
+  );
+  
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  
+  toast.success(`Exported ${data.length} records to Excel`);
+};
 
 const UNIT_TYPES = [
   { value: 'Kg', label: 'Kg (Kilogram)' },
@@ -571,6 +596,67 @@ export default function Procurement() {
 
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  // ==================== EXPORT HANDLERS ====================
+  const exportProcurements = () => {
+    const dataToExport = [];
+    filteredProcurements.forEach(proc => {
+      proc.products?.forEach(item => {
+        dataToExport.push({
+          date: proc.date,
+          farmer: proc.farmer_name,
+          product: item.product_name,
+          quantity: item.quantity,
+          unit: item.unit,
+          unit_size: item.unit_size || '-',
+          rate: item.rate,
+          total: item.total,
+          payment_status: proc.payment_status,
+          paid_amount: proc.paid_amount || 0,
+          pending: proc.pending_amount || 0
+        });
+      });
+    });
+    
+    exportToCSV(dataToExport, 'procurements', [
+      { label: 'Date', getter: (d) => formatDate(d.date) },
+      { label: 'Farmer', getter: (d) => d.farmer },
+      { label: 'Product', getter: (d) => d.product },
+      { label: 'Quantity', getter: (d) => d.quantity },
+      { label: 'Unit', getter: (d) => d.unit },
+      { label: 'Size (gm)', getter: (d) => d.unit_size },
+      { label: 'Rate', getter: (d) => d.rate },
+      { label: 'Total', getter: (d) => d.total },
+      { label: 'Payment Status', getter: (d) => d.payment_status },
+      { label: 'Paid', getter: (d) => d.paid_amount },
+      { label: 'Pending', getter: (d) => d.pending }
+    ]);
+  };
+
+  const exportPendingPayments = () => {
+    const farmerWisePending = getFarmerWisePending();
+    exportToCSV(farmerWisePending, 'pending_payments', [
+      { label: 'Farmer', getter: (d) => d.farmerName },
+      { label: 'Contact', getter: (d) => d.contact || '-' },
+      { label: 'Total Amount', getter: (d) => d.totalAmount },
+      { label: 'Paid Amount', getter: (d) => d.paidAmount },
+      { label: 'Pending Amount', getter: (d) => d.pendingAmount },
+      { label: 'Procurements Count', getter: (d) => d.procurements?.length || 0 }
+    ]);
+  };
+
+  const exportFarmers = () => {
+    exportToCSV(farmers, 'farmers', [
+      { label: 'Name', getter: (d) => d.name },
+      { label: 'Contact', getter: (d) => d.contact || '-' },
+      { label: 'Address', getter: (d) => d.address || '-' },
+      { label: 'Bank Account', getter: (d) => d.bank_account_number || '-' },
+      { label: 'IFSC', getter: (d) => d.ifsc_code || '-' },
+      { label: 'Bank Name', getter: (d) => d.bank_name || '-' },
+      { label: 'UPI ID', getter: (d) => d.upi_id || '-' },
+      { label: 'Materials Supplied', getter: (d) => d.materials_supplied || '-' }
+    ]);
   };
 
   const getUnitLabel = (unit, unitSize) => {
@@ -1507,8 +1593,11 @@ export default function Procurement() {
           </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">{t('procurement.purchaseHistory')}</CardTitle>
+              <Button size="sm" variant="outline" onClick={exportProcurements} title="Export to Excel">
+                <FileSpreadsheet size={14} className="mr-1" /> Export
+              </Button>
             </CardHeader>
             <CardContent>
               <div className="data-table">
@@ -1693,10 +1782,15 @@ export default function Procurement() {
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-lg">Farmer-wise Pending Payments</CardTitle>
-                <Button variant="outline" size="sm" onClick={selectAllFarmers} data-testid="select-all-farmers">
-                  <CheckSquare size={16} className="mr-2" />
-                  Select All
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={exportPendingPayments} title="Export to Excel">
+                    <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={selectAllFarmers} data-testid="select-all-farmers">
+                    <CheckSquare size={16} className="mr-2" />
+                    Select All
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1770,8 +1864,11 @@ export default function Procurement() {
 
         <TabsContent value="farmers" className="mt-6">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">{t('procurement.farmers')} ({farmers.length})</CardTitle>
+              <Button size="sm" variant="outline" onClick={exportFarmers} title="Export to Excel">
+                <FileSpreadsheet size={14} className="mr-1" /> Export
+              </Button>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

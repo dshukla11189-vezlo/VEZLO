@@ -5,7 +5,32 @@ import api from '../../utils/api';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3 } from 'lucide-react';
+import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet } from 'lucide-react';
+
+// Export utility function
+const exportToCSV = (data, filename, columns) => {
+  if (!data || data.length === 0) {
+    toast.error('No data to export');
+    return;
+  }
+  
+  const headers = columns.map(c => c.label);
+  const rows = data.map(item => 
+    columns.map(c => {
+      const value = c.getter(item);
+      return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }).join(',')
+  );
+  
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  
+  toast.success(`Exported ${data.length} records to Excel`);
+};
 
 export default function WastageDashboard() {
   const { t } = useTranslation();
@@ -57,6 +82,27 @@ export default function WastageDashboard() {
     return 'text-green-600 bg-green-100';
   };
 
+  // ==================== EXPORT HANDLER ====================
+  const exportWastageData = () => {
+    const dataToExport = topProducts.map(p => ({
+      product: p.product_name,
+      unit: p.unit,
+      total_wastage: p.total_wastage,
+      wastage_value: p.wastage_value || 0,
+      avg_daily_wastage: p.avg_daily_wastage || 0,
+      wastage_percentage: p.wastage_percent || 0
+    }));
+    
+    exportToCSV(dataToExport, `wastage_report_${selectedPeriod}days`, [
+      { label: 'Product', getter: (d) => d.product },
+      { label: 'Unit', getter: (d) => d.unit },
+      { label: 'Total Wastage', getter: (d) => d.total_wastage },
+      { label: 'Wastage Value (₹)', getter: (d) => d.wastage_value.toFixed(2) },
+      { label: 'Avg Daily Wastage', getter: (d) => d.avg_daily_wastage.toFixed(2) },
+      { label: 'Wastage %', getter: (d) => d.wastage_percentage.toFixed(2) }
+    ]);
+  };
+
   const getBarHeight = (value, max) => {
     if (max === 0) return 0;
     return Math.min(100, (value / max) * 100);
@@ -85,6 +131,9 @@ export default function WastageDashboard() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={exportWastageData} title="Export to Excel">
+            <FileSpreadsheet size={14} className="mr-1" /> Export
+          </Button>
           {[7, 15, 30].map(days => (
             <Button
               key={days}

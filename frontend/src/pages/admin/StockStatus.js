@@ -8,7 +8,32 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, Save, RefreshCw, Clock, CheckCircle, ArrowRight, Edit2, Trash2, Filter, Calendar, Search } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, Save, RefreshCw, Clock, CheckCircle, ArrowRight, Edit2, Trash2, Filter, Calendar, Search, FileSpreadsheet } from 'lucide-react';
+
+// Export utility function
+const exportToCSV = (data, filename, columns) => {
+  if (!data || data.length === 0) {
+    toast.error('No data to export');
+    return;
+  }
+  
+  const headers = columns.map(c => c.label);
+  const rows = data.map(item => 
+    columns.map(c => {
+      const value = c.getter(item);
+      return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }).join(',')
+  );
+  
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  
+  toast.success(`Exported ${data.length} records to Excel`);
+};
 
 export default function StockStatus() {
   const { t } = useTranslation();
@@ -100,6 +125,25 @@ export default function StockStatus() {
   const handleDateChange = (newDate) => {
     setFilterDate(newDate);
     loadStockStatus(newDate);
+  };
+
+  // ==================== EXPORT HANDLER ====================
+  const exportStockStatus = () => {
+    const filteredStock = filterProduct === 'all' 
+      ? stockStatus 
+      : stockStatus.filter(s => s.product_id === filterProduct);
+    
+    exportToCSV(filteredStock, `stock_status_${filterDate}`, [
+      { label: 'Product', getter: (d) => d.product_name },
+      { label: 'Unit', getter: (d) => d.unit },
+      { label: 'Opening Qty', getter: (d) => d.opening_qty || 0 },
+      { label: 'Purchase Qty', getter: (d) => d.purchase_qty || 0 },
+      { label: 'QC Dispatch', getter: (d) => d.qc_dispatch_qty || 0 },
+      { label: 'Retailer Dispatch', getter: (d) => d.retailer_dispatch_qty || 0 },
+      { label: 'Wastage', getter: (d) => d.wastage_qty || 0 },
+      { label: 'Closing Qty', getter: (d) => d.closing_qty ?? '-' },
+      { label: 'Status', getter: (d) => d.status }
+    ]);
   };
 
   const handleClosingQtyChange = (productId, value) => {
@@ -413,7 +457,10 @@ export default function StockStatus() {
           <CardHeader className="py-3">
             <CardTitle className="flex items-center justify-between text-base">
               <span>Daily Stock Status</span>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                <Button size="sm" variant="outline" onClick={exportStockStatus} title="Export to Excel">
+                  <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
                 <span className="text-xs font-normal bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
                   {openProducts.length} Open
                 </span>

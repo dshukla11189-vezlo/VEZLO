@@ -8,8 +8,34 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet
 } from 'lucide-react';
+
+// Export utility function
+const exportToCSV = (data, filename, columns) => {
+  if (!data || data.length === 0) {
+    toast.error('No data to export');
+    return;
+  }
+  
+  const headers = columns.map(c => c.label);
+  const rows = data.map(item => 
+    columns.map(c => {
+      const value = c.getter(item);
+      // Escape quotes and wrap in quotes
+      return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }).join(',')
+  );
+  
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  
+  toast.success(`Exported ${data.length} records to Excel`);
+};
 
 export default function RetailerOrders() {
   const [activeTab, setActiveTab] = useState('indents');
@@ -270,6 +296,112 @@ export default function RetailerOrders() {
 
   const formatCurrency = (amount) => {
     return `₹${(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // ==================== EXPORT HANDLERS ====================
+  const exportIndents = () => {
+    const dataToExport = [];
+    filteredIndents.forEach(indent => {
+      indent.items?.forEach(item => {
+        dataToExport.push({
+          date: indent.indent_date,
+          retailer: getRetailerNameById(indent.retailer_id) || indent.retailer_name,
+          product: item.product_name,
+          variant: item.variant_name || '-',
+          quantity: item.quantity,
+          status: indent.status,
+          remarks: indent.remarks || ''
+        });
+      });
+    });
+    
+    exportToCSV(dataToExport, 'retailer_indents', [
+      { label: 'Date', getter: (d) => formatDate(d.date) },
+      { label: 'Retailer', getter: (d) => d.retailer },
+      { label: 'Product', getter: (d) => d.product },
+      { label: 'Variant', getter: (d) => d.variant },
+      { label: 'Quantity', getter: (d) => d.quantity },
+      { label: 'Status', getter: (d) => d.status },
+      { label: 'Remarks', getter: (d) => d.remarks }
+    ]);
+  };
+
+  const exportDispatches = () => {
+    const dataToExport = [];
+    filteredDispatches.forEach(dispatch => {
+      dispatch.items?.forEach(item => {
+        dataToExport.push({
+          date: dispatch.dispatch_date,
+          retailer: getRetailerNameById(dispatch.retailer_id) || dispatch.retailer_name,
+          product: item.product_name,
+          variant: item.variant_name || '-',
+          quantity: item.dispatched_qty,
+          rate: item.rate || 0,
+          mrp_value: item.mrp_value || 0,
+          invoice_status: dispatch.invoice_status || 'uninvoiced'
+        });
+      });
+    });
+    
+    exportToCSV(dataToExport, 'retailer_dispatches', [
+      { label: 'Date', getter: (d) => formatDate(d.date) },
+      { label: 'Retailer', getter: (d) => d.retailer },
+      { label: 'Product', getter: (d) => d.product },
+      { label: 'Variant', getter: (d) => d.variant },
+      { label: 'Quantity', getter: (d) => d.quantity },
+      { label: 'Rate', getter: (d) => d.rate },
+      { label: 'MRP Value', getter: (d) => d.mrp_value },
+      { label: 'Invoice Status', getter: (d) => d.invoice_status }
+    ]);
+  };
+
+  const exportInvoices = () => {
+    exportToCSV(invoices, 'retailer_invoices', [
+      { label: 'Invoice No', getter: (d) => d.invoice_number },
+      { label: 'Date', getter: (d) => formatDate(d.invoice_date) },
+      { label: 'Retailer', getter: (d) => getRetailerNameById(d.retailer_id) || d.retailer_name },
+      { label: 'Total MRP', getter: (d) => d.total_mrp_value || 0 },
+      { label: 'Commission %', getter: (d) => d.commission_percentage || 0 },
+      { label: 'Commission Amt', getter: (d) => d.commission_amount || 0 },
+      { label: 'Net Receivable', getter: (d) => d.net_receivable || 0 },
+      { label: 'Status', getter: (d) => d.status }
+    ]);
+  };
+
+  const exportRejections = () => {
+    const dataToExport = [];
+    filteredRejections.forEach(rejection => {
+      rejection.items?.forEach(item => {
+        dataToExport.push({
+          date: rejection.rejection_date,
+          retailer: getRetailerNameById(rejection.retailer_id) || rejection.company_name,
+          product: item.product_name,
+          variant: item.variant_name || '-',
+          quantity: item.rejection_qty,
+          reason: item.reason || '-'
+        });
+      });
+    });
+    
+    exportToCSV(dataToExport, 'retailer_rejections', [
+      { label: 'Date', getter: (d) => formatDate(d.date) },
+      { label: 'Retailer', getter: (d) => d.retailer },
+      { label: 'Product', getter: (d) => d.product },
+      { label: 'Variant', getter: (d) => d.variant },
+      { label: 'Rejected Qty', getter: (d) => d.quantity },
+      { label: 'Reason', getter: (d) => d.reason }
+    ]);
+  };
+
+  const exportPayments = () => {
+    exportToCSV(payments, 'retailer_payments', [
+      { label: 'Date', getter: (d) => formatDate(d.payment_date) },
+      { label: 'Retailer', getter: (d) => getRetailerNameById(d.retailer_id) || d.retailer_name },
+      { label: 'Amount', getter: (d) => d.amount || 0 },
+      { label: 'Payment Mode', getter: (d) => d.payment_mode },
+      { label: 'Reference', getter: (d) => d.reference_number || '-' },
+      { label: 'Remarks', getter: (d) => d.remarks || '-' }
+    ]);
   };
 
   // ==================== INDENT HANDLERS ====================
@@ -1232,9 +1364,14 @@ export default function RetailerOrders() {
                   )}
                 </div>
               </div>
-              <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
-                <Plus size={14} className="mr-1" /> New Indent
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
+                  <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
+                <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
+                  <Plus size={14} className="mr-1" /> New Indent
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -1340,6 +1477,9 @@ export default function RetailerOrders() {
                   )}
                 </div>
               </div>
+              <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel">
+                <FileSpreadsheet size={14} className="mr-1" /> Export
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -1458,6 +1598,9 @@ export default function RetailerOrders() {
             <CardHeader className="py-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Invoices</CardTitle>
               <div className="flex gap-2 items-center">
+                <Button size="sm" variant="outline" onClick={exportInvoices} title="Export to Excel">
+                  <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
                 <select
                   value={invoiceForm.retailer_id}
                   onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
@@ -1573,9 +1716,14 @@ export default function RetailerOrders() {
             <CardHeader className="py-3 flex flex-col gap-3">
               <div className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">Rejections</CardTitle>
-                <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => setShowRejectionModal(true)}>
-                  <Plus size={14} className="mr-1" /> Record Rejection
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={exportRejections} title="Export to Excel">
+                    <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => setShowRejectionModal(true)}>
+                    <Plus size={14} className="mr-1" /> Record Rejection
+                  </Button>
+                </div>
               </div>
               {/* Filters row */}
               <div className="flex flex-wrap gap-2 items-center">
@@ -1668,9 +1816,14 @@ export default function RetailerOrders() {
           <Card>
             <CardHeader className="py-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Payments</CardTitle>
-              <Button size="sm" className="bg-[#14532D]" onClick={() => setShowPaymentModal(true)}>
-                <Plus size={14} className="mr-1" /> Record Payment
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={exportPayments} title="Export to Excel">
+                  <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
+                <Button size="sm" className="bg-[#14532D]" onClick={() => setShowPaymentModal(true)}>
+                  <Plus size={14} className="mr-1" /> Record Payment
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">

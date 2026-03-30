@@ -269,7 +269,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
     - [x] **Payment Context Summary**: Shows Total MRP, Commission, Net Receivable, Rejections, Already Paid, Pending Amount before recording payment
 - [ ] Retailer Invoice Creation (like QC module - NOT YET IMPLEMENTED)
 - [ ] Retailer Rejection Adjustment workflow
-- [ ] Export to Excel for Indent tab (UI buttons exist, logic pending)
+- [x] **Excel Export Functionality** (COMPLETED - Mar 30, 2026):
+  - [x] **RetailerOrders**: Export buttons for Indents, Dispatches, Invoices, Rejections, Payments tabs
+  - [x] **Procurement**: Export buttons for Purchase History, Pending Payments, Farmers tabs
+  - [x] **StockStatus**: Export button for Daily Stock Status
+  - [x] **WastageDashboard**: Export button for Wastage data
+  - [x] CSV format download with proper column headers
+  - [x] Success toast notification with record count
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

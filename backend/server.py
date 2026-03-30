@@ -4319,6 +4319,24 @@ async def gmail_oauth_debug_states():
         ]
     }
 
+@api_router.get("/oauth/gmail/debug-tokens")
+async def gmail_oauth_debug_tokens():
+    """DEBUG: Show Gmail tokens in database (without sensitive data)"""
+    tokens = await db.gmail_tokens.find({}).to_list(length=10)
+    return {
+        "total_tokens": len(tokens),
+        "tokens": [
+            {
+                "user_id": t.get("user_id"),
+                "email": t.get("email"),
+                "has_access_token": bool(t.get("access_token")),
+                "has_refresh_token": bool(t.get("refresh_token")),
+                "updated_at": str(t.get("updated_at"))
+            }
+            for t in tokens
+        ]
+    }
+
 @api_router.get("/oauth/gmail/debug-headers")
 async def gmail_oauth_debug_headers(request: Request):
     """DEBUG: Show what headers the server receives - helps diagnose redirect_uri issues"""
@@ -4465,12 +4483,15 @@ async def gmail_oauth_callback(request: Request, code: str = None, state: str = 
     
     try:
         # Exchange code for tokens
+        logger.info(f"Exchanging code for tokens with redirect_uri: {redirect_uri}")
         tokens = exchange_code_for_tokens(code, redirect_uri)
+        logger.info(f"Token exchange successful - has_access_token: {bool(tokens.get('access_token'))}, has_refresh_token: {bool(tokens.get('refresh_token'))}")
         
         # Get user email
         service = get_gmail_service(tokens)
         profile = service.users().getProfile(userId='me').execute()
         email = profile.get('emailAddress', '')
+        logger.info(f"Gmail profile retrieved - email: {email}")
         
         # Store tokens
         await db.gmail_tokens.update_one(
@@ -4483,10 +4504,11 @@ async def gmail_oauth_callback(request: Request, code: str = None, state: str = 
             }},
             upsert=True
         )
+        logger.info(f"Gmail tokens saved for user: {user_id}")
         
         return RedirectResponse(url="/admin/backup?gmail_success=true")
     except Exception as e:
-        logger.error(f"Gmail OAuth error: {e}")
+        logger.error(f"Gmail OAuth error: {e}", exc_info=True)
         return RedirectResponse(url=f"/admin/backup?gmail_error={str(e)[:50]}")
 
 @api_router.post("/oauth/gmail/disconnect")

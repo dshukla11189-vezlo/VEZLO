@@ -4301,6 +4301,24 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
 # SECTION: GMAIL INTEGRATION ROUTES - Ninjacart GRN Email Automation
 # ============================================================================
 
+@api_router.get("/oauth/gmail/debug-states")
+async def gmail_oauth_debug_states():
+    """DEBUG: Show OAuth states in database"""
+    states = await db.oauth_states.find({}).to_list(length=10)
+    return {
+        "total_states": len(states),
+        "states": [
+            {
+                "state": s.get("state", "N/A")[:20] + "...",
+                "user_id": s.get("user_id"),
+                "redirect_uri": s.get("redirect_uri"),
+                "created_at": str(s.get("created_at")),
+                "expires_at": str(s.get("expires_at"))
+            }
+            for s in states
+        ]
+    }
+
 @api_router.get("/oauth/gmail/debug-headers")
 async def gmail_oauth_debug_headers(request: Request):
     """DEBUG: Show what headers the server receives - helps diagnose redirect_uri issues"""

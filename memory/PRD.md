@@ -298,7 +298,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
     - Fixed redirect_uri_mismatch error caused by PKCE code_verifier mismatch
     - Now uses manual OAuth URL construction without PKCE (PKCE is optional for server-side flows with client_secret)
     - Uses x-forwarded-host header for proper reverse-proxy support
-    - Added debug endpoint: `/api/oauth/gmail/debug-headers` for troubleshooting
+    - Added debug endpoints: `/api/oauth/gmail/debug-headers`, `/api/oauth/gmail/debug-states`, `/api/oauth/gmail/debug-tokens`
+- [x] **Excel Support for GRN Upload** (COMPLETED - Mar 30, 2026):
+  - [x] Ninjacart GRN upload now accepts both CSV and Excel (.xlsx, .xls) files
+  - [x] Uses openpyxl library for Excel parsing
+  - [x] Same matching logic for both file types
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

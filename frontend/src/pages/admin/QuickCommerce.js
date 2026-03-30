@@ -1312,15 +1312,16 @@ Email: ${companyEmail}`;
   };
 
   // ============================================================================
-  // SECTION: GRN HANDLERS - Ninjacart CSV Upload
+  // SECTION: GRN HANDLERS - Ninjacart CSV/Excel Upload
   // ============================================================================
   
   const handleGrnCsvUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.csv')) {
-      toast.error('Please upload a CSV file');
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith('.csv') && !fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+      toast.error('Please upload a CSV or Excel (.xlsx, .xls) file');
       return;
     }
 
@@ -1346,13 +1347,13 @@ Email: ${companyEmail}`;
       }
       
       if (response.data.matched_items?.length > 0) {
-        toast.success(`Matched ${response.data.matched_items.length} items from CSV`);
+        toast.success(`Matched ${response.data.matched_items.length} items from file`);
       } else {
         toast.warning('No matching items found. Make sure dispatch dates match.');
       }
     } catch (error) {
       console.error('GRN upload error:', error);
-      toast.error('Failed to process CSV file');
+      toast.error(error.response?.data?.detail || 'Failed to process file');
     } finally {
       setUploadingGrn(false);
       // Reset file input
@@ -2976,13 +2977,13 @@ Email: ${companyEmail}`;
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
                   <CardTitle className="text-lg">GRN - Ninjacart</CardTitle>
-                  <p className="text-sm text-gray-500 mt-1">Upload Ninjacart CSV to match with dispatches</p>
+                  <p className="text-sm text-gray-500 mt-1">Upload Ninjacart CSV or Excel file to match with dispatches</p>
                 </div>
                 <div className="flex gap-3">
                   <label className="cursor-pointer">
                     <input
                       type="file"
-                      accept=".csv"
+                      accept=".csv,.xlsx,.xls"
                       onChange={handleGrnCsvUpload}
                       className="hidden"
                       disabled={uploadingGrn}
@@ -2998,7 +2999,7 @@ Email: ${companyEmail}`;
                         ) : (
                           <Upload size={16} className="mr-2" />
                         )}
-                        Upload Ninjacart CSV
+                        Upload Ninjacart File
                       </span>
                     </Button>
                   </label>
@@ -3438,7 +3439,7 @@ Email: ${companyEmail}`;
                   </div>
                   
                   <p className="text-sm text-gray-500 mt-3">
-                    Edit GRN values manually or upload Ninjacart CSV file to auto-match.
+                    Edit GRN values manually or upload Ninjacart CSV/Excel file to auto-match.
                   </p>
                 </div>
               )}
@@ -3544,7 +3545,7 @@ Email: ${companyEmail}`;
                 <div className="p-8 text-center text-gray-500">
                   <ClipboardCheck size={48} className="mx-auto text-gray-400 mb-4" />
                   <p>No Ninjacart dispatches found.</p>
-                  <p className="text-sm mt-2">Create dispatches for Ninjacart first, then upload their CSV for GRN matching.</p>
+                  <p className="text-sm mt-2">Create dispatches for Ninjacart first, then upload their CSV/Excel file for GRN matching.</p>
                 </div>
               )}
             </CardContent>

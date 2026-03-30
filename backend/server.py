@@ -1134,22 +1134,56 @@ async def delete_qc_grn_item(grn_id: str, item_index: int, current_user: dict = 
 @api_router.post("/qc-grns/upload-ninjacart-csv")
 async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """
-    Upload Ninjacart GRN CSV file and match with our dispatches.
-    The CSV contains: PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit
+    Upload Ninjacart GRN CSV or Excel file and match with our dispatches.
+    The file contains: PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit
     
-    STRICT VALIDATION: Only processes CSV rows if a dispatch exists for that exact date.
+    STRICT VALIDATION: Only processes rows if a dispatch exists for that exact date.
     Returns warnings for skipped rows (no matching dispatch).
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="Only CSV files are allowed")
+    filename_lower = file.filename.lower()
+    if not (filename_lower.endswith('.csv') or filename_lower.endswith('.xlsx') or filename_lower.endswith('.xls')):
+        raise HTTPException(status_code=400, detail="Only CSV or Excel (.xlsx, .xls) files are allowed")
     
-    # Read and parse CSV
+    # Read file content
     content = await file.read()
-    decoded = content.decode('utf-8')
-    reader = csv.DictReader(io.StringIO(decoded))
+    
+    # Parse based on file type
+    rows_data = []
+    if filename_lower.endswith('.csv'):
+        # Parse CSV
+        decoded = content.decode('utf-8')
+        reader = csv.DictReader(io.StringIO(decoded))
+        rows_data = list(reader)
+    else:
+        # Parse Excel (.xlsx or .xls)
+        import openpyxl
+        from io import BytesIO
+        
+        try:
+            workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+            sheet = workbook.active
+            
+            # Get headers from first row
+            headers = []
+            for cell in sheet[1]:
+                headers.append(str(cell.value) if cell.value else '')
+            
+            # Parse data rows
+            for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                row_dict = {}
+                for col_idx, value in enumerate(row):
+                    if col_idx < len(headers):
+                        row_dict[headers[col_idx]] = str(value) if value is not None else ''
+                if any(row_dict.values()):  # Skip completely empty rows
+                    rows_data.append(row_dict)
+            
+            workbook.close()
+        except Exception as e:
+            logger.error(f"Error parsing Excel file: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
     
     # Get all Ninjacart dispatches
     ninjacart_dispatches = await db.qc_dispatches.find(
@@ -1175,7 +1209,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     skipped_rows = []  # Track rows skipped due to no matching dispatch
     total_csv_rows = 0
     
-    for row in reader:
+    for row in rows_data:
         total_csv_rows += 1
         try:
             # Parse date (format: DD/MM/YY)

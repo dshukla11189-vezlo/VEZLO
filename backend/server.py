@@ -1354,6 +1354,11 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     logger.info(f"GRN Upload: Dispatch dates available: {list(dispatch_dates_set)[:5]}...")
     logger.info(f"GRN Upload: CSV dates parsed: {list(csv_data_by_date.keys())}")
     
+    # Variant/color words that MUST match exactly if present in product name
+    variant_words = {'red', 'green', 'yellow', 'white', 'black', 'purple', 'orange', 
+                   'small', 'large', 'big', 'baby', 'mini', 'jumbo', 'local', 'hybrid',
+                   'english', 'indian', 'desi', 'organic', 'fresh'}
+    
     for dispatch in ninjacart_dispatches:
         dispatch_date = dispatch.get('dispatch_date', '')
         if isinstance(dispatch_date, str):
@@ -1369,6 +1374,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         
         for item in dispatch.get('items', []):
             product_name = item.get('product_name', '').lower()
+            product_name_original = item.get('product_name', '')
             packaging_name = item.get('packaging_name', '') or ''
             packaging_weight_gm = 0
             
@@ -1378,19 +1384,31 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 if pkg:
                     packaging_weight_gm = pkg.get('weight_gm', 0)
             
+            # If no weight from DB, try to parse from packaging name (e.g., "200 gm", "100 gm")
+            if packaging_weight_gm == 0:
+                import re
+                weight_match = re.search(r'(\d+)\s*(gm|g|gram)', packaging_name.lower())
+                if weight_match:
+                    packaging_weight_gm = int(weight_match.group(1))
+            
             # Determine if this dispatch item's packaging is Kg-based or PCS-based
             packaging_upper = packaging_name.upper()
-            dispatch_is_kg_based = 'KG' in packaging_upper or 'KGS' in packaging_upper
-            dispatch_is_pcs_based = 'PCS' in packaging_upper or 'PACK' in packaging_upper
             
-            # Try to match with CSV data - must match BOTH product name AND pricing type
+            # Check if packaging is explicitly PCS-based (pieces)
+            dispatch_is_pcs_based = ('(PCS)' in packaging_upper or 
+                                     ' PCS ' in packaging_upper or
+                                     packaging_upper.endswith(' PCS') or
+                                     packaging_upper.endswith('(PCS)') or
+                                     packaging_upper.startswith('PCS '))
+            
+            # Kg-based: weight-based packaging without PCS
+            dispatch_is_kg_based = not dispatch_is_pcs_based
+            
+            logger.info(f"Matching dispatch item: {product_name_original} | {packaging_name} | weight={packaging_weight_gm}gm | pcs={dispatch_is_pcs_based}")
+            
+            # Try to match with CSV data
             best_match = None
             best_match_score = 0
-            
-            # Variant/color words that MUST match exactly if present in product name
-            variant_words = {'red', 'green', 'yellow', 'white', 'black', 'purple', 'orange', 
-                           'small', 'large', 'big', 'baby', 'mini', 'jumbo', 'local', 'hybrid',
-                           'english', 'indian', 'desi', 'organic', 'fresh'}
             
             for csv_row in csv_rows:
                 sku_name = csv_row['sku_name'].lower()
@@ -1400,72 +1418,59 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 sku_name_cleaned = sku_name.replace(' - fk', '').replace('-fk', '').replace(' fk', '')
                 sku_name_cleaned = sku_name_cleaned.replace(' - mh', '').replace('-mh', '').replace(' mh', '')
                 
-                # Check product name match - ALL significant words of product must be in SKU
-                product_words = [w.lower() for w in product_name.split() if len(w) > 2]  # Skip short words
-                sku_words = sku_name_cleaned.replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
+                # Get base product name from SKU (remove everything after (Kg) or (PCS))
+                sku_base = re.sub(r'\s*\([^)]*\)\s*', ' ', sku_name_cleaned).strip()
+                sku_base = re.sub(r'\s+', ' ', sku_base)  # Normalize spaces
+                
+                # Check product name match
+                product_words = [w.lower() for w in product_name.split() if len(w) > 2]
+                sku_words = sku_base.replace('-', ' ').split()
                 
                 # STRICT CHECK: If product has variant words, they MUST be in SKU
                 product_variants = [w for w in product_words if w in variant_words]
                 if product_variants:
-                    # Check each variant word is present in SKU
                     variant_match = all(
                         any(pv in sw or sw in pv for sw in sku_words) 
                         for pv in product_variants
                     )
                     if not variant_match:
-                        # Variant word missing from SKU - skip this match
                         continue
                 
-                # Count how many product words match in SKU
-                match_count = sum(1 for pw in product_words if any(pw in sw or sw in pw for sw in sku_words))
-                
-                # Require at least first word (product type) to match
+                # Check if first word (main product) matches
                 if product_words and not any(product_words[0] in sw or sw in product_words[0] for sw in sku_words):
                     continue
                 
-                # Calculate match score (higher is better)
+                # Count matching words
+                match_count = sum(1 for pw in product_words if any(pw in sw or sw in pw for sw in sku_words))
                 match_score = match_count / len(product_words) if product_words else 0
                 
-                # If product has multiple words, require ALL to match (100%)
-                if len(product_words) > 1 and match_score < 1.0:
-                    continue
-                
-                # Detect SKU pricing type from SKU name: (Kg)/(Kgs) = Kg-based, (PCS) = piece-based
+                # Detect SKU pricing type
                 sku_upper = sku_name_original.upper()
-                # Check for Kg indicators: (KG), (KGS), -KG-, -KGS-, " KG ", " KGS ", or ends with KG/KGS
-                sku_is_kg_based = ('(KG)' in sku_upper or '(KGS)' in sku_upper or 
-                                   ' - KGS -' in sku_upper or ' - KG -' in sku_upper or
-                                   '- KGS -' in sku_upper or '- KG -' in sku_upper or
-                                   sku_upper.endswith('- KGS') or sku_upper.endswith('- KG') or
-                                   sku_upper.endswith('(KG)') or sku_upper.endswith('(KGS)') or
-                                   ' KG ' in sku_upper or ' KGS ' in sku_upper or
-                                   '-KG-' in sku_upper or '-KGS-' in sku_upper)
-                # Also check unit from CSV/Excel row
                 csv_unit = csv_row.get('weight_unit', '').upper()
-                if csv_unit in ['KGS', 'KG', 'KILO', 'KILOS']:
-                    sku_is_kg_based = True
-                    
-                sku_is_pcs_based = '(PCS)' in sku_upper or 'PACK)(PCS)' in sku_upper
-                if csv_unit in ['PCS', 'PIECES', 'PIECE']:
-                    sku_is_pcs_based = True
                 
-                # Match type: Kg-based SKU should match Kg-based packaging, PCS-based should match PCS-based
+                # Kg-based: has (KG), (KGS), or unit is KGS/KG
+                sku_is_kg_based = ('(KG)' in sku_upper or '(KGS)' in sku_upper or 
+                                   'KG)' in sku_upper or  # e.g., "(Kg)"
+                                   csv_unit in ['KGS', 'KG', 'KILO', 'KILOS'])
+                
+                # PCS-based: has (PCS) in SKU or unit is PCS
+                sku_is_pcs_based = ('(PCS)' in sku_upper or 'PACK)(PCS)' in sku_upper or
+                                   csv_unit in ['PCS', 'PIECES', 'PIECE'])
+                
+                logger.info(f"  Checking SKU: {sku_name_original} | sku_kg={sku_is_kg_based}, sku_pcs={sku_is_pcs_based} | match_score={match_score}")
+                
+                # Match type validation
                 type_match = False
                 if sku_is_kg_based and dispatch_is_kg_based:
                     type_match = True
                 elif sku_is_pcs_based and dispatch_is_pcs_based:
                     type_match = True
-                elif not sku_is_kg_based and not sku_is_pcs_based:
-                    # SKU doesn't specify type - allow flexible matching
-                    type_match = True
-                elif not dispatch_is_kg_based and not dispatch_is_pcs_based:
-                    # Packaging doesn't specify type - allow flexible matching
-                    type_match = True
                 
                 if not type_match:
+                    logger.info(f"    Type mismatch: sku_kg={sku_is_kg_based}, sku_pcs={sku_is_pcs_based}, dispatch_kg={dispatch_is_kg_based}, dispatch_pcs={dispatch_is_pcs_based}")
                     continue
                 
-                # This is a potential match - track it if it's better than current best
+                # Track best match
                 if match_score > best_match_score:
                     best_match_score = match_score
                     best_match = {

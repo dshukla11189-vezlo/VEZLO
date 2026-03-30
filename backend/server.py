@@ -1161,6 +1161,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         # Parse Excel (.xlsx or .xls)
         import openpyxl
         from io import BytesIO
+        from datetime import datetime as dt
         
         try:
             workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
@@ -1169,20 +1170,33 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             # Get headers from first row
             headers = []
             for cell in sheet[1]:
-                headers.append(str(cell.value) if cell.value else '')
+                headers.append(str(cell.value).strip() if cell.value else '')
+            
+            logger.info(f"Excel headers found: {headers}")
             
             # Parse data rows
             for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
                 row_dict = {}
                 for col_idx, value in enumerate(row):
                     if col_idx < len(headers):
-                        row_dict[headers[col_idx]] = str(value) if value is not None else ''
+                        header = headers[col_idx]
+                        # Handle datetime objects specially
+                        if isinstance(value, dt):
+                            row_dict[header] = value.strftime('%Y-%m-%d')
+                        elif value is not None:
+                            row_dict[header] = str(value).strip()
+                        else:
+                            row_dict[header] = ''
                 if any(row_dict.values()):  # Skip completely empty rows
                     rows_data.append(row_dict)
             
+            # Log first row for debugging
+            if rows_data:
+                logger.info(f"First Excel row parsed: {rows_data[0]}")
+            
             workbook.close()
         except Exception as e:
-            logger.error(f"Error parsing Excel file: {e}")
+            logger.error(f"Error parsing Excel file: {e}", exc_info=True)
             raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
     
     # Get all Ninjacart dispatches

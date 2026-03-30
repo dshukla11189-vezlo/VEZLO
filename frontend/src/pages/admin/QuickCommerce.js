@@ -3044,6 +3044,16 @@ Email: ${companyEmail}`;
                       ))}
                     </div>
                   )}
+                  {grnUploadResult.skipped_details?.length > 0 && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded max-h-40 overflow-y-auto">
+                      <p className="text-xs font-semibold text-red-700">Skipped Row Details (first 10):</p>
+                      {grnUploadResult.skipped_details.map((detail, idx) => (
+                        <p key={idx} className="text-xs text-red-600">
+                          Row {detail.row}: {detail.reason} | SKU: {detail.sku} {detail.date ? `| Date: ${detail.date}` : ''}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

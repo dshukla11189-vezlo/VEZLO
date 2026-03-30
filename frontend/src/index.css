@@ -70,3 +70,19 @@
         border-bottom-color: inherit;
     }
 }
+
+/* Hide number input spinners (up/down arrows) for mobile-friendly experience */
+@layer base {
+    /* Chrome, Safari, Edge, Opera */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    
+    /* Firefox */
+    input[type="number"] {
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+}

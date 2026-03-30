@@ -3284,13 +3284,14 @@ async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(ge
     if not existing:
         raise HTTPException(status_code=404, detail="Indent not found")
     
-    # Only allow deleting pending indents
-    if existing["status"] != "pending":
-        raise HTTPException(status_code=400, detail="Cannot delete non-pending indent")
-    
     # Retailers can only delete their own indents
     if current_user["role"] == "retailer" and existing["retailer_id"] != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if there are any dispatches for this indent
+    dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+    if len(dispatches) > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete indent with existing dispatches. Delete dispatches first.")
     
     await db.retailer_indents.delete_one({"id": indent_id})
     return {"message": "Indent deleted successfully"}
@@ -3436,13 +3437,42 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
     if invoice:
         raise HTTPException(status_code=400, detail="Cannot delete dispatch that is part of an invoice")
     
+    indent_id = existing.get("indent_id")
+    
     await db.retailer_dispatches.delete_one({"id": dispatch_id})
     
-    # Revert indent status back to pending if needed
-    await db.retailer_indents.update_one(
-        {"id": existing.get("indent_id")},
-        {"$set": {"status": "pending"}}
-    )
+    # Recalculate indent status based on remaining dispatches
+    if indent_id:
+        remaining_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+        
+        if len(remaining_dispatches) == 0:
+            # No dispatches left - set back to pending
+            await db.retailer_indents.update_one(
+                {"id": indent_id},
+                {"$set": {"status": "pending"}}
+            )
+        else:
+            # Check if partially or fully dispatched
+            indent = await db.retailer_indents.find_one({"id": indent_id}, {"_id": 0})
+            if indent:
+                total_dispatched = {}
+                for d in remaining_dispatches:
+                    for item in d.get('items', []):
+                        key = item.get('product_id', '')
+                        total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+                
+                fully_dispatched = True
+                for item in indent.get('items', []):
+                    dispatched = total_dispatched.get(item.get('product_id', ''), 0)
+                    if dispatched < item.get('quantity', 0):
+                        fully_dispatched = False
+                        break
+                
+                new_status = "dispatched" if fully_dispatched else "partial"
+                await db.retailer_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"status": new_status}}
+                )
     
     return {"message": "Dispatch deleted successfully"}
 

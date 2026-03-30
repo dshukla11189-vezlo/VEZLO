@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import io
 import csv
 import uuid
+import traceback
+import time
 
 from models import *
 from ocr_processor import process_excel_image
@@ -23,6 +25,13 @@ from backup_system import setup_backup_scheduler, trigger_manual_backup, generat
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Enhanced logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("freshflow")
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -40,6 +49,67 @@ ALGORITHM = "HS256"
 # Create the main app
 app = FastAPI(title="FreshFlow API")
 api_router = APIRouter(prefix="/api")
+
+# Store recent errors for diagnostics (in-memory, last 50 errors)
+recent_errors = []
+MAX_ERROR_LOG = 50
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    request_id = str(uuid.uuid4())[:8]
+    
+    # Log request
+    logger.info(f"[{request_id}] {request.method} {request.url.path} - Started")
+    
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        
+        # Log response
+        log_level = logging.WARNING if response.status_code >= 400 else logging.INFO
+        logger.log(log_level, f"[{request_id}] {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
+        
+        # Store errors
+        if response.status_code >= 400:
+            error_entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "request_id": request_id,
+                "method": request.method,
+                "path": str(request.url.path),
+                "status_code": response.status_code,
+                "process_time": round(process_time, 3)
+            }
+            recent_errors.append(error_entry)
+            if len(recent_errors) > MAX_ERROR_LOG:
+                recent_errors.pop(0)
+        
+        return response
+    except Exception as e:
+        process_time = time.time() - start_time
+        error_msg = str(e)
+        tb = traceback.format_exc()
+        
+        logger.error(f"[{request_id}] {request.method} {request.url.path} - EXCEPTION: {error_msg}")
+        logger.error(f"[{request_id}] Traceback: {tb}")
+        
+        # Store error
+        error_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "request_id": request_id,
+            "method": request.method,
+            "path": str(request.url.path),
+            "status_code": 500,
+            "error": error_msg,
+            "traceback": tb[:500],  # Truncate traceback
+            "process_time": round(process_time, 3)
+        }
+        recent_errors.append(error_entry)
+        if len(recent_errors) > MAX_ERROR_LOG:
+            recent_errors.pop(0)
+        
+        raise
 
 # Auth Helper Functions
 def hash_password(password: str) -> str:
@@ -66,6 +136,56 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+# Health & Diagnostics Routes
+@api_router.get("/health")
+async def health_check():
+    """Basic health check endpoint"""
+    try:
+        # Test MongoDB connection
+        await db.command("ping")
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    return {
+        "status": "healthy" if db_status == "connected" else "degraded",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "database": db_status,
+        "version": "1.0.0"
+    }
+
+@api_router.get("/diagnostics")
+async def get_diagnostics(current_user: dict = Depends(get_current_user)):
+    """Get recent error logs and system diagnostics (admin only)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        # Test MongoDB
+        await db.command("ping")
+        db_status = "connected"
+        
+        # Get collection stats
+        collections = await db.list_collection_names()
+        collection_counts = {}
+        for coll in collections[:10]:  # Limit to 10 collections
+            count = await db[coll].count_documents({})
+            collection_counts[coll] = count
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+        collection_counts = {}
+    
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "database": {
+            "status": db_status,
+            "collections": collection_counts
+        },
+        "recent_errors": recent_errors[-20:],  # Last 20 errors
+        "error_count": len(recent_errors),
+        "uptime_note": "Errors are stored in-memory and reset on server restart"
+    }
 
 # Auth Routes
 @api_router.post("/auth/register", response_model=AuthResponse)

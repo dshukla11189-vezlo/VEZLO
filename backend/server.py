@@ -2052,7 +2052,7 @@ async def get_pnl_report(
         if customer not in sales_by_customer:
             sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
         if grn_date not in sales_by_date:
-            sales_by_date[grn_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+            sales_by_date[grn_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0}
         if grn_date not in product_by_date:
             product_by_date[grn_date] = {}
         if grn_date not in line_items_by_date:
@@ -2080,6 +2080,7 @@ async def get_pnl_report(
             sales_by_customer[customer]["qty"] += qty
             sales_by_date[grn_date]["sales"] += amount
             sales_by_date[grn_date]["sales_qty"] += qty
+            sales_by_date[grn_date]["qc_sales"] = sales_by_date[grn_date].get("qc_sales", 0) + amount
             
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
@@ -2121,8 +2122,21 @@ async def get_pnl_report(
         "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
     }, {"_id": 0}).to_list(1000)
     
+    # Fetch all retailers to get company names
+    all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
+    retailer_company_map = {r.get("id"): r.get("company_name", r.get("name", "Unknown")) for r in all_retailers}
+    
+    # Track QC vs Retail sales for bifurcation
+    qc_sales_total = total_sales  # QC sales already calculated above
+    qc_sales_qty = total_sales_qty
+    retail_sales_total = 0
+    retail_sales_qty = 0
+    
     for dispatch in retailer_dispatches:
-        customer = dispatch.get("retailer_name", "Unknown") + " (Retail)"
+        # Use company_name instead of retailer_name (owner's name)
+        retailer_id = dispatch.get("retailer_id", "")
+        company_name = retailer_company_map.get(retailer_id, dispatch.get("retailer_name", "Unknown"))
+        customer = company_name + " (Retail)"
         dispatch_date = dispatch.get("dispatch_date", "")[:10]
         # Use net_payable (after commission deduction) as the actual sales value
         net_payable = dispatch.get("net_payable", 0) or 0
@@ -2131,7 +2145,7 @@ async def get_pnl_report(
         if customer not in sales_by_customer:
             sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail"}
         if dispatch_date not in sales_by_date:
-            sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0}
+            sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0}
         if dispatch_date not in product_by_date:
             product_by_date[dispatch_date] = {}
         if dispatch_date not in line_items_by_date:
@@ -2182,10 +2196,13 @@ async def get_pnl_report(
         
         total_sales += net_payable
         total_sales_qty += dispatch_qty
+        retail_sales_total += net_payable
+        retail_sales_qty += dispatch_qty
         sales_by_customer[customer]["amount"] += net_payable
         sales_by_customer[customer]["qty"] += dispatch_qty
         sales_by_date[dispatch_date]["sales"] += net_payable
         sales_by_date[dispatch_date]["sales_qty"] += dispatch_qty
+        sales_by_date[dispatch_date]["retail_sales"] = sales_by_date[dispatch_date].get("retail_sales", 0) + net_payable
         sales_by_customer[customer]["invoices"] += 1
     
     # ========== PURCHASES (from Procurements) ==========
@@ -2395,16 +2412,19 @@ async def get_pnl_report(
                     else:
                         product_cogs_rate[prod_name] = 0
             
-            # Get product-level wastage rate (wastage_value / total_sales_qty)
-            product_wastage_rate = {}
+            # Calculate total supplied kg per product for proportional wastage allocation
+            product_total_supplied_kg = {}
+            for key, item in customer_product_map.items():
+                product = item["product"]
+                if product not in product_total_supplied_kg:
+                    product_total_supplied_kg[product] = 0
+                product_total_supplied_kg[product] += item["supplied_kg"]
+            
+            # Get product-level total wastage (value) for this date
+            product_total_wastage = {}
             if date_key in product_by_date:
                 for prod_name, prod_data in product_by_date[date_key].items():
-                    sales_qty = prod_data.get("sales_qty", 0)
-                    wastage_val = prod_data.get("wastage", 0)
-                    if sales_qty > 0:
-                        product_wastage_rate[prod_name] = wastage_val / sales_qty
-                    else:
-                        product_wastage_rate[prod_name] = 0
+                    product_total_wastage[prod_name] = prod_data.get("wastage", 0)
             
             # Build detailed line items sorted by customer then by product
             for key in sorted(customer_product_map.keys(), key=lambda x: (x[0], x[1])):
@@ -2415,10 +2435,19 @@ async def get_pnl_report(
                 cogs_rate = product_cogs_rate.get(product, 0)
                 cogs = item["supplied_kg"] * cogs_rate
                 
-                # Calculate wastage for this line item
-                wastage_rate = product_wastage_rate.get(product, 0)
-                wastage_value = item["supplied_qty"] * wastage_rate
-                wastage_kg = item["supplied_kg"] * (wastage_rate / cogs_rate) if cogs_rate > 0 else 0
+                # Calculate wastage proportionally based on kg supplied ratio
+                # If there are 3 supplies in the ratio of 50:30:20 kg, wastage is divided in same ratio
+                total_kg_for_product = product_total_supplied_kg.get(product, 0)
+                total_wastage_for_product = product_total_wastage.get(product, 0)
+                
+                if total_kg_for_product > 0:
+                    # Proportional wastage = (this_line_kg / total_product_kg) * total_wastage
+                    kg_ratio = item["supplied_kg"] / total_kg_for_product
+                    wastage_value = kg_ratio * total_wastage_for_product
+                    wastage_kg = (wastage_value / cogs_rate) if cogs_rate > 0 else 0
+                else:
+                    wastage_value = 0
+                    wastage_kg = 0
                 
                 # Calculate gross profit and margins for this line item
                 line_gross_profit = item["revenue"] - cogs - wastage_value
@@ -2451,6 +2480,8 @@ async def get_pnl_report(
             "date": date_key,
             "sales": round(day_data["sales"], 2),
             "sales_qty": round(day_sales_qty, 2),
+            "qc_sales": round(day_data.get("qc_sales", 0), 2),
+            "retail_sales": round(day_data.get("retail_sales", 0), 2),
             "purchase": round(day_data["purchase"], 2),
             "wastage": round(day_data["wastage"], 2),
             "gross_profit": round(day_gross, 2),
@@ -2491,6 +2522,10 @@ async def get_pnl_report(
             "profit_per_unit": round(profit_per_unit, 2)
         })
     
+    # Calculate QC vs Retail bifurcation totals
+    total_qc_sales = sum(day.get("qc_sales", 0) for day in daily_pnl)
+    total_retail_sales = sum(day.get("retail_sales", 0) for day in daily_pnl)
+    
     return {
         "period": {"from": from_date, "to": to_date},
         "summary": {
@@ -2506,6 +2541,16 @@ async def get_pnl_report(
             "total_fixed_expenses": round(total_fixed, 2),
             "net_profit": round(net_profit, 2),
             "net_margin": round(net_margin, 1)
+        },
+        "vertical_bifurcation": {
+            "qc": {
+                "sales": round(total_qc_sales, 2),
+                "percentage": round((total_qc_sales / total_sales * 100) if total_sales > 0 else 0, 1)
+            },
+            "retail": {
+                "sales": round(total_retail_sales, 2),
+                "percentage": round((total_retail_sales / total_sales * 100) if total_sales > 0 else 0, 1)
+            }
         },
         "daily_pnl": daily_pnl,
         "customer_pnl": customer_pnl,

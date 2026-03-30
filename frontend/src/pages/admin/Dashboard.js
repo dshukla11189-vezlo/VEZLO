@@ -333,6 +333,60 @@ export default function AdminDashboard() {
           </Card>
         )}
 
+        {/* QC vs Retail Bifurcation */}
+        {pnlData?.vertical_bifurcation && (
+          <Card className="mb-4" data-testid="vertical-bifurcation">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <PieChart size={16} /> Sales by Vertical
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="py-2">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Quick Commerce */}
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="p-2 bg-blue-600 rounded-lg">
+                    <Zap className="text-white" size={18} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-blue-700 font-medium uppercase">Quick Commerce</p>
+                    <p className="text-xl font-bold text-blue-900">{formatCurrency(pnlData.vertical_bifurcation.qc.sales)}</p>
+                    <p className="text-xs text-blue-600">{pnlData.vertical_bifurcation.qc.percentage}% of total</p>
+                  </div>
+                  <div className="h-12 w-12">
+                    <div 
+                      className="h-12 w-12 rounded-full border-4 border-blue-200"
+                      style={{
+                        background: `conic-gradient(#2563EB ${pnlData.vertical_bifurcation.qc.percentage}%, #E5E7EB ${pnlData.vertical_bifurcation.qc.percentage}%)`
+                      }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Retail */}
+                <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                  <div className="p-2 bg-emerald-600 rounded-lg">
+                    <ShoppingCart className="text-white" size={18} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-emerald-700 font-medium uppercase">Retail</p>
+                    <p className="text-xl font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
+                    <p className="text-xs text-emerald-600">{pnlData.vertical_bifurcation.retail.percentage}% of total</p>
+                  </div>
+                  <div className="h-12 w-12">
+                    <div 
+                      className="h-12 w-12 rounded-full border-4 border-emerald-200"
+                      style={{
+                        background: `conic-gradient(#059669 ${pnlData.vertical_bifurcation.retail.percentage}%, #E5E7EB ${pnlData.vertical_bifurcation.retail.percentage}%)`
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b pb-2">
           {['overview', 'customers', 'products', 'expenses'].map(tab => (
@@ -430,18 +484,19 @@ export default function AdminDashboard() {
                         <th className="p-2 text-left font-medium text-gray-500 w-8"></th>
                         <th className="p-2 text-left font-medium text-gray-500">DATE</th>
                         <th className="p-2 text-right font-medium text-gray-500">SALES</th>
+                        <th className="p-2 text-right font-medium text-blue-500 text-[10px]">QC</th>
+                        <th className="p-2 text-right font-medium text-emerald-500 text-[10px]">RETAIL</th>
                         <th className="p-2 text-right font-medium text-gray-500">QTY</th>
                         <th className="p-2 text-right font-medium text-gray-500">PURCHASE</th>
                         <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
                         <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
                         <th className="p-2 text-right font-medium text-gray-500">MARGIN %</th>
-                        <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={10} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
                         dailyPnl.map((day, idx) => (
@@ -459,12 +514,14 @@ export default function AdminDashboard() {
                                 )}
                               </td>
                               <td className="p-2 font-medium">{formatDate(day.date)}</td>
-                              <td className="p-2 text-right text-green-600">₹{day.sales.toLocaleString()}</td>
+                              <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
+                              <td className="p-2 text-right text-blue-600 text-[10px]">₹{(day.qc_sales || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right text-emerald-600 text-[10px]">₹{(day.retail_sales || 0).toLocaleString()}</td>
                               <td className="p-2 text-right text-gray-600">{day.sales_qty?.toLocaleString() || 0}</td>
                               <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
                               <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
                               <td className={`p-2 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                {day.gross_profit >= 0 ? '+' : ''}₹{day.gross_profit.toLocaleString()}
+                                {day.gross_profit >= 0 ? '' : '-'}₹{Math.abs(day.gross_profit).toLocaleString()}
                               </td>
                               <td className="p-2 text-right">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -476,20 +533,18 @@ export default function AdminDashboard() {
                                   {day.gross_margin}%
                                 </span>
                               </td>
-                              <td className={`p-2 text-right ${day.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                ₹{day.profit_per_unit?.toFixed(2) || '0.00'}
-                              </td>
                             </tr>
                             
                             {/* Expanded Detailed Line Items (Customer → Product) */}
                             {expandedDates[day.date] && day.line_items && day.line_items.length > 0 && (
                               <tr>
-                                <td colSpan={9} className="p-0">
+                                <td colSpan={10} className="p-0">
                                   <div className="bg-blue-50 border-t border-b overflow-x-auto">
                                     <table className="w-full min-w-[1200px]">
                                       <thead>
                                         <tr className="bg-blue-100/70 border-b">
                                           <th className="p-1.5 text-left text-[9px] font-semibold text-gray-600 sticky left-0 bg-blue-100/70">CUSTOMER</th>
+                                          <th className="p-1.5 text-center text-[9px] font-semibold text-gray-500">TYPE</th>
                                           <th className="p-1.5 text-left text-[9px] font-semibold text-gray-600">PRODUCT</th>
                                           <th className="p-1.5 text-left text-[9px] font-semibold text-gray-600">UNIT</th>
                                           <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">QTY</th>
@@ -501,15 +556,20 @@ export default function AdminDashboard() {
                                           <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">GROSS PROFIT</th>
                                           <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">S.P./KG</th>
                                           <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">P.P./KG</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">MARGIN %</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">PROFIT/QTY</th>
                                         </tr>
                                       </thead>
                                       <tbody>
                                         {day.line_items.map((item, lidx) => (
                                           <tr key={lidx} className="border-b border-blue-100 hover:bg-blue-100/50">
                                             <td className="p-1.5 text-[9px] font-medium text-blue-700 sticky left-0 bg-blue-50 max-w-[120px] truncate" title={item.customer}>
-                                              {item.customer}
+                                              {item.customer.replace(' (Retail)', '').replace(' (QC)', '')}
+                                            </td>
+                                            <td className="p-1.5 text-center">
+                                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-semibold ${
+                                                item.customer_type === 'QC' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
+                                              }`}>
+                                                {item.customer_type}
+                                              </span>
                                             </td>
                                             <td className="p-1.5 text-[9px] text-gray-800">{item.product}</td>
                                             <td className="p-1.5 text-[9px] text-gray-500 max-w-[100px] truncate" title={item.unit}>
@@ -526,19 +586,6 @@ export default function AdminDashboard() {
                                             </td>
                                             <td className="p-1.5 text-right text-[9px] text-gray-700">₹{item.selling_price_per_kg.toFixed(2)}</td>
                                             <td className="p-1.5 text-right text-[9px] text-gray-700">₹{item.purchase_price_per_kg.toFixed(2)}</td>
-                                            <td className="p-1.5 text-right">
-                                              <span className={`px-1 py-0.5 rounded text-[8px] font-semibold ${
-                                                item.gross_margin >= 30 ? 'bg-green-200 text-green-800' : 
-                                                item.gross_margin >= 15 ? 'bg-green-100 text-green-700' : 
-                                                item.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' :
-                                                'bg-red-100 text-red-700'
-                                              }`}>
-                                                {item.gross_margin.toFixed(1)}%
-                                              </span>
-                                            </td>
-                                            <td className={`p-1.5 text-right text-[9px] font-medium ${item.profit_per_qty >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                              ₹{item.profit_per_qty.toFixed(2)}
-                                            </td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -549,7 +596,7 @@ export default function AdminDashboard() {
                             )}
                             {expandedDates[day.date] && (!day.line_items || day.line_items.length === 0) && (
                               <tr className="bg-gray-50">
-                                <td colSpan={9} className="p-2 pl-8 text-[10px] text-gray-400 italic">
+                                <td colSpan={10} className="p-2 pl-8 text-[10px] text-gray-400 italic">
                                   No detailed line items available
                                 </td>
                               </tr>
@@ -564,6 +611,8 @@ export default function AdminDashboard() {
                           <td className="p-2"></td>
                           <td className="p-2">TOTAL</td>
                           <td className="p-2 text-right text-green-700">₹{summary.total_sales?.toLocaleString()}</td>
+                          <td className="p-2 text-right text-blue-600 text-[10px]">₹{pnlData?.vertical_bifurcation?.qc?.sales?.toLocaleString() || 0}</td>
+                          <td className="p-2 text-right text-emerald-600 text-[10px]">₹{pnlData?.vertical_bifurcation?.retail?.sales?.toLocaleString() || 0}</td>
                           <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
                           <td className="p-2 text-right text-orange-700">₹{summary.total_purchase?.toLocaleString()}</td>
                           <td className="p-2 text-right text-red-700">₹{summary.total_wastage_value?.toLocaleString()}</td>
@@ -578,9 +627,6 @@ export default function AdminDashboard() {
                             }`}>
                               {summary.gross_margin}%
                             </span>
-                          </td>
-                          <td className="p-2 text-right">
-                            ₹{summary.total_sales_qty > 0 ? (summary.gross_profit / summary.total_sales_qty).toFixed(2) : '0.00'}
                           </td>
                         </tr>
                       </tfoot>

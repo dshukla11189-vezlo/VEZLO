@@ -281,6 +281,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Frontend (QuickCommerce.js)**: Added Table of Contents + 12 section markers
   - [x] Search for "SECTION:" to jump to any code section
   - [x] All APIs and functionality working correctly after reorganization
+- [x] **P&L Dashboard Enhancements** (COMPLETED - Mar 30, 2026):
+  - [x] **QC vs Retail Bifurcation**: New "Sales by Vertical" section with pie chart indicators
+  - [x] **Daily P&L Table**: Added QC and RETAIL columns showing sales split per day
+  - [x] **TYPE Column**: Expanded line items now show QC/Retail badge
+  - [x] **Company Name Fix**: Retail customers now show shop name (company_name) instead of owner name
+  - [x] **Wastage Allocation**: Proportional wastage distribution based on kg supplied ratio
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

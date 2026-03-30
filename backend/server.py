@@ -1204,7 +1204,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
     packaging_map = {p['name'].lower(): p for p in packaging_variants}
     
-    # Parse CSV rows and validate against dispatch dates
+    # Parse rows and validate against dispatch dates
+    # Support both old format (PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit)
+    # and new format (podate, Sku, GRN_Qty, Total_Value, Kgs_Pcs)
     csv_data_by_date = {}
     skipped_rows = []  # Track rows skipped due to no matching dispatch
     total_csv_rows = 0
@@ -1212,34 +1214,70 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     for row in rows_data:
         total_csv_rows += 1
         try:
-            # Parse date (format: DD/MM/YY)
-            date_str = row.get('PO_DeliveryDate', '')
+            # Detect format and extract date
+            # New format: podate (YYYY-MM-DD)
+            # Old format: PO_DeliveryDate (DD/MM/YY)
+            date_str = row.get('podate', '') or row.get('PO_DeliveryDate', '')
+            
             if not date_str:
                 skipped_rows.append({
                     'row': total_csv_rows,
                     'reason': 'Missing date',
-                    'sku': row.get('Sku Name', 'Unknown')
+                    'sku': row.get('Sku', row.get('Sku Name', 'Unknown'))
                 })
                 continue
             
-            day, month, year = date_str.split('/')
-            # Handle 2-digit year
-            if len(year) == 2:
-                year = '20' + year
-            parsed_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            # Parse date based on format
+            parsed_date = None
+            if '-' in str(date_str):
+                # New format: YYYY-MM-DD or datetime object
+                if hasattr(date_str, 'strftime'):
+                    # It's a datetime object from Excel
+                    parsed_date = date_str.strftime('%Y-%m-%d')
+                else:
+                    # It's a string like "2026-03-29"
+                    parsed_date = str(date_str)[:10]  # Take first 10 chars (YYYY-MM-DD)
+            elif '/' in str(date_str):
+                # Old format: DD/MM/YY
+                day, month, year = str(date_str).split('/')
+                if len(year) == 2:
+                    year = '20' + year
+                parsed_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            else:
+                skipped_rows.append({
+                    'row': total_csv_rows,
+                    'reason': f'Invalid date format: {date_str}',
+                    'sku': row.get('Sku', row.get('Sku Name', 'Unknown'))
+                })
+                continue
             
-            sku_name = row.get('Sku Name', '').strip()
-            grn_qty_raw = row.get('GRNQuantity', '0')
+            # Extract SKU name (new format: Sku, old format: Sku Name)
+            sku_name = (row.get('Sku', '') or row.get('Sku Name', '')).strip()
+            
+            # Extract GRN quantity (new format: GRN_Qty, old format: GRNQuantity)
+            grn_qty_raw = row.get('GRN_Qty', '') or row.get('GRNQuantity', '0')
             grn_qty = float(grn_qty_raw) if grn_qty_raw else 0
-            grn_price = float(row.get('GRNPrice', '0') or '0')
-            weight_unit = row.get('WeightUnit', 'Kg').strip()
+            
+            # Extract price/value (new format: Total_Value, old format: GRNPrice)
+            # For new format, we may need to calculate rate from Total_Value / GRN_Qty
+            total_value_raw = row.get('Total_Value', '') or row.get('GRNPrice', '0')
+            total_value = float(total_value_raw) if total_value_raw else 0
+            
+            # Calculate rate per unit
+            if grn_qty > 0 and total_value > 0:
+                grn_price = total_value / grn_qty
+            else:
+                grn_price = float(row.get('GRNPrice', '0') or '0')
+            
+            # Extract unit (new format: Kgs_Pcs, old format: WeightUnit)
+            weight_unit = (row.get('Kgs_Pcs', '') or row.get('WeightUnit', 'Kg')).strip()
             
             if not sku_name or grn_qty == 0:
                 skipped_rows.append({
                     'row': total_csv_rows,
                     'reason': 'Empty SKU or zero quantity',
                     'sku': sku_name or 'Empty',
-                    'date': date_str
+                    'date': str(date_str)
                 })
                 continue
             
@@ -1247,9 +1285,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             if parsed_date not in dispatch_dates_set:
                 skipped_rows.append({
                     'row': total_csv_rows,
-                    'reason': f'No dispatch found for date {date_str}',
+                    'reason': f'No dispatch found for date {parsed_date}',
                     'sku': sku_name,
-                    'date': date_str
+                    'date': str(date_str)
                 })
                 continue
             
@@ -1261,19 +1299,25 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 'sku_name': sku_name,
                 'grn_qty': grn_qty,
                 'grn_price': grn_price,
+                'total_value': total_value,
                 'weight_unit': weight_unit
             })
         except Exception as e:
-            logging.error(f"Error parsing CSV row {total_csv_rows}: {e}")
+            logger.error(f"Error parsing row {total_csv_rows}: {e}")
             skipped_rows.append({
                 'row': total_csv_rows,
                 'reason': f'Parse error: {str(e)}',
-                'sku': row.get('Sku Name', 'Unknown')
+                'sku': row.get('Sku', row.get('Sku Name', 'Unknown'))
             })
             continue
     
     # Match CSV data with dispatches
     matched_items = []
+    
+    # Log parsed data for debugging
+    logger.info(f"GRN Upload: Parsed {total_csv_rows} rows, {len(csv_data_by_date)} dates with data")
+    logger.info(f"GRN Upload: Dispatch dates available: {list(dispatch_dates_set)[:5]}...")
+    logger.info(f"GRN Upload: CSV dates parsed: {list(csv_data_by_date.keys())}")
     
     for dispatch in ninjacart_dispatches:
         dispatch_date = dispatch.get('dispatch_date', '')
@@ -1317,9 +1361,13 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 sku_name = csv_row['sku_name'].lower()
                 sku_name_original = csv_row['sku_name']
                 
+                # Remove common suffixes like "- FK", "- MH", etc. for better matching
+                sku_name_cleaned = sku_name.replace(' - fk', '').replace('-fk', '').replace(' fk', '')
+                sku_name_cleaned = sku_name_cleaned.replace(' - mh', '').replace('-mh', '').replace(' mh', '')
+                
                 # Check product name match - ALL significant words of product must be in SKU
                 product_words = [w.lower() for w in product_name.split() if len(w) > 2]  # Skip short words
-                sku_words = sku_name.replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
+                sku_words = sku_name_cleaned.replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
                 
                 # STRICT CHECK: If product has variant words, they MUST be in SKU
                 product_variants = [w for w in product_words if w in variant_words]
@@ -1349,8 +1397,22 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 # Detect SKU pricing type from SKU name: (Kg)/(Kgs) = Kg-based, (PCS) = piece-based
                 sku_upper = sku_name_original.upper()
-                sku_is_kg_based = '(KG)' in sku_upper or '(KGS)' in sku_upper or sku_upper.endswith('KG') or sku_upper.endswith('KGS') or ' KG ' in sku_upper or '-KG-' in sku_upper or ' KGS ' in sku_upper or '-KGS-' in sku_upper
-                sku_is_pcs_based = '(PCS)' in sku_upper
+                # Check for Kg indicators: (KG), (KGS), -KG-, -KGS-, " KG ", " KGS ", or ends with KG/KGS
+                sku_is_kg_based = ('(KG)' in sku_upper or '(KGS)' in sku_upper or 
+                                   ' - KGS -' in sku_upper or ' - KG -' in sku_upper or
+                                   '- KGS -' in sku_upper or '- KG -' in sku_upper or
+                                   sku_upper.endswith('- KGS') or sku_upper.endswith('- KG') or
+                                   sku_upper.endswith('(KG)') or sku_upper.endswith('(KGS)') or
+                                   ' KG ' in sku_upper or ' KGS ' in sku_upper or
+                                   '-KG-' in sku_upper or '-KGS-' in sku_upper)
+                # Also check unit from CSV/Excel row
+                csv_unit = csv_row.get('weight_unit', '').upper()
+                if csv_unit in ['KGS', 'KG', 'KILO', 'KILOS']:
+                    sku_is_kg_based = True
+                    
+                sku_is_pcs_based = '(PCS)' in sku_upper or 'PACK)(PCS)' in sku_upper
+                if csv_unit in ['PCS', 'PIECES', 'PIECE']:
+                    sku_is_pcs_based = True
                 
                 # Match type: Kg-based SKU should match Kg-based packaging, PCS-based should match PCS-based
                 type_match = False

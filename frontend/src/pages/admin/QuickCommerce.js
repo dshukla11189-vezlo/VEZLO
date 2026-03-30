@@ -13,8 +13,37 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload, Check, Pencil, X } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
+/*
+ * QuickCommerce.js - Quick Commerce Module
+ * ==========================================
+ * 
+ * TABLE OF CONTENTS (Search for SECTION: to navigate)
+ * ====================================================
+ * 1. STATE DECLARATIONS          (Line ~35)
+ * 2. DATA LOADING (useEffect)    (Line ~170)
+ * 3. HELPER FUNCTIONS            (Line ~280)
+ * 4. EXPORT FUNCTIONS            (Line ~310)
+ * 5. INDENT HANDLERS             (Line ~450)
+ * 6. DISPATCH HANDLERS           (Line ~650)
+ * 7. GRN HANDLERS                (Line ~850)
+ * 8. INVOICE HANDLERS            (Line ~1150)
+ * 9. CUSTOMER HANDLERS           (Line ~1450)
+ * 10. PACKAGING HANDLERS         (Line ~1550)
+ * 11. RENDER - Main Component    (Line ~1710)
+ *     - INDENT TAB               (Line ~1800)
+ *     - DISPATCH TAB             (Line ~2200)
+ *     - GRN TAB                  (Line ~2600)
+ *     - INVOICE TAB              (Line ~3100)
+ * 12. MODALS                     (Line ~3400)
+ * ====================================================
+ */
+
 export default function QuickCommerce() {
   const { t } = useTranslation();
+  
+  // ============================================================================
+  // SECTION: STATE DECLARATIONS
+  // ============================================================================
   
   // Data states
   const [indents, setIndents] = useState([]);
@@ -142,6 +171,10 @@ export default function QuickCommerce() {
     productName: ''
   });
 
+  // ============================================================================
+  // SECTION: DATA LOADING (useEffect)
+  // ============================================================================
+  
   useEffect(() => {
     loadData();
     loadPackagingVariants();
@@ -286,7 +319,10 @@ export default function QuickCommerce() {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  // Export functions
+  // ============================================================================
+  // SECTION: EXPORT FUNCTIONS
+  // ============================================================================
+  
   const getIndentsForExport = () => {
     let filtered = [...indents];
     
@@ -424,7 +460,10 @@ export default function QuickCommerce() {
     setOpenExport(false);
   };
 
-  // Indent handlers
+  // ============================================================================
+  // SECTION: INDENT HANDLERS
+  // ============================================================================
+  
   const handleAddIndentItem = () => {
     setIndentForm({
       ...indentForm,
@@ -665,7 +704,10 @@ export default function QuickCommerce() {
     });
   };
 
-  // Customer handlers
+  // ============================================================================
+  // SECTION: CUSTOMER HANDLERS
+  // ============================================================================
+  
   const handleSubmitCustomer = async (e) => {
     e.preventDefault();
     
@@ -713,7 +755,10 @@ export default function QuickCommerce() {
     setCustomerForm({ name: '', contact_person: '', contact_number: '', address: '' });
   };
 
-  // Dispatch Handlers - Log-based dispatch entries
+  // ============================================================================
+  // SECTION: DISPATCH HANDLERS - Log-based dispatch entries
+  // ============================================================================
+  
   const handleSuppliedQtyChange = (indentId, itemIndex, field, value) => {
     setDispatchData(prev => {
       const existingItem = prev[indentId]?.[itemIndex] || {};
@@ -867,7 +912,10 @@ export default function QuickCommerce() {
     }
   };
 
-  // Invoice Handlers - Day-based invoicing with multiple product selection
+  // ============================================================================
+  // SECTION: INVOICE HANDLERS - Day-based invoicing with multiple product selection
+  // ============================================================================
+  
   const getDispatchedItemsForCustomer = (customerName, dateFilter) => {
     // Get all dispatched items for a customer on a specific date
     const items = [];
@@ -1263,7 +1311,10 @@ Email: ${companyEmail}`;
     printWindow.print();
   };
 
-  // GRN Handlers - Ninjacart CSV Upload
+  // ============================================================================
+  // SECTION: GRN HANDLERS - Ninjacart CSV Upload
+  // ============================================================================
+  
   const handleGrnCsvUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1703,6 +1754,10 @@ Email: ${companyEmail}`;
   const dispatchedCount = dispatches.length;
   const completedGrns = grns.length;
 
+  // ============================================================================
+  // SECTION: RENDER - Main Component
+  // ============================================================================
+  
   return (
     <Layout title="Quick Commerce">
       {/* Stats Cards */}

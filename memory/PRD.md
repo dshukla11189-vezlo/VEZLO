@@ -276,6 +276,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **WastageDashboard**: Export button for Wastage data
   - [x] CSV format download with proper column headers
   - [x] Success toast notification with record count
+- [x] **Code Organization - Section Markers** (COMPLETED - Mar 30, 2026):
+  - [x] **Backend (server.py)**: Added Table of Contents + 21 section markers for easy navigation
+  - [x] **Frontend (QuickCommerce.js)**: Added Table of Contents + 12 section markers
+  - [x] Search for "SECTION:" to jump to any code section
+  - [x] All APIs and functionality working correctly after reorganization
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

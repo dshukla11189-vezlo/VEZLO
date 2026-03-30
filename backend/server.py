@@ -1,3 +1,40 @@
+"""
+FreshFlow API Server
+====================
+
+TABLE OF CONTENTS (Search for SECTION: to jump to each section)
+================================================================
+1. HEALTH & DIAGNOSTICS ROUTES     (~Line 145)
+2. AUTHENTICATION ROUTES           (~Line 195)
+3. USER MANAGEMENT ROUTES          (~Line 230)
+4. PRODUCTS & PACKAGING ROUTES     (~Line 315)
+5. FARMER ROUTES                   (~Line 385)
+6. PROCUREMENT ROUTES              (~Line 435)
+7. PROCUREMENT TEMPLATES           (~Line 560)
+8. QC ORDERS ROUTES                (~Line 600)
+9. QC CUSTOMER ROUTES              (~Line 675)
+10. QC INDENT ROUTES               (~Line 780)
+11. QC DISPATCH ROUTES             (~Line 835)
+12. QC GRN ROUTES                  (~Line 1010)
+13. QC INVOICE ROUTES              (~Line 1465)
+14. RETAILER ORDER ROUTES          (~Line 1590)
+15. WASTAGE ROUTES                 (~Line 1695)
+16. DASHBOARD & ANALYTICS ROUTES   (~Line 1850)
+17. STOCK STATUS ROUTES            (~Line 2500)
+18. VARIABLE EXPENSES ROUTES       (~Line 3115)
+19. FIXED EXPENSES ROUTES          (~Line 3220)
+20. RETAILER PORTAL ROUTES         (~Line 3380)
+    - Retailer Indents
+    - Retailer Dispatches
+    - Retailer GRN
+    - Retailer Rejections
+    - Retailer Payments
+    - Retailer Invoices
+    - Retailer Dashboard
+21. BACKUP & DATA MANAGEMENT       (~Line 4140)
+================================================================
+"""
+
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -137,7 +174,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-# Health & Diagnostics Routes
+# ============================================================================
+# SECTION: HEALTH & DIAGNOSTICS ROUTES (Lines ~140-190)
+# ============================================================================
 @api_router.get("/health")
 async def health_check():
     """Basic health check endpoint"""
@@ -187,7 +226,9 @@ async def get_diagnostics(current_user: dict = Depends(get_current_user)):
         "uptime_note": "Errors are stored in-memory and reset on server restart"
     }
 
-# Auth Routes
+# ============================================================================
+# SECTION: AUTHENTICATION ROUTES (Lines ~190-305)
+# ============================================================================
 @api_router.post("/auth/register", response_model=AuthResponse)
 async def register(input: RegisterRequest):
     existing = await db.users.find_one({"email": input.email}, {"_id": 0})
@@ -223,7 +264,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(**user)
 
-# User Management Routes (Admin Only)
+# ============================================================================
+# SECTION: USER MANAGEMENT ROUTES - Admin Only (Lines ~225-305)
+# ============================================================================
 @api_router.get("/users")
 async def get_users(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "admin":
@@ -304,7 +347,9 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     
     return {"message": "User deleted successfully"}
 
-# Product Routes
+# ============================================================================
+# SECTION: PRODUCTS & PACKAGING ROUTES (Lines ~310-375)
+# ============================================================================
 @api_router.get("/products", response_model=List[Product])
 async def get_products(current_user: dict = Depends(get_current_user)):
     products = await db.products.find({}, {"_id": 0}).to_list(1000)
@@ -353,7 +398,9 @@ async def delete_product(product_id: str, current_user: dict = Depends(get_curre
     
     return {"message": "Product deleted successfully"}
 
-# QC Packaging Routes
+# ============================================================================
+# SECTION: QC PACKAGING ROUTES
+# ============================================================================
 @api_router.get("/qc-packaging")
 async def get_qc_packaging(current_user: dict = Depends(get_current_user)):
     packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
@@ -372,7 +419,9 @@ async def create_qc_packaging(name: str, weight_gm: float = 0, current_user: dic
     await db.qc_packaging.insert_one(packaging)
     return {"id": packaging["id"], "message": "Packaging created"}
 
-# Farmer Routes
+# ============================================================================
+# SECTION: FARMER ROUTES (Lines ~375-425)
+# ============================================================================
 @api_router.get("/farmers", response_model=List[Farmer])
 async def get_farmers(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -421,7 +470,9 @@ async def delete_farmer(farmer_id: str, current_user: dict = Depends(get_current
     
     return {"message": "Farmer deleted successfully"}
 
-# Procurement Routes
+# ============================================================================
+# SECTION: PROCUREMENT ROUTES (Lines ~425-590)
+# ============================================================================
 @api_router.get("/procurement", response_model=List[Procurement])
 async def get_procurements(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -549,7 +600,9 @@ async def delete_procurement(procurement_id: str, current_user: dict = Depends(g
     return {"message": "Procurement deleted successfully"}
 
 
-# Procurement Template Routes
+# ============================================================================
+# SECTION: PROCUREMENT TEMPLATES
+# ============================================================================
 @api_router.get("/procurement-templates")
 async def get_procurement_templates(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -589,7 +642,9 @@ async def delete_procurement_template(template_id: str, current_user: dict = Dep
     return {"message": "Template deleted successfully"}
 
 
-# QC Order Routes
+# ============================================================================
+# SECTION: QC ORDERS ROUTES (Lines ~592-650)
+# ============================================================================
 @api_router.get("/qc-orders", response_model=List[QCOrder])
 async def get_qc_orders(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -645,7 +700,9 @@ async def ocr_qc_order(file: UploadFile = File(...), current_user: dict = Depend
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
-# QC Customer Routes
+# ============================================================================
+# SECTION: QC CUSTOMER ROUTES (Lines ~666-770)
+# ============================================================================
 @api_router.get("/qc-customers")
 async def get_qc_customers(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -749,7 +806,9 @@ async def delete_customer_product_setting(setting_id: str, current_user: dict = 
     
     return {"message": "Setting deleted successfully"}
 
-# QC Indent Routes
+# ============================================================================
+# SECTION: QC INDENT ROUTES (Lines ~770-825)
+# ============================================================================
 @api_router.get("/qc-indents")
 async def get_qc_indents(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -804,7 +863,9 @@ async def delete_qc_indent(indent_id: str, current_user: dict = Depends(get_curr
     
     return {"message": "Indent deleted successfully"}
 
-# QC Dispatch Routes
+# ============================================================================
+# SECTION: QC DISPATCH ROUTES (Lines ~825-1000)
+# ============================================================================
 @api_router.get("/qc-dispatches")
 async def get_qc_dispatches(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -978,7 +1039,9 @@ async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_use
     
     return {"message": "Item removed from dispatch"}
 
-# QC GRN Routes
+# ============================================================================
+# SECTION: QC GRN ROUTES (Lines ~999-1450)
+# ============================================================================
 @api_router.get("/qc-grns")
 async def get_qc_grns(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -1432,7 +1495,9 @@ async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_
     
     return items
 
-# QC Invoice Routes
+# ============================================================================
+# SECTION: QC INVOICE ROUTES (Lines ~1453-1570)
+# ============================================================================
 @api_router.get("/qc-invoices")
 async def get_qc_invoices(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -1547,7 +1612,9 @@ async def delete_qc_invoice(invoice_id: str, current_user: dict = Depends(get_cu
     
     return {"message": "Invoice deleted successfully"}
 
-# Retailer Order Routes
+# ============================================================================
+# SECTION: RETAILER ORDER ROUTES (Lines ~1578-1670)
+# ============================================================================
 @api_router.get("/retailer-orders", response_model=List[RetailerOrder])
 async def get_retailer_orders(current_user: dict = Depends(get_current_user)):
     query = {}
@@ -1651,7 +1718,9 @@ async def create_rejection(input: RejectionCreate, current_user: dict = Depends(
     await db.rejections.insert_one(doc)
     return rejection
 
-# Wastage Routes
+# ============================================================================
+# SECTION: WASTAGE ROUTES (Lines ~1684-1720)
+# ============================================================================
 @api_router.get("/wastage", response_model=List[Wastage])
 async def get_wastage(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -1804,7 +1873,9 @@ async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
         headers={"Content-Disposition": f"attachment; filename=invoice-{invoice['invoice_number']}.pdf"}
     )
 
-# Dashboard/Analytics Routes
+# ============================================================================
+# SECTION: DASHBOARD & ANALYTICS ROUTES (Lines ~1839-2480)
+# ============================================================================
 @api_router.get("/reports/dashboard")
 async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -2449,7 +2520,9 @@ async def get_pnl_report(
         ]
     }
 
-# ==================== STOCK STATUS ROUTES ====================
+# ============================================================================
+# SECTION: STOCK STATUS ROUTES (Lines ~2486-3100)
+# ============================================================================
 
 @api_router.get("/stock-status/today")
 async def get_today_stock_status(current_user: dict = Depends(get_current_user)):
@@ -3065,7 +3138,9 @@ async def delete_stock_status(status_id: str, current_user: dict = Depends(get_c
     
     return {"message": "Stock status deleted"}
 
-# ==================== VARIABLE EXPENSES ====================
+# ============================================================================
+# SECTION: VARIABLE EXPENSES ROUTES (Lines ~3104-3210)
+# ============================================================================
 
 @api_router.get("/expenses/variable")
 async def get_variable_expenses(
@@ -3167,7 +3242,9 @@ async def bulk_settle_variable_expenses(data: dict, current_user: dict = Depends
     
     return {"message": f"Settled {result.modified_count} expenses", "count": result.modified_count}
 
-# ==================== FIXED EXPENSES ====================
+# ============================================================================
+# SECTION: FIXED EXPENSES ROUTES (Lines ~3208-3370)
+# ============================================================================
 
 @api_router.get("/expenses/fixed")
 async def get_fixed_expenses(
@@ -3325,13 +3402,18 @@ async def bulk_settle_fixed_expenses(data: dict, current_user: dict = Depends(ge
 
 # ==================== RETAILER PORTAL APIs ====================
 
+# ============================================================================
+# SECTION: RETAILER PORTAL ROUTES (Lines ~3368-4100)
+# Includes: Retailers, Indents, Dispatches, GRN, Rejections, Payments, Invoices
+# ============================================================================
+
 # Get all retailers (for dropdowns)
 @api_router.get("/retailers")
 async def get_retailers(current_user: dict = Depends(get_current_user)):
     retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "password": 0}).to_list(500)
     return retailers
 
-# Retailer Indents
+# ------------ RETAILER INDENTS ------------
 @api_router.get("/retailer-indents")
 async def get_retailer_indents(
     retailer_id: str = None,
@@ -3416,7 +3498,7 @@ async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(ge
     await db.retailer_indents.delete_one({"id": indent_id})
     return {"message": "Indent deleted successfully"}
 
-# Retailer Dispatches
+# ------------ RETAILER DISPATCHES ------------
 @api_router.get("/retailer-dispatches")
 async def get_retailer_dispatches(
     retailer_id: str = None,
@@ -3596,7 +3678,7 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
     
     return {"message": "Dispatch deleted successfully"}
 
-# Retailer GRN
+# ------------ RETAILER GRN ------------
 @api_router.get("/retailer-grn")
 async def get_retailer_grn(
     retailer_id: str = None,
@@ -3661,7 +3743,7 @@ async def create_retailer_grn(input: RetailerGRNCreate, current_user: dict = Dep
     
     return {"id": grn.id, "message": "GRN confirmed successfully"}
 
-# Retailer Rejections
+# ------------ RETAILER REJECTIONS ------------
 @api_router.get("/retailer-rejections")
 async def get_retailer_rejections(
     retailer_id: str = None,
@@ -3723,7 +3805,7 @@ async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depe
     
     return {"message": "Rejection deleted successfully"}
 
-# Retailer Payments
+# ------------ RETAILER PAYMENTS ------------
 @api_router.get("/retailer-payments")
 async def get_retailer_payments(
     retailer_id: str = None,
@@ -3777,7 +3859,7 @@ async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(
     
     return {"message": "Payment deleted successfully"}
 
-# Retailer Invoices
+# ------------ RETAILER INVOICES ------------
 @api_router.get("/retailer-invoices")
 async def get_retailer_invoices(
     retailer_id: str = None,
@@ -3995,7 +4077,7 @@ async def get_uninvoiced_dispatches(
     
     return uninvoiced
 
-# Retailer Dashboard Summary
+# ------------ RETAILER DASHBOARD ------------
 @api_router.get("/retailer-dashboard")
 async def get_retailer_dashboard(
     retailer_id: str = None,
@@ -4079,7 +4161,9 @@ async def get_retailer_dashboard(
         }
     }
 
-# ==================== BACKUP ROUTES ====================
+# ============================================================================
+# SECTION: BACKUP & DATA MANAGEMENT ROUTES (Lines ~4127-4200)
+# ============================================================================
 
 @api_router.post("/backup/trigger")
 async def trigger_backup(current_user: dict = Depends(get_current_user)):

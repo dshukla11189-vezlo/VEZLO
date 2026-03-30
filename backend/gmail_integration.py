@@ -35,11 +35,11 @@ GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile"
 ]
 
-# Environment variables
-GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
-GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
+# Hardcoded credentials for FreshFlow-Gmail project (from Google Cloud Console)
+GOOGLE_CLIENT_ID = "184767018120-sh9e53g5emi0segp1cem408d7vhdfqv5.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
 # Default redirect URI - can be overridden dynamically
-DEFAULT_GMAIL_REDIRECT_URI = os.environ.get('GMAIL_REDIRECT_URI', 'https://harvest-hub-384.emergent.host/api/oauth/gmail/callback')
+DEFAULT_GMAIL_REDIRECT_URI = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
 
 
 def get_oauth_flow(redirect_uri: str = None):

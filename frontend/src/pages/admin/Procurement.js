@@ -932,6 +932,7 @@ export default function Procurement() {
                         <th className="p-2 text-left font-medium">Product</th>
                         <th className="p-2 text-center font-medium w-20">Qty</th>
                         <th className="p-2 text-center font-medium w-16">Unit</th>
+                        <th className="p-2 text-center font-medium w-20">Size (gm)</th>
                         <th className="p-2 text-center font-medium w-20">Rate</th>
                         <th className="p-2 text-right font-medium w-24">Total</th>
                       </tr>
@@ -1006,6 +1007,42 @@ export default function Procurement() {
                                 />
                               </td>
                               <td className="p-2 text-center text-xs text-gray-600">{item?.unit ?? p.unit ?? 'Kg'}</td>
+                              <td className="p-2">
+                                {(item?.unit ?? p.unit) === 'Bunch' ? (
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="10"
+                                    placeholder="gm"
+                                    value={item?.unit_size ?? p.unit_size ?? ''}
+                                    onChange={(e) => {
+                                      const newSize = e.target.value;
+                                      if (itemIndex >= 0) {
+                                        const updated = [...yesterdayItems];
+                                        updated[itemIndex] = { ...updated[itemIndex], unit_size: newSize };
+                                        setYesterdayItems(updated);
+                                      } else {
+                                        setYesterdayItems([...yesterdayItems, {
+                                          selected: true,
+                                          farmer_id: proc.farmer_id,
+                                          farmer_name: proc.farmer_name,
+                                          product_id: p.product_id,
+                                          product_name: p.product_name,
+                                          quantity: p.quantity || 0,
+                                          unit: p.unit || 'Kg',
+                                          unit_size: newSize,
+                                          rate: p.rate || 0,
+                                          total: (p.quantity || 0) * (p.rate || 0)
+                                        }]);
+                                      }
+                                    }}
+                                    className="h-7 w-full text-center text-sm"
+                                    disabled={!isSelected}
+                                  />
+                                ) : (
+                                  <span className="text-gray-400 text-xs">-</span>
+                                )}
+                              </td>
                               <td className="p-2">
                                 <Input
                                   type="number"

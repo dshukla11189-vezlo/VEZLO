@@ -10,11 +10,13 @@ import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, B
 export default function WastageDashboard() {
   const { t } = useTranslation();
   const [dashboardData, setDashboardData] = useState(null);
+  const [yesterdayWastage, setYesterdayWastage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState(7);
 
   useEffect(() => {
     loadDashboardData();
+    loadYesterdayWastage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod]);
 
@@ -28,6 +30,15 @@ export default function WastageDashboard() {
       toast.error('Failed to load wastage data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadYesterdayWastage = async () => {
+    try {
+      const response = await api.get('/api/stock-status/yesterday-wastage');
+      setYesterdayWastage(response.data);
+    } catch (error) {
+      console.error('Load yesterday wastage error:', error);
     }
   };
 
@@ -148,6 +159,63 @@ export default function WastageDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Yesterday's Product-wise Wastage Table */}
+      {yesterdayWastage && yesterdayWastage.products?.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle size={20} />
+              Yesterday's Wastage ({yesterdayWastage.date}) - ₹{yesterdayWastage.total_wastage_value?.toFixed(0)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-red-50">
+                  <tr>
+                    <th className="p-2 text-left font-medium text-red-700">Product</th>
+                    <th className="p-2 text-right font-medium text-red-700">Opening</th>
+                    <th className="p-2 text-right font-medium text-red-700">Purchase</th>
+                    <th className="p-2 text-right font-medium text-red-700">Dispatch</th>
+                    <th className="p-2 text-right font-medium text-red-700">Closing</th>
+                    <th className="p-2 text-right font-medium text-red-700">Wastage (Kg)</th>
+                    <th className="p-2 text-right font-medium text-red-700">Value (₹)</th>
+                    <th className="p-2 text-right font-medium text-red-700">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {yesterdayWastage.products.map((product, idx) => (
+                    <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                      <td className="p-2 font-medium">{product.product_name}</td>
+                      <td className="p-2 text-right">{product.opening_qty?.toFixed(1)}</td>
+                      <td className="p-2 text-right text-green-600">+{product.purchase_qty?.toFixed(1)}</td>
+                      <td className="p-2 text-right text-blue-600">-{product.dispatch_qty?.toFixed(1)}</td>
+                      <td className="p-2 text-right">{product.closing_qty?.toFixed(1)}</td>
+                      <td className="p-2 text-right text-red-600 font-semibold">{product.wastage_qty?.toFixed(2)}</td>
+                      <td className="p-2 text-right text-red-600">₹{product.wastage_value?.toFixed(0)}</td>
+                      <td className="p-2 text-right">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getWastageColor(product.wastage_percent)}`}>
+                          {product.wastage_percent?.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-red-100 font-semibold">
+                  <tr>
+                    <td className="p-2">TOTAL</td>
+                    <td colSpan={4}></td>
+                    <td className="p-2 text-right text-red-700">{yesterdayWastage.total_wastage_kg?.toFixed(2)} Kg</td>
+                    <td className="p-2 text-right text-red-700">₹{yesterdayWastage.total_wastage_value?.toFixed(0)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Daily Trend Chart */}

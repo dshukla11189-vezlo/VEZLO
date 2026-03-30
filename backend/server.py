@@ -2862,6 +2862,54 @@ async def get_wastage_dashboard(
         "top_wastage_products": product_data
     }
 
+@api_router.get("/stock-status/yesterday-wastage")
+async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
+    """Get product-wise wastage for previous day"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Get all closed stock status for yesterday
+    yesterday_records = await db.daily_stock_status.find(
+        {"date": yesterday, "status": "closed"},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Filter products with wastage > 0
+    wastage_products = []
+    total_wastage_kg = 0
+    total_wastage_value = 0
+    
+    for record in yesterday_records:
+        wastage_qty = record.get("wastage_qty", 0) or 0
+        wastage_value = record.get("wastage_value", 0) or 0
+        
+        if wastage_qty > 0:
+            wastage_products.append({
+                "product_name": record.get("product_name"),
+                "opening_qty": record.get("opening_qty", 0),
+                "purchase_qty": record.get("purchase_qty", 0),
+                "dispatch_qty": record.get("dispatch_qty", 0),
+                "closing_qty": record.get("closing_qty", 0),
+                "wastage_qty": wastage_qty,
+                "wastage_value": wastage_value,
+                "wastage_percent": record.get("wastage_percent", 0),
+                "avg_price": record.get("avg_price", 0)
+            })
+            total_wastage_kg += wastage_qty
+            total_wastage_value += wastage_value
+    
+    # Sort by wastage quantity descending
+    wastage_products.sort(key=lambda x: x["wastage_qty"], reverse=True)
+    
+    return {
+        "date": yesterday,
+        "total_wastage_kg": round(total_wastage_kg, 2),
+        "total_wastage_value": round(total_wastage_value, 2),
+        "products": wastage_products
+    }
+
 @api_router.put("/stock-status/{status_id}")
 async def update_stock_status(status_id: str, updates: dict, current_user: dict = Depends(get_current_user)):
     """Update a stock status entry"""

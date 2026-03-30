@@ -94,6 +94,7 @@ export default function Procurement() {
   // Previous day procurements for auto-populate
   const [previousDayProcurements, setPreviousDayProcurements] = useState([]);
   const [showPreviousDayItems, setShowPreviousDayItems] = useState(true);
+  const [yesterdayItems, setYesterdayItems] = useState([]);  // Selected/edited items from yesterday
 
   useEffect(() => {
     loadData();
@@ -826,6 +827,7 @@ export default function Procurement() {
             setOpenProcurement(false);
             setEditMode(false);
             setSelectedProcurement(null);
+            setYesterdayItems([]);
           }
         }}>
           <DialogTrigger asChild>
@@ -839,37 +841,30 @@ export default function Procurement() {
               <DialogTitle>{editMode ? t('procurement.editPurchase') : t('procurement.recordPurchase')}</DialogTitle>
             </DialogHeader>
             
-            {/* Previous Day Procurements Section */}
-            {showPreviousDayItems && previousDayProcurements.length > 0 && (
+            {/* Previous Day Procurements Section - NEW DESIGN: Editable Table with Checkboxes */}
+            {!editMode && previousDayProcurements.length > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h4 className="font-semibold text-amber-800">Yesterday's Purchases ({previousDayProcurements.length})</h4>
-                    <p className="text-sm text-amber-600">Click "Use as Template" to pre-fill the form</p>
+                    <h4 className="font-semibold text-amber-800">
+                      Yesterday's Purchases ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)} items)
+                    </h4>
+                    <p className="text-sm text-amber-600">Select items to purchase today, edit quantities & rates, then save</p>
                   </div>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setShowPreviousDayItems(false)}>
-                    <X size={16} />
-                  </Button>
-                </div>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {previousDayProcurements.map((proc, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border">
-                      <div className="flex-1">
-                        <span className="font-medium">{proc.farmer_name}</span>
-                        <span className="text-gray-500 text-sm ml-2">
-                          ({proc.products?.length || 0} items - ₹{proc.total_amount?.toLocaleString()})
-                        </span>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setProcurementForm({
-                            ...procurementForm,
-                            farmer_id: proc.farmer_id,
-                            farmer_name: proc.farmer_name,
-                            products: proc.products?.map(p => ({
+                  <div className="flex gap-2">
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => {
+                        // Select all items
+                        const allItems = [];
+                        previousDayProcurements.forEach(proc => {
+                          proc.products?.forEach(p => {
+                            allItems.push({
+                              selected: true,
+                              farmer_id: proc.farmer_id,
+                              farmer_name: proc.farmer_name,
                               product_id: p.product_id,
                               product_name: p.product_name,
                               quantity: p.quantity || 0,
@@ -877,60 +872,266 @@ export default function Procurement() {
                               unit_size: p.unit_size || '',
                               rate: p.rate || 0,
                               total: (p.quantity || 0) * (p.rate || 0)
-                            })) || [],
-                            total_amount: proc.total_amount || 0,
-                            pending_amount: proc.total_amount || 0
-                          });
-                          setShowPreviousDayItems(false);
-                          toast.success(`Loaded ${proc.farmer_name}'s purchase data`);
-                        }}
-                        className="text-amber-700 border-amber-300 hover:bg-amber-100"
-                      >
-                        Use as Template
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="mt-3 w-full bg-amber-600 hover:bg-amber-700"
-                  onClick={() => {
-                    // Load ALL previous day items into form
-                    if (previousDayProcurements.length > 0) {
-                      const firstProc = previousDayProcurements[0];
-                      let allProducts = [];
-                      previousDayProcurements.forEach(proc => {
-                        proc.products?.forEach(p => {
-                          allProducts.push({
-                            product_id: p.product_id,
-                            product_name: p.product_name,
-                            quantity: p.quantity || 0,
-                            unit: p.unit || 'Kg',
-                            unit_size: p.unit_size || '',
-                            rate: p.rate || 0,
-                            total: (p.quantity || 0) * (p.rate || 0),
-                            farmer_id: proc.farmer_id,
-                            farmer_name: proc.farmer_name
+                            });
                           });
                         });
-                      });
-                      const totalAmount = allProducts.reduce((sum, p) => sum + p.total, 0);
-                      setProcurementForm({
-                        ...procurementForm,
-                        farmer_id: firstProc.farmer_id,
-                        farmer_name: firstProc.farmer_name,
-                        products: allProducts.length > 0 ? allProducts : [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }],
-                        total_amount: totalAmount,
-                        pending_amount: totalAmount
-                      });
-                      setShowPreviousDayItems(false);
-                      toast.success(`Loaded ${allProducts.length} items from yesterday`);
-                    }
-                  }}
-                >
-                  Load All Items ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)})
-                </Button>
+                        setYesterdayItems(allItems);
+                      }}
+                      className="text-amber-700 border-amber-300"
+                    >
+                      Select All
+                    </Button>
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      variant="ghost"
+                      onClick={() => setYesterdayItems([])}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Editable Table */}
+                <div className="bg-white rounded border overflow-x-auto max-h-80 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-amber-100 sticky top-0">
+                      <tr>
+                        <th className="p-2 w-8 text-center">
+                          <input 
+                            type="checkbox"
+                            checked={yesterdayItems.length === previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0) && yesterdayItems.every(i => i.selected)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const allItems = [];
+                                previousDayProcurements.forEach(proc => {
+                                  proc.products?.forEach(p => {
+                                    allItems.push({
+                                      selected: true,
+                                      farmer_id: proc.farmer_id,
+                                      farmer_name: proc.farmer_name,
+                                      product_id: p.product_id,
+                                      product_name: p.product_name,
+                                      quantity: p.quantity || 0,
+                                      unit: p.unit || 'Kg',
+                                      unit_size: p.unit_size || '',
+                                      rate: p.rate || 0,
+                                      total: (p.quantity || 0) * (p.rate || 0)
+                                    });
+                                  });
+                                });
+                                setYesterdayItems(allItems);
+                              } else {
+                                setYesterdayItems([]);
+                              }
+                            }}
+                            className="w-4 h-4"
+                          />
+                        </th>
+                        <th className="p-2 text-left font-medium">Farmer</th>
+                        <th className="p-2 text-left font-medium">Product</th>
+                        <th className="p-2 text-center font-medium w-20">Qty</th>
+                        <th className="p-2 text-center font-medium w-16">Unit</th>
+                        <th className="p-2 text-center font-medium w-20">Rate</th>
+                        <th className="p-2 text-right font-medium w-24">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previousDayProcurements.map((proc, procIdx) => 
+                        proc.products?.map((p, pIdx) => {
+                          const itemKey = `${proc.farmer_id}-${p.product_id}`;
+                          const itemIndex = yesterdayItems.findIndex(i => i.farmer_id === proc.farmer_id && i.product_id === p.product_id);
+                          const item = itemIndex >= 0 ? yesterdayItems[itemIndex] : null;
+                          const isSelected = item?.selected || false;
+                          
+                          return (
+                            <tr key={itemKey} className={`border-b ${isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                              <td className="p-2 text-center">
+                                <input 
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setYesterdayItems([...yesterdayItems, {
+                                        selected: true,
+                                        farmer_id: proc.farmer_id,
+                                        farmer_name: proc.farmer_name,
+                                        product_id: p.product_id,
+                                        product_name: p.product_name,
+                                        quantity: p.quantity || 0,
+                                        unit: p.unit || 'Kg',
+                                        unit_size: p.unit_size || '',
+                                        rate: p.rate || 0,
+                                        total: (p.quantity || 0) * (p.rate || 0)
+                                      }]);
+                                    } else {
+                                      setYesterdayItems(yesterdayItems.filter(i => !(i.farmer_id === proc.farmer_id && i.product_id === p.product_id)));
+                                    }
+                                  }}
+                                  className="w-4 h-4"
+                                />
+                              </td>
+                              <td className="p-2 text-sm">{proc.farmer_name}</td>
+                              <td className="p-2 font-medium">{p.product_name}</td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.1"
+                                  value={item?.quantity ?? p.quantity ?? 0}
+                                  onChange={(e) => {
+                                    const newQty = parseFloat(e.target.value) || 0;
+                                    const newTotal = newQty * (item?.rate ?? p.rate ?? 0);
+                                    if (itemIndex >= 0) {
+                                      const updated = [...yesterdayItems];
+                                      updated[itemIndex] = { ...updated[itemIndex], quantity: newQty, total: newTotal };
+                                      setYesterdayItems(updated);
+                                    } else {
+                                      setYesterdayItems([...yesterdayItems, {
+                                        selected: true,
+                                        farmer_id: proc.farmer_id,
+                                        farmer_name: proc.farmer_name,
+                                        product_id: p.product_id,
+                                        product_name: p.product_name,
+                                        quantity: newQty,
+                                        unit: p.unit || 'Kg',
+                                        unit_size: p.unit_size || '',
+                                        rate: p.rate || 0,
+                                        total: newTotal
+                                      }]);
+                                    }
+                                  }}
+                                  className="h-7 w-full text-center text-sm"
+                                  disabled={!isSelected}
+                                />
+                              </td>
+                              <td className="p-2 text-center text-xs text-gray-600">{item?.unit ?? p.unit ?? 'Kg'}</td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  value={item?.rate ?? p.rate ?? 0}
+                                  onChange={(e) => {
+                                    const newRate = parseFloat(e.target.value) || 0;
+                                    const newTotal = (item?.quantity ?? p.quantity ?? 0) * newRate;
+                                    if (itemIndex >= 0) {
+                                      const updated = [...yesterdayItems];
+                                      updated[itemIndex] = { ...updated[itemIndex], rate: newRate, total: newTotal };
+                                      setYesterdayItems(updated);
+                                    } else {
+                                      setYesterdayItems([...yesterdayItems, {
+                                        selected: true,
+                                        farmer_id: proc.farmer_id,
+                                        farmer_name: proc.farmer_name,
+                                        product_id: p.product_id,
+                                        product_name: p.product_name,
+                                        quantity: p.quantity || 0,
+                                        unit: p.unit || 'Kg',
+                                        unit_size: p.unit_size || '',
+                                        rate: newRate,
+                                        total: newTotal
+                                      }]);
+                                    }
+                                  }}
+                                  className="h-7 w-full text-center text-sm"
+                                  disabled={!isSelected}
+                                />
+                              </td>
+                              <td className="p-2 text-right font-medium">
+                                ₹{(item?.total ?? (p.quantity || 0) * (p.rate || 0))?.toFixed(0)}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {/* Selected items summary & Save button */}
+                {yesterdayItems.filter(i => i.selected).length > 0 && (
+                  <div className="mt-3 flex items-center justify-between bg-amber-100 p-3 rounded">
+                    <div>
+                      <span className="font-medium text-amber-800">
+                        {yesterdayItems.filter(i => i.selected).length} items selected
+                      </span>
+                      <span className="ml-3 text-amber-700">
+                        Total: ₹{yesterdayItems.filter(i => i.selected).reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      className="bg-amber-600 hover:bg-amber-700"
+                      onClick={async () => {
+                        const selectedItems = yesterdayItems.filter(i => i.selected);
+                        if (selectedItems.length === 0) {
+                          toast.error('Please select at least one item');
+                          return;
+                        }
+                        
+                        // Group by farmer for separate procurements
+                        const byFarmer = {};
+                        selectedItems.forEach(item => {
+                          if (!byFarmer[item.farmer_id]) {
+                            byFarmer[item.farmer_id] = {
+                              farmer_id: item.farmer_id,
+                              farmer_name: item.farmer_name,
+                              products: []
+                            };
+                          }
+                          byFarmer[item.farmer_id].products.push({
+                            product_id: item.product_id,
+                            product_name: item.product_name,
+                            quantity: item.quantity,
+                            unit: item.unit,
+                            unit_size: item.unit_size,
+                            rate: item.rate,
+                            total: item.total
+                          });
+                        });
+                        
+                        // Create procurements for each farmer
+                        try {
+                          for (const farmerId of Object.keys(byFarmer)) {
+                            const farmerData = byFarmer[farmerId];
+                            const totalAmount = farmerData.products.reduce((sum, p) => sum + (p.total || 0), 0);
+                            
+                            await api.post('/api/procurement', {
+                              date: new Date(procurementForm.date).toISOString(),
+                              farmer_id: farmerData.farmer_id,
+                              farmer_name: farmerData.farmer_name,
+                              products: farmerData.products,
+                              total_amount: totalAmount,
+                              paid_amount: 0,
+                              pending_amount: totalAmount,
+                              payment_status: 'pending',
+                              status: 'completed'
+                            });
+                          }
+                          
+                          toast.success(`Created ${Object.keys(byFarmer).length} purchase(s) with ${selectedItems.length} items`);
+                          setOpenProcurement(false);
+                          setYesterdayItems([]);
+                          loadData();
+                        } catch (error) {
+                          toast.error(error.response?.data?.detail || 'Failed to save purchases');
+                        }
+                      }}
+                    >
+                      Save Selected ({yesterdayItems.filter(i => i.selected).length} items)
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Divider with "OR" */}
+            {!editMode && previousDayProcurements.length > 0 && (
+              <div className="flex items-center gap-4 my-4">
+                <div className="flex-1 border-t border-gray-300"></div>
+                <span className="text-sm text-gray-500 font-medium">OR add new purchase manually</span>
+                <div className="flex-1 border-t border-gray-300"></div>
               </div>
             )}
             

@@ -1157,6 +1157,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         decoded = content.decode('utf-8')
         reader = csv.DictReader(io.StringIO(decoded))
         rows_data = list(reader)
+        logger.info(f"CSV headers: {reader.fieldnames if hasattr(reader, 'fieldnames') else 'N/A'}")
     else:
         # Parse Excel (.xlsx or .xls)
         import openpyxl
@@ -1167,15 +1168,33 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
             sheet = workbook.active
             
-            # Get headers from first row
+            # Get headers from first row - try to find the actual header row
             headers = []
-            for cell in sheet[1]:
-                headers.append(str(cell.value).strip() if cell.value else '')
+            header_row = 1
             
-            logger.info(f"Excel headers found: {headers}")
+            # Check first few rows to find header row (in case there's a title row)
+            for check_row in range(1, 4):
+                potential_headers = []
+                for cell in sheet[check_row]:
+                    val = str(cell.value).strip() if cell.value else ''
+                    potential_headers.append(val)
+                
+                # Check if this looks like a header row (contains expected column names)
+                header_str = ' '.join(potential_headers).lower()
+                if 'podate' in header_str or 'sku' in header_str or 'grn' in header_str or 'po_deliverydate' in header_str:
+                    headers = potential_headers
+                    header_row = check_row
+                    break
             
-            # Parse data rows
-            for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            # If no header row found, use first row
+            if not headers:
+                for cell in sheet[1]:
+                    headers.append(str(cell.value).strip() if cell.value else '')
+            
+            logger.info(f"Excel headers found at row {header_row}: {headers}")
+            
+            # Parse data rows (starting after header row)
+            for row_idx, row in enumerate(sheet.iter_rows(min_row=header_row+1, values_only=True), start=header_row+1):
                 row_dict = {}
                 for col_idx, value in enumerate(row):
                     if col_idx < len(headers):
@@ -1193,6 +1212,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             # Log first row for debugging
             if rows_data:
                 logger.info(f"First Excel row parsed: {rows_data[0]}")
+            else:
+                logger.warning(f"No data rows found in Excel file")
             
             workbook.close()
         except Exception as e:
@@ -1549,6 +1570,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         if other_skipped:
             warnings.append(f"{len(other_skipped)} row(s) skipped due to invalid data")
     
+    # Include debug info about what was parsed
+    first_row_sample = rows_data[0] if rows_data else {}
+    
     return {
         "file_name": file.filename,
         "total_csv_rows": total_csv_rows,
@@ -1557,7 +1581,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         "dates_found": list(csv_data_by_date.keys()),
         "matched_items": matched_items,
         "warnings": warnings,
-        "skipped_details": skipped_rows[:10] if skipped_rows else [],  # Show first 10 skipped
+        "skipped_details": skipped_rows[:10] if skipped_rows else [],
+        "debug_first_row": first_row_sample,  # Show what was actually parsed
+        "debug_columns_found": list(first_row_sample.keys()) if first_row_sample else [],
         "message": f"Processed {len(matched_items)} matching items" + (f" ({len(skipped_rows)} rows skipped)" if skipped_rows else "")
     }
 

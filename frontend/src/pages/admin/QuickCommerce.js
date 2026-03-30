@@ -3044,6 +3044,18 @@ Email: ${companyEmail}`;
                       ))}
                     </div>
                   )}
+                  {grnUploadResult.debug_columns_found?.length > 0 && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                      <p className="text-xs font-semibold text-blue-700">Columns detected in file:</p>
+                      <p className="text-xs text-blue-600">{grnUploadResult.debug_columns_found.join(', ')}</p>
+                      {grnUploadResult.debug_first_row && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          <strong>First row sample:</strong> podate={grnUploadResult.debug_first_row.podate || grnUploadResult.debug_first_row.PO_DeliveryDate || 'N/A'}, 
+                          Sku={grnUploadResult.debug_first_row.Sku || grnUploadResult.debug_first_row['Sku Name'] || 'N/A'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {grnUploadResult.skipped_details?.length > 0 && (
                     <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded max-h-40 overflow-y-auto">
                       <p className="text-xs font-semibold text-red-700">Skipped Row Details (first 10):</p>

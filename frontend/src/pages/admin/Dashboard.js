@@ -333,58 +333,73 @@ export default function AdminDashboard() {
           </Card>
         )}
 
-        {/* QC vs Retail Bifurcation */}
+        {/* QC and Retail Sub-Dashboards */}
         {pnlData?.vertical_bifurcation && (
-          <Card className="mb-4" data-testid="vertical-bifurcation">
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <PieChart size={16} /> Sales by Vertical
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="py-2">
-              <div className="grid grid-cols-2 gap-4">
-                {/* Quick Commerce */}
-                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="p-2 bg-blue-600 rounded-lg">
-                    <Zap className="text-white" size={18} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            {/* Quick Commerce Dashboard */}
+            <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white">
+              <CardHeader className="py-3 border-b border-blue-100">
+                <CardTitle className="text-sm flex items-center gap-2 text-blue-800">
+                  <div className="p-1.5 bg-blue-600 rounded">
+                    <Zap className="text-white" size={14} />
                   </div>
-                  <div className="flex-1">
-                    <p className="text-xs text-blue-700 font-medium uppercase">Quick Commerce</p>
-                    <p className="text-xl font-bold text-blue-900">{formatCurrency(pnlData.vertical_bifurcation.qc.sales)}</p>
-                    <p className="text-xs text-blue-600">{pnlData.vertical_bifurcation.qc.percentage}% of total</p>
+                  Quick Commerce (QC)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="py-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-2 bg-blue-100/50 rounded">
+                    <p className="text-[10px] text-blue-600 font-medium">SALES</p>
+                    <p className="text-lg font-bold text-blue-900">{formatCurrency(pnlData.vertical_bifurcation.qc.sales)}</p>
                   </div>
-                  <div className="h-12 w-12">
-                    <div 
-                      className="h-12 w-12 rounded-full border-4 border-blue-200"
-                      style={{
-                        background: `conic-gradient(#2563EB ${pnlData.vertical_bifurcation.qc.percentage}%, #E5E7EB ${pnlData.vertical_bifurcation.qc.percentage}%)`
-                      }}
-                    ></div>
+                  <div className="p-2 bg-blue-100/50 rounded">
+                    <p className="text-[10px] text-blue-600 font-medium">% OF TOTAL</p>
+                    <p className="text-lg font-bold text-blue-900">{pnlData.vertical_bifurcation.qc.percentage}%</p>
+                  </div>
+                  <div className="p-2 bg-blue-100/50 rounded">
+                    <p className="text-[10px] text-blue-600 font-medium">QTY SOLD</p>
+                    <p className="text-lg font-bold text-blue-900">{(pnlData.vertical_bifurcation.qc.qty || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="p-2 bg-blue-100/50 rounded">
+                    <p className="text-[10px] text-blue-600 font-medium">ORDERS</p>
+                    <p className="text-lg font-bold text-blue-900">{pnlData.vertical_bifurcation.qc.orders || 0}</p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Retail */}
-                <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                  <div className="p-2 bg-emerald-600 rounded-lg">
-                    <ShoppingCart className="text-white" size={18} />
+            {/* Retail Dashboard */}
+            <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
+              <CardHeader className="py-3 border-b border-emerald-100">
+                <CardTitle className="text-sm flex items-center gap-2 text-emerald-800">
+                  <div className="p-1.5 bg-emerald-600 rounded">
+                    <ShoppingCart className="text-white" size={14} />
                   </div>
-                  <div className="flex-1">
-                    <p className="text-xs text-emerald-700 font-medium uppercase">Retail</p>
-                    <p className="text-xl font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
-                    <p className="text-xs text-emerald-600">{pnlData.vertical_bifurcation.retail.percentage}% of total</p>
+                  Retail
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="py-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-2 bg-emerald-100/50 rounded">
+                    <p className="text-[10px] text-emerald-600 font-medium">SALES</p>
+                    <p className="text-lg font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
                   </div>
-                  <div className="h-12 w-12">
-                    <div 
-                      className="h-12 w-12 rounded-full border-4 border-emerald-200"
-                      style={{
-                        background: `conic-gradient(#059669 ${pnlData.vertical_bifurcation.retail.percentage}%, #E5E7EB ${pnlData.vertical_bifurcation.retail.percentage}%)`
-                      }}
-                    ></div>
+                  <div className="p-2 bg-emerald-100/50 rounded">
+                    <p className="text-[10px] text-emerald-600 font-medium">% OF TOTAL</p>
+                    <p className="text-lg font-bold text-emerald-900">{pnlData.vertical_bifurcation.retail.percentage}%</p>
+                  </div>
+                  <div className="p-2 bg-emerald-100/50 rounded">
+                    <p className="text-[10px] text-emerald-600 font-medium">QTY SOLD</p>
+                    <p className="text-lg font-bold text-emerald-900">{(pnlData.vertical_bifurcation.retail.qty || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="p-2 bg-emerald-100/50 rounded">
+                    <p className="text-[10px] text-emerald-600 font-medium">ORDERS</p>
+                    <p className="text-lg font-bold text-emerald-900">{pnlData.vertical_bifurcation.retail.orders || 0}</p>
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* Tabs */}

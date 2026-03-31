@@ -2487,26 +2487,21 @@ async def get_pnl_report(
     total_sales_qty = 0
     
     # ========== QC SALES (from GRN - actual received values) ==========
-    qc_grns = await db.qc_grns.find({
-        "grn_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(1000)
+    qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(1000)
     
     for grn in qc_grns:
         customer = grn.get("customer_name", "Unknown")
-        grn_date = grn.get("grn_date", "")[:10]
-        
-        if customer not in sales_by_customer:
-            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
-        if grn_date not in sales_by_date:
-            sales_by_date[grn_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0}
-        if grn_date not in product_by_date:
-            product_by_date[grn_date] = {}
-        if grn_date not in line_items_by_date:
-            line_items_by_date[grn_date] = []
         
         for item in grn.get("items", []):
+            # Use dispatch_date from item (actual delivery date) instead of grn_date (recording date)
+            item_dispatch_date = item.get("dispatch_date", "")[:10]
+            
+            # Skip if outside date range
+            if not item_dispatch_date or item_dispatch_date < from_date or item_dispatch_date > to_date:
+                continue
+            
             # Use GRN amount (actual received value)
-            amount = item.get("grn_amount", 0) or item.get("amount", 0) or 0
+            amount = item.get("amount", 0) or 0
             qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
             supplied_qty_units = item.get("supplied_qty", 0) or qty
             product = item.get("product_name", "Unknown")
@@ -2514,6 +2509,17 @@ async def get_pnl_report(
             packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
             rate_per_kg = item.get("rate_per_kg", 0) or 0
             rate_per_unit = item.get("rate_per_unit", 0) or 0
+            
+            # Initialize date bucket if needed
+            if item_dispatch_date not in sales_by_date:
+                sales_by_date[item_dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0}
+            if item_dispatch_date not in product_by_date:
+                product_by_date[item_dispatch_date] = {}
+            if item_dispatch_date not in line_items_by_date:
+                line_items_by_date[item_dispatch_date] = []
+            
+            if customer not in sales_by_customer:
+                sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
             
             # Calculate kg from units if packaging weight available
             supplied_kg = qty
@@ -2524,9 +2530,9 @@ async def get_pnl_report(
             total_sales_qty += qty
             sales_by_customer[customer]["amount"] += amount
             sales_by_customer[customer]["qty"] += qty
-            sales_by_date[grn_date]["sales"] += amount
-            sales_by_date[grn_date]["sales_qty"] += qty
-            sales_by_date[grn_date]["qc_sales"] = sales_by_date[grn_date].get("qc_sales", 0) + amount
+            sales_by_date[item_dispatch_date]["sales"] += amount
+            sales_by_date[item_dispatch_date]["sales_qty"] += qty
+            sales_by_date[item_dispatch_date]["qc_sales"] = sales_by_date[item_dispatch_date].get("qc_sales", 0) + amount
             
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
@@ -2534,18 +2540,18 @@ async def get_pnl_report(
             sales_by_product[product]["sales_qty"] += qty
             
             # Product breakdown per date with customer tracking
-            if product not in product_by_date[grn_date]:
-                product_by_date[grn_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
-            product_by_date[grn_date][product]["sales"] += amount
-            product_by_date[grn_date][product]["sales_qty"] += qty
+            if product not in product_by_date[item_dispatch_date]:
+                product_by_date[item_dispatch_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+            product_by_date[item_dispatch_date][product]["sales"] += amount
+            product_by_date[item_dispatch_date][product]["sales_qty"] += qty
             # Track sales by customer for this product on this date
-            if customer not in product_by_date[grn_date][product]["customers"]:
-                product_by_date[grn_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
-            product_by_date[grn_date][product]["customers"][customer]["sales"] += amount
-            product_by_date[grn_date][product]["customers"][customer]["qty"] += qty
+            if customer not in product_by_date[item_dispatch_date][product]["customers"]:
+                product_by_date[item_dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
+            product_by_date[item_dispatch_date][product]["customers"][customer]["sales"] += amount
+            product_by_date[item_dispatch_date][product]["customers"][customer]["qty"] += qty
             
             # Add detailed line item for this customer-product combination
-            line_items_by_date[grn_date].append({
+            line_items_by_date[item_dispatch_date].append({
                 "customer": customer,
                 "customer_type": "QC",
                 "product": product,
@@ -2561,7 +2567,7 @@ async def get_pnl_report(
                 "wastage_value": 0
             })
         
-        sales_by_customer[customer]["invoices"] += 1
+        sales_by_customer[customer]["invoices"] = sales_by_customer[customer].get("invoices", 0) + 1
     
     # ========== RETAILER SALES (from Retailer Dispatches - net_payable) ==========
     retailer_dispatches = await db.retailer_dispatches.find({
@@ -2972,6 +2978,20 @@ async def get_pnl_report(
     total_qc_sales = sum(day.get("qc_sales", 0) for day in daily_pnl)
     total_retail_sales = sum(day.get("retail_sales", 0) for day in daily_pnl)
     
+    # Count QC and Retail orders and quantities
+    qc_order_count = 0
+    qc_qty_total = 0
+    retail_order_count = 0
+    retail_qty_total = 0
+    
+    for customer, data in sales_by_customer.items():
+        if data.get("type") == "QC":
+            qc_order_count += data.get("invoices", 0)
+            qc_qty_total += data.get("qty", 0)
+        else:
+            retail_order_count += data.get("invoices", 0)
+            retail_qty_total += data.get("qty", 0)
+    
     return {
         "period": {"from": from_date, "to": to_date},
         "summary": {
@@ -2991,11 +3011,15 @@ async def get_pnl_report(
         "vertical_bifurcation": {
             "qc": {
                 "sales": round(total_qc_sales, 2),
-                "percentage": round((total_qc_sales / total_sales * 100) if total_sales > 0 else 0, 1)
+                "percentage": round((total_qc_sales / total_sales * 100) if total_sales > 0 else 0, 1),
+                "qty": round(qc_qty_total, 2),
+                "orders": qc_order_count
             },
             "retail": {
                 "sales": round(total_retail_sales, 2),
-                "percentage": round((total_retail_sales / total_sales * 100) if total_sales > 0 else 0, 1)
+                "percentage": round((total_retail_sales / total_sales * 100) if total_sales > 0 else 0, 1),
+                "qty": round(retail_qty_total, 2),
+                "orders": retail_order_count
             }
         },
         "daily_pnl": daily_pnl,

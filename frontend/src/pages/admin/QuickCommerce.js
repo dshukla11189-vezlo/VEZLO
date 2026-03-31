@@ -62,6 +62,9 @@ export default function QuickCommerce() {
   const [uploadingGrn, setUploadingGrn] = useState(false);
   const [grnUploadResult, setGrnUploadResult] = useState(null);
   const [editingGrnItem, setEditingGrnItem] = useState(null);    // For inline GRN editing
+  const [expandedPendingDates, setExpandedPendingDates] = useState({});  // For collapsible pending GRN by date
+  const [expandedSavedDates, setExpandedSavedDates] = useState({});      // For collapsible saved GRN by date
+  const [editingSavedGrn, setEditingSavedGrn] = useState(null);          // For editing saved GRN
   const [grnFilters, setGrnFilters] = useState({
     fromDate: '',
     toDate: '',

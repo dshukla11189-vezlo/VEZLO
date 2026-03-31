@@ -303,6 +303,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Ninjacart GRN upload now accepts both CSV and Excel (.xlsx, .xls) files
   - [x] Uses openpyxl library for Excel parsing
   - [x] Same matching logic for both file types
+- [x] **Multiple Dispatch GRN Distribution Bug Fix** (COMPLETED - Mar 31, 2026):
+  - [x] **Bug**: When a product had multiple dispatch entries (e.g., 876 + 924 = 1800), each dispatch incorrectly received the FULL GRN instead of proportional share
+  - [x] **Fix**: GRN is now distributed proportionally based on each dispatch's share of total supplied
+  - [x] Example: Coriander with 1800 GRN split across dispatches → 876 GRN + 924 GRN (not 1800 + 1800)
+  - [x] Also fixed Mint matching to collect ALL matching items (was breaking after first match)
+  - [x] Added deduplication by dispatch_id to prevent duplicate GRN entries
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

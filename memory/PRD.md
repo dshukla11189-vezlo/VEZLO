@@ -424,6 +424,16 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **Product Lifecycle Duration** (COMPLETED - Mar 31, 2026):
   - [x] Added `lifecycle_duration` field to Product model (Low/Medium/High)
   - [x] Added dropdown in Products Admin UI to set lifecycle for each product
+- [x] **Dashboard Date Filter Fix** (COMPLETED - Mar 31, 2026):
+  - [x] **Bug**: P&L report API was throwing KeyError when filtering to dates with no QC data
+  - [x] **Fix**: Added condition to only count invoices for customers with items in the filtered date range
+  - [x] Daily P&L Breakdown now correctly shows only data for selected date range
+- [x] **Rejections Grouped by Date** (COMPLETED - Mar 31, 2026):
+  - [x] **Admin Portal**: Rejections tab now shows date rows (expandable to individual items)
+  - [x] **Retailer Portal**: Rejections tab now shows date rows (expandable to individual items)
+  - [x] Date rows show: DATE | RETAILER (count) | QTY | VALUE | (items count)
+  - [x] Expanded rows show: Product (variant) | Retailer | QTY | VALUE | REASON | ACTIONS
+  - [x] Added `expandedRejectionDates` state to both portals
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

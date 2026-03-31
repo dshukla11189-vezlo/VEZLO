@@ -2610,7 +2610,9 @@ async def get_pnl_report(
                 "wastage_value": 0
             })
         
-        sales_by_customer[customer]["invoices"] = sales_by_customer[customer].get("invoices", 0) + 1
+        # Only count invoice if this customer had items in the date range
+        if customer in sales_by_customer:
+            sales_by_customer[customer]["invoices"] = sales_by_customer[customer].get("invoices", 0) + 1
     
     # ========== RETAILER SALES (from Retailer Dispatches - net_payable) ==========
     retailer_dispatches = await db.retailer_dispatches.find({

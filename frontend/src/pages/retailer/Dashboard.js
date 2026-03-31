@@ -24,6 +24,7 @@ export default function RetailerDashboard() {
   const [expandedDispatches, setExpandedDispatches] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
   const [expandedOrderDates, setExpandedOrderDates] = useState({});
+  const [expandedRejectionDates, setExpandedRejectionDates] = useState({});
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
@@ -1005,8 +1006,8 @@ export default function RetailerDashboard() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                      <th className="p-3 text-left font-medium text-gray-500">PRODUCT</th>
+                      <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
+                      <th className="p-3 text-left font-medium text-gray-500">DATE / PRODUCT</th>
                       <th className="p-3 text-center font-medium text-gray-500">QTY</th>
                       <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
                       <th className="p-3 text-left font-medium text-gray-500">REASON</th>
@@ -1015,20 +1016,65 @@ export default function RetailerDashboard() {
                   <tbody>
                     {rejections.length === 0 ? (
                       <tr><td colSpan={5} className="p-8 text-center text-gray-400">No rejections recorded</td></tr>
-                    ) : rejections.map(rejection => (
-                      <tr key={rejection.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">{formatDate(rejection.rejection_date)}</td>
-                        <td className="p-3">{rejection.product_name} {rejection.variant_name && `(${rejection.variant_name})`}</td>
-                        <td className="p-3 text-center text-red-600 font-medium">{rejection.quantity}</td>
-                        <td className="p-3 text-right text-red-600">{formatCurrency(rejection.rejection_value)}</td>
-                        <td className="p-3">{rejection.reason}</td>
-                      </tr>
-                    ))}
+                    ) : (() => {
+                      // Group rejections by date
+                      const rejectionsByDate = rejections.reduce((acc, r) => {
+                        const date = r.rejection_date?.split('T')[0] || 'Unknown';
+                        if (!acc[date]) acc[date] = [];
+                        acc[date].push(r);
+                        return acc;
+                      }, {});
+                      
+                      // Sort dates descending
+                      const sortedDates = Object.keys(rejectionsByDate).sort((a, b) => b.localeCompare(a));
+                      
+                      return sortedDates.map(date => {
+                        const dateRejections = rejectionsByDate[date];
+                        const isExpanded = expandedRejectionDates[date];
+                        const totalQty = dateRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
+                        const totalValue = dateRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+                        
+                        return (
+                          <React.Fragment key={date}>
+                            {/* Date Row - Clickable */}
+                            <tr 
+                              className="border-b bg-red-50 hover:bg-red-100 cursor-pointer"
+                              onClick={() => setExpandedRejectionDates(prev => ({ ...prev, [date]: !prev[date] }))}
+                            >
+                              <td className="p-3 text-center">
+                                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                              </td>
+                              <td className="p-3 font-semibold text-gray-800">{formatDate(date)}</td>
+                              <td className="p-3 text-center text-red-600 font-semibold">{totalQty}</td>
+                              <td className="p-3 text-right text-red-600 font-semibold">{formatCurrency(totalValue)}</td>
+                              <td className="p-3 text-gray-500 text-xs">{dateRejections.length} item(s)</td>
+                            </tr>
+                            
+                            {/* Expanded Product Details */}
+                            {isExpanded && dateRejections.map((rejection, idx) => (
+                              <tr key={rejection.id || idx} className="border-b bg-white hover:bg-gray-50">
+                                <td className="p-2 pl-8"></td>
+                                <td className="p-2 pl-8">
+                                  <span className="text-sm text-gray-700">{rejection.product_name}</span>
+                                  {rejection.variant_name && (
+                                    <span className="text-xs text-gray-400 ml-1">({rejection.variant_name})</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center text-red-500">{rejection.quantity}</td>
+                                <td className="p-2 text-right text-red-500">{formatCurrency(rejection.rejection_value)}</td>
+                                <td className="p-2 text-gray-500">{rejection.reason}</td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      });
+                    })()}
                   </tbody>
                   {rejections.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
-                        <td colSpan={2} className="p-3 text-right">Total Rejected:</td>
+                        <td className="p-3"></td>
+                        <td className="p-3 text-right">Total Rejected:</td>
                         <td className="p-3 text-center text-red-600">{rejections.reduce((sum, r) => sum + (r.quantity || 0), 0)}</td>
                         <td className="p-3 text-right text-red-600">{formatCurrency(rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0))}</td>
                         <td></td>

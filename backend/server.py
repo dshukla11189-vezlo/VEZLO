@@ -1365,25 +1365,39 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                    'small', 'large', 'big', 'baby', 'mini', 'jumbo', 'local', 'hybrid',
                    'english', 'indian', 'desi', 'organic', 'fresh', 'premium'}
     
+    # Step 1: Combine all dispatch items by date (since each item may be in a separate dispatch)
+    dispatch_items_by_date = {}
     for dispatch in ninjacart_dispatches:
         dispatch_date = dispatch.get('dispatch_date', '')
         if isinstance(dispatch_date, str):
-            dispatch_date_str = dispatch_date[:10]  # Get YYYY-MM-DD part
+            dispatch_date_str = dispatch_date[:10]
         else:
             dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
         
+        if dispatch_date_str not in dispatch_items_by_date:
+            dispatch_items_by_date[dispatch_date_str] = []
+        
+        for item in dispatch.get('items', []):
+            item_with_dispatch = {
+                **item,
+                'dispatch_id': dispatch.get('id')
+            }
+            dispatch_items_by_date[dispatch_date_str].append(item_with_dispatch)
+    
+    logger.info(f"Combined dispatch items by date: {[(d, len(items)) for d, items in dispatch_items_by_date.items()]}")
+    
+    # Step 2: Process each date
+    for dispatch_date_str, all_dispatch_items in dispatch_items_by_date.items():
         # Check if we have CSV data for this date
         if dispatch_date_str not in csv_data_by_date:
             continue
         
         csv_rows = csv_data_by_date[dispatch_date_str]
-        dispatch_items = dispatch.get('items', [])
         
-        # Step 1: Group dispatch items by base product name for Kg-based distribution
-        # and process PCS items directly
+        # Step 3: Group dispatch items by base product name
         product_groups = {}  # {base_product_name: [items]}
         
-        for item in dispatch_items:
+        for item in all_dispatch_items:
             product_name = item.get('product_name', '')
             packaging_name = item.get('packaging_name', '') or ''
             packaging_upper = packaging_name.upper()
@@ -1402,7 +1416,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 if weight_match:
                     packaging_weight_gm = int(weight_match.group(1))
             
-            # Extract base product name (without variant words for grouping)
+            # Extract base product name
             base_name = product_name.lower().strip()
             
             item_data = {
@@ -1416,7 +1430,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 product_groups[base_name] = []
             product_groups[base_name].append(item_data)
         
-        # Step 2: Match CSV rows with dispatch product groups
+        logger.info(f"Product groups for {dispatch_date_str}: {[(name, len(items)) for name, items in product_groups.items()]}")
+        
+        # Step 4: Match CSV rows with dispatch product groups
         for csv_row in csv_rows:
             sku_name = csv_row['sku_name']
             sku_name_lower = sku_name.lower()
@@ -1435,49 +1451,120 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             sku_clean = re.sub(r'\s+', ' ', sku_clean).strip()
             sku_words = set(sku_clean.split())
             
-            logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs}")
+            # Extract weight from SKU name for weight-based matching (e.g., "70-80gm", "100 g")
+            sku_weight_match = re.search(r'(\d+)(?:\s*-\s*\d+)?\s*(gm|g)\b', sku_name_lower)
+            sku_weight = int(sku_weight_match.group(1)) if sku_weight_match else 0
+            
+            # Check for "with roots" or "without roots" in SKU for special matching
+            sku_has_with_roots = 'with roots' in sku_name_lower and 'without' not in sku_name_lower
+            sku_has_without_roots = 'without roots' in sku_name_lower
+            
+            # Special product name mappings (Palak = Spinach, Mint variants, etc.)
+            product_aliases = {
+                'palak': ['palak', 'spinach'],
+                'spinach': ['palak', 'spinach'],
+                'mint': ['mint', 'fresh mint leaves', 'premium fresh mint leaves', 'fresh mint', 'premium mint'],
+                'fresh mint leaves': ['mint', 'fresh mint leaves', 'premium fresh mint leaves'],
+                'premium fresh mint leaves': ['mint', 'fresh mint leaves', 'premium fresh mint leaves'],
+            }
+            
+            logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs} | SKU_weight: {sku_weight}gm | with_roots={sku_has_with_roots}")
             
             # Find matching product group
             best_match_group = None
             best_match_score = 0
             
             for base_name, items in product_groups.items():
-                # Check if all items in group have matching PCS type
-                group_is_pcs = all(i['dispatch_is_pcs'] for i in items)
-                group_is_kg = not group_is_pcs
+                # Special handling for Mint Leaves ONLY - match by weight and roots type
+                is_mint_product = 'mint' in base_name.lower()
+                is_mint_sku = 'mint' in sku_name_lower
                 
-                # Type must match
-                if sku_is_pcs and not group_is_pcs:
-                    continue
-                if sku_is_kg and not group_is_kg:
-                    continue
+                # Only apply Mint-specific matching if BOTH product and SKU mention mint
+                if is_mint_product and is_mint_sku and sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
+                    # For Mint PCS items, match based on roots type and weight
+                    for item in items:
+                        pkg_name_lower = item.get('packaging_name', '').lower()
+                        pkg_has_with_roots = 'with roots' in pkg_name_lower and 'without' not in pkg_name_lower
+                        pkg_has_without_roots = 'without roots' in pkg_name_lower
+                        
+                        # Match roots type
+                        roots_match = (sku_has_with_roots and pkg_has_with_roots) or \
+                                     (sku_has_without_roots and pkg_has_without_roots)
+                        
+                        # Match weight (within 20gm tolerance)
+                        pkg_weight = item.get('packaging_weight_gm', 0)
+                        weight_match = sku_weight > 0 and pkg_weight > 0 and abs(pkg_weight - sku_weight) <= 20
+                        
+                        if roots_match or (weight_match and (sku_has_with_roots == pkg_has_with_roots)):
+                            logger.info(f"  Mint match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}")
+                            best_match_group = (base_name, [item])
+                            best_match_score = 1.0
+                            break
+                    
+                    if best_match_group:
+                        break
+                
+                # Regular matching logic
+                # Filter items by PCS type instead of checking whole group
+                if sku_is_pcs:
+                    type_matched_items = [i for i in items if i['dispatch_is_pcs']]
+                else:
+                    type_matched_items = [i for i in items if not i['dispatch_is_pcs']]
+                
+                if not type_matched_items:
+                    continue  # No items match the required type
                 
                 # Check product name match
                 product_words = set(base_name.split())
+                first_word = base_name.split()[0] if base_name else ''
+                
+                # Check for product aliases (Palak/Spinach, Mint variants)
+                alias_match = False
+                for alias_key, aliases in product_aliases.items():
+                    if first_word in aliases or any(alias in base_name for alias in aliases):
+                        if any(alias in sku_clean for alias in aliases):
+                            alias_match = True
+                            break
                 
                 # Check variant words - if present in product, must be in SKU
                 product_variants = product_words & variant_words
-                if product_variants:
+                if product_variants and not alias_match:
                     if not product_variants.issubset(sku_words):
                         continue
                 
                 # Count matching words
                 common_words = product_words & sku_words
-                if not common_words:
+                
+                # For PCS items, also match based on packaging weight
+                if sku_is_pcs and sku_weight > 0 and not is_mint_sku:
+                    # Check if any item in group has matching weight
+                    weight_matched_items = [i for i in type_matched_items if abs(i['packaging_weight_gm'] - sku_weight) <= 20]
+                    if weight_matched_items:
+                        # Weight match found - this is a strong match for PCS items
+                        if alias_match or common_words:
+                            match_score = 1.0  # High score for weight + name match
+                            if match_score > best_match_score:
+                                best_match_score = match_score
+                                # Only include weight-matched items
+                                best_match_group = (base_name, weight_matched_items)
+                            continue
+                
+                if not common_words and not alias_match:
                     continue
                 
-                # First word (main product) must match
-                first_word = base_name.split()[0] if base_name else ''
-                if first_word and first_word not in sku_words:
-                    # Check partial match
-                    if not any(first_word in sw or sw in first_word for sw in sku_words):
-                        continue
+                # First word (main product) must match (unless alias match)
+                if not alias_match:
+                    if first_word and first_word not in sku_words:
+                        if not any(first_word in sw or sw in first_word for sw in sku_words):
+                            continue
                 
                 match_score = len(common_words) / max(len(product_words), 1)
+                if alias_match:
+                    match_score = max(match_score, 0.8)  # Boost alias matches
                 
                 if match_score > best_match_score:
                     best_match_score = match_score
-                    best_match_group = (base_name, items)
+                    best_match_group = (base_name, type_matched_items)
             
             if not best_match_group:
                 logger.info(f"  No match found for SKU: {sku_name}")

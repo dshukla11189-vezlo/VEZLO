@@ -1403,6 +1403,29 @@ Email: ${companyEmail}`;
         await api.put(`/api/qc-grns/${editingGrnId}`, payload);
         toast.success('GRN updated successfully');
       } else {
+        // Check for potential duplicates before creating new GRN
+        const dispatchDates = [...new Set(grnMatchedItems.map(item => item.dispatch_date))];
+        const existingDatesWithData = [];
+        
+        // Check existing GRNs for these dates
+        for (const date of dispatchDates) {
+          const existingItems = grns.flatMap(grn => grn.items || [])
+            .filter(item => item.dispatch_date === date);
+          if (existingItems.length > 0) {
+            existingDatesWithData.push(date);
+          }
+        }
+        
+        if (existingDatesWithData.length > 0) {
+          const confirmSave = window.confirm(
+            `⚠️ DUPLICATE WARNING:\n\nGRN data already exists for the following date(s):\n${existingDatesWithData.join(', ')}\n\nSaving will create duplicate entries.\n\nDo you want to continue anyway?`
+          );
+          if (!confirmSave) {
+            toast.warning('Save cancelled. Delete existing data first if you want to replace it.');
+            return;
+          }
+        }
+        
         // Create new GRN
         await api.post('/api/qc-grns', payload);
         toast.success('GRN saved successfully');
@@ -1426,6 +1449,24 @@ Email: ${companyEmail}`;
       loadData();
     } catch (error) {
       toast.error('Failed to delete GRN');
+    }
+  };
+
+  // Delete all GRN data for a specific date
+  const handleDeleteAllGrnsForDate = async (date, grnIds) => {
+    if (!window.confirm(`Are you sure you want to delete ALL GRN data for ${date}? This will remove ${grnIds.size} GRN record(s).`)) return;
+    
+    try {
+      // Delete all GRN records for this date
+      const deletePromises = Array.from(grnIds).map(grnId => 
+        api.delete(`/api/qc-grns/${grnId}`)
+      );
+      await Promise.all(deletePromises);
+      toast.success(`All GRN data for ${date} deleted successfully`);
+      loadData();
+    } catch (error) {
+      console.error('Delete GRNs for date error:', error);
+      toast.error('Failed to delete GRN data');
     }
   };
 
@@ -3484,12 +3525,13 @@ Email: ${companyEmail}`;
                     // Group all items by dispatch date
                     const itemsByDate = {};
                     grns.forEach(grn => {
-                      grn.items?.forEach(item => {
+                      grn.items?.forEach((item, itemIndex) => {
                         const date = item.dispatch_date || 'Unknown';
                         if (!itemsByDate[date]) {
                           itemsByDate[date] = { items: [], grnIds: new Set() };
                         }
-                        itemsByDate[date].items.push({ ...item, grnId: grn.id });
+                        // Store the original item index along with grnId for proper deletion
+                        itemsByDate[date].items.push({ ...item, grnId: grn.id, originalItemIndex: itemIndex });
                         itemsByDate[date].grnIds.add(grn.id);
                       });
                     });
@@ -3529,9 +3571,22 @@ Email: ${companyEmail}`;
                                 <span className={`text-xs font-bold ${totalDiff > 0 ? 'text-green-600' : totalDiff < 0 ? 'text-red-600' : 'text-gray-400'}`}>
                                   Diff: {totalDiff > 0 ? '+' : ''}{totalDiff.toFixed(0)}
                                 </span>
-                                <span className="text-xs text-gray-700 ml-auto">
+                                <span className="text-xs text-gray-700 ml-auto mr-2">
                                   Amount: <strong>₹{totalAmount.toFixed(0)}</strong>
                                 </span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteAllGrnsForDate(date, dateData.grnIds);
+                                  }}
+                                  className="h-6 px-2 text-red-600 hover:bg-red-100 hover:text-red-700"
+                                  title={`Delete all GRN data for ${date}`}
+                                >
+                                  <Trash2 size={14} className="mr-1" />
+                                  <span className="text-xs">Delete All</span>
+                                </Button>
                               </div>
                               
                               {/* Expanded Items Table */}
@@ -3611,7 +3666,8 @@ Email: ${companyEmail}`;
                                                   variant="ghost" 
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleDeleteSavedGrnItem(item.grnId, grns.find(g => g.id === item.grnId)?.items?.indexOf(item) || 0);
+                                                    // Use the stored originalItemIndex for proper deletion
+                                                    handleDeleteSavedGrnItem(item.grnId, item.originalItemIndex);
                                                   }}
                                                   className="h-6 w-6 p-0 text-red-600"
                                                 >

@@ -351,6 +351,10 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Unit economics tracking** - Profit = Gross Profit / Supplied Qty, visible throughout hierarchy
   - [x] **Items sorted by GM% descending** - Helps identify highest-margin products first
   - [x] **Date Filter verified** - Top Summary, QC Dashboard, and Retail Dashboard all update correctly based on selected date range
+- [x] **GRN Delete Fixes** (COMPLETED - Mar 31, 2026):
+  - [x] **Delete All for Date** - Added "Delete All" button to remove all GRN data for a specific date
+  - [x] **Individual Item Delete Fix** - Fixed bug where delete was failing due to incorrect item index lookup
+  - [x] **Duplicate Detection Warning** - Shows warning when saving GRN if data already exists for the dispatch date(s)
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

@@ -57,6 +57,7 @@ export default function QuickCommerce() {
 
   // GRN states (Ninjacart)
   const [grnDispatchItems, setGrnDispatchItems] = useState([]);  // Ninjacart dispatches for GRN table
+  const [grnPendingDates, setGrnPendingDates] = useState([]);    // Dates with pending GRN
   const [grnMatchedItems, setGrnMatchedItems] = useState([]);    // Matched items from CSV upload
   const [uploadingGrn, setUploadingGrn] = useState(false);
   const [grnUploadResult, setGrnUploadResult] = useState(null);
@@ -207,7 +208,16 @@ export default function QuickCommerce() {
       // Load GRN dispatch summary for Ninjacart
       try {
         const grnSummaryRes = await api.get('/api/qc-grns/dispatch-summary');
-        setGrnDispatchItems(grnSummaryRes.data);
+        // Handle new response format with items, pending_dates, total_pending
+        const summaryData = grnSummaryRes.data;
+        if (summaryData.items) {
+          setGrnDispatchItems(summaryData.items);
+          setGrnPendingDates(summaryData.pending_dates || []);
+        } else {
+          // Fallback for old format (array directly)
+          setGrnDispatchItems(summaryData);
+          setGrnPendingDates([]);
+        }
       } catch (err) {
         console.log('GRN summary not available yet');
       }
@@ -3019,6 +3029,31 @@ Email: ${companyEmail}`;
               </div>
             </CardHeader>
             <CardContent>
+              {/* Pending GRN Dates Banner */}
+              {grnPendingDates.length > 0 && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock size={18} className="text-amber-600" />
+                    <span className="text-sm font-medium text-amber-800">
+                      GRN Pending for: 
+                    </span>
+                    <div className="flex gap-1.5">
+                      {grnPendingDates.slice(0, 5).map((date, idx) => (
+                        <span key={idx} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-semibold">
+                          {date}
+                        </span>
+                      ))}
+                      {grnPendingDates.length > 5 && (
+                        <span className="text-xs text-amber-600">+{grnPendingDates.length - 5} more</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm text-amber-700 font-medium">
+                    {grnDispatchItems.length} items pending
+                  </span>
+                </div>
+              )}
+              
               {/* Upload Result Info - Enhanced Summary */}
               {grnUploadResult && (
                 <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
@@ -3215,9 +3250,9 @@ Email: ${companyEmail}`;
                               <td className="text-right font-semibold whitespace-nowrap">
                                 ₹{item.amount?.toFixed(0)}
                                 {lossGain !== 0 && (
-                                  <span className={`block text-[10px] ${lossGain > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  <div className={`text-xs font-bold ${lossGain > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(0)}
-                                  </span>
+                                  </div>
                                 )}
                               </td>
                               <td className="text-center">

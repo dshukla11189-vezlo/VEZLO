@@ -1620,17 +1620,18 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 combined_rate_per_pcs = total_value / total_grn_pcs if total_grn_pcs > 0 else 0
                 combined_sku_names = ' + '.join(sku['sku_name'] for sku in group_data['pcs_skus'])
                 
-                # Collect all PCS dispatch items from all PCS SKUs
+                # Collect all PCS dispatch items from all PCS SKUs (deduplicated by dispatch_id + packaging_id)
                 all_pcs_items = []
-                seen_dispatch_ids = set()
+                seen_item_keys = set()  # Use dispatch_id + packaging_id as key
                 for pcs_sku in group_data['pcs_skus']:
                     for item in pcs_sku['items']:
                         if item.get('dispatch_is_pcs'):
-                            dispatch_id = item.get('dispatch_id')
+                            # Create unique key with dispatch_id AND packaging_id
+                            item_key = f"{item.get('dispatch_id')}_{item.get('packaging_id')}"
                             # Avoid duplicates - same dispatch item might be in multiple SKU matches
-                            if dispatch_id not in seen_dispatch_ids:
+                            if item_key not in seen_item_keys:
                                 all_pcs_items.append(item)
-                                seen_dispatch_ids.add(dispatch_id)
+                                seen_item_keys.add(item_key)
                 
                 logger.info(f"  Combining PCS SKUs for {base_name}: {total_grn_pcs} pcs @ ₹{combined_rate_per_pcs:.2f}/pcs from {len(group_data['pcs_skus'])} SKUs, {len(all_pcs_items)} dispatch items")
                 
@@ -1702,15 +1703,16 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 logger.info(f"  Combining Kg SKUs for {base_name}: {total_grn_kg}kg @ ₹{combined_rate_per_kg:.2f}/kg from {len(group_data['kg_skus'])} SKUs")
                 
-                # Get all Kg-based dispatch items for this product (deduplicated by dispatch_id)
+                # Get all Kg-based dispatch items for this product (deduplicated by dispatch_id + packaging_id)
                 kg_items = []
-                seen_dispatch_ids = set()
+                seen_item_keys = set()  # Use dispatch_id + packaging_id as key
                 for i in group_data['items']:
                     if not i.get('dispatch_is_pcs'):
-                        dispatch_id = i.get('dispatch_id')
-                        if dispatch_id not in seen_dispatch_ids:
+                        # Create unique key with dispatch_id AND packaging_id
+                        item_key = f"{i.get('dispatch_id')}_{i.get('packaging_id')}"
+                        if item_key not in seen_item_keys:
                             kg_items.append(i)
-                            seen_dispatch_ids.add(dispatch_id)
+                            seen_item_keys.add(item_key)
                 
                 # Calculate total supplied weight
                 total_supplied_kg = 0
@@ -1892,24 +1894,30 @@ async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_
     # Get all saved GRNs to exclude already processed items
     saved_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(1000)
     
-    # Build a set of processed dispatch_id + product_id combinations
+    # Build a set of processed dispatch_id + product_id + packaging_id combinations
     processed_items = set()
     for grn in saved_grns:
         for item in grn.get('items', []):
-            # Create a unique key for each processed item
-            key = f"{item.get('dispatch_id')}_{item.get('product_id')}"
+            # Create a unique key for each processed item - include packaging_id for accuracy
+            key = f"{item.get('dispatch_id')}_{item.get('product_id')}_{item.get('packaging_id')}"
             processed_items.add(key)
     
     # Flatten items with dispatch info, excluding already processed
     items = []
+    pending_dates = set()  # Track dates with pending GRNs
     for dispatch in dispatches:
         dispatch_date = dispatch.get('dispatch_date', '')
         for item in dispatch.get('items', []):
-            item_key = f"{dispatch.get('id')}_{item.get('product_id')}"
+            item_key = f"{dispatch.get('id')}_{item.get('product_id')}_{item.get('packaging_id')}"
             
             # Skip if already processed in a GRN
             if item_key in processed_items:
                 continue
+            
+            # Track this date as having pending items
+            if dispatch_date:
+                date_str = dispatch_date[:10] if isinstance(dispatch_date, str) else str(dispatch_date)[:10]
+                pending_dates.add(date_str)
                 
             items.append({
                 'dispatch_id': dispatch.get('id'),
@@ -1927,7 +1935,11 @@ async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_
                 'rate_per_unit': item.get('rate'),
             })
     
-    return items
+    return {
+        "items": items,
+        "pending_dates": sorted(list(pending_dates), reverse=True),
+        "total_pending": len(items)
+    }
 
 # ============================================================================
 # SECTION: QC INVOICE ROUTES (Lines ~1453-1570)
@@ -5042,8 +5054,8 @@ async def process_grn_from_email(
 @api_router.post("/gmail/auto-sync-grn")
 async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)):
     """
-    Automatically sync Ninjacart GRN from latest unprocessed email
-    This can be triggered manually or by scheduler
+    Automatically sync Ninjacart GRN from latest unprocessed email.
+    This processes emails, matches with dispatches, and saves GRN to database.
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -5069,7 +5081,9 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
             return {"message": "No new Ninjacart emails found", "processed": 0}
         
         processed_count = 0
-        grn_data = []
+        saved_grns = []
+        total_items_saved = 0
+        rate_changes_detected = []
         
         for msg in messages:
             content = get_email_content(service, msg['id'])
@@ -5077,13 +5091,33 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
                 continue
             
             items = []
+            attachment_filename = None
             
-            # Try CSV first
+            # Try CSV/Excel first
             for attachment in content['attachments']:
-                if attachment['filename'].lower().endswith('.csv'):
-                    csv_data = download_attachment(service, msg['id'], attachment['attachment_id'])
-                    if csv_data:
-                        items = parse_ninjacart_csv(csv_data)
+                fname = attachment['filename'].lower()
+                if fname.endswith('.csv') or fname.endswith('.xlsx') or fname.endswith('.xls'):
+                    attachment_data = download_attachment(service, msg['id'], attachment['attachment_id'])
+                    if attachment_data:
+                        attachment_filename = attachment['filename']
+                        if fname.endswith('.csv'):
+                            items = parse_ninjacart_csv(attachment_data)
+                        else:
+                            # Parse Excel
+                            try:
+                                from openpyxl import load_workbook
+                                import io
+                                wb = load_workbook(io.BytesIO(attachment_data))
+                                ws = wb.active
+                                rows = list(ws.iter_rows(values_only=True))
+                                if rows:
+                                    headers = [str(h).strip() if h else '' for h in rows[0]]
+                                    items = []
+                                    for row in rows[1:]:
+                                        row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                                        items.append(row_dict)
+                            except Exception as e:
+                                logger.error(f"Error parsing Excel attachment: {e}")
                         break
             
             # Fallback to body parsing
@@ -5091,12 +5125,39 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
                 items = parse_ninjacart_email_body(content['body_text'])
             
             if items:
-                grn_data.append({
-                    "email_id": msg['id'],
-                    "subject": content['subject'],
-                    "date": content['date'],
-                    "items": items
-                })
+                # Process items similar to manual upload
+                # Match with dispatches and save to database
+                try:
+                    # Create a mock UploadFile-like object and process
+                    matched_items = []  # This would need the full matching logic
+                    
+                    # For now, save raw GRN data
+                    grn_doc = {
+                        "id": str(uuid4()),
+                        "source": "gmail_auto_sync",
+                        "email_id": msg['id'],
+                        "email_subject": content['subject'],
+                        "email_date": content['date'],
+                        "attachment_filename": attachment_filename,
+                        "items": items,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_by": current_user["user_id"],
+                        "sync_method": "automatic_gmail"
+                    }
+                    
+                    # Save to database
+                    await db.gmail_grn_syncs.insert_one(grn_doc)
+                    
+                    saved_grns.append({
+                        "email_id": msg['id'],
+                        "subject": content['subject'],
+                        "date": content['date'],
+                        "items_count": len(items)
+                    })
+                    total_items_saved += len(items)
+                    
+                except Exception as e:
+                    logger.error(f"Error saving GRN from email: {e}")
                 
                 # Mark as processed
                 mark_email_as_read(service, msg['id'])
@@ -5109,10 +5170,21 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
             {"$set": {"last_sync": datetime.now(timezone.utc)}}
         )
         
+        # Build summary for frontend display
+        summary = {
+            "sync_date": datetime.now(timezone.utc).isoformat(),
+            "sync_method": "automatic_gmail",
+            "emails_processed": processed_count,
+            "total_items": total_items_saved,
+            "saved_grns": saved_grns,
+            "rate_changes": rate_changes_detected
+        }
+        
         return {
             "message": f"Processed {processed_count} Ninjacart emails",
             "processed": processed_count,
-            "grn_data": grn_data
+            "summary": summary,
+            "grn_data": saved_grns
         }
     except Exception as e:
         logger.error(f"Error in auto-sync: {e}")

@@ -319,6 +319,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Enhanced summary banner** - Shows file, date, matched count, unmatched count, total amount
   - [x] **Rate changes summary** - Purple panel showing products with rate changes from previous day
   - [x] **Auto-sync badge** - Purple "AUTO-SYNC" badge when GRN synced from Gmail
+- [x] **GRN Bug Fixes & Improvements** (COMPLETED - Mar 31, 2026):
+  - [x] **Fixed duplicate Palak issue** - Items now deduplicated by dispatch_id + packaging_id (not just dispatch_id)
+  - [x] **Saved GRN items removed from pending** - dispatch-summary now uses dispatch_id + product_id + packaging_id key
+  - [x] **Larger delta text** - Loss/gain amounts changed from text-[10px] to text-xs for better visibility
+  - [x] **Pending dates banner** - Shows "GRN Pending for: date1, date2..." at top of GRN tab
+  - [x] **Gmail auto-sync saves to DB** - Updated endpoint to store GRN data in gmail_grn_syncs collection
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

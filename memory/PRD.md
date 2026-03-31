@@ -395,6 +395,18 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Date Filter** - Filter period with from/to dates and Refresh button
   - [x] **Recent Orders Table** - Grouped by date with columns: Date, Indent Qty, Supplied Qty, Rejection, Total Amt, Commission, Payable
   - [x] **Expandable date rows** - Click to show product-wise breakdown
+- [x] **Invoice Format Consistency** (COMPLETED - Mar 31, 2026):
+  - [x] **New main table columns**: INVOICE # | DATE | ITEMS | GROSS VALUE | REJECTION | NET VALUE | COMMISSION | PAYABLE | PDF
+  - [x] **Expanded item table columns**: Product | Variant | Supplied Qty | Rejected | Net Qty | MRP | Net Amount
+  - [x] **Invoice Summary in expanded view** shows:
+    - Gross Total
+    - (-) Rejections (red, if any)
+    - Net Total
+    - Your Commission (X%)
+    - Amount Payable by You
+  - [x] **Rejection column highlighted in red**
+  - [x] **Commission column highlighted in green**
+  - [x] **Footer totals** for all columns
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

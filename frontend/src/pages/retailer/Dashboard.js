@@ -211,31 +211,55 @@ export default function RetailerDashboard() {
   const downloadInvoicePdf = (invoice) => {
     const printWindow = window.open('', '_blank');
     
+    // Calculate totals with rejection breakdown
+    const totals = invoice.items.reduce((acc, item) => {
+      const suppliedQty = item.supplied_qty || item.quantity || 0;
+      const rejectedQty = item.rejected_qty || 0;
+      const billableQty = suppliedQty - rejectedQty;
+      const amount = billableQty * (item.mrp || 0);
+      return {
+        suppliedQty: acc.suppliedQty + suppliedQty,
+        rejectedQty: acc.rejectedQty + rejectedQty,
+        billableQty: acc.billableQty + billableQty,
+        amount: acc.amount + amount
+      };
+    }, { suppliedQty: 0, rejectedQty: 0, billableQty: 0, amount: 0 });
+    
+    // Use stored totals if available
+    const totalMrpValue = invoice.total_mrp_value || totals.amount;
+    const grossValue = invoice.gross_value || (totalMrpValue + (invoice.rejection_amount || 0));
+    const rejectionAmount = invoice.rejection_amount || (totals.rejectedQty * (invoice.items[0]?.mrp || 0));
+    
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
         <title>Invoice ${invoice.invoice_number}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .header h1 { color: #14532D; margin: 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 850px; margin: 0 auto; font-size: 12px; }
+          .header { text-align: center; margin-bottom: 20px; }
+          .header h1 { color: #14532D; margin: 0; font-size: 24px; }
           .info-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
-          .info-box { padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-          th { background: #f5f5f5; }
+          .info-box { padding: 10px; border: 1px solid #ddd; border-radius: 5px; flex: 1; margin: 0 5px; }
+          table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+          th, td { border: 1px solid #ddd; padding: 8px 6px; text-align: center; font-size: 11px; }
+          th { background: #f5f5f5; font-weight: bold; }
+          .text-left { text-align: left; }
           .text-right { text-align: right; }
-          .summary { margin-top: 20px; }
-          .summary-row { display: flex; justify-content: flex-end; gap: 20px; padding: 5px 0; }
-          .total-row { font-weight: bold; font-size: 1.2em; border-top: 2px solid #14532D; padding-top: 10px; }
+          .rejection { color: #dc2626; }
+          .billable { color: #15803d; font-weight: bold; }
+          .total-row { background: #f5f5f5; font-weight: bold; }
+          .summary { margin-top: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+          .summary-row { display: flex; justify-content: flex-end; gap: 20px; padding: 5px 0; font-size: 12px; }
+          .total-final { font-weight: bold; font-size: 14px; border-top: 2px solid #14532D; padding-top: 10px; margin-top: 10px; }
           @media print { button { display: none; } }
         </style>
       </head>
       <body>
         <div class="header">
           <h1>FreshFlow</h1>
-          <p>INVOICE</p>
+          <p>TAX INVOICE</p>
         </div>
         <div class="info-row">
           <div class="info-box">
@@ -244,46 +268,71 @@ export default function RetailerDashboard() {
           </div>
           <div class="info-box">
             <strong>Bill To:</strong><br>
-            ${invoice.retailer_name}<br>
-            ${dashboardData?.retailer?.company_name || ''}<br>
+            ${dashboardData?.retailer?.company_name || invoice.retailer_name}<br>
             ${dashboardData?.retailer?.address || ''}
           </div>
         </div>
         <table>
           <thead>
             <tr>
-              <th>#</th>
-              <th>Product</th>
-              <th>Variant</th>
-              <th class="text-right">Qty</th>
-              <th class="text-right">MRP</th>
-              <th class="text-right">Total</th>
+              <th style="width: 25px;">#</th>
+              <th class="text-left" style="width: 200px;">Item name</th>
+              <th style="width: 70px;">Supplied Qty</th>
+              <th style="width: 70px;">Rejection</th>
+              <th style="width: 70px;">Billable Qty</th>
+              <th style="width: 70px;">Rate</th>
+              <th style="width: 80px;">Amount</th>
             </tr>
           </thead>
           <tbody>
-            ${invoice.items.map((item, idx) => `
-              <tr>
-                <td>${idx + 1}</td>
-                <td>${item.product_name}</td>
-                <td>${item.variant_name || '-'}</td>
-                <td class="text-right">${item.quantity}</td>
-                <td class="text-right">₹${item.mrp.toFixed(2)}</td>
-                <td class="text-right">₹${item.total_value.toFixed(2)}</td>
-              </tr>
-            `).join('')}
+            ${invoice.items.map((item, idx) => {
+              const suppliedQty = item.supplied_qty || item.quantity || 0;
+              const rejectedQty = item.rejected_qty || 0;
+              const billableQty = suppliedQty - rejectedQty;
+              const rate = item.mrp || 0;
+              const amount = billableQty * rate;
+              return `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td class="text-left">${item.product_name}${item.variant_name ? ' (' + item.variant_name + ')' : ''}</td>
+                  <td>${suppliedQty}</td>
+                  <td class="rejection">${rejectedQty > 0 ? '-' + rejectedQty : '-'}</td>
+                  <td class="billable">${billableQty}</td>
+                  <td class="text-right">₹${rate.toFixed(2)}</td>
+                  <td class="text-right">₹${amount.toFixed(2)}</td>
+                </tr>
+              `;
+            }).join('')}
+            <tr class="total-row">
+              <td></td>
+              <td class="text-left"><strong>Total</strong></td>
+              <td><strong>${totals.suppliedQty}</strong></td>
+              <td class="rejection"><strong>${totals.rejectedQty > 0 ? '-' + totals.rejectedQty : '-'}</strong></td>
+              <td class="billable"><strong>${totals.billableQty}</strong></td>
+              <td></td>
+              <td class="text-right"><strong>₹${totalMrpValue.toFixed(2)}</strong></td>
+            </tr>
           </tbody>
         </table>
         <div class="summary">
+          ${grossValue !== totalMrpValue ? `<div class="summary-row">
+            <span>Gross Value:</span>
+            <span>₹${grossValue.toFixed(2)}</span>
+          </div>` : ''}
+          ${rejectionAmount > 0 ? `<div class="summary-row">
+            <span style="color: #dc2626;">(-) Rejections:</span>
+            <span style="color: #dc2626;">-₹${rejectionAmount.toFixed(2)}</span>
+          </div>` : ''}
           <div class="summary-row">
             <span>Total MRP Value:</span>
-            <span>₹${invoice.total_mrp_value.toFixed(2)}</span>
+            <span>₹${totalMrpValue.toFixed(2)}</span>
           </div>
           <div class="summary-row">
-            <span>Commission (${invoice.commission_percentage}%):</span>
-            <span style="color: green;">- ₹${invoice.commission_amount.toFixed(2)}</span>
+            <span style="color: #15803d;">Your Commission (${invoice.commission_percentage}%):</span>
+            <span style="color: #15803d;">₹${invoice.commission_amount.toFixed(2)}</span>
           </div>
-          <div class="summary-row total-row">
-            <span>Net Payable:</span>
+          <div class="summary-row total-final">
+            <span>Amount Payable by You:</span>
             <span>₹${invoice.net_payable.toFixed(2)}</span>
           </div>
         </div>

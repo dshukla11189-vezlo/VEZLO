@@ -398,40 +398,35 @@ export default function RetailerDashboard() {
               const totalItemsReceived = filteredDispatches.reduce((sum, d) => 
                 sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
               
-              const totalItemsSold = filteredDispatches.reduce((sum, d) => 
-                sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) - (i.rejected_qty || 0)), 0) || 0), 0);
+              // Total items rejected (quantity)
+              const totalItemsRejected = filteredRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
+              
+              // Items sold = Received - Rejected
+              const totalItemsSold = totalItemsReceived - totalItemsRejected;
               
               // Get retailer's commission percentage (fallback)
               const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
               
-              // Calculate MRP value - use stored value or calculate from items
-              const totalMrpValue = filteredDispatches.reduce((sum, d) => {
-                // Try stored total_mrp_value first
+              // Calculate GROSS MRP value (before rejections)
+              const grossMrpValue = filteredDispatches.reduce((sum, d) => {
                 if (d.total_mrp_value && d.total_mrp_value > 0) {
                   return sum + d.total_mrp_value;
                 }
-                // Fallback: calculate from items
                 const itemsTotal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
                 return sum + itemsTotal;
-              }, 0);
-              
-              // Calculate earnings (commission)
-              const totalCommission = filteredDispatches.reduce((sum, d) => {
-                // Use dispatch commission_percentage if available, otherwise use retailer's
-                const commPct = d.commission_percentage || retailerCommPct;
-                // Calculate MRP for this dispatch
-                let mrpVal = d.total_mrp_value || 0;
-                if (!mrpVal || mrpVal === 0) {
-                  mrpVal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
-                }
-                return sum + (mrpVal * commPct / 100);
               }, 0);
               
               // Rejection value from rejections collection (date filtered)
               const totalRejectionValue = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
               
-              // Net payable (what retailer pays us = MRP - Commission - Rejections)
-              const totalNetPayable = filteredDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+              // NET MRP value = Gross - Rejections
+              const netMrpValue = grossMrpValue - totalRejectionValue;
+              
+              // Calculate earnings (commission) - BASED ON NET VALUE AFTER REJECTIONS
+              const totalCommission = netMrpValue * retailerCommPct / 100;
+              
+              // Payable by retailer = Net MRP - Commission
+              const payableByRetailer = netMrpValue - totalCommission;
               
               // Calculate days in range
               const daysDiff = Math.max(1, Math.ceil((new Date(dashboardDateTo) - new Date(dashboardDateFrom)) / (1000 * 60 * 60 * 24)) + 1);
@@ -511,18 +506,22 @@ export default function RetailerDashboard() {
                   </div>
 
                   {/* Additional Stats Row */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                     <div className="bg-gray-50 p-3 rounded-lg border text-center">
-                      <p className="text-xs text-gray-500">MRP Value (Dispatches)</p>
-                      <p className="text-lg font-semibold">{formatCurrency(totalMrpValue)}</p>
+                      <p className="text-xs text-gray-500">Supplied Qty</p>
+                      <p className="text-lg font-semibold">{totalItemsReceived}</p>
                     </div>
                     <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
-                      <p className="text-xs text-red-500">Rejections</p>
-                      <p className="text-lg font-semibold text-red-600">-{formatCurrency(totalRejectionValue)}</p>
+                      <p className="text-xs text-red-500">Rejected Qty</p>
+                      <p className="text-lg font-semibold text-red-600">-{totalItemsRejected}</p>
+                    </div>
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                      <p className="text-xs text-blue-500">Net MRP Value</p>
+                      <p className="text-lg font-semibold text-blue-700">{formatCurrency(netMrpValue)}</p>
                     </div>
                     <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
-                      <p className="text-xs text-yellow-600">Pending Payment</p>
-                      <p className="text-lg font-semibold text-yellow-700">{formatCurrency(summary.pending_amount)}</p>
+                      <p className="text-xs text-yellow-600">Payable by You</p>
+                      <p className="text-lg font-semibold text-yellow-700">{formatCurrency(payableByRetailer)}</p>
                     </div>
                     <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
                       <p className="text-xs text-green-500">Amount Paid</p>
@@ -576,11 +575,11 @@ export default function RetailerDashboard() {
                             <tr>
                               <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
                               <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                              <th className="p-3 text-center font-medium text-gray-500">INDENT QTY</th>
-                              <th className="p-3 text-center font-medium text-gray-500">SUPPLIED QTY</th>
-                              <th className="p-3 text-center font-medium text-gray-500">REJECTION</th>
-                              <th className="p-3 text-right font-medium text-gray-500">TOTAL AMT</th>
-                              <th className="p-3 text-right font-medium text-gray-500">COMMISSION</th>
+                              <th className="p-3 text-center font-medium text-gray-500">SUPPLIED</th>
+                              <th className="p-3 text-center font-medium text-red-500">REJECTION</th>
+                              <th className="p-3 text-center font-medium text-gray-500">NET QTY</th>
+                              <th className="p-3 text-right font-medium text-gray-500">NET AMT</th>
+                              <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
                               <th className="p-3 text-right font-medium text-gray-500">PAYABLE</th>
                             </tr>
                           </thead>
@@ -589,31 +588,36 @@ export default function RetailerDashboard() {
                               const dateDispatches = dispatchesByDate[date];
                               const isExpanded = expandedOrderDates[date];
                               
+                              // Get rejections for this date
+                              const dateRejections = filteredRejections.filter(r => {
+                                const rejDate = r.rejection_date?.split('T')[0];
+                                return rejDate === date;
+                              });
+                              const dateRejectedQty = dateRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
+                              const dateRejectionValue = dateRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+                              
                               // Aggregate for date
                               const dateIndentQty = dateDispatches.reduce((sum, d) => 
                                 sum + (d.items?.reduce((s, i) => s + (i.indent_qty || i.supplied_qty || 0), 0) || 0), 0);
                               const dateSuppliedQty = dateDispatches.reduce((sum, d) => 
                                 sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
-                              const dateRejectedQty = dateDispatches.reduce((sum, d) => 
-                                sum + (d.items?.reduce((s, i) => s + (i.rejected_qty || 0), 0) || 0), 0);
-                              // Calculate total amount - use stored value or calculate from items
-                              const dateTotalAmt = dateDispatches.reduce((sum, d) => {
+                              
+                              // Calculate GROSS amount from dispatches
+                              const dateGrossAmt = dateDispatches.reduce((sum, d) => {
                                 if (d.total_mrp_value && d.total_mrp_value > 0) {
                                   return sum + d.total_mrp_value;
                                 }
-                                // Fallback: calculate from items
                                 return sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
                               }, 0);
-                              // Calculate commission - use dispatch value or retailer's commission
-                              const dateCommission = dateDispatches.reduce((sum, d) => {
-                                const commPct = d.commission_percentage || retailerCommPct;
-                                let mrpVal = d.total_mrp_value || 0;
-                                if (!mrpVal || mrpVal === 0) {
-                                  mrpVal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
-                                }
-                                return sum + (mrpVal * commPct / 100);
-                              }, 0);
-                              const datePayable = dateDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+                              
+                              // NET amount = Gross - Rejections
+                              const dateNetAmt = dateGrossAmt - dateRejectionValue;
+                              
+                              // Commission on NET value
+                              const dateCommission = dateNetAmt * retailerCommPct / 100;
+                              
+                              // Payable = Net - Commission
+                              const datePayable = dateNetAmt - dateCommission;
                               
                               return (
                                 <React.Fragment key={date}>
@@ -626,14 +630,14 @@ export default function RetailerDashboard() {
                                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                     </td>
                                     <td className="p-3 font-semibold">{formatDate(date)}</td>
-                                    <td className="p-3 text-center">{dateIndentQty}</td>
-                                    <td className="p-3 text-center font-medium">{dateSuppliedQty}</td>
+                                    <td className="p-3 text-center">{dateSuppliedQty}</td>
                                     <td className="p-3 text-center">
                                       {dateRejectedQty > 0 ? (
                                         <span className="text-red-600 font-medium">-{dateRejectedQty}</span>
                                       ) : '-'}
                                     </td>
-                                    <td className="p-3 text-right">{formatCurrency(dateTotalAmt)}</td>
+                                    <td className="p-3 text-center font-medium">{dateSuppliedQty - dateRejectedQty}</td>
+                                    <td className="p-3 text-right">{formatCurrency(dateNetAmt)}</td>
                                     <td className="p-3 text-right text-green-600">{formatCurrency(dateCommission)}</td>
                                     <td className="p-3 text-right font-semibold">{formatCurrency(datePayable)}</td>
                                   </tr>

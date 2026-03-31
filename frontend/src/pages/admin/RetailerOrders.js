@@ -1664,9 +1664,11 @@ export default function RetailerOrders() {
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
-                      <th className="p-3 text-right font-medium text-gray-500">MRP VALUE</th>
-                      <th className="p-3 text-right font-medium text-gray-500">COMMISSION</th>
-                      <th className="p-3 text-right font-medium text-gray-500">NET RECEIVABLE</th>
+                      <th className="p-3 text-right font-medium text-gray-500">GROSS VALUE</th>
+                      <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
+                      <th className="p-3 text-right font-medium text-gray-500">NET VALUE</th>
+                      <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
+                      <th className="p-3 text-right font-medium text-gray-500">RECEIVABLE</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>
@@ -1683,8 +1685,12 @@ export default function RetailerOrders() {
                           <td className="p-3">{formatDate(invoice.invoice_date)}</td>
                           <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
                           <td className="p-3 text-center">{invoice.items?.length || 0}</td>
+                          <td className="p-3 text-right">{formatCurrency(invoice.gross_value || (invoice.total_mrp_value + (invoice.rejection_amount || 0)))}</td>
+                          <td className="p-3 text-right text-red-600">
+                            {invoice.rejection_amount > 0 ? `-${formatCurrency(invoice.rejection_amount)}` : '-'}
+                          </td>
                           <td className="p-3 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
-                          <td className="p-3 text-right text-green-600">- {formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
+                          <td className="p-3 text-right text-green-600">-{formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
                           <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
                           <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">
@@ -1735,8 +1741,10 @@ export default function RetailerOrders() {
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
                         <td colSpan={5} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.gross_value || i.total_mrp_value + (i.rejection_amount || 0)), 0))}</td>
+                        <td className="p-3 text-right text-red-600">-{formatCurrency(invoices.reduce((sum, i) => sum + (i.rejection_amount || 0), 0))}</td>
                         <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.total_mrp_value || 0), 0))}</td>
-                        <td className="p-3 text-right text-green-600">- {formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}</td>
+                        <td className="p-3 text-right text-green-600">-{formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}</td>
                         <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>
                         <td></td>
                       </tr>

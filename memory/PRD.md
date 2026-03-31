@@ -388,15 +388,16 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Invoice text fix** - Changed "Amount Payable to Retailer" → "Amount Payable by Retailer"
   - [x] **New Dashboard Cards**:
     - Total Items Received (blue)
-    - Total Items Sold (green)
-    - Your Earnings (emerald)
+    - Total Items Sold (green) - Now shows NET qty after rejections
+    - Your Earnings (emerald) - Now calculated on NET value after rejections
     - Avg Earning/Day (purple)
-  - [x] **Additional Stats Row** - MRP Value, Rejections, Pending Payment, Amount Paid
+  - [x] **Additional Stats Row** - Supplied Qty, Rejected Qty, Net MRP Value, Payable by You, Amount Paid
   - [x] **Date Filter** - Filter period with from/to dates and Refresh button
-  - [x] **Recent Orders Table** - Grouped by date with columns: Date, Indent Qty, Supplied Qty, Rejection, Total Amt, Commission, Payable
+  - [x] **Recent Orders Table** - Grouped by date with columns: DATE | SUPPLIED | REJECTION | NET QTY | NET AMT | COMMISSION | PAYABLE
   - [x] **Expandable date rows** - Click to show product-wise breakdown
 - [x] **Invoice Format Consistency** (COMPLETED - Mar 31, 2026):
-  - [x] **New main table columns**: INVOICE # | DATE | ITEMS | GROSS VALUE | REJECTION | NET VALUE | COMMISSION | PAYABLE | PDF
+  - [x] **Admin Invoice columns**: INVOICE # | DATE | RETAILER | ITEMS | GROSS VALUE | REJECTION | NET VALUE | COMMISSION | RECEIVABLE | ACTIONS
+  - [x] **Retailer Invoice columns**: INVOICE # | DATE | ITEMS | GROSS VALUE | REJECTION | NET VALUE | COMMISSION | PAYABLE | PDF
   - [x] **Expanded item table columns**: Product | Variant | Supplied Qty | Rejected | Net Qty | MRP | Net Amount
   - [x] **Invoice Summary in expanded view** shows:
     - Gross Total
@@ -408,15 +409,18 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Commission column highlighted in green**
   - [x] **Footer totals** for all columns
 - [x] **Retailer Dashboard Metrics Fix** (COMPLETED - Mar 31, 2026):
-  - [x] **Bug**: Earnings and Rejections showing ₹0.00 when dispatch fields were missing
-  - [x] **Root Cause**: Dashboard relied on `dispatch.total_mrp_value` and `dispatch.commission_percentage` fields being present
-  - [x] **Fix**: Added fallback calculations:
-    - Calculate `total_mrp_value` from items (`supplied_qty × mrp`) if not stored
-    - Use retailer's `commission_percentage` as fallback if not stored in dispatch
-    - Get rejection values from `rejections` collection instead of just dispatch items
-  - [x] **Invoice Summary Section**: Added new collapsible section showing invoice-based totals (when invoices exist)
-  - [x] **Clearer Labels**: "MRP Value (Dispatches)" to distinguish from invoice amounts
-  - [x] **Pending Payment from API**: Now shows `summary.pending_amount` from backend (accurate calculation)
+  - [x] **Bug**: Earnings calculated on GROSS value instead of NET value after rejections
+  - [x] **Fix**: Earnings now calculated as: Commission % × (Gross MRP - Rejections)
+  - [x] **Fix**: Items Sold now shows NET quantity (Supplied - Rejected)
+  - [x] **Dashboard Stats Updated**:
+    - Supplied Qty: 69
+    - Rejected Qty: -10
+    - Net MRP Value: ₹1,067.00 (₹1,243 - ₹176)
+    - Your Earnings: ₹213.40 (20% of ₹1,067)
+    - Payable by You: ₹853.60 (₹1,067 - ₹213.40)
+  - [x] **Recent Orders Table Updated** with columns: DATE | SUPPLIED | REJECTION | NET QTY | NET AMT | COMMISSION | PAYABLE
+  - [x] **Invoice Model Updated**: Added `gross_value` and `rejection_amount` fields
+  - [x] **Admin Invoice Table Updated**: Shows GROSS VALUE | REJECTION | NET VALUE | COMMISSION | RECEIVABLE
 - [x] **Product Lifecycle Duration** (COMPLETED - Mar 31, 2026):
   - [x] Added `lifecycle_duration` field to Product model (Low/Medium/High)
   - [x] Added dropdown in Products Admin UI to set lifecycle for each product

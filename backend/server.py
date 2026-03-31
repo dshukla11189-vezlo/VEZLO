@@ -4532,7 +4532,8 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     
     # Use selected_items if provided (includes rejection adjustments), otherwise fall back to dispatch items
     all_items = []
-    total_mrp_value = 0
+    gross_value = 0  # Total before rejections
+    rejection_amount = 0  # Total rejection value
     
     if input.selected_items and len(input.selected_items) > 0:
         # Use the item-level selection with rejection data
@@ -4548,7 +4549,12 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                 mrp=item.mrp,
                 total_value=item.total_value  # This is net_value from frontend
             ))
-            total_mrp_value += item.total_value
+            # Calculate gross (supplied_qty * mrp)
+            item_gross = item.supplied_qty * item.mrp
+            gross_value += item_gross
+            # Calculate rejection value (rejected_qty * mrp)
+            item_rejection = item.rejected_qty * item.mrp if item.rejected_qty else 0
+            rejection_amount += item_rejection
     else:
         # Fallback: aggregate items from all dispatches (legacy behavior)
         for dispatch in dispatches:
@@ -4562,8 +4568,12 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                     mrp=item.get("mrp", 0),
                     total_value=item.get("total_value", 0)
                 ))
-                total_mrp_value += item.get("total_value", 0)
+                gross_value += item.get("total_value", 0)
     
+    # Net MRP value = Gross - Rejections
+    total_mrp_value = gross_value - rejection_amount
+    
+    # Commission on NET value (after rejections)
     commission_amount = total_mrp_value * commission / 100
     net_payable = total_mrp_value - commission_amount
     
@@ -4581,6 +4591,8 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
         invoice_date=input.invoice_date,
         dispatch_ids=input.dispatch_ids,
         items=[item.model_dump() for item in all_items],
+        gross_value=round(gross_value, 2),
+        rejection_amount=round(rejection_amount, 2),
         total_mrp_value=round(total_mrp_value, 2),
         commission_percentage=commission,
         commission_amount=round(commission_amount, 2),

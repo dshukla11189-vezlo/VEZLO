@@ -715,10 +715,12 @@ class RetailerInvoice(BaseModel):
     invoice_date: datetime
     dispatch_ids: List[str]  # Multiple dispatches can be in one invoice
     items: List[RetailerInvoiceItem]
-    total_mrp_value: float = 0
+    gross_value: float = 0  # Total MRP before rejections
+    rejection_amount: float = 0  # Total rejection value
+    total_mrp_value: float = 0  # Net value after rejections (gross - rejection)
     commission_percentage: float = 0
     commission_amount: float = 0
-    net_payable: float = 0
+    net_payable: float = 0  # Amount retailer pays us (total_mrp_value - commission)
     status: Literal["pending", "partial", "paid"] = "pending"
     created_by: str
     remarks: Optional[str] = None

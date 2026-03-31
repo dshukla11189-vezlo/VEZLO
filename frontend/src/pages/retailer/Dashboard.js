@@ -382,6 +382,18 @@ export default function RetailerDashboard() {
                 return dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
               });
               
+              // Filter invoices by date range
+              const filteredInvoices = invoices.filter(inv => {
+                const invDate = inv.invoice_date?.split('T')[0];
+                return invDate >= dashboardDateFrom && invDate <= dashboardDateTo;
+              });
+              
+              // Filter rejections by date range
+              const filteredRejections = rejections.filter(r => {
+                const rejDate = r.rejection_date?.split('T')[0];
+                return rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
+              });
+              
               // Calculate metrics
               const totalItemsReceived = filteredDispatches.reduce((sum, d) => 
                 sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
@@ -389,17 +401,34 @@ export default function RetailerDashboard() {
               const totalItemsSold = filteredDispatches.reduce((sum, d) => 
                 sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) - (i.rejected_qty || 0)), 0) || 0), 0);
               
-              // Calculate earnings (commission from MRP value)
-              const totalMrpValue = filteredDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
+              // Get retailer's commission percentage (fallback)
+              const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
+              
+              // Calculate MRP value - use stored value or calculate from items
+              const totalMrpValue = filteredDispatches.reduce((sum, d) => {
+                // Try stored total_mrp_value first
+                if (d.total_mrp_value && d.total_mrp_value > 0) {
+                  return sum + d.total_mrp_value;
+                }
+                // Fallback: calculate from items
+                const itemsTotal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
+                return sum + itemsTotal;
+              }, 0);
+              
+              // Calculate earnings (commission)
               const totalCommission = filteredDispatches.reduce((sum, d) => {
-                const commPct = d.commission_percentage || 0;
-                const mrpVal = d.total_mrp_value || 0;
+                // Use dispatch commission_percentage if available, otherwise use retailer's
+                const commPct = d.commission_percentage || retailerCommPct;
+                // Calculate MRP for this dispatch
+                let mrpVal = d.total_mrp_value || 0;
+                if (!mrpVal || mrpVal === 0) {
+                  mrpVal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
+                }
                 return sum + (mrpVal * commPct / 100);
               }, 0);
               
-              // Rejection value from items
-              const totalRejectionValue = filteredDispatches.reduce((sum, d) => 
-                sum + (d.items?.reduce((s, i) => s + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0), 0);
+              // Rejection value from rejections collection (date filtered)
+              const totalRejectionValue = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
               
               // Net payable (what retailer pays us = MRP - Commission - Rejections)
               const totalNetPayable = filteredDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
@@ -484,22 +513,53 @@ export default function RetailerDashboard() {
                   {/* Additional Stats Row */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                     <div className="bg-gray-50 p-3 rounded-lg border text-center">
-                      <p className="text-xs text-gray-500">MRP Value</p>
+                      <p className="text-xs text-gray-500">MRP Value (Dispatches)</p>
                       <p className="text-lg font-semibold">{formatCurrency(totalMrpValue)}</p>
                     </div>
                     <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
                       <p className="text-xs text-red-500">Rejections</p>
                       <p className="text-lg font-semibold text-red-600">-{formatCurrency(totalRejectionValue)}</p>
                     </div>
-                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
-                      <p className="text-xs text-blue-500">Net Payable by You</p>
-                      <p className="text-lg font-semibold text-blue-700">{formatCurrency(totalNetPayable)}</p>
+                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
+                      <p className="text-xs text-yellow-600">Pending Payment</p>
+                      <p className="text-lg font-semibold text-yellow-700">{formatCurrency(summary.pending_amount)}</p>
                     </div>
                     <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
                       <p className="text-xs text-green-500">Amount Paid</p>
                       <p className="text-lg font-semibold text-green-600">{formatCurrency(summary.total_paid)}</p>
                     </div>
                   </div>
+                  
+                  {/* Invoice Summary Row */}
+                  {filteredInvoices.length > 0 && (
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-6">
+                      <h4 className="text-sm font-medium text-blue-800 mb-2">Invoice Summary (Period: {formatDate(dashboardDateFrom)} - {formatDate(dashboardDateTo)})</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <p className="text-xs text-blue-500">Total Invoiced</p>
+                          <p className="font-semibold text-blue-800">
+                            {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.total_mrp_value || 0), 0))}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-green-500">Your Commission</p>
+                          <p className="font-semibold text-green-700">
+                            {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.commission_amount || 0), 0))}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-blue-500">Payable by You</p>
+                          <p className="font-semibold text-blue-800">
+                            {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.net_payable || 0), 0))}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Invoices Count</p>
+                          <p className="font-semibold">{filteredInvoices.length}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Recent Orders Table - Grouped by Date */}
                   <Card>
@@ -536,10 +596,21 @@ export default function RetailerDashboard() {
                                 sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
                               const dateRejectedQty = dateDispatches.reduce((sum, d) => 
                                 sum + (d.items?.reduce((s, i) => s + (i.rejected_qty || 0), 0) || 0), 0);
-                              const dateTotalAmt = dateDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
+                              // Calculate total amount - use stored value or calculate from items
+                              const dateTotalAmt = dateDispatches.reduce((sum, d) => {
+                                if (d.total_mrp_value && d.total_mrp_value > 0) {
+                                  return sum + d.total_mrp_value;
+                                }
+                                // Fallback: calculate from items
+                                return sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
+                              }, 0);
+                              // Calculate commission - use dispatch value or retailer's commission
                               const dateCommission = dateDispatches.reduce((sum, d) => {
-                                const commPct = d.commission_percentage || 0;
-                                const mrpVal = d.total_mrp_value || 0;
+                                const commPct = d.commission_percentage || retailerCommPct;
+                                let mrpVal = d.total_mrp_value || 0;
+                                if (!mrpVal || mrpVal === 0) {
+                                  mrpVal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
+                                }
                                 return sum + (mrpVal * commPct / 100);
                               }, 0);
                               const datePayable = dateDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);

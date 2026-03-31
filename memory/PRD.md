@@ -407,6 +407,19 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Rejection column highlighted in red**
   - [x] **Commission column highlighted in green**
   - [x] **Footer totals** for all columns
+- [x] **Retailer Dashboard Metrics Fix** (COMPLETED - Mar 31, 2026):
+  - [x] **Bug**: Earnings and Rejections showing ₹0.00 when dispatch fields were missing
+  - [x] **Root Cause**: Dashboard relied on `dispatch.total_mrp_value` and `dispatch.commission_percentage` fields being present
+  - [x] **Fix**: Added fallback calculations:
+    - Calculate `total_mrp_value` from items (`supplied_qty × mrp`) if not stored
+    - Use retailer's `commission_percentage` as fallback if not stored in dispatch
+    - Get rejection values from `rejections` collection instead of just dispatch items
+  - [x] **Invoice Summary Section**: Added new collapsible section showing invoice-based totals (when invoices exist)
+  - [x] **Clearer Labels**: "MRP Value (Dispatches)" to distinguish from invoice amounts
+  - [x] **Pending Payment from API**: Now shows `summary.pending_amount` from backend (accurate calculation)
+- [x] **Product Lifecycle Duration** (COMPLETED - Mar 31, 2026):
+  - [x] Added `lifecycle_duration` field to Product model (Low/Medium/High)
+  - [x] Added dropdown in Products Admin UI to set lifecycle for each product
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

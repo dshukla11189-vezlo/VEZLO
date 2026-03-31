@@ -1393,15 +1393,20 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             
             # Determine if this dispatch item's packaging is Kg-based or PCS-based
             packaging_upper = packaging_name.upper()
+            packaging_lower = packaging_name.lower()
             
-            # Check if packaging is explicitly PCS-based (pieces)
+            # Check if packaging is PCS-based (pieces):
+            # 1. Explicit "(PCS)" or "PCS" markers
+            # 2. "With Roots" or "Without Roots" packaging (these are sold as pieces)
             dispatch_is_pcs_based = ('(PCS)' in packaging_upper or 
                                      ' PCS ' in packaging_upper or
                                      packaging_upper.endswith(' PCS') or
                                      packaging_upper.endswith('(PCS)') or
-                                     packaging_upper.startswith('PCS '))
+                                     packaging_upper.startswith('PCS ') or
+                                     'with roots' in packaging_lower or
+                                     'without roots' in packaging_lower)
             
-            # Kg-based: weight-based packaging without PCS
+            # Kg-based: weight-based packaging without PCS indicators
             dispatch_is_kg_based = not dispatch_is_pcs_based
             
             logger.info(f"Matching dispatch item: {product_name_original} | {packaging_name} | weight={packaging_weight_gm}gm | pcs={dispatch_is_pcs_based}")

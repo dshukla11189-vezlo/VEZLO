@@ -1348,6 +1348,11 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             continue
     
     # Match CSV data with dispatches
+    # NEW LOGIC:
+    # 1. Use column H (Kgs_Pcs) from Excel to determine if SKU is Kg or PCS based
+    # 2. Only dispatch packaging with explicit "(PCS)" is PCS-based, everything else is Kg-based
+    # 3. For Kg-based products with multiple variants, distribute GRN proportionally by supplied weight
+    
     matched_items = []
     
     # Log parsed data for debugging
@@ -1358,7 +1363,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     # Variant/color words that MUST match exactly if present in product name
     variant_words = {'red', 'green', 'yellow', 'white', 'black', 'purple', 'orange', 
                    'small', 'large', 'big', 'baby', 'mini', 'jumbo', 'local', 'hybrid',
-                   'english', 'indian', 'desi', 'organic', 'fresh'}
+                   'english', 'indian', 'desi', 'organic', 'fresh', 'premium'}
     
     for dispatch in ninjacart_dispatches:
         dispatch_date = dispatch.get('dispatch_date', '')
@@ -1372,199 +1377,215 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             continue
         
         csv_rows = csv_data_by_date[dispatch_date_str]
+        dispatch_items = dispatch.get('items', [])
         
-        for item in dispatch.get('items', []):
-            product_name = item.get('product_name', '').lower()
-            product_name_original = item.get('product_name', '')
+        # Step 1: Group dispatch items by base product name for Kg-based distribution
+        # and process PCS items directly
+        product_groups = {}  # {base_product_name: [items]}
+        
+        for item in dispatch_items:
+            product_name = item.get('product_name', '')
             packaging_name = item.get('packaging_name', '') or ''
-            packaging_weight_gm = 0
+            packaging_upper = packaging_name.upper()
             
-            # Try to find packaging weight from DB
+            # ONLY explicit "(PCS)" in packaging name means PCS-based
+            dispatch_is_pcs = '(PCS)' in packaging_upper
+            
+            # Get packaging weight
+            packaging_weight_gm = 0
             if packaging_name:
                 pkg = packaging_map.get(packaging_name.lower())
                 if pkg:
                     packaging_weight_gm = pkg.get('weight_gm', 0)
-            
-            # If no weight from DB, try to parse from packaging name (e.g., "200 gm", "100 gm")
             if packaging_weight_gm == 0:
                 weight_match = re.search(r'(\d+)\s*(gm|g|gram)', packaging_name.lower())
                 if weight_match:
                     packaging_weight_gm = int(weight_match.group(1))
             
-            # Determine if this dispatch item's packaging is Kg-based or PCS-based
-            packaging_upper = packaging_name.upper()
-            packaging_lower = packaging_name.lower()
+            # Extract base product name (without variant words for grouping)
+            base_name = product_name.lower().strip()
             
-            # Check if packaging is PCS-based (pieces):
-            # 1. Explicit "(PCS)" or "PCS" markers
-            # 2. "With Roots" or "Without Roots" packaging (these are sold as pieces)
-            dispatch_is_pcs_based = ('(PCS)' in packaging_upper or 
-                                     ' PCS ' in packaging_upper or
-                                     packaging_upper.endswith(' PCS') or
-                                     packaging_upper.endswith('(PCS)') or
-                                     packaging_upper.startswith('PCS ') or
-                                     'with roots' in packaging_lower or
-                                     'without roots' in packaging_lower)
+            item_data = {
+                **item,
+                'packaging_weight_gm': packaging_weight_gm,
+                'dispatch_is_pcs': dispatch_is_pcs,
+                'base_product_name': base_name
+            }
             
-            # Kg-based: weight-based packaging without PCS indicators
-            dispatch_is_kg_based = not dispatch_is_pcs_based
+            if base_name not in product_groups:
+                product_groups[base_name] = []
+            product_groups[base_name].append(item_data)
+        
+        # Step 2: Match CSV rows with dispatch product groups
+        for csv_row in csv_rows:
+            sku_name = csv_row['sku_name']
+            sku_name_lower = sku_name.lower()
+            grn_qty_kg_or_pcs = csv_row['grn_qty']  # This is Kg for Kgs items, pieces for Pcs items
+            rate_per_kg_or_pcs = csv_row['grn_price']  # Rate per Kg or per piece
+            total_value = csv_row.get('total_value', grn_qty_kg_or_pcs * rate_per_kg_or_pcs)
             
-            logger.info(f"Matching dispatch item: {product_name_original} | {packaging_name} | weight={packaging_weight_gm}gm | pcs={dispatch_is_pcs_based}")
+            # Use column H (Kgs_Pcs) to determine SKU type
+            weight_unit = csv_row.get('weight_unit', '').upper()
+            sku_is_pcs = weight_unit in ['PCS', 'PIECES', 'PIECE']
+            sku_is_kg = weight_unit in ['KGS', 'KG', 'KILO', 'KILOS'] or not sku_is_pcs
             
-            # Try to match with CSV data
-            best_match = None
+            # Clean SKU name for matching (remove - FK, etc.)
+            sku_clean = re.sub(r'\s*-\s*(FK|MH|BLR)\s*$', '', sku_name_lower, flags=re.IGNORECASE)
+            sku_clean = re.sub(r'\s*\([^)]*\)\s*', ' ', sku_clean)  # Remove parentheses content
+            sku_clean = re.sub(r'\s+', ' ', sku_clean).strip()
+            sku_words = set(sku_clean.split())
+            
+            logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs}")
+            
+            # Find matching product group
+            best_match_group = None
             best_match_score = 0
             
-            for csv_row in csv_rows:
-                sku_name = csv_row['sku_name'].lower()
-                sku_name_original = csv_row['sku_name']
+            for base_name, items in product_groups.items():
+                # Check if all items in group have matching PCS type
+                group_is_pcs = all(i['dispatch_is_pcs'] for i in items)
+                group_is_kg = not group_is_pcs
                 
-                # Remove common suffixes like "- FK", "- MH", etc. for better matching
-                sku_name_cleaned = sku_name.replace(' - fk', '').replace('-fk', '').replace(' fk', '')
-                sku_name_cleaned = sku_name_cleaned.replace(' - mh', '').replace('-mh', '').replace(' mh', '')
-                
-                # Get base product name from SKU (remove everything after (Kg) or (PCS))
-                sku_base = re.sub(r'\s*\([^)]*\)\s*', ' ', sku_name_cleaned).strip()
-                sku_base = re.sub(r'\s+', ' ', sku_base)  # Normalize spaces
+                # Type must match
+                if sku_is_pcs and not group_is_pcs:
+                    continue
+                if sku_is_kg and not group_is_kg:
+                    continue
                 
                 # Check product name match
-                product_words = [w.lower() for w in product_name.split() if len(w) > 2]
-                sku_words = sku_base.replace('-', ' ').split()
+                product_words = set(base_name.split())
                 
-                # STRICT CHECK: If product has variant words, they MUST be in SKU
-                product_variants = [w for w in product_words if w in variant_words]
+                # Check variant words - if present in product, must be in SKU
+                product_variants = product_words & variant_words
                 if product_variants:
-                    variant_match = all(
-                        any(pv in sw or sw in pv for sw in sku_words) 
-                        for pv in product_variants
-                    )
-                    if not variant_match:
+                    if not product_variants.issubset(sku_words):
                         continue
                 
-                # Check if first word (main product) matches
-                if product_words and not any(product_words[0] in sw or sw in product_words[0] for sw in sku_words):
-                    continue
-                
                 # Count matching words
-                match_count = sum(1 for pw in product_words if any(pw in sw or sw in pw for sw in sku_words))
-                match_score = match_count / len(product_words) if product_words else 0
-                
-                # Detect SKU pricing type
-                sku_upper = sku_name_original.upper()
-                csv_unit = csv_row.get('weight_unit', '').upper()
-                
-                # Kg-based: has (KG), (KGS), or unit is KGS/KG
-                sku_is_kg_based = ('(KG)' in sku_upper or '(KGS)' in sku_upper or 
-                                   'KG)' in sku_upper or  # e.g., "(Kg)"
-                                   csv_unit in ['KGS', 'KG', 'KILO', 'KILOS'])
-                
-                # PCS-based: has (PCS) in SKU or unit is PCS
-                sku_is_pcs_based = ('(PCS)' in sku_upper or 'PACK)(PCS)' in sku_upper or
-                                   csv_unit in ['PCS', 'PIECES', 'PIECE'])
-                
-                logger.info(f"  Checking SKU: {sku_name_original} | sku_kg={sku_is_kg_based}, sku_pcs={sku_is_pcs_based} | match_score={match_score}")
-                
-                # Match type validation
-                type_match = False
-                if sku_is_kg_based and dispatch_is_kg_based:
-                    type_match = True
-                elif sku_is_pcs_based and dispatch_is_pcs_based:
-                    type_match = True
-                
-                if not type_match:
-                    logger.info(f"    Type mismatch: sku_kg={sku_is_kg_based}, sku_pcs={sku_is_pcs_based}, dispatch_kg={dispatch_is_kg_based}, dispatch_pcs={dispatch_is_pcs_based}")
+                common_words = product_words & sku_words
+                if not common_words:
                     continue
                 
-                # Track best match
+                # First word (main product) must match
+                first_word = base_name.split()[0] if base_name else ''
+                if first_word and first_word not in sku_words:
+                    # Check partial match
+                    if not any(first_word in sw or sw in first_word for sw in sku_words):
+                        continue
+                
+                match_score = len(common_words) / max(len(product_words), 1)
+                
                 if match_score > best_match_score:
                     best_match_score = match_score
-                    best_match = {
-                        'csv_row': csv_row,
-                        'sku_name_original': sku_name_original,
-                        'sku_is_kg_based': sku_is_kg_based,
-                        'sku_is_pcs_based': sku_is_pcs_based
-                    }
+                    best_match_group = (base_name, items)
             
-            # Process the best match if found
-            if best_match:
-                csv_row = best_match['csv_row']
-                sku_name_original = best_match['sku_name_original']
-                sku_is_kg_based = best_match['sku_is_kg_based']
-                sku_is_pcs_based = best_match['sku_is_pcs_based']
-                
-                grn_qty_raw = csv_row['grn_qty']
-                csv_rate = csv_row['grn_price']
-                weight_unit = csv_row['weight_unit']
-                
-                # Determine GRN units and amount based on SKU type
-                if sku_is_kg_based:
-                    # SKU is Kg-based: GRN qty is in Kg, Rate is per Kg
-                    # Convert Kg to units: units = Kg * 1000 / packaging_weight_gm
-                    if packaging_weight_gm > 0:
-                        grn_qty_units = (grn_qty_raw * 1000) / packaging_weight_gm
-                        rate_per_unit = csv_rate * (packaging_weight_gm / 1000)
-                    else:
-                        # Fallback if no packaging weight - assume 100gm
-                        grn_qty_units = grn_qty_raw * 10
-                        rate_per_unit = csv_rate / 10
+            if not best_match_group:
+                logger.info(f"  No match found for SKU: {sku_name}")
+                continue
+            
+            base_name, matching_items = best_match_group
+            logger.info(f"  Matched with product group: {base_name} ({len(matching_items)} variants)")
+            
+            # Step 3: Distribute GRN to matching items
+            if sku_is_pcs:
+                # PCS-based: distribute directly to PCS items
+                # Usually there's only one PCS variant per product
+                for item in matching_items:
+                    if not item['dispatch_is_pcs']:
+                        continue
                     
-                    # Amount = GRN in Kg × Rate per Kg
-                    amount = grn_qty_raw * csv_rate
-                    rate_type = 'per_kg'
+                    supplied_qty = item.get('supplied_qty', 0)
+                    rate_per_unit = rate_per_kg_or_pcs
+                    amount = grn_qty_kg_or_pcs * rate_per_unit
+                    difference = grn_qty_kg_or_pcs - supplied_qty
+                    loss_gain = difference * rate_per_unit
                     
-                elif sku_is_pcs_based:
-                    # SKU is PCS-based: GRN qty is already in pieces, Rate is per piece
-                    grn_qty_units = grn_qty_raw
-                    rate_per_unit = csv_rate
-                    amount = grn_qty_units * csv_rate
-                    rate_type = 'per_pcs'
+                    matched_items.append({
+                        'dispatch_id': dispatch.get('id'),
+                        'dispatch_date': dispatch_date_str,
+                        'product_id': item.get('product_id'),
+                        'product_name': item.get('product_name'),
+                        'product_unit': item.get('product_unit'),
+                        'packaging_id': item.get('packaging_id'),
+                        'packaging_name': item.get('packaging_name'),
+                        'packaging_weight_gm': item['packaging_weight_gm'],
+                        'supplied_qty': supplied_qty,
+                        'grn_qty': round(grn_qty_kg_or_pcs, 2),
+                        'grn_qty_kg': None,
+                        'difference': round(difference, 2),
+                        'rate_per_kg': None,
+                        'rate_per_unit': round(rate_per_unit, 2),
+                        'rate_type': 'per_pcs',
+                        'sku_name': sku_name,
+                        'amount': round(amount, 2),
+                        'loss_gain_amount': round(loss_gain, 2)
+                    })
+            else:
+                # Kg-based: distribute proportionally by supplied weight
+                # Calculate total supplied weight in kg across all variants
+                total_supplied_kg = 0
+                for item in matching_items:
+                    if item['dispatch_is_pcs']:
+                        continue  # Skip PCS items
+                    pkg_weight_kg = item['packaging_weight_gm'] / 1000 if item['packaging_weight_gm'] > 0 else 0.1
+                    supplied_qty = item.get('supplied_qty', 0)
+                    total_supplied_kg += supplied_qty * pkg_weight_kg
+                
+                if total_supplied_kg == 0:
+                    logger.warning(f"  No Kg-based variants found for {base_name}")
+                    continue
+                
+                logger.info(f"  Total supplied weight: {total_supplied_kg:.2f} kg, GRN: {grn_qty_kg_or_pcs} kg")
+                
+                # Distribute GRN kg proportionally
+                for item in matching_items:
+                    if item['dispatch_is_pcs']:
+                        continue
                     
-                else:
-                    # Fallback: use WeightUnit from CSV column
-                    if weight_unit.lower() == 'kg' and packaging_weight_gm > 0:
-                        grn_qty_units = (grn_qty_raw * 1000) / packaging_weight_gm
-                        rate_per_unit = csv_rate * (packaging_weight_gm / 1000)
-                        amount = grn_qty_raw * csv_rate
-                    else:
-                        grn_qty_units = grn_qty_raw
-                        rate_per_unit = csv_rate
-                        amount = grn_qty_units * csv_rate
-                    rate_type = 'unknown'
-                
-                supplied_qty = item.get('supplied_qty', 0)
-                difference = grn_qty_units - supplied_qty
-                
-                # Calculate loss/gain amount based on rate type
-                if sku_is_kg_based and packaging_weight_gm > 0:
-                    # Loss/Gain: convert unit difference to Kg, then multiply by rate/Kg
-                    diff_weight_kg = difference * packaging_weight_gm / 1000
-                    loss_gain_amount = diff_weight_kg * csv_rate
-                else:
-                    # Loss/Gain in pieces/units
-                    loss_gain_amount = difference * rate_per_unit
-                
-                matched_items.append({
-                    'dispatch_id': dispatch.get('id'),
-                    'dispatch_date': dispatch_date_str,
-                    'product_id': item.get('product_id'),
-                    'product_name': item.get('product_name'),
-                    'product_unit': item.get('product_unit'),
-                    'packaging_id': item.get('packaging_id'),
-                    'packaging_name': packaging_name,
-                    'packaging_weight_gm': packaging_weight_gm,
-                    'supplied_qty': supplied_qty,
-                    'grn_qty': round(grn_qty_units, 2),
-                    'grn_qty_kg': grn_qty_raw if sku_is_kg_based else None,
-                    'difference': round(difference, 2),
-                    'rate_per_kg': csv_rate if sku_is_kg_based else None,
-                    'rate_per_unit': round(rate_per_unit, 2),
-                    'rate_type': rate_type,
-                    'sku_name': sku_name_original,
-                    'amount': round(amount, 2),
-                    'loss_gain_amount': round(loss_gain_amount, 2)
-                })
-                # Mark the CSV row as used (remove from list to prevent reuse)
-                csv_rows.remove(csv_row)
+                    pkg_weight_gm = item['packaging_weight_gm'] if item['packaging_weight_gm'] > 0 else 100
+                    pkg_weight_kg = pkg_weight_gm / 1000
+                    supplied_qty = item.get('supplied_qty', 0)
+                    supplied_kg = supplied_qty * pkg_weight_kg
+                    
+                    # Proportion of this variant's weight
+                    proportion = supplied_kg / total_supplied_kg if total_supplied_kg > 0 else 0
+                    
+                    # Distribute GRN kg proportionally
+                    grn_kg_for_item = grn_qty_kg_or_pcs * proportion
+                    grn_units_for_item = grn_kg_for_item / pkg_weight_kg
+                    
+                    # Rate per unit = rate per kg × weight in kg
+                    rate_per_unit = rate_per_kg_or_pcs * pkg_weight_kg
+                    
+                    # Amount for this item
+                    amount = grn_kg_for_item * rate_per_kg_or_pcs
+                    
+                    # Difference and loss/gain
+                    difference = grn_units_for_item - supplied_qty
+                    loss_gain = difference * rate_per_unit
+                    
+                    logger.info(f"    {item.get('product_name')} {item.get('packaging_name')}: supplied={supplied_qty}, grn_units={grn_units_for_item:.2f}, rate={rate_per_unit:.2f}")
+                    
+                    matched_items.append({
+                        'dispatch_id': dispatch.get('id'),
+                        'dispatch_date': dispatch_date_str,
+                        'product_id': item.get('product_id'),
+                        'product_name': item.get('product_name'),
+                        'product_unit': item.get('product_unit'),
+                        'packaging_id': item.get('packaging_id'),
+                        'packaging_name': item.get('packaging_name'),
+                        'packaging_weight_gm': pkg_weight_gm,
+                        'supplied_qty': supplied_qty,
+                        'grn_qty': round(grn_units_for_item, 2),
+                        'grn_qty_kg': round(grn_kg_for_item, 2),
+                        'difference': round(difference, 2),
+                        'rate_per_kg': round(rate_per_kg_or_pcs, 2),
+                        'rate_per_unit': round(rate_per_unit, 2),
+                        'rate_type': 'per_kg',
+                        'sku_name': sku_name,
+                        'amount': round(amount, 2),
+                        'loss_gain_amount': round(loss_gain, 2)
+                    })
     
     # Build response with warnings
     warnings = []

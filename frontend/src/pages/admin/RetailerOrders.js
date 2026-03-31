@@ -1922,7 +1922,7 @@ export default function RetailerOrders() {
               <form onSubmit={handleCreateOrUpdateIndent} className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="relative">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Retailer (Shop) *</label>
                     <Input
                       type="text"
                       value={retailerSearch || retailers.find(r => r.id === indentForm.retailer_id)?.company_name || retailers.find(r => r.id === indentForm.retailer_id)?.name || ''}
@@ -1937,27 +1937,31 @@ export default function RetailerOrders() {
                         setShowRetailerDropdown(true);
                         setRetailerSearch('');
                       }}
-                      placeholder="Search retailer..."
+                      onBlur={() => {
+                        setTimeout(() => setShowRetailerDropdown(false), 200);
+                      }}
+                      placeholder="Search shop name..."
                       className="w-full h-9"
                       required
                     />
                     {showRetailerDropdown && (
-                      <div className="absolute z-20 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      <div className="absolute z-20 w-full mt-1 bg-white border rounded-md shadow-lg max-h-56 overflow-y-auto">
                         {filteredRetailers.length === 0 ? (
-                          <div className="p-2 text-sm text-gray-500">No retailers found</div>
+                          <div className="p-3 text-sm text-gray-500">No retailers found</div>
                         ) : (
                           filteredRetailers.map(r => (
                             <div
                               key={r.id}
-                              className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
-                              onClick={() => {
+                              className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
                                 setIndentForm(prev => ({ ...prev, retailer_id: r.id }));
                                 setRetailerSearch(r.company_name || r.name);
                                 setShowRetailerDropdown(false);
                               }}
                             >
                               <div className="font-medium">{r.company_name || r.name}</div>
-                              {r.contact_person && <div className="text-xs text-gray-500">{r.contact_person}</div>}
+                              {r.contact_person && <div className="text-xs text-gray-400">Owner: {r.contact_person}</div>}
                             </div>
                           ))
                         )}
@@ -1991,31 +1995,43 @@ export default function RetailerOrders() {
                             type="text"
                             value={item.product_name || ''}
                             onChange={(e) => {
-                              updateIndentItem(index, 'product_name', e.target.value);
-                              updateIndentItem(index, 'product_id', '');
+                              const newValue = e.target.value;
+                              setIndentForm(prev => {
+                                const items = [...prev.items];
+                                items[index] = { ...items[index], product_name: newValue, product_id: '' };
+                                return { ...prev, items };
+                              });
                               setShowProductDropdown(index);
-                              setProductSearch(e.target.value);
+                              setProductSearch(newValue);
                             }}
                             onFocus={() => {
                               setShowProductDropdown(index);
                               setProductSearch(item.product_name || '');
                             }}
+                            onBlur={() => {
+                              // Delay hiding to allow click on dropdown items
+                              setTimeout(() => setShowProductDropdown(null), 200);
+                            }}
                             placeholder="Search product..."
-                            className="h-8 text-sm"
+                            className="h-9 text-sm"
                             required
                           />
-                          {showProductDropdown === index && productSearch && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {showProductDropdown === index && (
+                            <div className="absolute z-20 w-full mt-1 bg-white border rounded-md shadow-lg max-h-72 overflow-y-auto">
                               {filteredProducts.length === 0 ? (
-                                <div className="p-2 text-sm text-gray-500">No products found</div>
+                                <div className="p-3 text-sm text-gray-500">No products found</div>
                               ) : (
-                                filteredProducts.slice(0, 10).map(p => (
+                                filteredProducts.slice(0, 12).map(p => (
                                   <div
                                     key={p.id}
-                                    className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
-                                    onClick={() => {
-                                      updateIndentItem(index, 'product_id', p.id);
-                                      updateIndentItem(index, 'product_name', p.name);
+                                    className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault(); // Prevent blur from firing before click
+                                      setIndentForm(prev => {
+                                        const items = [...prev.items];
+                                        items[index] = { ...items[index], product_id: p.id, product_name: p.name };
+                                        return { ...prev, items };
+                                      });
                                       setShowProductDropdown(null);
                                       setProductSearch('');
                                     }}
@@ -2028,35 +2044,46 @@ export default function RetailerOrders() {
                           )}
                         </div>
                         {/* Variant Search */}
-                        <div className="w-32 relative">
+                        <div className="w-36 relative">
                           <Input
                             type="text"
                             value={item.variant_name || ''}
                             onChange={(e) => {
-                              updateIndentItem(index, 'variant_name', e.target.value);
-                              updateIndentItem(index, 'variant_id', '');
+                              const newValue = e.target.value;
+                              setIndentForm(prev => {
+                                const items = [...prev.items];
+                                items[index] = { ...items[index], variant_name: newValue, variant_id: '' };
+                                return { ...prev, items };
+                              });
                               setShowVariantDropdown(index);
-                              setVariantSearch(e.target.value);
+                              setVariantSearch(newValue);
                             }}
                             onFocus={() => {
                               setShowVariantDropdown(index);
                               setVariantSearch(item.variant_name || '');
                             }}
+                            onBlur={() => {
+                              setTimeout(() => setShowVariantDropdown(null), 200);
+                            }}
                             placeholder="Variant"
-                            className="h-8 text-sm"
+                            className="h-9 text-sm"
                           />
-                          {showVariantDropdown === index && variantSearch && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {showVariantDropdown === index && (
+                            <div className="absolute z-20 w-48 mt-1 bg-white border rounded-md shadow-lg max-h-72 overflow-y-auto">
                               {filteredVariants.length === 0 ? (
-                                <div className="p-2 text-sm text-gray-500">No variants found</div>
+                                <div className="p-3 text-sm text-gray-500">No variants found</div>
                               ) : (
-                                filteredVariants.slice(0, 10).map(p => (
+                                filteredVariants.slice(0, 12).map(p => (
                                   <div
                                     key={p.id}
-                                    className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
-                                    onClick={() => {
-                                      updateIndentItem(index, 'variant_id', p.id);
-                                      updateIndentItem(index, 'variant_name', p.name);
+                                    className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      setIndentForm(prev => {
+                                        const items = [...prev.items];
+                                        items[index] = { ...items[index], variant_id: p.id, variant_name: p.name };
+                                        return { ...prev, items };
+                                      });
                                       setShowVariantDropdown(null);
                                       setVariantSearch('');
                                     }}
@@ -2074,7 +2101,7 @@ export default function RetailerOrders() {
                           value={item.quantity || ''}
                           onChange={(e) => updateIndentItem(index, 'quantity', e.target.value === '' ? '' : parseFloat(e.target.value) || '')}
                           placeholder="Qty"
-                          className="w-20 h-8"
+                          className="w-20 h-9"
                           required
                         />
                         {indentForm.items.length > 1 && (
@@ -2323,19 +2350,51 @@ export default function RetailerOrders() {
                 </div>
 
                 {selectedItemIds.length > 0 && (
-                  <div className="bg-green-50 p-3 rounded space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Selected Items: {selectedItemIds.length}</span>
-                      <span className="text-sm font-bold">
-                        Net Total: {formatCurrency(uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).reduce((sum, i) => sum + (i.net_value || 0), 0))}
-                      </span>
-                    </div>
-                    {uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).some(i => i.rejected_qty > 0) && (
-                      <div className="flex justify-between text-xs text-red-600">
-                        <span>Rejected Deduction:</span>
-                        <span>-{formatCurrency(uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id)).reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0))}</span>
-                      </div>
-                    )}
+                  <div className="bg-green-50 p-4 rounded space-y-2 border border-green-200">
+                    {(() => {
+                      const selectedItems = uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id));
+                      const grossTotal = selectedItems.reduce((sum, i) => sum + (i.supplied_qty * (i.mrp || 0)), 0);
+                      const rejectedDeduction = selectedItems.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0);
+                      const netTotal = selectedItems.reduce((sum, i) => sum + (i.net_value || 0), 0);
+                      const retailer = retailers.find(r => r.id === invoiceForm.retailer_id);
+                      const commissionPct = retailer?.commission_percentage || 0;
+                      const commissionAmt = (netTotal * commissionPct) / 100;
+                      const payableAmount = netTotal - commissionAmt;
+                      
+                      return (
+                        <>
+                          <div className="text-sm font-semibold text-gray-700 mb-2">Invoice Summary</div>
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">Selected Items:</span>
+                            <span className="font-medium">{selectedItemIds.length}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">Gross Total (MRP Value):</span>
+                            <span className="font-medium">{formatCurrency(grossTotal)}</span>
+                          </div>
+                          {rejectedDeduction > 0 && (
+                            <div className="flex justify-between items-center text-sm text-red-600">
+                              <span>(-) Rejected Items:</span>
+                              <span>-{formatCurrency(rejectedDeduction)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center text-sm border-t pt-2 mt-2">
+                            <span className="text-gray-700 font-medium">Net Total:</span>
+                            <span className="font-bold">{formatCurrency(netTotal)}</span>
+                          </div>
+                          {commissionPct > 0 && (
+                            <div className="flex justify-between items-center text-sm text-amber-700">
+                              <span>(-) Commission ({commissionPct}%):</span>
+                              <span className="font-medium">-{formatCurrency(commissionAmt)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center text-sm border-t pt-2 mt-2 bg-green-100 -mx-4 px-4 py-2 rounded-b">
+                            <span className="text-green-800 font-bold">Amount Payable to Retailer:</span>
+                            <span className="text-green-800 font-bold text-lg">{formatCurrency(payableAmount)}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
 

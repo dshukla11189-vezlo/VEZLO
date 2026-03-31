@@ -2918,16 +2918,8 @@ export default function RetailerOrders() {
                         <span className="float-right font-medium">{formatCurrency(paymentContext.totalMrpValue)}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Commission ({paymentContext.commission_percentage}%):</span>
-                        <span className="float-right font-medium text-amber-600">-{formatCurrency(paymentContext.totalCommission)}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Net Receivable:</span>
-                        <span className="float-right font-medium text-green-700">{formatCurrency(paymentContext.totalNetReceivable)}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Rejections:</span>
-                        <span className="float-right font-medium text-red-600">-{formatCurrency(paymentContext.totalRejections)}</span>
+                        <span className="text-gray-500">Total Invoiced:</span>
+                        <span className="float-right font-medium text-green-700">{formatCurrency(paymentContext.totalInvoiced)}</span>
                       </div>
                       <div>
                         <span className="text-gray-500">Already Paid:</span>

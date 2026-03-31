@@ -337,6 +337,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Summary fields** - Date, Total Supplied, Total GRN, Items Count, Total Amount, Difference
   - [x] **Edit button for Saved GRNs** - Pencil icon loads GRN into editor for modification
   - [x] **Delete button** - Trash icon for individual items
+- [x] **Edit GRN Functionality** (COMPLETED - Mar 31, 2026):
+  - [x] **Backend PUT endpoint** - `/api/qc-grns/{grn_id}` updates existing GRN record
+  - [x] **Edit Mode UI** - Yellow "EDIT MODE" banner with pencil icon when editing
+  - [x] **"Update GRN" button** - Blue button replaces green "Save GRN" when editing
+  - [x] **"Cancel Edit" button** - Clears edit state and returns to normal view
+  - [x] **Toast notifications** - "GRN loaded for editing" / "GRN updated successfully"
+  - [x] **Full item modification** - Can modify GRN qty, rate, and other fields before saving
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

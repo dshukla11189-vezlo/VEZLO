@@ -1395,14 +1395,25 @@ Email: ${companyEmail}`;
         total_difference: totalDifference
       };
 
-      await api.post('/api/qc-grns', payload);
-      toast.success('GRN saved successfully');
+      // Check if we're editing an existing GRN
+      const editingGrnId = grnUploadResult?.editing_grn_id;
+      
+      if (editingGrnId) {
+        // Update existing GRN
+        await api.put(`/api/qc-grns/${editingGrnId}`, payload);
+        toast.success('GRN updated successfully');
+      } else {
+        // Create new GRN
+        await api.post('/api/qc-grns', payload);
+        toast.success('GRN saved successfully');
+      }
+      
       setGrnMatchedItems([]);
       setGrnUploadResult(null);
       loadData();
     } catch (error) {
       console.error('Save GRN error:', error);
-      toast.error('Failed to save GRN');
+      toast.error(grnUploadResult?.editing_grn_id ? 'Failed to update GRN' : 'Failed to save GRN');
     }
   };
 
@@ -3022,10 +3033,22 @@ Email: ${companyEmail}`;
                         <Download size={16} className="mr-2" />
                         Export CSV
                       </Button>
-                      <Button onClick={handleSaveGrn} className="bg-green-600 hover:bg-green-700">
+                      <Button onClick={handleSaveGrn} className={grnUploadResult?.editing_grn_id ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"}>
                         <Save size={16} className="mr-2" />
-                        Save GRN ({grnMatchedItems.length} items)
+                        {grnUploadResult?.editing_grn_id ? `Update GRN (${grnMatchedItems.length} items)` : `Save GRN (${grnMatchedItems.length} items)`}
                       </Button>
+                      {grnUploadResult?.editing_grn_id && (
+                        <Button 
+                          variant="outline" 
+                          onClick={() => {
+                            setGrnMatchedItems([]);
+                            setGrnUploadResult(null);
+                          }}
+                          className="text-gray-600"
+                        >
+                          Cancel Edit
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>
@@ -3059,7 +3082,17 @@ Email: ${companyEmail}`;
               
               {/* Upload Result Info - Enhanced Summary */}
               {grnUploadResult && (
-                <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                <div className={`mb-4 p-4 border rounded-lg ${grnUploadResult.editing_grn_id ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-300' : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'}`}>
+                  {/* Edit Mode Banner */}
+                  {grnUploadResult.editing_grn_id && (
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-yellow-300">
+                      <span className="px-2 py-1 bg-yellow-500 text-white rounded text-xs font-bold flex items-center gap-1">
+                        <Pencil size={12} /> EDIT MODE
+                      </span>
+                      <span className="text-sm text-yellow-800">Modify items below and click "Update GRN" to save changes</span>
+                    </div>
+                  )}
+                  
                   {/* Method Badge for Auto-Sync */}
                   {grnUploadResult.summary?.sync_method === 'automatic_gmail' && (
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-200">

@@ -1080,6 +1080,35 @@ async def create_qc_grn(input: QCGRNCreate, current_user: dict = Depends(get_cur
     
     return {"id": grn.id, "message": "GRN created successfully"}
 
+@api_router.put("/qc-grns/{grn_id}")
+async def update_qc_grn(grn_id: str, input: QCGRNCreate, current_user: dict = Depends(get_current_user)):
+    """Update an existing GRN record"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if GRN exists
+    existing = await db.qc_grns.find_one({"id": grn_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="GRN not found")
+    
+    # Prepare update data
+    update_data = input.model_dump()
+    update_data['grn_date'] = update_data['grn_date'].isoformat() if hasattr(update_data['grn_date'], 'isoformat') else update_data['grn_date']
+    
+    # Recalculate totals from items
+    items = update_data.get('items', [])
+    update_data['total_supplied'] = sum(item.get('supplied_qty', 0) for item in items)
+    update_data['total_grn'] = sum(item.get('grn_qty', 0) for item in items)
+    update_data['total_difference'] = sum(item.get('difference', 0) for item in items)
+    
+    # Update the GRN
+    await db.qc_grns.update_one(
+        {"id": grn_id},
+        {"$set": update_data}
+    )
+    
+    return {"id": grn_id, "message": "GRN updated successfully"}
+
 @api_router.delete("/qc-grns/{grn_id}")
 async def delete_qc_grn(grn_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:

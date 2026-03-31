@@ -896,18 +896,19 @@ export default function RetailerDashboard() {
                                         <th className="p-2 text-left font-medium">Product</th>
                                         <th className="p-2 text-left font-medium">Variant</th>
                                         <th className="p-2 text-center font-medium">Supplied Qty</th>
-                                        <th className="p-2 text-center font-medium text-red-600">Rejected</th>
-                                        <th className="p-2 text-center font-medium text-green-700">Net Qty</th>
-                                        <th className="p-2 text-right font-medium">MRP</th>
-                                        <th className="p-2 text-right font-medium">Net Amount</th>
+                                        <th className="p-2 text-center font-medium text-red-600">Rejection</th>
+                                        <th className="p-2 text-center font-medium text-green-700">Billable Qty</th>
+                                        <th className="p-2 text-right font-medium">Rate</th>
+                                        <th className="p-2 text-right font-medium">Amount</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {invoice.items?.map((item, idx) => {
                                         const suppliedQty = item.supplied_qty || item.quantity || 0;
                                         const rejectedQty = item.rejected_qty || 0;
-                                        const netQty = suppliedQty - rejectedQty;
-                                        const netAmount = netQty * (item.mrp || 0);
+                                        const billableQty = suppliedQty - rejectedQty;
+                                        const rate = item.mrp || 0;
+                                        const amount = billableQty * rate;
                                         
                                         return (
                                           <tr key={idx} className={`border-t ${rejectedQty > 0 ? 'bg-red-50/50' : ''}`}>
@@ -917,9 +918,9 @@ export default function RetailerDashboard() {
                                             <td className="p-2 text-center text-red-600 font-medium">
                                               {rejectedQty > 0 ? `-${rejectedQty}` : '-'}
                                             </td>
-                                            <td className="p-2 text-center text-green-700 font-bold">{netQty}</td>
-                                            <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
-                                            <td className="p-2 text-right font-medium">{formatCurrency(netAmount)}</td>
+                                            <td className="p-2 text-center text-green-700 font-bold">{billableQty}</td>
+                                            <td className="p-2 text-right">{formatCurrency(rate)}</td>
+                                            <td className="p-2 text-right font-medium">{formatCurrency(amount)}</td>
                                           </tr>
                                         );
                                       })}

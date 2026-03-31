@@ -434,6 +434,17 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Date rows show: DATE | RETAILER (count) | QTY | VALUE | (items count)
   - [x] Expanded rows show: Product (variant) | Retailer | QTY | VALUE | REASON | ACTIONS
   - [x] Added `expandedRejectionDates` state to both portals
+- [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
+  - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
+  - [x] Subtotals row shows totals for each column
+  - [x] Rejection column highlighted in red, Billable Qty in green
+- [x] **Admin Panel Values Fixed** (COMPLETED - Mar 31, 2026):
+  - [x] Net Receivable now based on Invoice net_payable (₹853.60), not dispatch (₹994.40)
+  - [x] Pending Payment = Invoiced - Paid (rejections already deducted in invoice)
+- [x] **Rejection Loss Block Added** (COMPLETED - Mar 31, 2026):
+  - [x] New dashboard block showing total rejection loss amount with date filter
+  - [x] Shows count of rejections in period
+  - [x] Red highlight for visibility
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

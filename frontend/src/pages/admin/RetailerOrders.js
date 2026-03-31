@@ -144,8 +144,17 @@ export default function RetailerOrders() {
     totalNetReceivable: 0,
     totalInvoiced: 0,
     totalPayments: 0,
-    pendingAmount: 0
+    pendingAmount: 0,
+    totalRejections: 0
   });
+  
+  // Rejection Loss date filter
+  const [rejectionLossDateFrom, setRejectionLossDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [rejectionLossDateTo, setRejectionLossDateTo] = useState(new Date().toISOString().split('T')[0]);
   
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
@@ -277,21 +286,23 @@ export default function RetailerOrders() {
   // Calculate dashboard stats whenever data changes
   useEffect(() => {
     const totalMrpValue = dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
-    const totalNetReceivable = dispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+    // Net Receivable should be based on INVOICES (after rejections and commission)
     const totalInvoiced = invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0);
     const totalPaymentsReceived = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const totalRejections = rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
     
+    // Net Receivable = Total invoiced amount (this is what retailer owes us)
+    // Pending = Invoiced - Payments received
     setDashboardStats({
       totalIndents: indents.length,
       pendingIndents: indents.filter(i => i.status === 'pending').length,
       totalDispatches: dispatches.length,
       totalMrpValue,
-      totalNetReceivable,
+      totalNetReceivable: totalInvoiced,  // Use invoice net_payable, not dispatch net_payable
       totalInvoiced,
       totalPayments: totalPaymentsReceived,
       totalRejections,
-      pendingAmount: totalNetReceivable - totalPaymentsReceived - totalRejections
+      pendingAmount: totalInvoiced - totalPaymentsReceived  // Pending = Invoiced - Paid
     });
   }, [indents, dispatches, invoices, payments, rejections]);
 
@@ -1164,17 +1175,16 @@ export default function RetailerOrders() {
       const paymentsRes = await api.get(`/api/retailer-payments?retailer_id=${paymentForm.retailer_id}`);
       const allPayments = paymentsRes.data;
       
-      // Get all rejections for this retailer
-      const rejectionsRes = await api.get(`/api/retailer-rejections?retailer_id=${paymentForm.retailer_id}`);
-      const allRejections = rejectionsRes.data;
+      // Get all invoices for this retailer
+      const invoicesRes = await api.get(`/api/retailer-invoices?retailer_id=${paymentForm.retailer_id}`);
+      const allInvoices = invoicesRes.data;
       
-      // Calculate totals
+      // Calculate totals based on INVOICES (not dispatches)
       const totalMrpValue = allDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
-      const totalCommission = allDispatches.reduce((sum, d) => sum + (d.commission_amount || 0), 0);
-      const totalNetReceivable = allDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+      const totalInvoiced = allInvoices.reduce((sum, i) => sum + (i.net_payable || 0), 0);
       const totalPaid = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const totalRejections = allRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
-      const pendingAmount = totalNetReceivable - totalPaid - totalRejections;
+      // Pending = Invoiced - Paid (rejections are already deducted in invoice net_payable)
+      const pendingAmount = totalInvoiced - totalPaid;
       
       // Get retailer info
       const retailer = retailers.find(r => r.id === paymentForm.retailer_id);
@@ -1183,10 +1193,9 @@ export default function RetailerOrders() {
         retailer_name: retailer?.company_name || retailer?.name,
         commission_percentage: retailer?.commission_percentage || 0,
         totalMrpValue,
-        totalCommission,
-        totalNetReceivable,
+        totalInvoiced,
+        totalNetReceivable: totalInvoiced,  // Now based on invoices
         totalPaid,
-        totalRejections,
         pendingAmount
       });
     } catch (error) {
@@ -1357,6 +1366,51 @@ export default function RetailerOrders() {
             <p className="text-lg font-bold text-blue-700">{formatCurrency(dashboardStats.totalPayments)}</p>
             <p className={`text-xs ${dashboardStats.pendingAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
               Pending: {formatCurrency(dashboardStats.pendingAmount)}
+            </p>
+          </div>
+        </div>
+        
+        {/* Rejection Loss Block */}
+        <div className="bg-red-50 rounded-lg border border-red-200 p-3 mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-600" />
+              <span className="text-sm font-medium text-red-800">Rejection Loss</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={rejectionLossDateFrom}
+                onChange={(e) => setRejectionLossDateFrom(e.target.value)}
+                className="h-7 w-32 text-xs"
+              />
+              <span className="text-xs text-gray-500">to</span>
+              <Input
+                type="date"
+                value={rejectionLossDateTo}
+                onChange={(e) => setRejectionLossDateTo(e.target.value)}
+                className="h-7 w-32 text-xs"
+              />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-bold text-red-600">
+              {formatCurrency(
+                rejections
+                  .filter(r => {
+                    const rejDate = r.rejection_date?.split('T')[0];
+                    return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
+                  })
+                  .reduce((sum, r) => sum + (r.rejection_value || 0), 0)
+              )}
+            </p>
+            <p className="text-xs text-red-500">
+              {rejections
+                .filter(r => {
+                  const rejDate = r.rejection_date?.split('T')[0];
+                  return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
+                })
+                .length} rejection(s) in period
             </p>
           </div>
         </div>
@@ -1715,21 +1769,50 @@ export default function RetailerOrders() {
                                   <tr className="border-b">
                                     <th className="p-2 text-left">Product</th>
                                     <th className="p-2 text-left">Variant</th>
-                                    <th className="p-2 text-right">Qty</th>
-                                    <th className="p-2 text-right">MRP</th>
-                                    <th className="p-2 text-right">Total</th>
+                                    <th className="p-2 text-center">Supplied Qty</th>
+                                    <th className="p-2 text-center text-red-600">Rejection</th>
+                                    <th className="p-2 text-center text-green-700 font-semibold">Billable Qty</th>
+                                    <th className="p-2 text-right">Rate</th>
+                                    <th className="p-2 text-right">Amount</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {invoice.items?.map((item, idx) => (
-                                    <tr key={idx}>
-                                      <td className="p-2">{item.product_name}</td>
-                                      <td className="p-2">{item.variant_name || '-'}</td>
-                                      <td className="p-2 text-right">{item.quantity}</td>
-                                      <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
-                                      <td className="p-2 text-right">{formatCurrency(item.total_value)}</td>
-                                    </tr>
-                                  ))}
+                                  {invoice.items?.map((item, idx) => {
+                                    const suppliedQty = item.supplied_qty || item.quantity || 0;
+                                    const rejectedQty = item.rejected_qty || 0;
+                                    const billableQty = suppliedQty - rejectedQty;
+                                    const rate = item.mrp || 0;
+                                    const amount = billableQty * rate;
+                                    return (
+                                      <tr key={idx}>
+                                        <td className="p-2">{item.product_name}</td>
+                                        <td className="p-2">{item.variant_name || '-'}</td>
+                                        <td className="p-2 text-center">{suppliedQty}</td>
+                                        <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>
+                                        <td className="p-2 text-center text-green-700 font-semibold">{billableQty}</td>
+                                        <td className="p-2 text-right">{formatCurrency(rate)}</td>
+                                        <td className="p-2 text-right">{formatCurrency(amount)}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                  {/* Subtotals row */}
+                                  <tr className="border-t bg-gray-50 font-medium">
+                                    <td colSpan={2} className="p-2 text-right">Subtotal:</td>
+                                    <td className="p-2 text-center">
+                                      {invoice.items?.reduce((sum, i) => sum + (i.supplied_qty || i.quantity || 0), 0)}
+                                    </td>
+                                    <td className="p-2 text-center text-red-600">
+                                      -{invoice.items?.reduce((sum, i) => sum + (i.rejected_qty || 0), 0)}
+                                    </td>
+                                    <td className="p-2 text-center text-green-700">
+                                      {invoice.items?.reduce((sum, i) => {
+                                        const supplied = i.supplied_qty || i.quantity || 0;
+                                        return sum + (supplied - (i.rejected_qty || 0));
+                                      }, 0)}
+                                    </td>
+                                    <td className="p-2"></td>
+                                    <td className="p-2 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
+                                  </tr>
                                 </tbody>
                               </table>
                             </td>

@@ -656,27 +656,36 @@ export default function RetailerOrders() {
       const rejectionsRes = await api.get(`/api/retailer-rejections?retailer_id=${invoiceForm.retailer_id}`);
       const allRejections = rejectionsRes.data || [];
       
-      // Create a map of rejections by product_id for quick lookup
-      const rejectionsByProduct = {};
+      // Create a map of rejections by product_id AND date for accurate matching
+      // Rejections should only apply to dispatches on the same date
+      const rejectionsByProductAndDate = {};
       allRejections.forEach(r => {
-        const key = r.product_id;
-        if (!rejectionsByProduct[key]) {
-          rejectionsByProduct[key] = [];
+        // Extract just the date part (YYYY-MM-DD) from rejection_date
+        const rejectionDateStr = r.rejection_date?.split('T')[0] || '';
+        // Key by both product_id and date to prevent cross-date matching
+        const key = `${r.product_id}_${rejectionDateStr}`;
+        if (!rejectionsByProductAndDate[key]) {
+          rejectionsByProductAndDate[key] = [];
         }
-        rejectionsByProduct[key].push({
+        rejectionsByProductAndDate[key].push({
           quantity: r.quantity,
           date: r.rejection_date,
           reason: r.reason,
-          mrp: r.mrp
+          mrp: r.mrp,
+          dispatch_id: r.dispatch_id
         });
       });
       
       // Flatten all items from uninvoiced dispatches for item-level selection
       const allItems = [];
       response.data.forEach(dispatch => {
+        // Extract dispatch date for matching
+        const dispatchDateStr = dispatch.dispatch_date?.split('T')[0] || '';
+        
         (dispatch.items || []).forEach((item, idx) => {
-          // Find rejections for this product
-          const productRejections = rejectionsByProduct[item.product_id] || [];
+          // Find rejections for this product ON THE SAME DATE as the dispatch
+          const matchKey = `${item.product_id}_${dispatchDateStr}`;
+          const productRejections = rejectionsByProductAndDate[matchKey] || [];
           const totalRejectedQty = productRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
           const netQty = Math.max(0, (item.supplied_qty || 0) - totalRejectedQty);
           const netValue = netQty * (item.mrp || 0);

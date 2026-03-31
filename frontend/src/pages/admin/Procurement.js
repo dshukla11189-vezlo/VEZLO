@@ -120,6 +120,7 @@ export default function Procurement() {
   const [previousDayProcurements, setPreviousDayProcurements] = useState([]);
   const [showPreviousDayItems, setShowPreviousDayItems] = useState(true);
   const [yesterdayItems, setYesterdayItems] = useState([]);  // Selected/edited items from yesterday
+  const [referenceDateForPurchase, setReferenceDateForPurchase] = useState(new Date().toISOString().split('T')[0]);  // Date for which to record purchases
 
   useEffect(() => {
     loadData();
@@ -153,9 +154,10 @@ export default function Procurement() {
     }
   };
 
-  const loadPreviousDayProcurements = async () => {
+  const loadPreviousDayProcurements = async (referenceDate = null) => {
     try {
-      const response = await api.get('/api/procurement/previous-day');
+      const dateToUse = referenceDate || referenceDateForPurchase;
+      const response = await api.get(`/api/procurement/previous-day?reference_date=${dateToUse}`);
       setPreviousDayProcurements(response.data || []);
     } catch (error) {
       console.error('Error loading previous day procurements:', error);
@@ -163,9 +165,16 @@ export default function Procurement() {
   };
 
   const handleOpenProcurementForm = async () => {
-    await loadPreviousDayProcurements();
+    await loadPreviousDayProcurements(referenceDateForPurchase);
     setShowPreviousDayItems(true);
     setOpenProcurement(true);
+  };
+  
+  // Handle reference date change for purchase template
+  const handleReferenceDateChange = async (newDate) => {
+    setReferenceDateForPurchase(newDate);
+    setYesterdayItems([]);  // Clear selected items when date changes
+    await loadPreviousDayProcurements(newDate);
   };
 
   // Filter procurements
@@ -928,55 +937,73 @@ export default function Procurement() {
             </DialogHeader>
             
             {/* Previous Day Procurements Section - NEW DESIGN: Editable Table with Checkboxes */}
-            {!editMode && previousDayProcurements.length > 0 && (
+            {!editMode && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-amber-800">
-                      Yesterday's Purchases ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)} items)
-                    </h4>
-                    <p className="text-sm text-amber-600">Select items to purchase today, edit quantities & rates, then save</p>
+                {/* Date Picker Row */}
+                <div className="flex items-center gap-4 mb-4 pb-3 border-b border-amber-200">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-amber-800">Record purchases for:</label>
+                    <Input
+                      type="date"
+                      value={referenceDateForPurchase}
+                      onChange={(e) => handleReferenceDateChange(e.target.value)}
+                      className="w-40 h-8 text-sm border-amber-300"
+                    />
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      type="button" 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => {
-                        // Select all items
-                        const allItems = [];
-                        previousDayProcurements.forEach(proc => {
-                          proc.products?.forEach(p => {
-                            allItems.push({
-                              selected: true,
-                              farmer_id: proc.farmer_id,
-                              farmer_name: proc.farmer_name,
-                              product_id: p.product_id,
-                              product_name: p.product_name,
-                              quantity: p.quantity || 0,
-                              unit: p.unit || 'Kg',
-                              unit_size: p.unit_size || '',
-                              rate: p.rate || 0,
-                              total: (p.quantity || 0) * (p.rate || 0)
-                            });
-                          });
-                        });
-                        setYesterdayItems(allItems);
-                      }}
-                      className="text-amber-700 border-amber-300"
-                    >
-                      Select All
-                    </Button>
-                    <Button 
-                      type="button" 
-                      size="sm" 
-                      variant="ghost"
-                      onClick={() => setYesterdayItems([])}
-                    >
-                      Clear
-                    </Button>
+                  <div className="text-xs text-amber-600">
+                    (Shows purchases from <strong>{new Date(new Date(referenceDateForPurchase).getTime() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</strong> as template)
                   </div>
                 </div>
+                
+                {previousDayProcurements.length > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="font-semibold text-amber-800">
+                          Previous Day's Purchases ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)} items)
+                        </h4>
+                        <p className="text-sm text-amber-600">Select items to purchase, edit quantities & rates, then save</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          type="button" 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => {
+                            // Select all items
+                            const allItems = [];
+                            previousDayProcurements.forEach(proc => {
+                              proc.products?.forEach(p => {
+                                allItems.push({
+                                  selected: true,
+                                  farmer_id: proc.farmer_id,
+                                  farmer_name: proc.farmer_name,
+                                  product_id: p.product_id,
+                                  product_name: p.product_name,
+                                  quantity: p.quantity || 0,
+                                  unit: p.unit || 'Kg',
+                                  unit_size: p.unit_size || '',
+                                  rate: p.rate || 0,
+                                  total: (p.quantity || 0) * (p.rate || 0)
+                                });
+                              });
+                            });
+                            setYesterdayItems(allItems);
+                          }}
+                          className="text-amber-700 border-amber-300"
+                        >
+                          Select All
+                        </Button>
+                        <Button 
+                          type="button" 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => setYesterdayItems([])}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
                 
                 {/* Editable Table */}
                 <div className="bg-white rounded border overflow-x-auto max-h-80 overflow-y-auto">
@@ -1214,14 +1241,14 @@ export default function Procurement() {
                           });
                         });
                         
-                        // Create procurements for each farmer
+                        // Create procurements for each farmer using the selected reference date
                         try {
                           for (const farmerId of Object.keys(byFarmer)) {
                             const farmerData = byFarmer[farmerId];
                             const totalAmount = farmerData.products.reduce((sum, p) => sum + (p.total || 0), 0);
                             
                             await api.post('/api/procurement', {
-                              date: new Date(procurementForm.date).toISOString(),
+                              date: new Date(referenceDateForPurchase).toISOString(),
                               farmer_id: farmerData.farmer_id,
                               farmer_name: farmerData.farmer_name,
                               products: farmerData.products,
@@ -1246,11 +1273,18 @@ export default function Procurement() {
                     </Button>
                   </div>
                 )}
+                  </>
+                ) : (
+                  <div className="text-center py-4 text-amber-700">
+                    <p>No purchases found for {new Date(new Date(referenceDateForPurchase).getTime() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                    <p className="text-sm text-amber-600 mt-1">Try selecting a different date, or add purchases manually below</p>
+                  </div>
+                )}
               </div>
             )}
             
             {/* Divider with "OR" */}
-            {!editMode && previousDayProcurements.length > 0 && (
+            {!editMode && (
               <div className="flex items-center gap-4 my-4">
                 <div className="flex-1 border-t border-gray-300"></div>
                 <span className="text-sm text-gray-500 font-medium">OR add new purchase manually</span>

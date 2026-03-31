@@ -497,18 +497,32 @@ async def get_procurements(current_user: dict = Depends(get_current_user)):
 
 
 @api_router.get("/procurement/previous-day")
-async def get_previous_day_procurements(current_user: dict = Depends(get_current_user)):
-    """Get previous day's procurements to use as template for today's entry"""
+async def get_previous_day_procurements(
+    reference_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get procurements from the day before reference_date to use as template for entry.
+    If no reference_date provided, defaults to today (so shows yesterday's data).
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Get yesterday's date
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    # Determine the reference date (date for which we want to record purchases)
+    if reference_date:
+        try:
+            ref_date = datetime.strptime(reference_date, '%Y-%m-%d')
+        except ValueError:
+            ref_date = datetime.now(timezone.utc)
+    else:
+        ref_date = datetime.now(timezone.utc)
     
-    # Find procurements from yesterday
+    # Get the day before reference date
+    target_date = (ref_date - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Find procurements from target date
     all_procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
     
-    yesterday_procs = []
+    target_procs = []
     for p in all_procurements:
         proc_date = p.get("date", "")
         if isinstance(proc_date, datetime):
@@ -516,18 +530,18 @@ async def get_previous_day_procurements(current_user: dict = Depends(get_current
         else:
             proc_date_str = str(proc_date)[:10]
         
-        if proc_date_str == yesterday:
-            yesterday_procs.append(p)
+        if proc_date_str == target_date:
+            target_procs.append(p)
     
     # Convert to template format (remove IDs and payment status)
     templates = []
-    for p in yesterday_procs:
+    for p in target_procs:
         templates.append({
             "farmer_id": p.get("farmer_id"),
             "farmer_name": p.get("farmer_name"),
             "products": p.get("products", []),
             "total_amount": p.get("total_amount", 0),
-            "date": yesterday
+            "date": target_date
         })
     
     return templates

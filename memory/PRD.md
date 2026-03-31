@@ -375,6 +375,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
     - Net Total
     - (-) Commission (X%)
     - Amount Payable to Retailer
+- [x] **Procurement Date Picker Feature** (COMPLETED - Mar 31, 2026):
+  - [x] **Date picker at top of modal** - "Record purchases for:" date input at top of Previous Day's section
+  - [x] **Dynamic template loading** - Shows purchases from day before selected date as template
+  - [x] **Reference date display** - Shows "Shows purchases from {date} as template" message
+  - [x] **API updated** - Backend `/api/procurement/previous-day` now accepts `reference_date` query parameter
+  - [x] **Empty state handling** - Shows "No purchases found for {date}" message when no data for previous day
+  - [x] **Purchases saved to selected date** - When saving selected items, they are recorded for the reference date
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

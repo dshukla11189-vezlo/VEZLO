@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload, Check, Pencil, X } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload, Check, Pencil, X, TrendingUp, TrendingDown } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -3019,50 +3019,68 @@ Email: ${companyEmail}`;
               </div>
             </CardHeader>
             <CardContent>
-              {/* Upload Result Info */}
+              {/* Upload Result Info - Enhanced Summary */}
               {grnUploadResult && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-700">
-                    <strong>File:</strong> {grnUploadResult.file_name} | 
-                    <strong> Total CSV Rows:</strong> {grnUploadResult.total_csv_rows || grnUploadResult.rows_processed} | 
-                    <strong> Processed:</strong> {grnUploadResult.rows_processed} | 
-                    <strong> Matched:</strong> {grnUploadResult.matched_items?.length || 0} items
+                <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                  {/* Method Badge for Auto-Sync */}
+                  {grnUploadResult.summary?.sync_method === 'automatic_gmail' && (
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-blue-200">
+                      <span className="px-2 py-1 bg-purple-600 text-white rounded text-xs font-bold">AUTO-SYNC</span>
+                      <span className="text-sm text-purple-800">GRN automatically synced from Gmail</span>
+                    </div>
+                  )}
+                  
+                  {/* Main Summary Row */}
+                  <div className="flex flex-wrap items-center gap-3 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase">File</span>
+                      <span className="text-sm font-medium text-blue-800">{grnUploadResult.file_name}</span>
+                    </div>
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">
+                      {grnUploadResult.dates_found?.length > 0 ? grnUploadResult.dates_found.join(', ') : 'No dates'}
+                    </span>
+                    <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">
+                      {grnUploadResult.matched_items?.length || 0} matched
+                    </span>
                     {grnUploadResult.rows_skipped > 0 && (
-                      <span className="text-orange-600"> | <strong>Skipped:</strong> {grnUploadResult.rows_skipped} rows</span>
+                      <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-semibold">
+                        {grnUploadResult.rows_skipped} unmatched
+                      </span>
                     )}
-                  </p>
-                  {grnUploadResult.dates_found?.length > 0 && (
-                    <p className="text-xs text-blue-600 mt-1">
-                      <strong>Dispatch dates matched:</strong> {grnUploadResult.dates_found.join(', ')}
-                    </p>
+                    {grnUploadResult.summary?.total_amount > 0 && (
+                      <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-semibold">
+                        Total: ₹{grnUploadResult.summary.total_amount.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Rate Changes Summary */}
+                  {grnUploadResult.rate_changes?.length > 0 && (
+                    <div className="p-3 bg-white/50 rounded-lg border border-purple-200 mb-3">
+                      <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
+                        <TrendingUp size={14} /> Rate Changes from Previous Day ({grnUploadResult.rate_changes.length} products)
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {grnUploadResult.rate_changes.slice(0, 6).map((rc, idx) => (
+                          <div key={idx} className={`px-2 py-1 rounded text-xs ${rc.change > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            <span className="font-medium">{rc.product_name}</span>
+                            <span className="ml-1">
+                              {rc.change > 0 ? '↑' : '↓'} ₹{Math.abs(rc.change).toFixed(2)} ({rc.change_percent > 0 ? '+' : ''}{rc.change_percent}%)
+                            </span>
+                          </div>
+                        ))}
+                        {grnUploadResult.rate_changes.length > 6 && (
+                          <span className="text-xs text-gray-500">+{grnUploadResult.rate_changes.length - 6} more</span>
+                        )}
+                      </div>
+                    </div>
                   )}
+                  
+                  {/* Warnings */}
                   {grnUploadResult.warnings?.length > 0 && (
-                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded">
-                      <p className="text-xs font-semibold text-orange-700">Warnings:</p>
+                    <div className="p-2 bg-orange-50 border border-orange-200 rounded text-xs">
                       {grnUploadResult.warnings.map((warning, idx) => (
-                        <p key={idx} className="text-xs text-orange-600">{warning}</p>
-                      ))}
-                    </div>
-                  )}
-                  {grnUploadResult.debug_columns_found?.length > 0 && (
-                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
-                      <p className="text-xs font-semibold text-blue-700">Columns detected in file:</p>
-                      <p className="text-xs text-blue-600">{grnUploadResult.debug_columns_found.join(', ')}</p>
-                      {grnUploadResult.debug_first_row && (
-                        <p className="text-xs text-blue-600 mt-1">
-                          <strong>First row sample:</strong> podate={grnUploadResult.debug_first_row.podate || grnUploadResult.debug_first_row.PO_DeliveryDate || 'N/A'}, 
-                          Sku={grnUploadResult.debug_first_row.Sku || grnUploadResult.debug_first_row['Sku Name'] || 'N/A'}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {grnUploadResult.skipped_details?.length > 0 && (
-                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded max-h-40 overflow-y-auto">
-                      <p className="text-xs font-semibold text-red-700">Skipped Row Details (first 10):</p>
-                      {grnUploadResult.skipped_details.map((detail, idx) => (
-                        <p key={idx} className="text-xs text-red-600">
-                          Row {detail.row}: {detail.reason} | SKU: {detail.sku} {detail.date ? `| Date: ${detail.date}` : ''}
-                        </p>
+                        <p key={idx} className="text-orange-700">{warning}</p>
                       ))}
                     </div>
                   )}
@@ -3121,20 +3139,18 @@ Email: ${companyEmail}`;
                     <h4 className="font-semibold text-sm text-green-700">Matched Items from CSV</h4>
                   </div>
                   <div className="data-table overflow-x-auto">
-                    <table>
+                    <table className="text-xs">
                       <thead>
                         <tr>
-                          <th>DATE</th>
-                          <th>CUSTOMER</th>
-                          <th>PRODUCT</th>
-                          <th>PACKAGING</th>
-                          <th className="text-right">SUPPLIED QTY</th>
-                          <th className="text-right">GRN (Units)</th>
-                          <th className="text-right">DIFFERENCE</th>
-                          <th className="text-right">RATE</th>
-                          <th className="text-right">AMOUNT (₹)</th>
-                          <th className="text-right">LOSS/GAIN (₹)</th>
-                          <th className="text-center">ACTIONS</th>
+                          <th className="whitespace-nowrap">DATE</th>
+                          <th className="whitespace-nowrap">PRODUCT / PACKAGING</th>
+                          <th className="text-right whitespace-nowrap">SUPPLIED</th>
+                          <th className="text-right whitespace-nowrap">GRN</th>
+                          <th className="text-right whitespace-nowrap">DIFF</th>
+                          <th className="text-right whitespace-nowrap">RATE</th>
+                          <th className="text-center whitespace-nowrap">RATE Δ</th>
+                          <th className="text-right whitespace-nowrap">AMOUNT</th>
+                          <th className="text-center whitespace-nowrap">ACT</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3144,19 +3160,14 @@ Email: ${companyEmail}`;
                           const lossGain = item.loss_gain_amount !== undefined 
                             ? item.loss_gain_amount 
                             : (item.difference || 0) * (item.rate_per_unit || 0);
+                          const currentRate = item.rate_per_kg || item.rate_per_unit || 0;
                           return (
                             <tr key={idx} className={isEditing ? 'bg-yellow-50' : ''}>
-                              <td>{item.dispatch_date}</td>
-                              <td className="font-medium text-[#14532D]">Ninjacart</td>
-                              <td className="font-medium">
-                                {item.product_name}
-                                {item.rate_type && (
-                                  <span className="ml-1 text-xs text-gray-400">
-                                    ({item.rate_type === 'per_kg' ? '₹/Kg' : item.rate_type === 'per_pcs' ? '₹/Pcs' : ''})
-                                  </span>
-                                )}
+                              <td className="whitespace-nowrap text-gray-600">{item.dispatch_date?.slice(5) || '-'}</td>
+                              <td>
+                                <div className="font-medium text-[#14532D]">{item.product_name}</div>
+                                <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
                               </td>
-                              <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                               <td className="text-right">{item.supplied_qty}</td>
                               <td className="text-right font-semibold">
                                 {isEditing ? (
@@ -3164,74 +3175,63 @@ Email: ${companyEmail}`;
                                     type="number"
                                     value={item.grn_qty}
                                     onChange={(e) => handleUpdateGrnItem(originalIndex, 'grn_qty', e.target.value)}
-                                    className="w-20 h-7 text-right"
+                                    className="w-16 h-6 text-right text-xs"
                                   />
                                 ) : item.grn_qty}
                               </td>
                               <td className="text-right">
                                 <span className={`font-bold ${
                                   item.difference > 0 ? 'text-green-600' : 
-                                  item.difference < 0 ? 'text-red-600' : 'text-gray-600'
+                                  item.difference < 0 ? 'text-red-600' : 'text-gray-400'
                                 }`}>
-                                  {item.difference > 0 ? '+' : ''}{item.difference?.toFixed(2)}
+                                  {item.difference !== 0 ? (item.difference > 0 ? '+' : '') + item.difference?.toFixed(0) : '-'}
                                 </span>
                               </td>
-                              <td className="text-right">
+                              <td className="text-right whitespace-nowrap">
                                 {isEditing ? (
-                                  item.rate_per_kg ? (
-                                    <div className="flex items-center justify-end gap-1">
-                                      <span>₹</span>
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={item.rate_per_kg}
-                                        onChange={(e) => handleUpdateGrnItem(originalIndex, 'rate_per_kg', e.target.value)}
-                                        className="w-16 h-7 text-right"
-                                      />
-                                      <span>/Kg</span>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-end gap-1">
-                                      <span>₹</span>
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={item.rate_per_unit}
-                                        onChange={(e) => handleUpdateGrnItem(originalIndex, 'rate_per_unit', e.target.value)}
-                                        className="w-16 h-7 text-right"
-                                      />
-                                      <span>/Pc</span>
-                                    </div>
-                                  )
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    value={item.rate_per_kg || item.rate_per_unit || 0}
+                                    onChange={(e) => handleUpdateGrnItem(originalIndex, item.rate_per_kg ? 'rate_per_kg' : 'rate_per_unit', e.target.value)}
+                                    className="w-14 h-6 text-right text-xs"
+                                  />
                                 ) : (
-                                  item.rate_per_kg ? (
-                                    <span>₹{item.rate_per_kg?.toFixed(2)}/Kg</span>
-                                  ) : (
-                                    <span>₹{item.rate_per_unit?.toFixed(2)}/Pc</span>
-                                  )
+                                  <span>₹{currentRate.toFixed(1)}{item.rate_per_kg ? '/Kg' : '/Pc'}</span>
                                 )}
                               </td>
-                              <td className="text-right font-semibold">₹{item.amount?.toFixed(2)}</td>
-                              <td className="text-right">
-                                <span className={`font-bold ${
-                                  lossGain > 0 ? 'text-green-600' : 
-                                  lossGain < 0 ? 'text-red-600' : 'text-gray-600'
-                                }`}>
-                                  {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(2)}
-                                </span>
+                              <td className="text-center">
+                                {item.rate_change !== null && item.rate_change !== undefined ? (
+                                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    item.rate_change > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                  }`}>
+                                    {item.rate_change > 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                                    {item.rate_change > 0 ? '+' : ''}{item.rate_change_percent}%
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">-</span>
+                                )}
+                              </td>
+                              <td className="text-right font-semibold whitespace-nowrap">
+                                ₹{item.amount?.toFixed(0)}
+                                {lossGain !== 0 && (
+                                  <span className={`block text-[10px] ${lossGain > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(0)}
+                                  </span>
+                                )}
                               </td>
                               <td className="text-center">
                                 {isEditing ? (
-                                  <Button size="sm" variant="ghost" onClick={handleSaveGrnItemEdit} className="h-7 px-2 text-green-600">
-                                    <Check size={14} />
+                                  <Button size="sm" variant="ghost" onClick={handleSaveGrnItemEdit} className="h-6 w-6 p-0 text-green-600">
+                                    <Check size={12} />
                                   </Button>
                                 ) : (
-                                  <div className="flex items-center justify-center gap-1">
-                                    <Button size="sm" variant="ghost" onClick={() => handleEditGrnItem(originalIndex)} className="h-7 px-2 text-blue-600">
-                                      <Pencil size={14} />
+                                  <div className="flex items-center justify-center gap-0.5">
+                                    <Button size="sm" variant="ghost" onClick={() => handleEditGrnItem(originalIndex)} className="h-6 w-6 p-0 text-blue-600">
+                                      <Pencil size={12} />
                                     </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => handleDeleteGrnItem(originalIndex)} className="h-7 px-2 text-red-600">
-                                      <Trash2 size={14} />
+                                    <Button size="sm" variant="ghost" onClick={() => handleDeleteGrnItem(originalIndex)} className="h-6 w-6 p-0 text-red-600">
+                                      <Trash2 size={12} />
                                     </Button>
                                   </div>
                                 )}
@@ -3241,36 +3241,23 @@ Email: ${companyEmail}`;
                         })}
                       </tbody>
                       <tfoot>
-                        <tr className="bg-gray-50">
-                          <td colSpan={4} className="font-semibold">Totals:</td>
+                        <tr className="bg-gray-50 text-xs">
+                          <td className="font-semibold">Totals</td>
+                          <td></td>
                           <td className="text-right font-bold">{filteredGrnItems.reduce((sum, i) => sum + i.supplied_qty, 0)}</td>
-                          <td className="text-right font-bold">{filteredGrnItems.reduce((sum, i) => sum + i.grn_qty, 0).toFixed(2)}</td>
+                          <td className="text-right font-bold">{filteredGrnItems.reduce((sum, i) => sum + i.grn_qty, 0).toFixed(0)}</td>
                           <td className="text-right">
                             <span className={`font-bold ${
                               filteredGrnItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? 'text-green-600' : 
                               filteredGrnItems.reduce((sum, i) => sum + i.difference, 0) < 0 ? 'text-red-600' : 'text-gray-600'
                             }`}>
                               {filteredGrnItems.reduce((sum, i) => sum + i.difference, 0) > 0 ? '+' : ''}
-                              {filteredGrnItems.reduce((sum, i) => sum + i.difference, 0).toFixed(2)}
+                              {filteredGrnItems.reduce((sum, i) => sum + i.difference, 0).toFixed(0)}
                             </span>
                           </td>
-                          <td className="text-right">-</td>
-                          <td className="text-right font-bold">₹{filteredGrnItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(2)}</td>
-                          <td className="text-right">
-                            {(() => {
-                              const totalLossGain = filteredGrnItems.reduce((sum, i) => {
-                                const itemLossGain = i.loss_gain_amount !== undefined 
-                                  ? i.loss_gain_amount 
-                                  : (i.difference || 0) * (i.rate_per_unit || 0);
-                                return sum + itemLossGain;
-                              }, 0);
-                              return (
-                                <span className={`font-bold ${totalLossGain > 0 ? 'text-green-600' : totalLossGain < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                                  {totalLossGain > 0 ? '+' : ''}₹{totalLossGain.toFixed(2)}
-                                </span>
-                              );
-                            })()}
-                          </td>
+                          <td></td>
+                          <td></td>
+                          <td className="text-right font-bold">₹{filteredGrnItems.reduce((sum, i) => sum + (i.amount || 0), 0).toFixed(0)}</td>
                           <td></td>
                         </tr>
                       </tfoot>

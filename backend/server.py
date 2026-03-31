@@ -1786,8 +1786,80 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         if other_skipped:
             warnings.append(f"{len(other_skipped)} row(s) skipped due to invalid data")
     
+    # Calculate rate changes from previous day
+    # Get all saved GRNs to find previous rates
+    saved_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(1000)
+    
+    # Build a map of product -> previous rates (by date)
+    product_rates_by_date = {}  # {product_name: {date: rate}}
+    for grn in saved_grns:
+        for item in grn.get('items', []):
+            product_name = item.get('product_name', '')
+            packaging_name = item.get('packaging_name', '')
+            dispatch_date = item.get('dispatch_date', '')[:10] if item.get('dispatch_date') else ''
+            rate = item.get('rate_per_kg') or item.get('rate_per_unit') or 0
+            
+            key = f"{product_name}|{packaging_name}"
+            if key not in product_rates_by_date:
+                product_rates_by_date[key] = {}
+            if dispatch_date and rate > 0:
+                product_rates_by_date[key][dispatch_date] = rate
+    
+    # Add rate change info to matched items
+    rate_changes = []
+    for item in matched_items:
+        product_name = item.get('product_name', '')
+        packaging_name = item.get('packaging_name', '')
+        dispatch_date = item.get('dispatch_date', '')[:10] if item.get('dispatch_date') else ''
+        current_rate = item.get('rate_per_kg') or item.get('rate_per_unit') or 0
+        
+        key = f"{product_name}|{packaging_name}"
+        
+        # Find previous day's rate
+        previous_rate = None
+        if key in product_rates_by_date:
+            # Get all dates for this product and find the closest previous date
+            available_dates = sorted([d for d in product_rates_by_date[key].keys() if d < dispatch_date], reverse=True)
+            if available_dates:
+                previous_date = available_dates[0]
+                previous_rate = product_rates_by_date[key].get(previous_date)
+        
+        # Calculate rate change
+        if previous_rate is not None and previous_rate > 0 and current_rate > 0:
+            rate_change = current_rate - previous_rate
+            rate_change_percent = ((current_rate - previous_rate) / previous_rate) * 100
+            item['previous_rate'] = round(previous_rate, 2)
+            item['rate_change'] = round(rate_change, 2)
+            item['rate_change_percent'] = round(rate_change_percent, 1)
+            
+            if abs(rate_change) > 0.01:
+                rate_changes.append({
+                    'product_name': product_name,
+                    'packaging_name': packaging_name,
+                    'previous_rate': round(previous_rate, 2),
+                    'current_rate': round(current_rate, 2),
+                    'change': round(rate_change, 2),
+                    'change_percent': round(rate_change_percent, 1)
+                })
+        else:
+            item['previous_rate'] = None
+            item['rate_change'] = None
+            item['rate_change_percent'] = None
+    
     # Include debug info about what was parsed
     first_row_sample = rows_data[0] if rows_data else {}
+    
+    # Build summary for automatic/manual display
+    summary = {
+        "sync_date": datetime.now(timezone.utc).isoformat(),
+        "sync_method": "manual_upload",  # Can be "automatic_gmail" when triggered by scheduler
+        "grn_date": list(csv_data_by_date.keys())[0] if csv_data_by_date else None,
+        "total_items": len(matched_items),
+        "unmatched_items": len(skipped_rows),
+        "products_with_rate_change": len(rate_changes),
+        "total_amount": round(sum(item.get('amount', 0) for item in matched_items), 2),
+        "total_loss_gain": round(sum(item.get('loss_gain_amount', 0) for item in matched_items), 2),
+    }
     
     return {
         "file_name": file.filename,
@@ -1798,6 +1870,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         "matched_items": matched_items,
         "warnings": warnings,
         "skipped_details": skipped_rows[:10] if skipped_rows else [],
+        "rate_changes": rate_changes,
+        "summary": summary,
         "debug_first_row": first_row_sample,  # Show what was actually parsed
         "debug_columns_found": list(first_row_sample.keys()) if first_row_sample else [],
         "message": f"Processed {len(matched_items)} matching items" + (f" ({len(skipped_rows)} rows skipped)" if skipped_rows else "")

@@ -309,6 +309,16 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Example: Coriander with 1800 GRN split across dispatches → 876 GRN + 924 GRN (not 1800 + 1800)
   - [x] Also fixed Mint matching to collect ALL matching items (was breaking after first match)
   - [x] Added deduplication by dispatch_id to prevent duplicate GRN entries
+- [x] **GRN Table UI Enhancements** (COMPLETED - Mar 31, 2026):
+  - [x] **Compact layout** - No horizontal scrolling required
+  - [x] Combined Product + Packaging into single column
+  - [x] Shortened date format (MM-DD)
+  - [x] **Rate Change column (RATE Δ)** - Shows rate increase (green ↑) or decrease (red ↓) compared to previous day
+  - [x] Amount column shows total with loss/gain amount inline
+  - [x] Compact action buttons
+  - [x] **Enhanced summary banner** - Shows file, date, matched count, unmatched count, total amount
+  - [x] **Rate changes summary** - Purple panel showing products with rate changes from previous day
+  - [x] **Auto-sync badge** - Purple "AUTO-SYNC" badge when GRN synced from Gmail
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

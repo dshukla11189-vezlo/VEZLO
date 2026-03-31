@@ -333,69 +333,121 @@ export default function AdminDashboard() {
           </Card>
         )}
 
-        {/* QC and Retail Sub-Dashboards */}
+        {/* QC and Retail Sub-Dashboards - Full P&L Metrics */}
         {pnlData?.vertical_bifurcation && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
             {/* Quick Commerce Dashboard */}
             <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white">
-              <CardHeader className="py-3 border-b border-blue-100">
+              <CardHeader className="py-2 border-b border-blue-100">
                 <CardTitle className="text-sm flex items-center gap-2 text-blue-800">
                   <div className="p-1.5 bg-blue-600 rounded">
                     <Zap className="text-white" size={14} />
                   </div>
                   Quick Commerce (QC)
+                  <span className="ml-auto text-xs text-blue-600 font-normal">{pnlData.vertical_bifurcation.qc.percentage}% of total</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="py-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-2 bg-blue-100/50 rounded">
-                    <p className="text-[10px] text-blue-600 font-medium">SALES</p>
-                    <p className="text-lg font-bold text-blue-900">{formatCurrency(pnlData.vertical_bifurcation.qc.sales)}</p>
+              <CardContent className="py-2">
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="p-1.5 bg-blue-100/50 rounded">
+                    <p className="text-[9px] text-blue-600 font-medium">SALES</p>
+                    <p className="text-sm font-bold text-blue-900">{formatCurrency(pnlData.vertical_bifurcation.qc.sales)}</p>
                   </div>
-                  <div className="p-2 bg-blue-100/50 rounded">
-                    <p className="text-[10px] text-blue-600 font-medium">% OF TOTAL</p>
-                    <p className="text-lg font-bold text-blue-900">{pnlData.vertical_bifurcation.qc.percentage}%</p>
+                  <div className="p-1.5 bg-red-100/50 rounded">
+                    <p className="text-[9px] text-red-600 font-medium">PURCHASE</p>
+                    <p className="text-sm font-bold text-red-700">{formatCurrency(pnlData.vertical_bifurcation.qc.purchase)}</p>
                   </div>
-                  <div className="p-2 bg-blue-100/50 rounded">
-                    <p className="text-[10px] text-blue-600 font-medium">QTY SOLD</p>
-                    <p className="text-lg font-bold text-blue-900">{(pnlData.vertical_bifurcation.qc.qty || 0).toLocaleString()}</p>
+                  <div className="p-1.5 bg-orange-100/50 rounded">
+                    <p className="text-[9px] text-orange-600 font-medium">WASTAGE</p>
+                    <p className="text-sm font-bold text-orange-700">{formatCurrency(pnlData.vertical_bifurcation.qc.wastage)}</p>
                   </div>
-                  <div className="p-2 bg-blue-100/50 rounded">
-                    <p className="text-[10px] text-blue-600 font-medium">ORDERS</p>
-                    <p className="text-lg font-bold text-blue-900">{pnlData.vertical_bifurcation.qc.orders || 0}</p>
+                  <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.qc.gross_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-gray-600 font-medium">GROSS PROFIT</p>
+                    <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatCurrency(pnlData.vertical_bifurcation.qc.gross_profit)}
+                    </p>
                   </div>
+                  <div className="p-1.5 bg-purple-100/50 rounded">
+                    <p className="text-[9px] text-purple-600 font-medium">GROSS MARGIN %</p>
+                    <p className="text-sm font-bold text-purple-700">{pnlData.vertical_bifurcation.qc.gross_margin_pct}%</p>
+                  </div>
+                  <div className="p-1.5 bg-gray-100/50 rounded">
+                    <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
+                    <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.qc.variable_exp)}</p>
+                  </div>
+                  <div className="p-1.5 bg-gray-100/50 rounded">
+                    <p className="text-[9px] text-gray-600 font-medium">FIXED EXP</p>
+                    <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.qc.fixed_exp)}</p>
+                  </div>
+                  <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.qc.net_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-gray-600 font-medium">NET PROFIT</p>
+                    <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.qc.net_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatCurrency(pnlData.vertical_bifurcation.qc.net_profit)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-between mt-2 pt-2 border-t border-blue-100 text-xs text-blue-700">
+                  <span>Qty: {(pnlData.vertical_bifurcation.qc.qty || 0).toLocaleString()}</span>
+                  <span>Orders: {pnlData.vertical_bifurcation.qc.orders || 0}</span>
+                  <span>Net Margin: {pnlData.vertical_bifurcation.qc.net_margin}%</span>
                 </div>
               </CardContent>
             </Card>
 
             {/* Retail Dashboard */}
             <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
-              <CardHeader className="py-3 border-b border-emerald-100">
+              <CardHeader className="py-2 border-b border-emerald-100">
                 <CardTitle className="text-sm flex items-center gap-2 text-emerald-800">
                   <div className="p-1.5 bg-emerald-600 rounded">
                     <ShoppingCart className="text-white" size={14} />
                   </div>
                   Retail
+                  <span className="ml-auto text-xs text-emerald-600 font-normal">{pnlData.vertical_bifurcation.retail.percentage}% of total</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="py-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-2 bg-emerald-100/50 rounded">
-                    <p className="text-[10px] text-emerald-600 font-medium">SALES</p>
-                    <p className="text-lg font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
+              <CardContent className="py-2">
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="p-1.5 bg-emerald-100/50 rounded">
+                    <p className="text-[9px] text-emerald-600 font-medium">SALES</p>
+                    <p className="text-sm font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
                   </div>
-                  <div className="p-2 bg-emerald-100/50 rounded">
-                    <p className="text-[10px] text-emerald-600 font-medium">% OF TOTAL</p>
-                    <p className="text-lg font-bold text-emerald-900">{pnlData.vertical_bifurcation.retail.percentage}%</p>
+                  <div className="p-1.5 bg-red-100/50 rounded">
+                    <p className="text-[9px] text-red-600 font-medium">PURCHASE</p>
+                    <p className="text-sm font-bold text-red-700">{formatCurrency(pnlData.vertical_bifurcation.retail.purchase)}</p>
                   </div>
-                  <div className="p-2 bg-emerald-100/50 rounded">
-                    <p className="text-[10px] text-emerald-600 font-medium">QTY SOLD</p>
-                    <p className="text-lg font-bold text-emerald-900">{(pnlData.vertical_bifurcation.retail.qty || 0).toLocaleString()}</p>
+                  <div className="p-1.5 bg-orange-100/50 rounded">
+                    <p className="text-[9px] text-orange-600 font-medium">WASTAGE</p>
+                    <p className="text-sm font-bold text-orange-700">{formatCurrency(pnlData.vertical_bifurcation.retail.wastage)}</p>
                   </div>
-                  <div className="p-2 bg-emerald-100/50 rounded">
-                    <p className="text-[10px] text-emerald-600 font-medium">ORDERS</p>
-                    <p className="text-lg font-bold text-emerald-900">{pnlData.vertical_bifurcation.retail.orders || 0}</p>
+                  <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.retail.gross_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-gray-600 font-medium">GROSS PROFIT</p>
+                    <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.retail.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatCurrency(pnlData.vertical_bifurcation.retail.gross_profit)}
+                    </p>
                   </div>
+                  <div className="p-1.5 bg-purple-100/50 rounded">
+                    <p className="text-[9px] text-purple-600 font-medium">GROSS MARGIN %</p>
+                    <p className="text-sm font-bold text-purple-700">{pnlData.vertical_bifurcation.retail.gross_margin_pct}%</p>
+                  </div>
+                  <div className="p-1.5 bg-gray-100/50 rounded">
+                    <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
+                    <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.retail.variable_exp)}</p>
+                  </div>
+                  <div className="p-1.5 bg-gray-100/50 rounded">
+                    <p className="text-[9px] text-gray-600 font-medium">FIXED EXP</p>
+                    <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.retail.fixed_exp)}</p>
+                  </div>
+                  <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.retail.net_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-gray-600 font-medium">NET PROFIT</p>
+                    <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.retail.net_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatCurrency(pnlData.vertical_bifurcation.retail.net_profit)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-between mt-2 pt-2 border-t border-emerald-100 text-xs text-emerald-700">
+                  <span>Qty: {(pnlData.vertical_bifurcation.retail.qty || 0).toLocaleString()}</span>
+                  <span>Orders: {pnlData.vertical_bifurcation.retail.orders || 0}</span>
+                  <span>Net Margin: {pnlData.vertical_bifurcation.retail.net_margin}%</span>
                 </div>
               </CardContent>
             </Card>

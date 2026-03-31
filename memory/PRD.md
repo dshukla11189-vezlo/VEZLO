@@ -328,10 +328,15 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **P&L Dashboard Improvements** (COMPLETED - Mar 31, 2026):
   - [x] **Fixed GRN date attribution** - Daily P&L now uses item.dispatch_date (delivery date) instead of grn_date (save date)
   - [x] **Removed "Sales by Vertical"** - Replaced with separate QC and Retail sub-dashboards
-  - [x] **QC Dashboard** - Shows Sales, % of Total, QTY Sold, Orders count
-  - [x] **Retail Dashboard** - Shows Sales, % of Total, QTY Sold, Orders count
-- [ ] **GRN Collapsible UI** - Pending and Saved GRNs should show one line item per date with expand/collapse
-- [ ] **Edit Saved GRN** - Add edit button for saved GRNs
+  - [x] **QC Dashboard** - Full P&L metrics: Sales, Purchase, Wastage, Gross Profit, Gross Margin %, Var Exp, Fixed Exp, Net Profit, Net Margin, Qty, Orders
+  - [x] **Retail Dashboard** - Same full P&L metrics as QC
+  - [x] **Added Gross Margin %** - Calculated as Gross Profit / (Purchase + Wastage)
+- [x] **GRN Collapsible UI** (COMPLETED - Mar 31, 2026):
+  - [x] **Pending GRNs by Date** - One-line summary per date with expand/collapse arrow
+  - [x] **Saved GRNs by Date** - One-line summary per date with expand/collapse arrow  
+  - [x] **Summary fields** - Date, Total Supplied, Total GRN, Items Count, Total Amount, Difference
+  - [x] **Edit button for Saved GRNs** - Pencil icon loads GRN into editor for modification
+  - [x] **Delete button** - Trash icon for individual items
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

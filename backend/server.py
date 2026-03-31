@@ -2992,6 +2992,42 @@ async def get_pnl_report(
             retail_order_count += data.get("invoices", 0)
             retail_qty_total += data.get("qty", 0)
     
+    # Calculate QC and Retail specific P&L metrics
+    # Since purchases are shared, allocate proportionally based on sales
+    qc_sales_pct = (total_qc_sales / total_sales * 100) if total_sales > 0 else 0
+    retail_sales_pct = (total_retail_sales / total_sales * 100) if total_sales > 0 else 0
+    
+    # Proportional allocation
+    qc_purchase = total_purchase * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
+    retail_purchase = total_purchase * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    
+    qc_wastage = total_wastage_value * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
+    retail_wastage = total_wastage_value * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    
+    qc_variable_exp = total_variable * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
+    retail_variable_exp = total_variable * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    
+    qc_fixed_exp = total_fixed * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
+    retail_fixed_exp = total_fixed * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    
+    # Calculate QC P&L
+    qc_gross_profit = total_qc_sales - qc_purchase - qc_wastage
+    qc_cost_base = qc_purchase + qc_wastage
+    qc_gross_margin = (qc_gross_profit / qc_cost_base * 100) if qc_cost_base > 0 else 0
+    qc_net_profit = qc_gross_profit - qc_variable_exp - qc_fixed_exp
+    qc_net_margin = (qc_net_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0
+    
+    # Calculate Retail P&L
+    retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage
+    retail_cost_base = retail_purchase + retail_wastage
+    retail_gross_margin = (retail_gross_profit / retail_cost_base * 100) if retail_cost_base > 0 else 0
+    retail_net_profit = retail_gross_profit - retail_variable_exp - retail_fixed_exp
+    retail_net_margin = (retail_net_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
+    
+    # Also calculate overall gross margin %
+    total_cost_base = total_purchase + total_wastage_value
+    overall_gross_margin_pct = (gross_profit / total_cost_base * 100) if total_cost_base > 0 else 0
+    
     return {
         "period": {"from": from_date, "to": to_date},
         "summary": {
@@ -3003,6 +3039,7 @@ async def get_pnl_report(
             "total_wastage_value": round(total_wastage_value, 2),
             "gross_profit": round(gross_profit, 2),
             "gross_margin": round(gross_margin, 1),
+            "gross_margin_pct": round(overall_gross_margin_pct, 1),
             "total_variable_expenses": round(total_variable, 2),
             "total_fixed_expenses": round(total_fixed, 2),
             "net_profit": round(net_profit, 2),
@@ -3011,15 +3048,31 @@ async def get_pnl_report(
         "vertical_bifurcation": {
             "qc": {
                 "sales": round(total_qc_sales, 2),
-                "percentage": round((total_qc_sales / total_sales * 100) if total_sales > 0 else 0, 1),
+                "percentage": round(qc_sales_pct, 1),
                 "qty": round(qc_qty_total, 2),
-                "orders": qc_order_count
+                "orders": qc_order_count,
+                "purchase": round(qc_purchase, 2),
+                "wastage": round(qc_wastage, 2),
+                "gross_profit": round(qc_gross_profit, 2),
+                "gross_margin_pct": round(qc_gross_margin, 1),
+                "variable_exp": round(qc_variable_exp, 2),
+                "fixed_exp": round(qc_fixed_exp, 2),
+                "net_profit": round(qc_net_profit, 2),
+                "net_margin": round(qc_net_margin, 1)
             },
             "retail": {
                 "sales": round(total_retail_sales, 2),
-                "percentage": round((total_retail_sales / total_sales * 100) if total_sales > 0 else 0, 1),
+                "percentage": round(retail_sales_pct, 1),
                 "qty": round(retail_qty_total, 2),
-                "orders": retail_order_count
+                "orders": retail_order_count,
+                "purchase": round(retail_purchase, 2),
+                "wastage": round(retail_wastage, 2),
+                "gross_profit": round(retail_gross_profit, 2),
+                "gross_margin_pct": round(retail_gross_margin, 1),
+                "variable_exp": round(retail_variable_exp, 2),
+                "fixed_exp": round(retail_fixed_exp, 2),
+                "net_profit": round(retail_net_profit, 2),
+                "net_margin": round(retail_net_margin, 1)
             }
         },
         "daily_pnl": daily_pnl,

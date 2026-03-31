@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, Upload, Check, Pencil, X, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -3304,12 +3304,11 @@ Email: ${companyEmail}`;
                 </div>
               )}
 
-              {/* Ninjacart Dispatches Pending GRN - Always show with filters and manual entry */}
+              {/* Ninjacart Dispatches Pending GRN - Collapsible by Date */}
               {grnDispatchItems.length > 0 && (
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-sm">Ninjacart Dispatches Pending GRN</h4>
-                    {/* Save Manual GRN Button - Moved to top */}
                     {Object.keys(manualGrnData).some(key => manualGrnData[key].grn_qty) && (
                       <Button onClick={handleSaveManualGrn} className="bg-green-600 hover:bg-green-700" size="sm">
                         <Save size={14} className="mr-1" />
@@ -3318,272 +3317,303 @@ Email: ${companyEmail}`;
                     )}
                   </div>
                   
-                  {/* Filters for Pending Dispatches */}
-                  <div className="flex flex-wrap gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">From:</Label>
-                      <Input
-                        type="date"
-                        value={grnFilters.fromDate}
-                        onChange={(e) => setGrnFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                        className="w-36 h-8"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">To:</Label>
-                      <Input
-                        type="date"
-                        value={grnFilters.toDate}
-                        onChange={(e) => setGrnFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                        className="w-36 h-8"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">Product:</Label>
-                      <Input
-                        type="text"
-                        placeholder="Filter by product..."
-                        value={grnFilters.productName}
-                        onChange={(e) => setGrnFilters(prev => ({ ...prev, productName: e.target.value }))}
-                        className="w-40 h-8"
-                      />
-                    </div>
-                    {(grnFilters.fromDate || grnFilters.toDate || grnFilters.productName) && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setGrnFilters({ fromDate: '', toDate: '', productName: '' })}
-                        className="h-8"
-                      >
-                        <X size={14} className="mr-1" /> Clear
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="data-table overflow-x-auto">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>DATE</th>
-                          <th>CUSTOMER</th>
-                          <th>PRODUCT</th>
-                          <th>PACKAGING</th>
-                          <th className="text-right">SUPPLIED QTY</th>
-                          <th className="text-right">GRN QTY</th>
-                          <th className="text-right">RATE</th>
-                          <th className="text-right">DIFFERENCE</th>
-                          <th className="text-center">ACTIONS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {grnDispatchItems
-                          .filter(item => {
-                            // Apply filters
-                            const itemDate = item.dispatch_date?.split('T')[0] || '';
-                            if (grnFilters.fromDate && itemDate < grnFilters.fromDate) return false;
-                            if (grnFilters.toDate && itemDate > grnFilters.toDate) return false;
-                            if (grnFilters.productName && !item.product_name?.toLowerCase().includes(grnFilters.productName.toLowerCase())) return false;
-                            return true;
-                          })
-                          .map((item, idx) => {
-                            const itemKey = `${item.dispatch_id}_${item.product_id}_${idx}`;
-                            const manualData = manualGrnData[itemKey] || {};
-                            const isEditing = editingPendingGrn === itemKey;
-                            const grnQty = manualData.grn_qty || '';
-                            const rate = manualData.rate || '';
-                            const difference = grnQty ? (parseFloat(grnQty) - item.supplied_qty) : null;
-                            
-                            return (
-                              <tr key={idx} className={isEditing ? 'bg-yellow-50' : ''}>
-                                <td>{formatDate(item.dispatch_date)}</td>
-                                <td className="font-medium text-[#14532D]">{item.customer_name}</td>
-                                <td className="font-medium">{item.product_name}</td>
-                                <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
-                                <td className="text-right">{item.supplied_qty}</td>
-                                <td className="text-right">
-                                  {isEditing ? (
-                                    <Input
-                                      type="number"
-                                      value={grnQty}
-                                      onChange={(e) => setManualGrnData(prev => ({
-                                        ...prev,
-                                        [itemKey]: { ...prev[itemKey], grn_qty: e.target.value }
-                                      }))}
-                                      placeholder="Enter GRN"
-                                      className="w-20 h-7 text-right"
-                                    />
-                                  ) : (
-                                    grnQty ? <span className="font-semibold">{grnQty}</span> : <span className="text-gray-400">-</span>
-                                  )}
-                                </td>
-                                <td className="text-right">
-                                  {isEditing ? (
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      value={rate}
-                                      onChange={(e) => setManualGrnData(prev => ({
-                                        ...prev,
-                                        [itemKey]: { ...prev[itemKey], rate: e.target.value }
-                                      }))}
-                                      placeholder="Rate"
-                                      className="w-20 h-7 text-right"
-                                    />
-                                  ) : (
-                                    rate ? <span>₹{parseFloat(rate).toFixed(2)}</span> : <span className="text-gray-400">-</span>
-                                  )}
-                                </td>
-                                <td className="text-right">
-                                  {difference !== null ? (
-                                    <span className={`font-bold ${
-                                      difference > 0 ? 'text-green-600' : 
-                                      difference < 0 ? 'text-red-600' : 'text-gray-600'
-                                    }`}>
-                                      {difference > 0 ? '+' : ''}{difference.toFixed(2)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-400">-</span>
-                                  )}
-                                </td>
-                                <td className="text-center">
-                                  {isEditing ? (
-                                    <div className="flex items-center justify-center gap-1">
-                                      <Button size="sm" variant="ghost" onClick={() => setEditingPendingGrn(null)} className="h-7 px-2 text-green-600">
-                                        <Check size={14} />
-                                      </Button>
-                                      <Button size="sm" variant="ghost" onClick={() => {
-                                        setManualGrnData(prev => {
-                                          const newData = { ...prev };
-                                          delete newData[itemKey];
-                                          return newData;
-                                        });
-                                        setEditingPendingGrn(null);
-                                      }} className="h-7 px-2 text-gray-600">
-                                        <X size={14} />
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-center gap-1">
-                                      <Button size="sm" variant="ghost" onClick={() => setEditingPendingGrn(itemKey)} className="h-7 px-2 text-blue-600">
-                                        <Pencil size={14} />
-                                      </Button>
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost" 
-                                        onClick={() => handleDeletePendingDispatchItem(item.dispatch_id, item.product_id)} 
-                                        className="h-7 px-2 text-red-600"
-                                      >
-                                        <Trash2 size={14} />
-                                      </Button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
+                  {/* Collapsible Date Summary Rows */}
+                  <div className="space-y-2">
+                    {grnPendingDates.map((date) => {
+                      const dateItems = grnDispatchItems.filter(item => (item.dispatch_date?.split('T')[0] || '') === date);
+                      const totalSupplied = dateItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                      const isExpanded = expandedPendingDates[date];
+                      
+                      return (
+                        <div key={date} className="border rounded-lg overflow-hidden">
+                          {/* Summary Row - Clickable */}
+                          <div 
+                            className="flex items-center gap-4 p-3 bg-amber-50 border-b cursor-pointer hover:bg-amber-100"
+                            onClick={() => setExpandedPendingDates(prev => ({ ...prev, [date]: !prev[date] }))}
+                          >
+                            <div className="flex items-center gap-2">
+                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              <span className="font-semibold text-amber-800">{date}</span>
+                            </div>
+                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
+                              {dateItems.length} items
+                            </span>
+                            <span className="text-xs text-gray-600">
+                              Total Supplied: <strong>{totalSupplied.toFixed(0)}</strong>
+                            </span>
+                            <span className="ml-auto text-xs text-gray-500">
+                              Click to {isExpanded ? 'collapse' : 'expand'}
+                            </span>
+                          </div>
+                          
+                          {/* Expanded Items Table */}
+                          {isExpanded && (
+                            <div className="data-table overflow-x-auto">
+                              <table className="text-xs">
+                                <thead>
+                                  <tr>
+                                    <th>PRODUCT / PACKAGING</th>
+                                    <th className="text-right">SUPPLIED</th>
+                                    <th className="text-right w-20">GRN QTY</th>
+                                    <th className="text-right w-20">RATE</th>
+                                    <th className="text-right">DIFF</th>
+                                    <th className="text-center w-16">ACT</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {dateItems.map((item, idx) => {
+                                    const itemKey = `${item.dispatch_id}_${item.product_id}_${date}_${idx}`;
+                                    const manualData = manualGrnData[itemKey] || {};
+                                    const grnQty = manualData.grn_qty || '';
+                                    const rate = manualData.rate || '';
+                                    const difference = grnQty ? (parseFloat(grnQty) - item.supplied_qty) : null;
+                                    
+                                    return (
+                                      <tr key={idx}>
+                                        <td>
+                                          <div className="font-medium text-[#14532D]">{item.product_name}</div>
+                                          <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
+                                        </td>
+                                        <td className="text-right">{item.supplied_qty}</td>
+                                        <td className="text-right">
+                                          <Input
+                                            type="number"
+                                            placeholder="GRN"
+                                            value={grnQty}
+                                            onChange={(e) => setManualGrnData(prev => ({
+                                              ...prev,
+                                              [itemKey]: { ...prev[itemKey], grn_qty: e.target.value }
+                                            }))}
+                                            className="w-16 h-6 text-right text-xs"
+                                          />
+                                        </td>
+                                        <td className="text-right">
+                                          <Input
+                                            type="number"
+                                            placeholder="Rate"
+                                            step="0.01"
+                                            value={rate}
+                                            onChange={(e) => setManualGrnData(prev => ({
+                                              ...prev,
+                                              [itemKey]: { ...prev[itemKey], rate: e.target.value }
+                                            }))}
+                                            className="w-16 h-6 text-right text-xs"
+                                          />
+                                        </td>
+                                        <td className="text-right">
+                                          {difference !== null && (
+                                            <span className={`font-bold ${difference > 0 ? 'text-green-600' : difference < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                              {difference > 0 ? '+' : ''}{difference.toFixed(0)}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="text-center">
+                                          {manualData.grn_qty && (
+                                            <Button 
+                                              size="sm" 
+                                              variant="ghost"
+                                              onClick={() => setManualGrnData(prev => {
+                                                const newData = { ...prev };
+                                                delete newData[itemKey];
+                                                return newData;
+                                              })}
+                                              className="h-6 w-6 p-0 text-gray-500"
+                                            >
+                                              <X size={12} />
+                                            </Button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                   
-                  <p className="text-sm text-gray-500 mt-3">
-                    Edit GRN values manually or upload Ninjacart CSV/Excel file to auto-match.
+                  <p className="text-xs text-gray-500 mt-3">
+                    Click a date row to expand, then enter GRN values. Or upload Ninjacart CSV/Excel file to auto-match.
                   </p>
                 </div>
               )}
 
-              {/* Saved GRNs */}
+              {/* Saved GRNs - Collapsible by Date */}
               {grns.length > 0 && (
                 <div className="mt-6">
-                  <h4 className="font-semibold text-sm mb-2">Saved GRN Records</h4>
-                  <div className="space-y-4">
-                    {grns.map((grn) => (
-                      <div key={grn.id} className="border rounded-lg overflow-hidden">
-                        {/* GRN Header */}
-                        <div className="flex items-center justify-between p-3 bg-gray-50 border-b">
-                          <div className="flex items-center gap-4">
-                            <span className="font-semibold">{formatDate(grn.grn_date)}</span>
-                            <span className="text-sm text-gray-600">{grn.file_name}</span>
-                            <span className="text-sm">
-                              Items: <strong>{grn.items?.length}</strong>
-                            </span>
-                            <span className={`text-sm font-bold ${
-                              grn.total_difference > 0 ? 'text-green-600' : 
-                              grn.total_difference < 0 ? 'text-red-600' : 'text-gray-600'
-                            }`}>
-                              Diff: {grn.total_difference > 0 ? '+' : ''}{grn.total_difference?.toFixed(2)}
-                            </span>
-                          </div>
-                          <Button size="sm" variant="ghost" onClick={() => handleDeleteGrn(grn.id)} className="text-red-600">
-                            <Trash2 size={14} className="mr-1" /> Delete All
-                          </Button>
-                        </div>
-                        
-                        {/* GRN Items Table */}
-                        <div className="data-table overflow-x-auto">
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>DATE</th>
-                                <th>PRODUCT</th>
-                                <th>PACKAGING</th>
-                                <th className="text-right">SUPPLIED</th>
-                                <th className="text-right">GRN</th>
-                                <th className="text-right">DIFF</th>
-                                <th className="text-right">RATE</th>
-                                <th className="text-right">AMOUNT</th>
-                                <th className="text-right">LOSS/GAIN</th>
-                                <th className="text-center">ACTIONS</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {grn.items?.map((item, idx) => {
-                                const lossGain = item.loss_gain_amount || (item.difference * (item.rate_per_unit || 0));
-                                return (
-                                  <tr key={idx}>
-                                    <td>{item.dispatch_date || '-'}</td>
-                                    <td className="font-medium">{item.product_name}</td>
-                                    <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
-                                    <td className="text-right">{item.supplied_qty}</td>
-                                    <td className="text-right font-semibold">{item.grn_qty}</td>
-                                    <td className="text-right">
-                                      <span className={`font-bold ${
-                                        item.difference > 0 ? 'text-green-600' : 
-                                        item.difference < 0 ? 'text-red-600' : 'text-gray-600'
-                                      }`}>
-                                        {item.difference > 0 ? '+' : ''}{item.difference?.toFixed(2)}
-                                      </span>
-                                    </td>
-                                    <td className="text-right">
-                                      {item.rate_per_kg ? `₹${item.rate_per_kg?.toFixed(2)}/Kg` : `₹${item.rate_per_unit?.toFixed(2) || '0.00'}`}
-                                    </td>
-                                    <td className="text-right font-semibold">₹{item.amount?.toFixed(2) || '0.00'}</td>
-                                    <td className="text-right">
-                                      <span className={`font-bold ${
-                                        lossGain > 0 ? 'text-green-600' : 
-                                        lossGain < 0 ? 'text-red-600' : 'text-gray-600'
-                                      }`}>
-                                        {lossGain > 0 ? '+' : ''}₹{lossGain?.toFixed(2) || '0.00'}
-                                      </span>
-                                    </td>
-                                    <td className="text-center">
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost" 
-                                        onClick={() => handleDeleteSavedGrnItem(grn.id, idx)}
-                                        className="h-7 px-2 text-red-600"
-                                      >
-                                        <Trash2 size={14} />
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                  <h4 className="font-semibold text-sm mb-3">Saved GRN Records</h4>
+                  
+                  {/* Group GRNs by dispatch date */}
+                  {(() => {
+                    // Group all items by dispatch date
+                    const itemsByDate = {};
+                    grns.forEach(grn => {
+                      grn.items?.forEach(item => {
+                        const date = item.dispatch_date || 'Unknown';
+                        if (!itemsByDate[date]) {
+                          itemsByDate[date] = { items: [], grnIds: new Set() };
+                        }
+                        itemsByDate[date].items.push({ ...item, grnId: grn.id });
+                        itemsByDate[date].grnIds.add(grn.id);
+                      });
+                    });
+                    
+                    const sortedDates = Object.keys(itemsByDate).sort().reverse();
+                    
+                    return (
+                      <div className="space-y-2">
+                        {sortedDates.map((date) => {
+                          const dateData = itemsByDate[date];
+                          const totalSupplied = dateData.items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                          const totalGrn = dateData.items.reduce((sum, i) => sum + (i.grn_qty || 0), 0);
+                          const totalDiff = dateData.items.reduce((sum, i) => sum + (i.difference || 0), 0);
+                          const totalAmount = dateData.items.reduce((sum, i) => sum + (i.amount || 0), 0);
+                          const isExpanded = expandedSavedDates[date];
+                          
+                          return (
+                            <div key={date} className="border rounded-lg overflow-hidden">
+                              {/* Summary Row - Clickable */}
+                              <div 
+                                className="flex items-center gap-3 p-3 bg-green-50 border-b cursor-pointer hover:bg-green-100"
+                                onClick={() => setExpandedSavedDates(prev => ({ ...prev, [date]: !prev[date] }))}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                  <span className="font-semibold text-green-800">{date}</span>
+                                </div>
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                                  {dateData.items.length} items
+                                </span>
+                                <span className="text-xs text-gray-600">
+                                  Supplied: <strong>{totalSupplied.toFixed(0)}</strong>
+                                </span>
+                                <span className="text-xs text-gray-600">
+                                  GRN: <strong>{totalGrn.toFixed(0)}</strong>
+                                </span>
+                                <span className={`text-xs font-bold ${totalDiff > 0 ? 'text-green-600' : totalDiff < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                  Diff: {totalDiff > 0 ? '+' : ''}{totalDiff.toFixed(0)}
+                                </span>
+                                <span className="text-xs text-gray-700 ml-auto">
+                                  Amount: <strong>₹{totalAmount.toFixed(0)}</strong>
+                                </span>
+                              </div>
+                              
+                              {/* Expanded Items Table */}
+                              {isExpanded && (
+                                <div className="data-table overflow-x-auto">
+                                  <table className="text-xs">
+                                    <thead>
+                                      <tr>
+                                        <th>PRODUCT / PACKAGING</th>
+                                        <th className="text-right">SUPPLIED</th>
+                                        <th className="text-right">GRN</th>
+                                        <th className="text-right">DIFF</th>
+                                        <th className="text-right">RATE</th>
+                                        <th className="text-right">AMOUNT</th>
+                                        <th className="text-center">ACT</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {dateData.items.map((item, idx) => {
+                                        const lossGain = item.loss_gain_amount || (item.difference * (item.rate_per_unit || 0));
+                                        const isEditingThis = editingSavedGrn === `${item.grnId}_${idx}`;
+                                        const currentRate = item.rate_per_kg || item.rate_per_unit || 0;
+                                        
+                                        return (
+                                          <tr key={idx} className={isEditingThis ? 'bg-yellow-50' : ''}>
+                                            <td>
+                                              <div className="font-medium text-[#14532D]">{item.product_name}</div>
+                                              <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
+                                            </td>
+                                            <td className="text-right">{item.supplied_qty}</td>
+                                            <td className="text-right font-semibold">{item.grn_qty?.toFixed(0)}</td>
+                                            <td className="text-right">
+                                              <span className={`font-bold ${
+                                                item.difference > 0 ? 'text-green-600' : 
+                                                item.difference < 0 ? 'text-red-600' : 'text-gray-400'
+                                              }`}>
+                                                {item.difference !== 0 ? (item.difference > 0 ? '+' : '') + item.difference?.toFixed(0) : '-'}
+                                              </span>
+                                            </td>
+                                            <td className="text-right whitespace-nowrap">
+                                              ₹{currentRate.toFixed(1)}{item.rate_per_kg ? '/Kg' : '/Pc'}
+                                            </td>
+                                            <td className="text-right font-semibold whitespace-nowrap">
+                                              ₹{item.amount?.toFixed(0)}
+                                              {lossGain !== 0 && (
+                                                <div className={`text-xs font-bold ${lossGain > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                  {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(0)}
+                                                </div>
+                                              )}
+                                            </td>
+                                            <td className="text-center">
+                                              <div className="flex items-center justify-center gap-0.5">
+                                                <Button 
+                                                  size="sm" 
+                                                  variant="ghost" 
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    // Find the GRN and load into matched items for editing
+                                                    const grn = grns.find(g => g.id === item.grnId);
+                                                    if (grn) {
+                                                      setGrnMatchedItems(grn.items);
+                                                      setGrnUploadResult({ 
+                                                        file_name: `Editing GRN: ${date}`,
+                                                        matched_items: grn.items,
+                                                        dates_found: [date],
+                                                        editing_grn_id: grn.id
+                                                      });
+                                                      toast.info('GRN loaded for editing. Make changes and Save to update.');
+                                                    }
+                                                  }}
+                                                  className="h-6 w-6 p-0 text-blue-600"
+                                                >
+                                                  <Pencil size={12} />
+                                                </Button>
+                                                <Button 
+                                                  size="sm" 
+                                                  variant="ghost" 
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteSavedGrnItem(item.grnId, grns.find(g => g.id === item.grnId)?.items?.indexOf(item) || 0);
+                                                  }}
+                                                  className="h-6 w-6 p-0 text-red-600"
+                                                >
+                                                  <Trash2 size={12} />
+                                                </Button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                    <tfoot>
+                                      <tr className="bg-gray-50 text-xs">
+                                        <td className="font-semibold">Total ({dateData.items.length} items)</td>
+                                        <td className="text-right font-bold">{totalSupplied.toFixed(0)}</td>
+                                        <td className="text-right font-bold">{totalGrn.toFixed(0)}</td>
+                                        <td className="text-right">
+                                          <span className={`font-bold ${totalDiff > 0 ? 'text-green-600' : totalDiff < 0 ? 'text-red-600' : ''}`}>
+                                            {totalDiff > 0 ? '+' : ''}{totalDiff.toFixed(0)}
+                                          </span>
+                                        </td>
+                                        <td></td>
+                                        <td className="text-right font-bold">₹{totalAmount.toFixed(0)}</td>
+                                        <td></td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
 

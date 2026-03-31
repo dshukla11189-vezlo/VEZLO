@@ -382,6 +382,19 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **API updated** - Backend `/api/procurement/previous-day` now accepts `reference_date` query parameter
   - [x] **Empty state handling** - Shows "No purchases found for {date}" message when no data for previous day
   - [x] **Purchases saved to selected date** - When saving selected items, they are recorded for the reference date
+- [x] **Retailer Portal Redesign** (COMPLETED - Mar 31, 2026):
+  - [x] **Shop name as welcome text** - Shows "Welcome, {company_name}" instead of owner name
+  - [x] **Owner shown as secondary** - "Owner: {name} • Commission: X%"
+  - [x] **Invoice text fix** - Changed "Amount Payable to Retailer" → "Amount Payable by Retailer"
+  - [x] **New Dashboard Cards**:
+    - Total Items Received (blue)
+    - Total Items Sold (green)
+    - Your Earnings (emerald)
+    - Avg Earning/Day (purple)
+  - [x] **Additional Stats Row** - MRP Value, Rejections, Pending Payment, Amount Paid
+  - [x] **Date Filter** - Filter period with from/to dates and Refresh button
+  - [x] **Recent Orders Table** - Grouped by date with columns: Date, Indent Qty, Supplied Qty, Rejection, Total Amt, Commission, Payable
+  - [x] **Expandable date rows** - Click to show product-wise breakdown
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

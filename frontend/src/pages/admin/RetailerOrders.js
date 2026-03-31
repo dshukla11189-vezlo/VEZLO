@@ -2389,7 +2389,7 @@ export default function RetailerOrders() {
                             </div>
                           )}
                           <div className="flex justify-between items-center text-sm border-t pt-2 mt-2 bg-green-100 -mx-4 px-4 py-2 rounded-b">
-                            <span className="text-green-800 font-bold">Amount Payable to Retailer:</span>
+                            <span className="text-green-800 font-bold">Amount Payable by Retailer:</span>
                             <span className="text-green-800 font-bold text-lg">{formatCurrency(payableAmount)}</span>
                           </div>
                         </>

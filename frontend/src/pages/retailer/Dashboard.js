@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { 
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
-  ChevronDown, ChevronRight
+  ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
@@ -23,6 +23,15 @@ export default function RetailerDashboard() {
   const [loading, setLoading] = useState(true);
   const [expandedDispatches, setExpandedDispatches] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
+  const [expandedOrderDates, setExpandedOrderDates] = useState({});
+  
+  // Date filter for dashboard
+  const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [dashboardDateTo, setDashboardDateTo] = useState(new Date().toISOString().split('T')[0]);
   
   // Indent form
   const [showIndentModal, setShowIndentModal] = useState(false);
@@ -302,10 +311,11 @@ export default function RetailerDashboard() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">
-              Welcome, {dashboardData?.retailer?.name || 'Retailer'}
+              Welcome, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
             </h1>
             <p className="text-sm text-gray-500">
-              {dashboardData?.retailer?.company_name && `${dashboardData.retailer.company_name} • `}
+              {dashboardData?.retailer?.name && dashboardData?.retailer?.company_name !== dashboardData?.retailer?.name && 
+                `Owner: ${dashboardData.retailer.name} • `}
               Commission: {dashboardData?.retailer?.commission_percentage || 0}%
             </p>
           </div>
@@ -333,177 +343,266 @@ export default function RetailerDashboard() {
         {/* ==================== DASHBOARD TAB ==================== */}
         {activeTab === 'dashboard' && (
           <>
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <Package size={20} className="text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Items Received</p>
-                      <p className="text-xl font-bold">{summary.total_items_received || 0}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <DollarSign size={20} className="text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Total Invoice</p>
-                      <p className="text-xl font-bold">{formatCurrency(summary.total_mrp_value)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-emerald-100 rounded-lg">
-                      <CheckCircle size={20} className="text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Amount Paid</p>
-                      <p className="text-xl font-bold text-green-700">{formatCurrency(summary.total_paid)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="border-red-200">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-red-100 rounded-lg">
-                      <Clock size={20} className="text-red-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Pending Amount</p>
-                      <p className="text-xl font-bold text-red-600">{formatCurrency(summary.pending_amount)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Date Filter Row */}
+            <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-gray-50 rounded-lg border">
+              <div className="flex items-center gap-2">
+                <Calendar size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-600">Filter Period:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={dashboardDateFrom}
+                  onChange={(e) => setDashboardDateFrom(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+                <span className="text-gray-400">to</span>
+                <Input
+                  type="date"
+                  value={dashboardDateTo}
+                  onChange={(e) => setDashboardDateTo(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+              </div>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={loadData}
+                className="h-8"
+              >
+                Refresh
+              </Button>
             </div>
 
-            {/* Detailed Breakdown */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-sm">Payment Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Total MRP Value:</span>
-                      <span className="font-medium">{formatCurrency(summary.total_mrp_value)}</span>
+            {/* Compute filtered metrics */}
+            {(() => {
+              // Filter dispatches by date range
+              const filteredDispatches = dispatches.filter(d => {
+                const dispDate = d.dispatch_date?.split('T')[0];
+                return dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
+              });
+              
+              // Calculate metrics
+              const totalItemsReceived = filteredDispatches.reduce((sum, d) => 
+                sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
+              
+              const totalItemsSold = filteredDispatches.reduce((sum, d) => 
+                sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) - (i.rejected_qty || 0)), 0) || 0), 0);
+              
+              const totalEarnings = filteredDispatches.reduce((sum, d) => {
+                const commission = d.commission || 0;
+                return sum + commission;
+              }, 0);
+              
+              // Calculate days in range
+              const daysDiff = Math.max(1, Math.ceil((new Date(dashboardDateTo) - new Date(dashboardDateFrom)) / (1000 * 60 * 60 * 24)));
+              const avgEarningPerDay = totalEarnings / daysDiff;
+              
+              // Total MRP value and other calculations
+              const totalMrpValue = filteredDispatches.reduce((sum, d) => sum + (d.mrp_value || 0), 0);
+              const totalRejectionValue = filteredDispatches.reduce((sum, d) => sum + (d.rejection_value || 0), 0);
+              
+              // Group dispatches by date for Recent Orders
+              const dispatchesByDate = {};
+              filteredDispatches.forEach(d => {
+                const date = d.dispatch_date?.split('T')[0] || 'Unknown';
+                if (!dispatchesByDate[date]) {
+                  dispatchesByDate[date] = [];
+                }
+                dispatchesByDate[date].push(d);
+              });
+              
+              const sortedDates = Object.keys(dispatchesByDate).sort().reverse();
+
+              return (
+                <>
+                  {/* Summary Cards - New Design */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-blue-100 rounded-lg">
+                            <Package size={22} className="text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-blue-600 font-medium">Total Items Received</p>
+                            <p className="text-2xl font-bold text-blue-800">{totalItemsReceived.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-green-200 bg-gradient-to-br from-green-50 to-white">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-green-100 rounded-lg">
+                            <ShoppingBag size={22} className="text-green-600" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-green-600 font-medium">Total Items Sold</p>
+                            <p className="text-2xl font-bold text-green-800">{totalItemsSold.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-emerald-100 rounded-lg">
+                            <DollarSign size={22} className="text-emerald-600" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-emerald-600 font-medium">Your Earnings</p>
+                            <p className="text-2xl font-bold text-emerald-800">{formatCurrency(totalEarnings)}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-white">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-purple-100 rounded-lg">
+                            <BarChart3 size={22} className="text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-purple-600 font-medium">Avg Earning/Day</p>
+                            <p className="text-2xl font-bold text-purple-800">{formatCurrency(avgEarningPerDay)}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Additional Stats Row */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    <div className="bg-gray-50 p-3 rounded-lg border text-center">
+                      <p className="text-xs text-gray-500">MRP Value</p>
+                      <p className="text-lg font-semibold">{formatCurrency(totalMrpValue)}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Commission ({dashboardData?.retailer?.commission_percentage}%):</span>
-                      <span className="font-medium text-green-600">- {formatCurrency((summary.total_mrp_value || 0) - (summary.total_net_payable || 0))}</span>
+                    <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
+                      <p className="text-xs text-red-500">Rejections</p>
+                      <p className="text-lg font-semibold text-red-600">-{formatCurrency(totalRejectionValue)}</p>
                     </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-500">Net Payable:</span>
-                      <span className="font-medium">{formatCurrency(summary.total_net_payable)}</span>
+                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
+                      <p className="text-xs text-yellow-600">Pending Payment</p>
+                      <p className="text-lg font-semibold text-yellow-700">{formatCurrency(summary.pending_amount)}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Rejections Adjusted:</span>
-                      <span className="font-medium text-green-600">- {formatCurrency(summary.total_rejection_value)}</span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-500">Adjusted Payable:</span>
-                      <span className="font-medium">{formatCurrency(summary.adjusted_payable)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Amount Paid:</span>
-                      <span className="font-medium text-green-600">- {formatCurrency(summary.total_paid)}</span>
-                    </div>
-                    <div className="flex justify-between border-t-2 pt-2 text-base">
-                      <span className="font-semibold">Balance Due:</span>
-                      <span className="font-bold text-red-600">{formatCurrency(summary.pending_amount)}</span>
+                    <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
+                      <p className="text-xs text-green-500">Amount Paid</p>
+                      <p className="text-lg font-semibold text-green-600">{formatCurrency(summary.total_paid)}</p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-sm">Quick Stats</CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <Clock size={16} className="text-yellow-600" />
-                        <span className="text-sm">Pending Indents</span>
+                  {/* Recent Orders Table - Grouped by Date */}
+                  <Card>
+                    <CardHeader className="py-3 border-b">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Truck size={16} />
+                        Recent Orders
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
+                              <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                              <th className="p-3 text-center font-medium text-gray-500">INDENT QTY</th>
+                              <th className="p-3 text-center font-medium text-gray-500">SUPPLIED QTY</th>
+                              <th className="p-3 text-center font-medium text-gray-500">REJECTION</th>
+                              <th className="p-3 text-right font-medium text-gray-500">TOTAL AMT</th>
+                              <th className="p-3 text-right font-medium text-gray-500">COMMISSION</th>
+                              <th className="p-3 text-right font-medium text-gray-500">PAYABLE</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedDates.slice(0, 10).map(date => {
+                              const dateDispatches = dispatchesByDate[date];
+                              const isExpanded = expandedOrderDates[date];
+                              
+                              // Aggregate for date
+                              const dateIndentQty = dateDispatches.reduce((sum, d) => 
+                                sum + (d.items?.reduce((s, i) => s + (i.indent_qty || i.supplied_qty || 0), 0) || 0), 0);
+                              const dateSuppliedQty = dateDispatches.reduce((sum, d) => 
+                                sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
+                              const dateRejectedQty = dateDispatches.reduce((sum, d) => 
+                                sum + (d.items?.reduce((s, i) => s + (i.rejected_qty || 0), 0) || 0), 0);
+                              const dateTotalAmt = dateDispatches.reduce((sum, d) => sum + (d.mrp_value || 0), 0);
+                              const dateCommission = dateDispatches.reduce((sum, d) => sum + (d.commission || 0), 0);
+                              const datePayable = dateDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+                              
+                              return (
+                                <React.Fragment key={date}>
+                                  {/* Date Row - Clickable */}
+                                  <tr 
+                                    className="border-b bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                    onClick={() => setExpandedOrderDates(prev => ({ ...prev, [date]: !prev[date] }))}
+                                  >
+                                    <td className="p-3 text-center">
+                                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </td>
+                                    <td className="p-3 font-semibold">{formatDate(date)}</td>
+                                    <td className="p-3 text-center">{dateIndentQty}</td>
+                                    <td className="p-3 text-center font-medium">{dateSuppliedQty}</td>
+                                    <td className="p-3 text-center">
+                                      {dateRejectedQty > 0 ? (
+                                        <span className="text-red-600 font-medium">-{dateRejectedQty}</span>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-3 text-right">{formatCurrency(dateTotalAmt)}</td>
+                                    <td className="p-3 text-right text-green-600">{formatCurrency(dateCommission)}</td>
+                                    <td className="p-3 text-right font-semibold">{formatCurrency(datePayable)}</td>
+                                  </tr>
+                                  
+                                  {/* Expanded Product Details */}
+                                  {isExpanded && dateDispatches.map(dispatch => (
+                                    dispatch.items?.map((item, idx) => (
+                                      <tr key={`${dispatch.id}-${idx}`} className="border-b bg-white hover:bg-blue-50">
+                                        <td className="p-2 pl-8"></td>
+                                        <td className="p-2 pl-8">
+                                          <span className="text-sm text-gray-700">{item.product_name}</span>
+                                          {item.variant_name && (
+                                            <span className="text-xs text-gray-400 ml-1">({item.variant_name})</span>
+                                          )}
+                                        </td>
+                                        <td className="p-2 text-center text-gray-500">{item.indent_qty || item.supplied_qty || 0}</td>
+                                        <td className="p-2 text-center">{item.supplied_qty || 0}</td>
+                                        <td className="p-2 text-center">
+                                          {item.rejected_qty > 0 ? (
+                                            <span className="text-red-600">-{item.rejected_qty}</span>
+                                          ) : '-'}
+                                        </td>
+                                        <td className="p-2 text-right text-gray-600">{formatCurrency((item.supplied_qty || 0) * (item.mrp || 0))}</td>
+                                        <td className="p-2 text-right text-green-600 text-xs">
+                                          {formatCurrency(((item.supplied_qty - (item.rejected_qty || 0)) * (item.mrp || 0) * (dashboardData?.retailer?.commission_percentage || 0)) / 100)}
+                                        </td>
+                                        <td className="p-2 text-right text-gray-700">
+                                          {formatCurrency((item.supplied_qty - (item.rejected_qty || 0)) * (item.mrp || 0) * (1 - (dashboardData?.retailer?.commission_percentage || 0) / 100))}
+                                        </td>
+                                      </tr>
+                                    ))
+                                  ))}
+                                </React.Fragment>
+                              );
+                            })}
+                            {sortedDates.length === 0 && (
+                              <tr>
+                                <td colSpan={8} className="p-6 text-center text-gray-400">
+                                  No orders found in selected date range
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
                       </div>
-                      <span className="font-bold text-yellow-700">{summary.pending_indents || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <Truck size={16} className="text-blue-600" />
-                        <span className="text-sm">Total Dispatches</span>
-                      </div>
-                      <span className="font-bold text-blue-700">{summary.total_dispatches || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle size={16} className="text-red-600" />
-                        <span className="text-sm">Items Rejected</span>
-                      </div>
-                      <span className="font-bold text-red-700">{summary.total_items_rejected || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <DollarSign size={16} className="text-green-600" />
-                        <span className="text-sm">Payments Made</span>
-                      </div>
-                      <span className="font-bold text-green-700">{summary.total_payments || 0}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Recent Dispatches */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm">Recent Orders</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 border-b">
-                      <tr>
-                        <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                        <th className="p-3 text-left font-medium text-gray-500">INVOICE</th>
-                        <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
-                        <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dispatches.slice(0, 5).map(d => (
-                        <tr key={d.id} className="border-b hover:bg-gray-50">
-                          <td className="p-3">{formatDate(d.dispatch_date)}</td>
-                          <td className="p-3 text-blue-600 font-medium">{d.invoice_number}</td>
-                          <td className="p-3 text-center">{d.items?.length || 0}</td>
-                          <td className="p-3 text-right font-semibold">{formatCurrency(d.net_payable)}</td>
-                        </tr>
-                      ))}
-                      {dispatches.length === 0 && (
-                        <tr><td colSpan={4} className="p-8 text-center text-gray-400">No orders yet</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+                    </CardContent>
+                  </Card>
+                </>
+              );
+            })()}
           </>
         )}
 

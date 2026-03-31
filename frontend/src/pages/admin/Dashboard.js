@@ -573,13 +573,14 @@ export default function AdminDashboard() {
                         <th className="p-2 text-right font-medium text-gray-500">PURCHASE</th>
                         <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
                         <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
-                        <th className="p-2 text-right font-medium text-gray-500">MARGIN %</th>
+                        <th className="p-2 text-right font-medium text-gray-500">GM %</th>
+                        <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={9} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
                         dailyPnl.map((day, idx) => {
@@ -641,6 +642,9 @@ export default function AdminDashboard() {
                                     'bg-red-100 text-red-700'
                                   }`}>{day.gross_margin}%</span>
                                 </td>
+                                <td className="p-2 text-right font-medium text-gray-700">
+                                  {day.sales_qty > 0 ? `₹${(day.gross_profit / day.sales_qty).toFixed(1)}` : '-'}
+                                </td>
                               </tr>
                               
                               {/* Level 2: QC & Retail Rows (when date expanded) */}
@@ -675,6 +679,9 @@ export default function AdminDashboard() {
                                             {qcMargin.toFixed(1)}%
                                           </span>
                                         </td>
+                                        <td className="p-2 text-right font-medium text-blue-700">
+                                          {qcQty > 0 ? `₹${(qcGross / qcQty).toFixed(1)}` : '-'}
+                                        </td>
                                       </tr>
                                       
                                       {/* Level 3: QC Customer Rows */}
@@ -685,7 +692,11 @@ export default function AdminDashboard() {
                                         const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
                                         const custGross = custSales - custPurchase - custWastage;
                                         const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
+                                        const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
                                         const custKey = `${day.date}_QC_${customer}`;
+                                        
+                                        // Sort items by gross margin descending
+                                        const sortedItems = [...items].sort((a, b) => (b.gross_margin || 0) - (a.gross_margin || 0));
                                         
                                         return (
                                           <React.Fragment key={custKey}>
@@ -697,37 +708,57 @@ export default function AdminDashboard() {
                                                 {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-blue-400" /> : <ChevronRight size={10} className="text-blue-400" />}
                                               </td>
                                               <td className="p-2 pl-10">
-                                                <span className="text-[11px] font-medium text-blue-700">{customer}</span>
-                                                <span className="ml-2 text-[9px] text-gray-400">({items.length} items)</span>
+                                                <span className="text-sm font-medium text-blue-700">{customer}</span>
+                                                <span className="ml-2 text-xs text-gray-400">({items.length} items)</span>
                                               </td>
-                                              <td className="p-2 text-right text-blue-600 text-[11px]">₹{custSales.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-gray-600 text-[11px]">{custQty.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-orange-500 text-[11px]">₹{custPurchase.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-red-500 text-[11px]">₹{custWastage.toLocaleString()}</td>
-                                              <td className={`p-2 text-right text-[11px] font-medium ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                              <td className="p-2 text-right text-blue-600 text-sm">₹{custSales.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-orange-500 text-sm">₹{custPurchase.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-red-500 text-sm">₹{custWastage.toLocaleString()}</td>
+                                              <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                 {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
                                               </td>
-                                              <td className="p-2 text-right text-[11px]">{custMargin.toFixed(1)}%</td>
+                                              <td className="p-2 text-right">
+                                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${custMargin >= 20 ? 'bg-green-100 text-green-700' : custMargin >= 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                  {custMargin.toFixed(1)}%
+                                                </span>
+                                              </td>
+                                              <td className="p-2 text-right text-sm font-medium text-blue-700">
+                                                ₹{custProfitPerUnit.toFixed(1)}
+                                              </td>
                                             </tr>
                                             
-                                            {/* Level 4: Product/Item Details */}
-                                            {expandedCustomers[custKey] && items.map((item, iidx) => (
-                                              <tr key={iidx} className="border-b bg-white/80">
-                                                <td className="p-1.5 pl-14"></td>
-                                                <td className="p-1.5 pl-14">
-                                                  <span className="text-[10px] text-gray-700">{item.product}</span>
-                                                  <span className="ml-1 text-[9px] text-gray-400">{item.unit}</span>
-                                                </td>
-                                                <td className="p-1.5 text-right text-green-600 text-[10px]">₹{item.revenue.toLocaleString()}</td>
-                                                <td className="p-1.5 text-right text-gray-500 text-[10px]">{item.supplied_qty}</td>
-                                                <td className="p-1.5 text-right text-orange-500 text-[10px]">₹{item.cogs.toLocaleString()}</td>
-                                                <td className="p-1.5 text-right text-red-500 text-[10px]">₹{item.wastage_value.toLocaleString()}</td>
-                                                <td className={`p-1.5 text-right text-[10px] ${item.gross_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                  ₹{item.gross_profit.toLocaleString()}
-                                                </td>
-                                                <td className="p-1.5 text-right text-[10px]">{item.gross_margin}%</td>
-                                              </tr>
-                                            ))}
+                                            {/* Level 4: Product/Item Details - Sorted by GM% DESC */}
+                                            {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
+                                              const itemGross = item.gross_profit || 0;
+                                              const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
+                                              const itemGM = item.gross_margin || 0;
+                                              
+                                              return (
+                                                <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
+                                                  <td className="p-2 pl-14"></td>
+                                                  <td className="p-2 pl-14">
+                                                    <span className="text-sm text-gray-800 font-medium">{item.product}</span>
+                                                    <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
+                                                  </td>
+                                                  <td className="p-2 text-right text-green-600 text-sm">₹{item.revenue.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
+                                                  <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
+                                                  <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    ₹{itemGross.toLocaleString()}
+                                                  </td>
+                                                  <td className="p-2 text-right">
+                                                    <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${itemGM >= 20 ? 'bg-green-100 text-green-800' : itemGM >= 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                                      {itemGM}%
+                                                    </span>
+                                                  </td>
+                                                  <td className={`p-2 text-right text-sm font-bold ${itemProfitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                                    ₹{itemProfitPerUnit.toFixed(1)}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
                                           </React.Fragment>
                                         );
                                       })}
@@ -763,6 +794,9 @@ export default function AdminDashboard() {
                                             {retailMargin.toFixed(1)}%
                                           </span>
                                         </td>
+                                        <td className="p-2 text-right font-medium text-emerald-700">
+                                          {retailQty > 0 ? `₹${(retailGross / retailQty).toFixed(1)}` : '-'}
+                                        </td>
                                       </tr>
                                       
                                       {/* Level 3: Retail Customer Rows */}
@@ -773,7 +807,11 @@ export default function AdminDashboard() {
                                         const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
                                         const custGross = custSales - custPurchase - custWastage;
                                         const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
+                                        const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
                                         const custKey = `${day.date}_Retail_${customer}`;
+                                        
+                                        // Sort items by gross margin descending
+                                        const sortedItems = [...items].sort((a, b) => (b.gross_margin || 0) - (a.gross_margin || 0));
                                         
                                         return (
                                           <React.Fragment key={custKey}>
@@ -785,37 +823,57 @@ export default function AdminDashboard() {
                                                 {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-emerald-400" /> : <ChevronRight size={10} className="text-emerald-400" />}
                                               </td>
                                               <td className="p-2 pl-10">
-                                                <span className="text-[11px] font-medium text-emerald-700">{customer}</span>
-                                                <span className="ml-2 text-[9px] text-gray-400">({items.length} items)</span>
+                                                <span className="text-sm font-medium text-emerald-700">{customer}</span>
+                                                <span className="ml-2 text-xs text-gray-400">({items.length} items)</span>
                                               </td>
-                                              <td className="p-2 text-right text-emerald-600 text-[11px]">₹{custSales.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-gray-600 text-[11px]">{custQty.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-orange-500 text-[11px]">₹{custPurchase.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-red-500 text-[11px]">₹{custWastage.toLocaleString()}</td>
-                                              <td className={`p-2 text-right text-[11px] font-medium ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                              <td className="p-2 text-right text-emerald-600 text-sm">₹{custSales.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-orange-500 text-sm">₹{custPurchase.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-red-500 text-sm">₹{custWastage.toLocaleString()}</td>
+                                              <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                 {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
                                               </td>
-                                              <td className="p-2 text-right text-[11px]">{custMargin.toFixed(1)}%</td>
+                                              <td className="p-2 text-right">
+                                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${custMargin >= 20 ? 'bg-green-100 text-green-700' : custMargin >= 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                  {custMargin.toFixed(1)}%
+                                                </span>
+                                              </td>
+                                              <td className="p-2 text-right text-sm font-medium text-emerald-700">
+                                                ₹{custProfitPerUnit.toFixed(1)}
+                                              </td>
                                             </tr>
                                             
-                                            {/* Level 4: Product/Item Details */}
-                                            {expandedCustomers[custKey] && items.map((item, iidx) => (
-                                              <tr key={iidx} className="border-b bg-white/80">
-                                                <td className="p-1.5 pl-14"></td>
-                                                <td className="p-1.5 pl-14">
-                                                  <span className="text-[10px] text-gray-700">{item.product}</span>
-                                                  <span className="ml-1 text-[9px] text-gray-400">{item.unit}</span>
-                                                </td>
-                                                <td className="p-1.5 text-right text-green-600 text-[10px]">₹{item.revenue.toLocaleString()}</td>
-                                                <td className="p-1.5 text-right text-gray-500 text-[10px]">{item.supplied_qty}</td>
-                                                <td className="p-1.5 text-right text-orange-500 text-[10px]">₹{item.cogs.toLocaleString()}</td>
-                                                <td className="p-1.5 text-right text-red-500 text-[10px]">₹{item.wastage_value.toLocaleString()}</td>
-                                                <td className={`p-1.5 text-right text-[10px] ${item.gross_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                  ₹{item.gross_profit.toLocaleString()}
-                                                </td>
-                                                <td className="p-1.5 text-right text-[10px]">{item.gross_margin}%</td>
-                                              </tr>
-                                            ))}
+                                            {/* Level 4: Product/Item Details - Sorted by GM% DESC */}
+                                            {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
+                                              const itemGross = item.gross_profit || 0;
+                                              const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
+                                              const itemGM = item.gross_margin || 0;
+                                              
+                                              return (
+                                                <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
+                                                  <td className="p-2 pl-14"></td>
+                                                  <td className="p-2 pl-14">
+                                                    <span className="text-sm text-gray-800 font-medium">{item.product}</span>
+                                                    <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
+                                                  </td>
+                                                  <td className="p-2 text-right text-green-600 text-sm">₹{item.revenue.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
+                                                  <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
+                                                  <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    ₹{itemGross.toLocaleString()}
+                                                  </td>
+                                                  <td className="p-2 text-right">
+                                                    <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${itemGM >= 20 ? 'bg-green-100 text-green-800' : itemGM >= 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                                      {itemGM}%
+                                                    </span>
+                                                  </td>
+                                                  <td className={`p-2 text-right text-sm font-bold ${itemProfitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                                    ₹{itemProfitPerUnit.toFixed(1)}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
                                           </React.Fragment>
                                         );
                                       })}
@@ -825,7 +883,7 @@ export default function AdminDashboard() {
                                   {/* No data message */}
                                   {qcItems.length === 0 && retailItems.length === 0 && (
                                     <tr className="bg-gray-50">
-                                      <td colSpan={8} className="p-2 pl-8 text-[10px] text-gray-400 italic">
+                                      <td colSpan={9} className="p-2 pl-8 text-xs text-gray-400 italic">
                                         No detailed line items available for this date
                                       </td>
                                     </tr>
@@ -855,6 +913,9 @@ export default function AdminDashboard() {
                               summary.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' : 
                               'bg-red-100 text-red-700'
                             }`}>{summary.gross_margin}%</span>
+                          </td>
+                          <td className="p-2 text-right text-green-800">
+                            {summary.total_sales_qty > 0 ? `₹${(summary.gross_profit / summary.total_sales_qty).toFixed(1)}` : '-'}
                           </td>
                         </tr>
                       </tfoot>

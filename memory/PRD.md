@@ -344,6 +344,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **"Cancel Edit" button** - Clears edit state and returns to normal view
   - [x] **Toast notifications** - "GRN loaded for editing" / "GRN updated successfully"
   - [x] **Full item modification** - Can modify GRN qty, rate, and other fields before saving
+- [x] **Daily P&L Table Enhancements** (COMPLETED - Mar 31, 2026):
+  - [x] **Increased font sizes** - Item, customer, vertical rows now use `text-sm` for better readability
+  - [x] **GM % column** - Gross Margin % with color-coded badges (green ≥20%, yellow 0-20%, red <0%)
+  - [x] **₹/UNIT column (Profit/Dispatch)** - Shows profit per unit at all levels (Date, Vertical, Customer, Item)
+  - [x] **Unit economics tracking** - Profit = Gross Profit / Supplied Qty, visible throughout hierarchy
+  - [x] **Items sorted by GM% descending** - Helps identify highest-margin products first
+  - [x] **Date Filter verified** - Top Summary, QC Dashboard, and Retail Dashboard all update correctly based on selected date range
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

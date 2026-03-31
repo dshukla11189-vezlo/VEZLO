@@ -2614,7 +2614,43 @@ async def get_pnl_report(
         if customer in sales_by_customer:
             sales_by_customer[customer]["invoices"] = sales_by_customer[customer].get("invoices", 0) + 1
     
-    # ========== RETAILER SALES (from Retailer Dispatches - net_payable) ==========
+    # ========== PRE-CALCULATE AVERAGE PURCHASE PRICES (for COGS) ==========
+    # Fetch all procurements to calculate average purchase price per product
+    all_procurements = await db.procurements.find({
+        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    product_purchase_totals = {}  # {product: {amount: X, qty: Y}}
+    for proc in all_procurements:
+        for item in proc.get("products", []):
+            product = item.get("product_name", "Unknown")
+            qty = item.get("quantity", 0) or 0
+            total_amt = item.get("total", 0) or 0
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            
+            # Convert to Kg if unit is Bunch/Piece
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    weight_per_unit_gm = float(unit_size)
+                    qty = (qty * weight_per_unit_gm) / 1000
+                except (ValueError, TypeError):
+                    pass
+            
+            if product not in product_purchase_totals:
+                product_purchase_totals[product] = {"amount": 0, "qty": 0}
+            product_purchase_totals[product]["amount"] += total_amt
+            product_purchase_totals[product]["qty"] += qty
+    
+    # Calculate average price per Kg for each product
+    avg_price_by_product = {}
+    for product, data in product_purchase_totals.items():
+        if data["qty"] > 0:
+            avg_price_by_product[product] = data["amount"] / data["qty"]
+        else:
+            avg_price_by_product[product] = 0
+    
+    # ========== RETAILER SALES (from Retailer Dispatches - GROSS MRP) ==========
     retailer_dispatches = await db.retailer_dispatches.find({
         "dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
     }, {"_id": 0}).to_list(1000)
@@ -2629,50 +2665,84 @@ async def get_pnl_report(
     retail_sales_total = 0
     retail_sales_qty = 0
     
+    # Track retail-specific data
+    retail_gross_mrp_by_date = {}  # Gross MRP before rejection/commission
+    retail_rejection_by_date = {}  # Rejection value by date
+    retail_commission_by_date = {}  # Commission by date
+    retail_cogs_by_date = {}  # COGS for retail
+    
+    # Fetch all retailer rejections for the date range
+    retailer_rejections = await db.retailer_rejections.find({
+        "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Group rejections by date
+    for rej in retailer_rejections:
+        rej_date = rej.get("rejection_date", "")[:10]
+        if rej_date not in retail_rejection_by_date:
+            retail_rejection_by_date[rej_date] = {"qty": 0, "value": 0}
+        retail_rejection_by_date[rej_date]["qty"] += rej.get("quantity", 0) or 0
+        retail_rejection_by_date[rej_date]["value"] += rej.get("rejection_value", 0) or 0
+    
     for dispatch in retailer_dispatches:
         # Use company_name instead of retailer_name (owner's name)
         retailer_id = dispatch.get("retailer_id", "")
         company_name = retailer_company_map.get(retailer_id, dispatch.get("retailer_name", "Unknown"))
         customer = company_name + " (Retail)"
         dispatch_date = dispatch.get("dispatch_date", "")[:10]
-        # Use net_payable (after commission deduction) as the actual sales value
-        net_payable = dispatch.get("net_payable", 0) or 0
+        
+        # Get GROSS MRP value (before commission deduction)
+        gross_mrp = dispatch.get("total_mrp_value", 0) or 0
         commission_pct = dispatch.get("commission_percentage", 0) or 0
+        
+        # Calculate commission on gross MRP
+        commission_amount = gross_mrp * commission_pct / 100
         
         if customer not in sales_by_customer:
             sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail"}
         if dispatch_date not in sales_by_date:
-            sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0}
+            sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0, "retail_gross_mrp": 0, "retail_rejection": 0, "retail_rejection_qty": 0, "retail_commission": 0, "retail_cogs": 0}
         if dispatch_date not in product_by_date:
             product_by_date[dispatch_date] = {}
         if dispatch_date not in line_items_by_date:
             line_items_by_date[dispatch_date] = []
         
+        # Initialize retail tracking for this date
+        if dispatch_date not in retail_gross_mrp_by_date:
+            retail_gross_mrp_by_date[dispatch_date] = 0
+            retail_commission_by_date[dispatch_date] = 0
+            retail_cogs_by_date[dispatch_date] = 0
+        
         dispatch_qty = 0
+        dispatch_cogs = 0
         for item in dispatch.get("items", []):
             qty = item.get("supplied_qty", 0) or 0
             product = item.get("product_name", "Unknown")
             unit = item.get("variant_name", "") or "Kg"
-            item_value = item.get("total_value", 0) or 0
+            item_value = item.get("total_value", 0) or 0  # MRP * qty
             mrp = item.get("mrp", 0) or 0
-            # Calculate proportional net value after commission
-            item_net_value = item_value * (1 - commission_pct / 100)
             
             dispatch_qty += qty
             
+            # Calculate COGS using average purchase price from the product
+            # Get average purchase price for this product from procurements
+            avg_purchase_price = avg_price_by_product.get(product, 0)
+            item_cogs = qty * avg_purchase_price
+            dispatch_cogs += item_cogs
+            
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
-            sales_by_product[product]["sales_amount"] += item_net_value
+            sales_by_product[product]["sales_amount"] += item_value  # Use gross MRP value
             sales_by_product[product]["sales_qty"] += qty
             
             # Product breakdown per date with customer tracking
             if product not in product_by_date[dispatch_date]:
                 product_by_date[dispatch_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
-            product_by_date[dispatch_date][product]["sales"] += item_net_value
+            product_by_date[dispatch_date][product]["sales"] += item_value  # Gross MRP
             product_by_date[dispatch_date][product]["sales_qty"] += qty
             if customer not in product_by_date[dispatch_date][product]["customers"]:
                 product_by_date[dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
-            product_by_date[dispatch_date][product]["customers"][customer]["sales"] += item_net_value
+            product_by_date[dispatch_date][product]["customers"][customer]["sales"] += item_value
             product_by_date[dispatch_date][product]["customers"][customer]["qty"] += qty
             
             # Add detailed line item for retailer
@@ -2683,24 +2753,38 @@ async def get_pnl_report(
                 "unit": unit,
                 "supplied_qty": round(qty, 2),
                 "supplied_kg": round(qty, 3),  # Retailers typically use Kg directly
-                "revenue": round(item_net_value, 2),
+                "revenue": round(item_value, 2),  # Gross MRP
                 "rate_per_kg": round(mrp, 2),  # MRP as rate
                 "rate_per_unit": round(mrp, 2),
-                "cogs": 0,
+                "cogs": round(item_cogs, 2),
                 "wastage_kg": 0,
                 "wastage_value": 0
             })
         
-        total_sales += net_payable
+        # Track gross MRP for retail (before any deductions)
+        retail_gross_mrp_by_date[dispatch_date] += gross_mrp
+        retail_commission_by_date[dispatch_date] += commission_amount
+        retail_cogs_by_date[dispatch_date] += dispatch_cogs
+        
+        total_sales += gross_mrp  # Use gross MRP for total sales
         total_sales_qty += dispatch_qty
-        retail_sales_total += net_payable
+        retail_sales_total += gross_mrp
         retail_sales_qty += dispatch_qty
-        sales_by_customer[customer]["amount"] += net_payable
+        sales_by_customer[customer]["amount"] += gross_mrp
         sales_by_customer[customer]["qty"] += dispatch_qty
-        sales_by_date[dispatch_date]["sales"] += net_payable
+        sales_by_date[dispatch_date]["sales"] += gross_mrp
         sales_by_date[dispatch_date]["sales_qty"] += dispatch_qty
-        sales_by_date[dispatch_date]["retail_sales"] = sales_by_date[dispatch_date].get("retail_sales", 0) + net_payable
+        sales_by_date[dispatch_date]["retail_sales"] = sales_by_date[dispatch_date].get("retail_sales", 0) + gross_mrp
+        sales_by_date[dispatch_date]["retail_gross_mrp"] = sales_by_date[dispatch_date].get("retail_gross_mrp", 0) + gross_mrp
+        sales_by_date[dispatch_date]["retail_commission"] = sales_by_date[dispatch_date].get("retail_commission", 0) + commission_amount
+        sales_by_date[dispatch_date]["retail_cogs"] = sales_by_date[dispatch_date].get("retail_cogs", 0) + dispatch_cogs
         sales_by_customer[customer]["invoices"] += 1
+    
+    # Add rejection data to sales_by_date
+    for rej_date, rej_data in retail_rejection_by_date.items():
+        if rej_date in sales_by_date:
+            sales_by_date[rej_date]["retail_rejection"] = rej_data["value"]
+            sales_by_date[rej_date]["retail_rejection_qty"] = rej_data["qty"]
     
     # ========== PURCHASES (from Procurements) ==========
     procurements = await db.procurements.find({
@@ -2834,8 +2918,12 @@ async def get_pnl_report(
     for date_key in sales_by_date:
         sales_by_date[date_key]["fixed_exp"] = round(daily_fixed, 2)
     
-    # ========== CALCULATE P&L ==========
-    gross_profit = total_sales - total_purchase - total_wastage_value
+    # ========== CALCULATE TOTAL REJECTION AND COMMISSION ==========
+    total_retail_rejection = sum(day_data.get("retail_rejection", 0) for day_data in sales_by_date.values())
+    total_retail_commission = sum(day_data.get("retail_commission", 0) for day_data in sales_by_date.values())
+    
+    # ========== CALCULATE P&L (including rejection and commission for retail) ==========
+    gross_profit = total_sales - total_purchase - total_wastage_value - total_retail_rejection - total_retail_commission
     gross_margin = (gross_profit / total_sales * 100) if total_sales > 0 else 0
     
     net_profit = gross_profit - total_variable - total_fixed
@@ -2845,7 +2933,13 @@ async def get_pnl_report(
     daily_pnl = []
     for date_key in sorted(sales_by_date.keys()):
         day_data = sales_by_date[date_key]
-        day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"]
+        
+        # Get retail-specific deductions for this date
+        day_retail_rejection = day_data.get("retail_rejection", 0)
+        day_retail_commission = day_data.get("retail_commission", 0)
+        
+        # Gross profit = Sales - Purchase - Wastage - Rejection - Commission
+        day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"] - day_retail_rejection - day_retail_commission
         day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
         day_sales_qty = day_data.get("sales_qty", 0)
         day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
@@ -2979,6 +3073,11 @@ async def get_pnl_report(
             "sales_qty": round(day_sales_qty, 2),
             "qc_sales": round(day_data.get("qc_sales", 0), 2),
             "retail_sales": round(day_data.get("retail_sales", 0), 2),
+            "retail_gross_mrp": round(day_data.get("retail_gross_mrp", 0), 2),
+            "retail_rejection": round(day_data.get("retail_rejection", 0), 2),
+            "retail_rejection_qty": round(day_data.get("retail_rejection_qty", 0), 2),
+            "retail_commission": round(day_data.get("retail_commission", 0), 2),
+            "retail_cogs": round(day_data.get("retail_cogs", 0), 2),
             "purchase": round(day_data["purchase"], 2),
             "wastage": round(day_data["wastage"], 2),
             "gross_profit": round(day_gross, 2),
@@ -3062,16 +3161,16 @@ async def get_pnl_report(
     qc_net_profit = qc_gross_profit - qc_variable_exp - qc_fixed_exp
     qc_net_margin = (qc_net_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0
     
-    # Calculate Retail P&L
-    retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage
-    retail_cost_base = retail_purchase + retail_wastage
-    retail_gross_margin = (retail_gross_profit / retail_cost_base * 100) if retail_cost_base > 0 else 0
+    # Calculate Retail P&L (including rejection and commission)
+    retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage - total_retail_rejection - total_retail_commission
+    retail_cost_base = retail_purchase + retail_wastage + total_retail_rejection + total_retail_commission
+    retail_gross_margin = (retail_gross_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
     retail_net_profit = retail_gross_profit - retail_variable_exp - retail_fixed_exp
     retail_net_margin = (retail_net_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
     
     # Also calculate overall gross margin %
-    total_cost_base = total_purchase + total_wastage_value
-    overall_gross_margin_pct = (gross_profit / total_cost_base * 100) if total_cost_base > 0 else 0
+    total_cost_base = total_purchase + total_wastage_value + total_retail_rejection + total_retail_commission
+    overall_gross_margin_pct = (gross_profit / total_sales * 100) if total_sales > 0 else 0
     
     return {
         "period": {"from": from_date, "to": to_date},
@@ -3082,6 +3181,8 @@ async def get_pnl_report(
             "total_purchase_qty": round(total_purchase_qty, 2),
             "total_wastage_qty": round(total_wastage_qty, 2),
             "total_wastage_value": round(total_wastage_value, 2),
+            "total_retail_rejection": round(total_retail_rejection, 2),
+            "total_retail_commission": round(total_retail_commission, 2),
             "gross_profit": round(gross_profit, 2),
             "gross_margin": round(gross_margin, 1),
             "gross_margin_pct": round(overall_gross_margin_pct, 1),
@@ -3112,6 +3213,8 @@ async def get_pnl_report(
                 "orders": retail_order_count,
                 "purchase": round(retail_purchase, 2),
                 "wastage": round(retail_wastage, 2),
+                "rejection": round(total_retail_rejection, 2),
+                "commission": round(total_retail_commission, 2),
                 "gross_profit": round(retail_gross_profit, 2),
                 "gross_margin_pct": round(retail_gross_margin, 1),
                 "variable_exp": round(retail_variable_exp, 2),

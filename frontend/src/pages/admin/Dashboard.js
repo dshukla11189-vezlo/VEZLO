@@ -572,6 +572,8 @@ export default function AdminDashboard() {
                         <th className="p-2 text-right font-medium text-gray-500">QTY</th>
                         <th className="p-2 text-right font-medium text-gray-500">PURCHASE</th>
                         <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
+                        <th className="p-2 text-right font-medium text-red-500">REJECTION</th>
+                        <th className="p-2 text-right font-medium text-amber-600">COMMISSION</th>
                         <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
                         <th className="p-2 text-right font-medium text-gray-500">GM %</th>
                         <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
@@ -580,7 +582,7 @@ export default function AdminDashboard() {
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={11} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
                         dailyPnl.map((day, idx) => {
@@ -596,13 +598,21 @@ export default function AdminDashboard() {
                           const qcGross = qcSales - qcPurchase - qcWastage;
                           const qcMargin = qcSales > 0 ? (qcGross / qcSales * 100) : 0;
                           
-                          // Retail aggregates
-                          const retailSales = retailItems.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                          // Retail aggregates - use data from API including rejection/commission
+                          const retailSales = day.retail_gross_mrp || day.retail_sales || retailItems.reduce((sum, i) => sum + (i.revenue || 0), 0);
                           const retailQty = retailItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
-                          const retailPurchase = retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                          const retailPurchase = day.retail_cogs || retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
                           const retailWastage = retailItems.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
-                          const retailGross = retailSales - retailPurchase - retailWastage;
+                          const retailRejection = day.retail_rejection || 0;
+                          const retailCommission = day.retail_commission || 0;
+                          const retailGross = retailSales - retailPurchase - retailWastage - retailRejection - retailCommission;
                           const retailMargin = retailSales > 0 ? (retailGross / retailSales * 100) : 0;
+                          
+                          // Day total (rejection and commission only apply to retail)
+                          const dayRejection = retailRejection;
+                          const dayCommission = retailCommission;
+                          const dayGrossWithDeductions = day.sales - day.purchase - day.wastage - dayRejection - dayCommission;
+                          const dayMarginWithDeductions = day.sales > 0 ? (dayGrossWithDeductions / day.sales * 100) : 0;
                           
                           // Group by customer within each vertical
                           const qcByCustomer = qcItems.reduce((acc, item) => {
@@ -632,18 +642,20 @@ export default function AdminDashboard() {
                                 <td className="p-2 text-right text-gray-600">{day.sales_qty?.toLocaleString() || 0}</td>
                                 <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
                                 <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
-                                <td className={`p-2 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                  {day.gross_profit >= 0 ? '' : '-'}₹{Math.abs(day.gross_profit).toLocaleString()}
+                                <td className="p-2 text-right text-red-500">{dayRejection > 0 ? `-₹${dayRejection.toLocaleString()}` : '-'}</td>
+                                <td className="p-2 text-right text-amber-600">{dayCommission > 0 ? `-₹${dayCommission.toLocaleString()}` : '-'}</td>
+                                <td className={`p-2 text-right font-semibold ${dayGrossWithDeductions >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                  {dayGrossWithDeductions >= 0 ? '' : '-'}₹{Math.abs(dayGrossWithDeductions).toLocaleString()}
                                 </td>
                                 <td className="p-2 text-right">
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                    day.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
-                                    day.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                    dayMarginWithDeductions >= 20 ? 'bg-green-100 text-green-700' : 
+                                    dayMarginWithDeductions >= 0 ? 'bg-yellow-100 text-yellow-700' : 
                                     'bg-red-100 text-red-700'
-                                  }`}>{day.gross_margin}%</span>
+                                  }`}>{dayMarginWithDeductions.toFixed(1)}%</span>
                                 </td>
                                 <td className="p-2 text-right font-medium text-gray-700">
-                                  {day.sales_qty > 0 ? `₹${(day.gross_profit / day.sales_qty).toFixed(1)}` : '-'}
+                                  {day.sales_qty > 0 ? `₹${(dayGrossWithDeductions / day.sales_qty).toFixed(1)}` : '-'}
                                 </td>
                               </tr>
                               
@@ -671,6 +683,8 @@ export default function AdminDashboard() {
                                         <td className="p-2 text-right text-blue-600">{qcQty.toLocaleString()}</td>
                                         <td className="p-2 text-right text-orange-600">₹{qcPurchase.toLocaleString()}</td>
                                         <td className="p-2 text-right text-red-600">₹{qcWastage.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-gray-400">-</td>
+                                        <td className="p-2 text-right text-gray-400">-</td>
                                         <td className={`p-2 text-right font-semibold ${qcGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                           {qcGross >= 0 ? '' : '-'}₹{Math.abs(qcGross).toLocaleString()}
                                         </td>
@@ -715,6 +729,8 @@ export default function AdminDashboard() {
                                               <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
                                               <td className="p-2 text-right text-orange-500 text-sm">₹{custPurchase.toLocaleString()}</td>
                                               <td className="p-2 text-right text-red-500 text-sm">₹{custWastage.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                              <td className="p-2 text-right text-gray-400 text-sm">-</td>
                                               <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                 {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
                                               </td>
@@ -745,6 +761,8 @@ export default function AdminDashboard() {
                                                   <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
                                                   <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                                  <td className="p-2 text-right text-gray-400 text-sm">-</td>
                                                   <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                     ₹{itemGross.toLocaleString()}
                                                   </td>
@@ -786,6 +804,8 @@ export default function AdminDashboard() {
                                         <td className="p-2 text-right text-emerald-600">{retailQty.toLocaleString()}</td>
                                         <td className="p-2 text-right text-orange-600">₹{retailPurchase.toLocaleString()}</td>
                                         <td className="p-2 text-right text-red-600">₹{retailWastage.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-red-500">{retailRejection > 0 ? `-₹${retailRejection.toLocaleString()}` : '-'}</td>
+                                        <td className="p-2 text-right text-amber-600">{retailCommission > 0 ? `-₹${retailCommission.toLocaleString()}` : '-'}</td>
                                         <td className={`p-2 text-right font-semibold ${retailGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                           {retailGross >= 0 ? '' : '-'}₹{Math.abs(retailGross).toLocaleString()}
                                         </td>
@@ -830,6 +850,8 @@ export default function AdminDashboard() {
                                               <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
                                               <td className="p-2 text-right text-orange-500 text-sm">₹{custPurchase.toLocaleString()}</td>
                                               <td className="p-2 text-right text-red-500 text-sm">₹{custWastage.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-red-500 text-sm">-</td>
+                                              <td className="p-2 text-right text-amber-500 text-sm">-</td>
                                               <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                 {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
                                               </td>
@@ -860,6 +882,8 @@ export default function AdminDashboard() {
                                                   <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
                                                   <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                                  <td className="p-2 text-right text-gray-400 text-sm">-</td>
                                                   <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                     ₹{itemGross.toLocaleString()}
                                                   </td>
@@ -883,7 +907,7 @@ export default function AdminDashboard() {
                                   {/* No data message */}
                                   {qcItems.length === 0 && retailItems.length === 0 && (
                                     <tr className="bg-gray-50">
-                                      <td colSpan={9} className="p-2 pl-8 text-xs text-gray-400 italic">
+                                      <td colSpan={11} className="p-2 pl-8 text-xs text-gray-400 italic">
                                         No detailed line items available for this date
                                       </td>
                                     </tr>
@@ -904,6 +928,14 @@ export default function AdminDashboard() {
                           <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
                           <td className="p-2 text-right text-orange-700">₹{summary.total_purchase?.toLocaleString()}</td>
                           <td className="p-2 text-right text-red-700">₹{summary.total_wastage_value?.toLocaleString()}</td>
+                          <td className="p-2 text-right text-red-500">
+                            {dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0) > 0 ? 
+                              `-₹${dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0).toLocaleString()}` : '-'}
+                          </td>
+                          <td className="p-2 text-right text-amber-600">
+                            {dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0) > 0 ? 
+                              `-₹${dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0).toLocaleString()}` : '-'}
+                          </td>
                           <td className={`p-2 text-right ${summary.gross_profit >= 0 ? 'text-green-800' : 'text-red-800'}`}>
                             ₹{summary.gross_profit?.toLocaleString()}
                           </td>

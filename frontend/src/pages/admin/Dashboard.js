@@ -26,12 +26,30 @@ export default function AdminDashboard() {
   });
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState('overview');
-  const [expandedDates, setExpandedDates] = useState({});
+  
+  // Multi-level expansion states
+  const [expandedDates, setExpandedDates] = useState({});        // Date → QC/Retail
+  const [expandedVerticals, setExpandedVerticals] = useState({}); // Date_Vertical → Customers
+  const [expandedCustomers, setExpandedCustomers] = useState({}); // Date_Vertical_Customer → Items
 
   const toggleDateExpand = (date) => {
     setExpandedDates(prev => ({
       ...prev,
       [date]: !prev[date]
+    }));
+  };
+  
+  const toggleVerticalExpand = (key) => {
+    setExpandedVerticals(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+  
+  const toggleCustomerExpand = (key) => {
+    setExpandedCustomers(prev => ({
+      ...prev,
+      [key]: !prev[key]
     }));
   };
 
@@ -535,12 +553,12 @@ export default function AdminDashboard() {
               </CardContent>
             </Card>
 
-            {/* Daily P&L Table */}
+            {/* Daily P&L Table - Multi-Level Expandable */}
             <Card className="lg:col-span-2">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm flex items-center justify-between">
                   <span>Daily P&L Breakdown</span>
-                  <span className="text-[10px] font-normal text-gray-500">Click row to expand product details</span>
+                  <span className="text-[10px] font-normal text-gray-500">Date → QC/Retail → Customer → Products</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -549,10 +567,8 @@ export default function AdminDashboard() {
                     <thead className="bg-gray-50 border-b">
                       <tr>
                         <th className="p-2 text-left font-medium text-gray-500 w-8"></th>
-                        <th className="p-2 text-left font-medium text-gray-500">DATE</th>
+                        <th className="p-2 text-left font-medium text-gray-500">DATE / VERTICAL / CUSTOMER</th>
                         <th className="p-2 text-right font-medium text-gray-500">SALES</th>
-                        <th className="p-2 text-right font-medium text-blue-500 text-[10px]">QC</th>
-                        <th className="p-2 text-right font-medium text-emerald-500 text-[10px]">RETAIL</th>
                         <th className="p-2 text-right font-medium text-gray-500">QTY</th>
                         <th className="p-2 text-right font-medium text-gray-500">PURCHASE</th>
                         <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
@@ -563,113 +579,262 @@ export default function AdminDashboard() {
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={8} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
-                        dailyPnl.map((day, idx) => (
-                          <React.Fragment key={idx}>
-                            {/* Main Date Row */}
-                            <tr 
-                              className="border-b hover:bg-gray-50 cursor-pointer"
-                              onClick={() => toggleDateExpand(day.date)}
-                            >
-                              <td className="p-2 text-center">
-                                {expandedDates[day.date] ? (
-                                  <ChevronDown size={14} className="text-gray-500" />
-                                ) : (
-                                  <ChevronRight size={14} className="text-gray-500" />
-                                )}
-                              </td>
-                              <td className="p-2 font-medium">{formatDate(day.date)}</td>
-                              <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
-                              <td className="p-2 text-right text-blue-600 text-[10px]">₹{(day.qc_sales || 0).toLocaleString()}</td>
-                              <td className="p-2 text-right text-emerald-600 text-[10px]">₹{(day.retail_sales || 0).toLocaleString()}</td>
-                              <td className="p-2 text-right text-gray-600">{day.sales_qty?.toLocaleString() || 0}</td>
-                              <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
-                              <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
-                              <td className={`p-2 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                {day.gross_profit >= 0 ? '' : '-'}₹{Math.abs(day.gross_profit).toLocaleString()}
-                              </td>
-                              <td className="p-2 text-right">
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  day.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
-                                  day.gross_margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
-                                  day.gross_margin >= 0 ? 'bg-orange-100 text-orange-700' :
-                                  'bg-red-100 text-red-700'
-                                }`}>
-                                  {day.gross_margin}%
-                                </span>
-                              </td>
-                            </tr>
-                            
-                            {/* Expanded Detailed Line Items (Customer → Product) */}
-                            {expandedDates[day.date] && day.line_items && day.line_items.length > 0 && (
-                              <tr>
-                                <td colSpan={10} className="p-0">
-                                  <div className="bg-blue-50 border-t border-b overflow-x-auto">
-                                    <table className="w-full min-w-[1200px]">
-                                      <thead>
-                                        <tr className="bg-blue-100/70 border-b">
-                                          <th className="p-1.5 text-left text-[9px] font-semibold text-gray-600 sticky left-0 bg-blue-100/70">CUSTOMER</th>
-                                          <th className="p-1.5 text-center text-[9px] font-semibold text-gray-500">TYPE</th>
-                                          <th className="p-1.5 text-left text-[9px] font-semibold text-gray-600">PRODUCT</th>
-                                          <th className="p-1.5 text-left text-[9px] font-semibold text-gray-600">UNIT</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">QTY</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">KG</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">REVENUE</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">COGS</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">WASTAGE (KG)</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">WASTAGE (₹)</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">GROSS PROFIT</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">S.P./KG</th>
-                                          <th className="p-1.5 text-right text-[9px] font-semibold text-gray-600">P.P./KG</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {day.line_items.map((item, lidx) => (
-                                          <tr key={lidx} className="border-b border-blue-100 hover:bg-blue-100/50">
-                                            <td className="p-1.5 text-[9px] font-medium text-blue-700 sticky left-0 bg-blue-50 max-w-[120px] truncate" title={item.customer}>
-                                              {item.customer.replace(' (Retail)', '').replace(' (QC)', '')}
-                                            </td>
-                                            <td className="p-1.5 text-center">
-                                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-semibold ${
-                                                item.customer_type === 'QC' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
-                                              }`}>
-                                                {item.customer_type}
-                                              </span>
-                                            </td>
-                                            <td className="p-1.5 text-[9px] text-gray-800">{item.product}</td>
-                                            <td className="p-1.5 text-[9px] text-gray-500 max-w-[100px] truncate" title={item.unit}>
-                                              {item.unit || '-'}
-                                            </td>
-                                            <td className="p-1.5 text-right text-[9px] text-gray-700">{item.supplied_qty.toLocaleString()}</td>
-                                            <td className="p-1.5 text-right text-[9px] text-gray-600">{item.supplied_kg.toFixed(2)}</td>
-                                            <td className="p-1.5 text-right text-[9px] text-green-700 font-medium">₹{item.revenue.toLocaleString()}</td>
-                                            <td className="p-1.5 text-right text-[9px] text-orange-600">₹{item.cogs.toLocaleString()}</td>
-                                            <td className="p-1.5 text-right text-[9px] text-gray-500">{item.wastage_kg.toFixed(2)}</td>
-                                            <td className="p-1.5 text-right text-[9px] text-red-600">₹{item.wastage_value.toLocaleString()}</td>
-                                            <td className={`p-1.5 text-right text-[9px] font-bold ${item.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                              ₹{item.gross_profit.toLocaleString()}
-                                            </td>
-                                            <td className="p-1.5 text-right text-[9px] text-gray-700">₹{item.selling_price_per_kg.toFixed(2)}</td>
-                                            <td className="p-1.5 text-right text-[9px] text-gray-700">₹{item.purchase_price_per_kg.toFixed(2)}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                        dailyPnl.map((day, idx) => {
+                          // Group line items by vertical and customer
+                          const qcItems = (day.line_items || []).filter(i => i.customer_type === 'QC');
+                          const retailItems = (day.line_items || []).filter(i => i.customer_type !== 'QC');
+                          
+                          // QC aggregates
+                          const qcSales = qcItems.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                          const qcQty = qcItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                          const qcPurchase = qcItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                          const qcWastage = qcItems.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
+                          const qcGross = qcSales - qcPurchase - qcWastage;
+                          const qcMargin = qcSales > 0 ? (qcGross / qcSales * 100) : 0;
+                          
+                          // Retail aggregates
+                          const retailSales = retailItems.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                          const retailQty = retailItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                          const retailPurchase = retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                          const retailWastage = retailItems.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
+                          const retailGross = retailSales - retailPurchase - retailWastage;
+                          const retailMargin = retailSales > 0 ? (retailGross / retailSales * 100) : 0;
+                          
+                          // Group by customer within each vertical
+                          const qcByCustomer = qcItems.reduce((acc, item) => {
+                            if (!acc[item.customer]) acc[item.customer] = [];
+                            acc[item.customer].push(item);
+                            return acc;
+                          }, {});
+                          
+                          const retailByCustomer = retailItems.reduce((acc, item) => {
+                            if (!acc[item.customer]) acc[item.customer] = [];
+                            acc[item.customer].push(item);
+                            return acc;
+                          }, {});
+                          
+                          return (
+                            <React.Fragment key={idx}>
+                              {/* Level 1: Date Row */}
+                              <tr 
+                                className="border-b hover:bg-gray-50 cursor-pointer bg-white"
+                                onClick={() => toggleDateExpand(day.date)}
+                              >
+                                <td className="p-2 text-center">
+                                  {expandedDates[day.date] ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+                                </td>
+                                <td className="p-2 font-semibold text-gray-800">{formatDate(day.date)}</td>
+                                <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
+                                <td className="p-2 text-right text-gray-600">{day.sales_qty?.toLocaleString() || 0}</td>
+                                <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
+                                <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
+                                <td className={`p-2 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                  {day.gross_profit >= 0 ? '' : '-'}₹{Math.abs(day.gross_profit).toLocaleString()}
+                                </td>
+                                <td className="p-2 text-right">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                    day.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
+                                    day.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                    'bg-red-100 text-red-700'
+                                  }`}>{day.gross_margin}%</span>
                                 </td>
                               </tr>
-                            )}
-                            {expandedDates[day.date] && (!day.line_items || day.line_items.length === 0) && (
-                              <tr className="bg-gray-50">
-                                <td colSpan={10} className="p-2 pl-8 text-[10px] text-gray-400 italic">
-                                  No detailed line items available
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        ))
+                              
+                              {/* Level 2: QC & Retail Rows (when date expanded) */}
+                              {expandedDates[day.date] && (
+                                <>
+                                  {/* QC Vertical Row */}
+                                  {qcItems.length > 0 && (
+                                    <>
+                                      <tr 
+                                        className="border-b bg-blue-50 hover:bg-blue-100 cursor-pointer"
+                                        onClick={() => toggleVerticalExpand(`${day.date}_QC`)}
+                                      >
+                                        <td className="p-2 text-center pl-6">
+                                          {expandedVerticals[`${day.date}_QC`] ? <ChevronDown size={12} className="text-blue-500" /> : <ChevronRight size={12} className="text-blue-500" />}
+                                        </td>
+                                        <td className="p-2 pl-6">
+                                          <span className="inline-flex items-center gap-2">
+                                            <Zap size={12} className="text-blue-600" />
+                                            <span className="font-medium text-blue-800">Quick Commerce (QC)</span>
+                                            <span className="text-[10px] text-blue-500">({Object.keys(qcByCustomer).length} customers)</span>
+                                          </span>
+                                        </td>
+                                        <td className="p-2 text-right text-blue-700 font-medium">₹{qcSales.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-blue-600">{qcQty.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-orange-600">₹{qcPurchase.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-red-600">₹{qcWastage.toLocaleString()}</td>
+                                        <td className={`p-2 text-right font-semibold ${qcGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                          {qcGross >= 0 ? '' : '-'}₹{Math.abs(qcGross).toLocaleString()}
+                                        </td>
+                                        <td className="p-2 text-right">
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${qcMargin >= 0 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                                            {qcMargin.toFixed(1)}%
+                                          </span>
+                                        </td>
+                                      </tr>
+                                      
+                                      {/* Level 3: QC Customer Rows */}
+                                      {expandedVerticals[`${day.date}_QC`] && Object.entries(qcByCustomer).map(([customer, items]) => {
+                                        const custSales = items.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                                        const custQty = items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                                        const custPurchase = items.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                                        const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
+                                        const custGross = custSales - custPurchase - custWastage;
+                                        const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
+                                        const custKey = `${day.date}_QC_${customer}`;
+                                        
+                                        return (
+                                          <React.Fragment key={custKey}>
+                                            <tr 
+                                              className="border-b bg-blue-100/50 hover:bg-blue-100 cursor-pointer"
+                                              onClick={() => toggleCustomerExpand(custKey)}
+                                            >
+                                              <td className="p-2 text-center pl-10">
+                                                {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-blue-400" /> : <ChevronRight size={10} className="text-blue-400" />}
+                                              </td>
+                                              <td className="p-2 pl-10">
+                                                <span className="text-[11px] font-medium text-blue-700">{customer}</span>
+                                                <span className="ml-2 text-[9px] text-gray-400">({items.length} items)</span>
+                                              </td>
+                                              <td className="p-2 text-right text-blue-600 text-[11px]">₹{custSales.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-gray-600 text-[11px]">{custQty.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-orange-500 text-[11px]">₹{custPurchase.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-red-500 text-[11px]">₹{custWastage.toLocaleString()}</td>
+                                              <td className={`p-2 text-right text-[11px] font-medium ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
+                                              </td>
+                                              <td className="p-2 text-right text-[11px]">{custMargin.toFixed(1)}%</td>
+                                            </tr>
+                                            
+                                            {/* Level 4: Product/Item Details */}
+                                            {expandedCustomers[custKey] && items.map((item, iidx) => (
+                                              <tr key={iidx} className="border-b bg-white/80">
+                                                <td className="p-1.5 pl-14"></td>
+                                                <td className="p-1.5 pl-14">
+                                                  <span className="text-[10px] text-gray-700">{item.product}</span>
+                                                  <span className="ml-1 text-[9px] text-gray-400">{item.unit}</span>
+                                                </td>
+                                                <td className="p-1.5 text-right text-green-600 text-[10px]">₹{item.revenue.toLocaleString()}</td>
+                                                <td className="p-1.5 text-right text-gray-500 text-[10px]">{item.supplied_qty}</td>
+                                                <td className="p-1.5 text-right text-orange-500 text-[10px]">₹{item.cogs.toLocaleString()}</td>
+                                                <td className="p-1.5 text-right text-red-500 text-[10px]">₹{item.wastage_value.toLocaleString()}</td>
+                                                <td className={`p-1.5 text-right text-[10px] ${item.gross_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                  ₹{item.gross_profit.toLocaleString()}
+                                                </td>
+                                                <td className="p-1.5 text-right text-[10px]">{item.gross_margin}%</td>
+                                              </tr>
+                                            ))}
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </>
+                                  )}
+                                  
+                                  {/* Retail Vertical Row */}
+                                  {retailItems.length > 0 && (
+                                    <>
+                                      <tr 
+                                        className="border-b bg-emerald-50 hover:bg-emerald-100 cursor-pointer"
+                                        onClick={() => toggleVerticalExpand(`${day.date}_Retail`)}
+                                      >
+                                        <td className="p-2 text-center pl-6">
+                                          {expandedVerticals[`${day.date}_Retail`] ? <ChevronDown size={12} className="text-emerald-500" /> : <ChevronRight size={12} className="text-emerald-500" />}
+                                        </td>
+                                        <td className="p-2 pl-6">
+                                          <span className="inline-flex items-center gap-2">
+                                            <ShoppingCart size={12} className="text-emerald-600" />
+                                            <span className="font-medium text-emerald-800">Retail</span>
+                                            <span className="text-[10px] text-emerald-500">({Object.keys(retailByCustomer).length} customers)</span>
+                                          </span>
+                                        </td>
+                                        <td className="p-2 text-right text-emerald-700 font-medium">₹{retailSales.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-emerald-600">{retailQty.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-orange-600">₹{retailPurchase.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-red-600">₹{retailWastage.toLocaleString()}</td>
+                                        <td className={`p-2 text-right font-semibold ${retailGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                          {retailGross >= 0 ? '' : '-'}₹{Math.abs(retailGross).toLocaleString()}
+                                        </td>
+                                        <td className="p-2 text-right">
+                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${retailMargin >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                            {retailMargin.toFixed(1)}%
+                                          </span>
+                                        </td>
+                                      </tr>
+                                      
+                                      {/* Level 3: Retail Customer Rows */}
+                                      {expandedVerticals[`${day.date}_Retail`] && Object.entries(retailByCustomer).map(([customer, items]) => {
+                                        const custSales = items.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                                        const custQty = items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                                        const custPurchase = items.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                                        const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
+                                        const custGross = custSales - custPurchase - custWastage;
+                                        const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
+                                        const custKey = `${day.date}_Retail_${customer}`;
+                                        
+                                        return (
+                                          <React.Fragment key={custKey}>
+                                            <tr 
+                                              className="border-b bg-emerald-100/50 hover:bg-emerald-100 cursor-pointer"
+                                              onClick={() => toggleCustomerExpand(custKey)}
+                                            >
+                                              <td className="p-2 text-center pl-10">
+                                                {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-emerald-400" /> : <ChevronRight size={10} className="text-emerald-400" />}
+                                              </td>
+                                              <td className="p-2 pl-10">
+                                                <span className="text-[11px] font-medium text-emerald-700">{customer}</span>
+                                                <span className="ml-2 text-[9px] text-gray-400">({items.length} items)</span>
+                                              </td>
+                                              <td className="p-2 text-right text-emerald-600 text-[11px]">₹{custSales.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-gray-600 text-[11px]">{custQty.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-orange-500 text-[11px]">₹{custPurchase.toLocaleString()}</td>
+                                              <td className="p-2 text-right text-red-500 text-[11px]">₹{custWastage.toLocaleString()}</td>
+                                              <td className={`p-2 text-right text-[11px] font-medium ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
+                                              </td>
+                                              <td className="p-2 text-right text-[11px]">{custMargin.toFixed(1)}%</td>
+                                            </tr>
+                                            
+                                            {/* Level 4: Product/Item Details */}
+                                            {expandedCustomers[custKey] && items.map((item, iidx) => (
+                                              <tr key={iidx} className="border-b bg-white/80">
+                                                <td className="p-1.5 pl-14"></td>
+                                                <td className="p-1.5 pl-14">
+                                                  <span className="text-[10px] text-gray-700">{item.product}</span>
+                                                  <span className="ml-1 text-[9px] text-gray-400">{item.unit}</span>
+                                                </td>
+                                                <td className="p-1.5 text-right text-green-600 text-[10px]">₹{item.revenue.toLocaleString()}</td>
+                                                <td className="p-1.5 text-right text-gray-500 text-[10px]">{item.supplied_qty}</td>
+                                                <td className="p-1.5 text-right text-orange-500 text-[10px]">₹{item.cogs.toLocaleString()}</td>
+                                                <td className="p-1.5 text-right text-red-500 text-[10px]">₹{item.wastage_value.toLocaleString()}</td>
+                                                <td className={`p-1.5 text-right text-[10px] ${item.gross_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                  ₹{item.gross_profit.toLocaleString()}
+                                                </td>
+                                                <td className="p-1.5 text-right text-[10px]">{item.gross_margin}%</td>
+                                              </tr>
+                                            ))}
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </>
+                                  )}
+                                  
+                                  {/* No data message */}
+                                  {qcItems.length === 0 && retailItems.length === 0 && (
+                                    <tr className="bg-gray-50">
+                                      <td colSpan={8} className="p-2 pl-8 text-[10px] text-gray-400 italic">
+                                        No detailed line items available for this date
+                                      </td>
+                                    </tr>
+                                  )}
+                                </>
+                              )}
+                            </React.Fragment>
+                          );
+                        })
                       )}
                     </tbody>
                     {dailyPnl.length > 0 && (
@@ -678,8 +843,6 @@ export default function AdminDashboard() {
                           <td className="p-2"></td>
                           <td className="p-2">TOTAL</td>
                           <td className="p-2 text-right text-green-700">₹{summary.total_sales?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-blue-600 text-[10px]">₹{pnlData?.vertical_bifurcation?.qc?.sales?.toLocaleString() || 0}</td>
-                          <td className="p-2 text-right text-emerald-600 text-[10px]">₹{pnlData?.vertical_bifurcation?.retail?.sales?.toLocaleString() || 0}</td>
                           <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
                           <td className="p-2 text-right text-orange-700">₹{summary.total_purchase?.toLocaleString()}</td>
                           <td className="p-2 text-right text-red-700">₹{summary.total_wastage_value?.toLocaleString()}</td>
@@ -689,11 +852,9 @@ export default function AdminDashboard() {
                           <td className="p-2 text-right">
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                               summary.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
-                              summary.gross_margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
-                              'bg-orange-100 text-orange-700'
-                            }`}>
-                              {summary.gross_margin}%
-                            </span>
+                              summary.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                              'bg-red-100 text-red-700'
+                            }`}>{summary.gross_margin}%</span>
                           </td>
                         </tr>
                       </tfoot>

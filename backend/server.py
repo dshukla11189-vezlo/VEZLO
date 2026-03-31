@@ -43,6 +43,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import re
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
@@ -1386,7 +1387,6 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             
             # If no weight from DB, try to parse from packaging name (e.g., "200 gm", "100 gm")
             if packaging_weight_gm == 0:
-                import re
                 weight_match = re.search(r'(\d+)\s*(gm|g|gram)', packaging_name.lower())
                 if weight_match:
                     packaging_weight_gm = int(weight_match.group(1))

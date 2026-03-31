@@ -56,7 +56,7 @@ export default function RetailerOrders() {
   const [indentForm, setIndentForm] = useState({
     retailer_id: '',
     indent_date: new Date().toISOString().split('T')[0],
-    items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
+    items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: '', status: 'pending' }],
     remarks: ''
   });
   
@@ -98,6 +98,7 @@ export default function RetailerOrders() {
   const [rejections, setRejections] = useState([]);
   const [filteredRejections, setFilteredRejections] = useState([]);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [editingRejection, setEditingRejection] = useState(null);
   const [rejectionDateFilter, setRejectionDateFilter] = useState('');
   const [rejectionRetailerFilter, setRejectionRetailerFilter] = useState('');
   const [rejectionProductFilter, setRejectionProductFilter] = useState('');
@@ -114,7 +115,7 @@ export default function RetailerOrders() {
   const [paymentForm, setPaymentForm] = useState({
     retailer_id: '',
     payment_date: new Date().toISOString().split('T')[0],
-    amount: 0,
+    amount: '',
     payment_mode: 'cash',
     reference_number: '',
     remarks: ''
@@ -126,6 +127,10 @@ export default function RetailerOrders() {
   const [variantSearch, setVariantSearch] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(null); // index of item showing dropdown
   const [showVariantDropdown, setShowVariantDropdown] = useState(null);
+  const [retailerSearch, setRetailerSearch] = useState('');
+  const [showRetailerDropdown, setShowRetailerDropdown] = useState(false);
+  const [paymentRetailerSearch, setPaymentRetailerSearch] = useState('');
+  const [showPaymentRetailerDropdown, setShowPaymentRetailerDropdown] = useState(false);
   const productSearchRef = useRef(null);
   const variantSearchRef = useRef(null);
   
@@ -476,15 +481,17 @@ export default function RetailerOrders() {
     setIndentForm({
       retailer_id: '',
       indent_date: new Date().toISOString().split('T')[0],
-      items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
+      items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: '', status: 'pending' }],
       remarks: ''
     });
+    setRetailerSearch('');
+    setShowRetailerDropdown(false);
   };
 
   const addIndentItem = () => {
     setIndentForm(prev => ({
       ...prev,
-      items: [...prev.items, { product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }]
+      items: [...prev.items, { product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: '', status: 'pending' }]
     }));
   };
 
@@ -1110,6 +1117,25 @@ export default function RetailerOrders() {
     }
   };
 
+  const handleEditRejection = (rejection) => {
+    setEditingRejection(rejection);
+    setRejectionForm({
+      retailer_id: rejection.retailer_id,
+      rejection_date: rejection.rejection_date?.split('T')[0] || rejection.rejection_date,
+      items: [{
+        dispatch_id: rejection.dispatch_id || '',
+        product_id: rejection.product_id,
+        product_name: rejection.product_name,
+        variant_id: rejection.variant_id || '',
+        variant_name: rejection.variant_name || '',
+        quantity: rejection.quantity,
+        mrp: rejection.mrp,
+        reason: rejection.reason || ''
+      }]
+    });
+    setShowRejectionModal(true);
+  };
+
   const resetRejectionForm = () => {
     setRejectionForm({
       retailer_id: '',
@@ -1117,6 +1143,7 @@ export default function RetailerOrders() {
       items: []
     });
     setRejectionDispatchItems([]);
+    setEditingRejection(null);
   };
 
   // ==================== PAYMENT HANDLERS ====================
@@ -1209,12 +1236,14 @@ export default function RetailerOrders() {
     setPaymentForm({
       retailer_id: '',
       payment_date: new Date().toISOString().split('T')[0],
-      amount: 0,
+      amount: '',
       payment_mode: 'cash',
       reference_number: '',
       remarks: ''
     });
     setPaymentContext(null);
+    setPaymentRetailerSearch('');
+    setShowPaymentRetailerDropdown(false);
   };
 
   // Helper function to get retailer display name (company_name or name)
@@ -1236,6 +1265,15 @@ export default function RetailerOrders() {
   // Filter variants based on search
   const filteredVariants = packagings.filter(p => 
     p.name?.toLowerCase().includes(variantSearch.toLowerCase())
+  );
+
+  // Filtered retailers for search-based selection
+  const filteredRetailers = retailers.filter(r => 
+    (r.company_name || r.name || '').toLowerCase().includes(retailerSearch.toLowerCase())
+  );
+  
+  const filteredPaymentRetailers = retailers.filter(r => 
+    (r.company_name || r.name || '').toLowerCase().includes(paymentRetailerSearch.toLowerCase())
   );
 
   const toggleIndentExpand = (id) => {
@@ -1798,9 +1836,14 @@ export default function RetailerOrders() {
                         <td className="p-3 text-right text-red-600">{formatCurrency(rejection.rejection_value)}</td>
                         <td className="p-3">{rejection.reason}</td>
                         <td className="p-3 text-center">
-                          <Button size="sm" variant="ghost" onClick={() => handleDeleteRejection(rejection.id)}>
-                            <Trash2 size={14} className="text-red-600" />
-                          </Button>
+                          <div className="flex items-center justify-center gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => handleEditRejection(rejection)}>
+                              <Edit size={14} className="text-amber-600" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleDeleteRejection(rejection.id)}>
+                              <Trash2 size={14} className="text-red-600" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1878,19 +1921,48 @@ export default function RetailerOrders() {
               </div>
               <form onSubmit={handleCreateOrUpdateIndent} className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
-                    <select
-                      value={indentForm.retailer_id}
-                      onChange={(e) => setIndentForm(prev => ({ ...prev, retailer_id: e.target.value }))}
-                      className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    <Input
+                      type="text"
+                      value={retailerSearch || retailers.find(r => r.id === indentForm.retailer_id)?.company_name || retailers.find(r => r.id === indentForm.retailer_id)?.name || ''}
+                      onChange={(e) => {
+                        setRetailerSearch(e.target.value);
+                        setShowRetailerDropdown(true);
+                        if (!e.target.value) {
+                          setIndentForm(prev => ({ ...prev, retailer_id: '' }));
+                        }
+                      }}
+                      onFocus={() => {
+                        setShowRetailerDropdown(true);
+                        setRetailerSearch('');
+                      }}
+                      placeholder="Search retailer..."
+                      className="w-full h-9"
                       required
-                    >
-                      <option value="">Select Retailer</option>
-                      {retailers.map(r => (
-                        <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
-                      ))}
-                    </select>
+                    />
+                    {showRetailerDropdown && (
+                      <div className="absolute z-20 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        {filteredRetailers.length === 0 ? (
+                          <div className="p-2 text-sm text-gray-500">No retailers found</div>
+                        ) : (
+                          filteredRetailers.map(r => (
+                            <div
+                              key={r.id}
+                              className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                              onClick={() => {
+                                setIndentForm(prev => ({ ...prev, retailer_id: r.id }));
+                                setRetailerSearch(r.company_name || r.name);
+                                setShowRetailerDropdown(false);
+                              }}
+                            >
+                              <div className="font-medium">{r.company_name || r.name}</div>
+                              {r.contact_person && <div className="text-xs text-gray-500">{r.contact_person}</div>}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
@@ -1933,11 +2005,11 @@ export default function RetailerOrders() {
                             required
                           />
                           {showProductDropdown === index && productSearch && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto">
+                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
                               {filteredProducts.length === 0 ? (
                                 <div className="p-2 text-sm text-gray-500">No products found</div>
                               ) : (
-                                filteredProducts.slice(0, 8).map(p => (
+                                filteredProducts.slice(0, 10).map(p => (
                                   <div
                                     key={p.id}
                                     className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
@@ -1974,11 +2046,11 @@ export default function RetailerOrders() {
                             className="h-8 text-sm"
                           />
                           {showVariantDropdown === index && variantSearch && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto">
+                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
                               {filteredVariants.length === 0 ? (
                                 <div className="p-2 text-sm text-gray-500">No variants found</div>
                               ) : (
-                                filteredVariants.slice(0, 8).map(p => (
+                                filteredVariants.slice(0, 10).map(p => (
                                   <div
                                     key={p.id}
                                     className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
@@ -1999,8 +2071,8 @@ export default function RetailerOrders() {
                         <Input
                           type="number"
                           min="1"
-                          value={item.quantity}
-                          onChange={(e) => updateIndentItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                          value={item.quantity || ''}
+                          onChange={(e) => updateIndentItem(index, 'quantity', e.target.value === '' ? '' : parseFloat(e.target.value) || '')}
                           placeholder="Qty"
                           className="w-20 h-8"
                           required
@@ -2095,8 +2167,8 @@ export default function RetailerOrders() {
                               <Input
                                 type="number"
                                 min="0"
-                                value={item.supplied_qty}
-                                onChange={(e) => updateDispatchItem(index, 'supplied_qty', parseFloat(e.target.value) || 0)}
+                                value={item.supplied_qty || ''}
+                                onChange={(e) => updateDispatchItem(index, 'supplied_qty', e.target.value === '' ? '' : parseFloat(e.target.value) || '')}
                                 className="w-20 h-7 text-center mx-auto"
                               />
                             </td>
@@ -2105,8 +2177,8 @@ export default function RetailerOrders() {
                                 type="number"
                                 min="0"
                                 step="0.01"
-                                value={item.mrp}
-                                onChange={(e) => updateDispatchItem(index, 'mrp', parseFloat(e.target.value) || 0)}
+                                value={item.mrp || ''}
+                                onChange={(e) => updateDispatchItem(index, 'mrp', e.target.value === '' ? '' : parseFloat(e.target.value) || '')}
                                 className="w-24 h-7 text-center mx-auto"
                                 placeholder="₹ MRP"
                                 required
@@ -2544,24 +2616,53 @@ export default function RetailerOrders() {
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
                 <h3 className="text-lg font-semibold">Record Payment</h3>
-                <button onClick={() => { setShowPaymentModal(false); resetPaymentForm(); }} className="p-1 hover:bg-gray-100 rounded">
+                <button onClick={() => { setShowPaymentModal(false); resetPaymentForm(); setPaymentRetailerSearch(''); setShowPaymentRetailerDropdown(false); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
               <form onSubmit={handleCreatePayment} className="p-4 space-y-4">
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
-                  <select
-                    value={paymentForm.retailer_id}
-                    onChange={(e) => setPaymentForm(prev => ({ ...prev, retailer_id: e.target.value }))}
-                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
+                  <Input
+                    type="text"
+                    value={paymentRetailerSearch || retailers.find(r => r.id === paymentForm.retailer_id)?.company_name || retailers.find(r => r.id === paymentForm.retailer_id)?.name || ''}
+                    onChange={(e) => {
+                      setPaymentRetailerSearch(e.target.value);
+                      setShowPaymentRetailerDropdown(true);
+                      if (!e.target.value) {
+                        setPaymentForm(prev => ({ ...prev, retailer_id: '' }));
+                      }
+                    }}
+                    onFocus={() => {
+                      setShowPaymentRetailerDropdown(true);
+                      setPaymentRetailerSearch('');
+                    }}
+                    placeholder="Search retailer..."
+                    className="w-full h-9"
                     required
-                  >
-                    <option value="">Select Retailer</option>
-                    {retailers.map(r => (
-                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
-                    ))}
-                  </select>
+                  />
+                  {showPaymentRetailerDropdown && (
+                    <div className="absolute z-20 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      {filteredPaymentRetailers.length === 0 ? (
+                        <div className="p-2 text-sm text-gray-500">No retailers found</div>
+                      ) : (
+                        filteredPaymentRetailers.map(r => (
+                          <div
+                            key={r.id}
+                            className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                            onClick={() => {
+                              setPaymentForm(prev => ({ ...prev, retailer_id: r.id }));
+                              setPaymentRetailerSearch(r.company_name || r.name);
+                              setShowPaymentRetailerDropdown(false);
+                            }}
+                          >
+                            <div className="font-medium">{r.company_name || r.name}</div>
+                            {r.contact_person && <div className="text-xs text-gray-500">{r.contact_person}</div>}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
@@ -2614,9 +2715,9 @@ export default function RetailerOrders() {
                     type="number"
                     min="1"
                     step="0.01"
-                    value={paymentForm.amount}
-                    onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
-                    placeholder={paymentContext ? `Pending: ₹${paymentContext.pendingAmount?.toFixed(2)}` : ''}
+                    value={paymentForm.amount || ''}
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: e.target.value === '' ? '' : parseFloat(e.target.value) || '' }))}
+                    placeholder={paymentContext ? `Pending: ₹${paymentContext.pendingAmount?.toFixed(2)}` : 'Enter amount'}
                     required
                   />
                 </div>

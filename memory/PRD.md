@@ -355,6 +355,14 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Delete All for Date** - Added "Delete All" button to remove all GRN data for a specific date
   - [x] **Individual Item Delete Fix** - Fixed bug where delete was failing due to incorrect item index lookup
   - [x] **Duplicate Detection Warning** - Shows warning when saving GRN if data already exists for the dispatch date(s)
+- [x] **Retailer Section Improvements** (COMPLETED - Mar 31, 2026):
+  - [x] **Search-based Retailer Selection (Indent)** - Replaced dropdown with searchable input for retailer selection in Create Indent modal
+  - [x] **Larger Product/Variant Dropdowns** - Increased max-height from 40 to 60 for better visibility (shows 10 items instead of 8)
+  - [x] **Empty Quantity Fields** - Changed quantity default from 0 to empty string, no prefix 0
+  - [x] **Empty MRP Fields in Dispatch** - Changed MRP/Supply Qty defaults to empty string, no prefix 0
+  - [x] **Edit Button for Rejections** - Added pencil icon Edit button alongside Delete in Rejections table
+  - [x] **Search-based Retailer Selection (Payments)** - Replaced dropdown with searchable input in Record Payment modal
+  - [x] **Empty Amount Field** - Payment amount field now shows placeholder instead of 0
 - [ ] Complete translations for remaining pages (Products, QC Orders, etc.)
 
 ### P2 - Medium Priority

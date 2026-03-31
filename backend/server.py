@@ -1432,7 +1432,10 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         
         logger.info(f"Product groups for {dispatch_date_str}: {[(name, len(items)) for name, items in product_groups.items()]}")
         
-        # Step 4: Match CSV rows with dispatch product groups
+        # Step 4: First pass - collect all SKU matches for each product group
+        # This handles cases like Palak/Spinach where multiple SKUs should be combined
+        product_group_matches = {}  # {base_name: {'kg_skus': [], 'pcs_skus': [], 'items': []}}
+        
         for csv_row in csv_rows:
             sku_name = csv_row['sku_name']
             sku_name_lower = sku_name.lower()
@@ -1573,88 +1576,129 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             base_name, matching_items = best_match_group
             logger.info(f"  Matched with product group: {base_name} ({len(matching_items)} variants)")
             
-            # Step 3: Distribute GRN to matching items
-            if sku_is_pcs:
-                # PCS-based: distribute directly to PCS items
-                # Usually there's only one PCS variant per product
+            # Collect matches by product group for later aggregation
+            if base_name not in product_group_matches:
+                product_group_matches[base_name] = {
+                    'kg_skus': [],
+                    'pcs_skus': [],
+                    'items': matching_items
+                }
+            else:
+                # Update items to include all variants
+                existing_item_ids = {id(i) for i in product_group_matches[base_name]['items']}
                 for item in matching_items:
-                    if not item['dispatch_is_pcs']:
+                    if id(item) not in existing_item_ids:
+                        product_group_matches[base_name]['items'].append(item)
+            
+            if sku_is_pcs:
+                product_group_matches[base_name]['pcs_skus'].append({
+                    'sku_name': sku_name,
+                    'grn_qty': grn_qty_kg_or_pcs,
+                    'rate': rate_per_kg_or_pcs,
+                    'total_value': total_value,
+                    'items': list(matching_items)  # Make a copy to avoid reference issues
+                })
+            else:
+                product_group_matches[base_name]['kg_skus'].append({
+                    'sku_name': sku_name,
+                    'grn_qty_kg': grn_qty_kg_or_pcs,
+                    'rate_per_kg': rate_per_kg_or_pcs,
+                    'total_value': total_value,
+                    'items': list(matching_items)  # Make a copy to avoid reference issues
+                })
+        
+        # Step 5: Now distribute GRN to dispatch items, combining multiple SKUs per product
+        for base_name, group_data in product_group_matches.items():
+            # Process PCS SKUs (each PCS SKU maps to specific items)
+            for pcs_sku in group_data['pcs_skus']:
+                logger.info(f"  Processing PCS SKU: {pcs_sku['sku_name']} with {len(pcs_sku['items'])} items")
+                for item in pcs_sku['items']:
+                    logger.info(f"    Item: {item.get('packaging_name')} | dispatch_is_pcs={item.get('dispatch_is_pcs')}")
+                    if not item.get('dispatch_is_pcs'):
                         continue
                     
                     supplied_qty = item.get('supplied_qty', 0)
-                    rate_per_unit = rate_per_kg_or_pcs
-                    amount = grn_qty_kg_or_pcs * rate_per_unit
-                    difference = grn_qty_kg_or_pcs - supplied_qty
+                    rate_per_unit = pcs_sku['rate']
+                    grn_qty = pcs_sku['grn_qty']
+                    amount = grn_qty * rate_per_unit
+                    difference = grn_qty - supplied_qty
                     loss_gain = difference * rate_per_unit
                     
                     matched_items.append({
-                        'dispatch_id': dispatch.get('id'),
+                        'dispatch_id': item.get('dispatch_id'),
                         'dispatch_date': dispatch_date_str,
                         'product_id': item.get('product_id'),
                         'product_name': item.get('product_name'),
                         'product_unit': item.get('product_unit'),
                         'packaging_id': item.get('packaging_id'),
                         'packaging_name': item.get('packaging_name'),
-                        'packaging_weight_gm': item['packaging_weight_gm'],
+                        'packaging_weight_gm': item.get('packaging_weight_gm', 0),
                         'supplied_qty': supplied_qty,
-                        'grn_qty': round(grn_qty_kg_or_pcs, 2),
+                        'grn_qty': round(grn_qty, 2),
                         'grn_qty_kg': None,
                         'difference': round(difference, 2),
                         'rate_per_kg': None,
                         'rate_per_unit': round(rate_per_unit, 2),
                         'rate_type': 'per_pcs',
-                        'sku_name': sku_name,
+                        'sku_name': pcs_sku['sku_name'],
                         'amount': round(amount, 2),
                         'loss_gain_amount': round(loss_gain, 2)
                     })
-            else:
-                # Kg-based: distribute proportionally by supplied weight
-                # Calculate total supplied weight in kg across all variants
+            
+            # Process Kg SKUs - COMBINE all Kg SKUs for this product group
+            if group_data['kg_skus']:
+                # Combine all Kg SKUs
+                total_grn_kg = sum(sku['grn_qty_kg'] for sku in group_data['kg_skus'])
+                total_value = sum(sku['total_value'] for sku in group_data['kg_skus'])
+                combined_rate_per_kg = total_value / total_grn_kg if total_grn_kg > 0 else 0
+                combined_sku_names = ' + '.join(sku['sku_name'] for sku in group_data['kg_skus'])
+                
+                logger.info(f"  Combining Kg SKUs for {base_name}: {total_grn_kg}kg @ ₹{combined_rate_per_kg:.2f}/kg from {len(group_data['kg_skus'])} SKUs")
+                
+                # Get all Kg-based dispatch items for this product
+                kg_items = [i for i in group_data['items'] if not i.get('dispatch_is_pcs')]
+                
+                # Calculate total supplied weight
                 total_supplied_kg = 0
-                for item in matching_items:
-                    if item['dispatch_is_pcs']:
-                        continue  # Skip PCS items
-                    pkg_weight_kg = item['packaging_weight_gm'] / 1000 if item['packaging_weight_gm'] > 0 else 0.1
+                for item in kg_items:
+                    pkg_weight_kg = item.get('packaging_weight_gm', 100) / 1000
                     supplied_qty = item.get('supplied_qty', 0)
                     total_supplied_kg += supplied_qty * pkg_weight_kg
                 
                 if total_supplied_kg == 0:
-                    logger.warning(f"  No Kg-based variants found for {base_name}")
+                    logger.warning(f"  No Kg-based items found for {base_name}")
                     continue
                 
-                logger.info(f"  Total supplied weight: {total_supplied_kg:.2f} kg, GRN: {grn_qty_kg_or_pcs} kg")
+                logger.info(f"  Total supplied: {total_supplied_kg:.2f}kg, GRN: {total_grn_kg}kg")
                 
-                # Distribute GRN kg proportionally
-                for item in matching_items:
-                    if item['dispatch_is_pcs']:
-                        continue
-                    
-                    pkg_weight_gm = item['packaging_weight_gm'] if item['packaging_weight_gm'] > 0 else 100
+                # Distribute combined GRN proportionally
+                for item in kg_items:
+                    pkg_weight_gm = item.get('packaging_weight_gm', 100)
                     pkg_weight_kg = pkg_weight_gm / 1000
                     supplied_qty = item.get('supplied_qty', 0)
                     supplied_kg = supplied_qty * pkg_weight_kg
                     
-                    # Proportion of this variant's weight
+                    # Proportion of this item's weight
                     proportion = supplied_kg / total_supplied_kg if total_supplied_kg > 0 else 0
                     
                     # Distribute GRN kg proportionally
-                    grn_kg_for_item = grn_qty_kg_or_pcs * proportion
-                    grn_units_for_item = grn_kg_for_item / pkg_weight_kg
+                    grn_kg_for_item = total_grn_kg * proportion
+                    grn_units_for_item = grn_kg_for_item / pkg_weight_kg if pkg_weight_kg > 0 else 0
                     
-                    # Rate per unit = rate per kg × weight in kg
-                    rate_per_unit = rate_per_kg_or_pcs * pkg_weight_kg
+                    # Rate per unit from combined rate per kg
+                    rate_per_unit = combined_rate_per_kg * pkg_weight_kg
                     
                     # Amount for this item
-                    amount = grn_kg_for_item * rate_per_kg_or_pcs
+                    amount = grn_kg_for_item * combined_rate_per_kg
                     
                     # Difference and loss/gain
                     difference = grn_units_for_item - supplied_qty
                     loss_gain = difference * rate_per_unit
                     
-                    logger.info(f"    {item.get('product_name')} {item.get('packaging_name')}: supplied={supplied_qty}, grn_units={grn_units_for_item:.2f}, rate={rate_per_unit:.2f}")
+                    logger.info(f"    {item.get('product_name')} {item.get('packaging_name')}: supplied={supplied_qty}, grn={grn_units_for_item:.2f}")
                     
                     matched_items.append({
-                        'dispatch_id': dispatch.get('id'),
+                        'dispatch_id': item.get('dispatch_id'),
                         'dispatch_date': dispatch_date_str,
                         'product_id': item.get('product_id'),
                         'product_name': item.get('product_name'),
@@ -1666,10 +1710,10 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                         'grn_qty': round(grn_units_for_item, 2),
                         'grn_qty_kg': round(grn_kg_for_item, 2),
                         'difference': round(difference, 2),
-                        'rate_per_kg': round(rate_per_kg_or_pcs, 2),
+                        'rate_per_kg': round(combined_rate_per_kg, 2),
                         'rate_per_unit': round(rate_per_unit, 2),
                         'rate_type': 'per_kg',
-                        'sku_name': sku_name,
+                        'sku_name': combined_sku_names,
                         'amount': round(amount, 2),
                         'loss_gain_amount': round(loss_gain, 2)
                     })

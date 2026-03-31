@@ -19,7 +19,8 @@ export default function Products() {
     unit: 'Kg',
     current_stock: 0,
     price_per_kg: 0,
-    price_per_packet: 0
+    price_per_packet: 0,
+    lifecycle_duration: ''  // 'low', 'medium', 'high'
   });
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function Products() {
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', category: '', unit: 'Kg', current_stock: 0, price_per_kg: 0, price_per_packet: 0 });
+      setFormData({ name: '', category: '', unit: 'Kg', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '' });
       loadProducts();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save product');
@@ -64,7 +65,8 @@ export default function Products() {
       unit: product.unit,
       current_stock: product.current_stock,
       price_per_kg: product.price_per_kg || 0,
-      price_per_packet: product.price_per_packet || 0
+      price_per_packet: product.price_per_packet || 0,
+      lifecycle_duration: product.lifecycle_duration || ''
     });
     setOpen(true);
   };
@@ -171,6 +173,23 @@ export default function Products() {
                   />
                 </div>
               </div>
+              {/* Lifecycle Duration Field */}
+              <div>
+                <Label htmlFor="lifecycle">Shelf Life / Lifecycle Duration</Label>
+                <select
+                  id="lifecycle"
+                  value={formData.lifecycle_duration}
+                  onChange={(e) => setFormData({ ...formData, lifecycle_duration: e.target.value })}
+                  className="w-full h-10 px-3 py-2 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  data-testid="product-lifecycle-input"
+                >
+                  <option value="">Select Lifecycle</option>
+                  <option value="low">Low (3 Days)</option>
+                  <option value="medium">Medium (5 Days)</option>
+                  <option value="high">High (7 Days)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">How long the product stays fresh - critical for retail invoicing</p>
+              </div>
               <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="product-submit-button">
                 {editProduct ? 'Update' : 'Create'} Product
               </Button>
@@ -186,6 +205,7 @@ export default function Products() {
               <th>NAME</th>
               <th>CATEGORY</th>
               <th>UNIT</th>
+              <th>LIFECYCLE</th>
               <th className="text-right">STOCK</th>
               <th className="text-right">PRICE/KG</th>
               <th className="text-right">PRICE/PACKET</th>
@@ -198,6 +218,19 @@ export default function Products() {
                 <td className="font-medium">{product.name}</td>
                 <td>{product.category}</td>
                 <td>{product.unit}</td>
+                <td>
+                  {product.lifecycle_duration ? (
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      product.lifecycle_duration === 'low' ? 'bg-red-100 text-red-700' :
+                      product.lifecycle_duration === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                      product.lifecycle_duration === 'high' ? 'bg-green-100 text-green-700' : ''
+                    }`}>
+                      {product.lifecycle_duration === 'low' ? '3 Days' :
+                       product.lifecycle_duration === 'medium' ? '5 Days' :
+                       product.lifecycle_duration === 'high' ? '7 Days' : '-'}
+                    </span>
+                  ) : '-'}
+                </td>
                 <td className="text-right">{product.current_stock?.toFixed(2)}</td>
                 <td className="text-right">₹{product.price_per_kg?.toFixed(2) || '-'}</td>
                 <td className="text-right">₹{product.price_per_packet?.toFixed(2) || '-'}</td>

@@ -389,18 +389,24 @@ export default function RetailerDashboard() {
               const totalItemsSold = filteredDispatches.reduce((sum, d) => 
                 sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) - (i.rejected_qty || 0)), 0) || 0), 0);
               
-              const totalEarnings = filteredDispatches.reduce((sum, d) => {
-                const commission = d.commission || 0;
-                return sum + commission;
+              // Calculate earnings (commission from MRP value)
+              const totalMrpValue = filteredDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
+              const totalCommission = filteredDispatches.reduce((sum, d) => {
+                const commPct = d.commission_percentage || 0;
+                const mrpVal = d.total_mrp_value || 0;
+                return sum + (mrpVal * commPct / 100);
               }, 0);
               
-              // Calculate days in range
-              const daysDiff = Math.max(1, Math.ceil((new Date(dashboardDateTo) - new Date(dashboardDateFrom)) / (1000 * 60 * 60 * 24)));
-              const avgEarningPerDay = totalEarnings / daysDiff;
+              // Rejection value from items
+              const totalRejectionValue = filteredDispatches.reduce((sum, d) => 
+                sum + (d.items?.reduce((s, i) => s + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0), 0);
               
-              // Total MRP value and other calculations
-              const totalMrpValue = filteredDispatches.reduce((sum, d) => sum + (d.mrp_value || 0), 0);
-              const totalRejectionValue = filteredDispatches.reduce((sum, d) => sum + (d.rejection_value || 0), 0);
+              // Net payable (what retailer pays us = MRP - Commission - Rejections)
+              const totalNetPayable = filteredDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
+              
+              // Calculate days in range
+              const daysDiff = Math.max(1, Math.ceil((new Date(dashboardDateTo) - new Date(dashboardDateFrom)) / (1000 * 60 * 60 * 24)) + 1);
+              const avgEarningPerDay = totalCommission / daysDiff;
               
               // Group dispatches by date for Recent Orders
               const dispatchesByDate = {};
@@ -454,7 +460,7 @@ export default function RetailerDashboard() {
                           </div>
                           <div>
                             <p className="text-xs text-emerald-600 font-medium">Your Earnings</p>
-                            <p className="text-2xl font-bold text-emerald-800">{formatCurrency(totalEarnings)}</p>
+                            <p className="text-2xl font-bold text-emerald-800">{formatCurrency(totalCommission)}</p>
                           </div>
                         </div>
                       </CardContent>
@@ -485,9 +491,9 @@ export default function RetailerDashboard() {
                       <p className="text-xs text-red-500">Rejections</p>
                       <p className="text-lg font-semibold text-red-600">-{formatCurrency(totalRejectionValue)}</p>
                     </div>
-                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
-                      <p className="text-xs text-yellow-600">Pending Payment</p>
-                      <p className="text-lg font-semibold text-yellow-700">{formatCurrency(summary.pending_amount)}</p>
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                      <p className="text-xs text-blue-500">Net Payable by You</p>
+                      <p className="text-lg font-semibold text-blue-700">{formatCurrency(totalNetPayable)}</p>
                     </div>
                     <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
                       <p className="text-xs text-green-500">Amount Paid</p>
@@ -530,8 +536,12 @@ export default function RetailerDashboard() {
                                 sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
                               const dateRejectedQty = dateDispatches.reduce((sum, d) => 
                                 sum + (d.items?.reduce((s, i) => s + (i.rejected_qty || 0), 0) || 0), 0);
-                              const dateTotalAmt = dateDispatches.reduce((sum, d) => sum + (d.mrp_value || 0), 0);
-                              const dateCommission = dateDispatches.reduce((sum, d) => sum + (d.commission || 0), 0);
+                              const dateTotalAmt = dateDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
+                              const dateCommission = dateDispatches.reduce((sum, d) => {
+                                const commPct = d.commission_percentage || 0;
+                                const mrpVal = d.total_mrp_value || 0;
+                                return sum + (mrpVal * commPct / 100);
+                              }, 0);
                               const datePayable = dateDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0);
                               
                               return (

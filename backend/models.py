@@ -82,6 +82,7 @@ class Product(BaseModel):
     current_stock: float = 0
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
+    lifecycle_duration: Optional[str] = None  # "low" (3 days), "medium" (5 days), "high" (7 days)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ProductCreate(BaseModel):
@@ -91,6 +92,7 @@ class ProductCreate(BaseModel):
     current_stock: float = 0
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
+    lifecycle_duration: Optional[str] = None  # "low", "medium", "high"
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
@@ -99,6 +101,7 @@ class ProductUpdate(BaseModel):
     current_stock: Optional[float] = None
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
+    lifecycle_duration: Optional[str] = None
 
 # Farmer Models
 class Farmer(BaseModel):

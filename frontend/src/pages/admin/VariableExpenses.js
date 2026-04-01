@@ -28,6 +28,12 @@ const EXPENSE_CATEGORIES = [
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Bank Transfer', 'Cheque'];
 
+const VERTICAL_OPTIONS = [
+  { value: 'all', label: 'All (Split Equally)' },
+  { value: 'qc', label: 'QC Only' },
+  { value: 'retail', label: 'Retail Only' }
+];
+
 export default function VariableExpenses() {
   const [expenses, setExpenses] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -56,7 +62,8 @@ export default function VariableExpenses() {
     employee_name: '',
     is_settled: true,
     settlement_date: '',
-    settlement_remarks: ''
+    settlement_remarks: '',
+    vertical: 'all' // 'all', 'qc', or 'retail'
   });
   
   // Bulk settlement
@@ -114,7 +121,8 @@ export default function VariableExpenses() {
       employee_name: '',
       is_settled: true,
       settlement_date: '',
-      settlement_remarks: ''
+      settlement_remarks: '',
+      vertical: 'all'
     });
     setEditingExpense(null);
   };
@@ -165,7 +173,8 @@ export default function VariableExpenses() {
       employee_name: expense.paid_by !== 'Company' ? expense.paid_by : '',
       is_settled: expense.is_settled ?? true,
       settlement_date: expense.settlement_date?.split('T')[0] || '',
-      settlement_remarks: expense.settlement_remarks || ''
+      settlement_remarks: expense.settlement_remarks || '',
+      vertical: expense.vertical || 'all'
     });
     setShowAddDialog(true);
   };
@@ -387,6 +396,7 @@ export default function VariableExpenses() {
                       <th className="p-2 text-left text-xs font-medium text-gray-500">CATEGORY</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">DESCRIPTION</th>
                       <th className="p-2 text-right text-xs font-medium text-gray-500">AMOUNT</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">VERTICAL</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">PAID BY</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">PAID TO</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
@@ -396,7 +406,7 @@ export default function VariableExpenses() {
                   <tbody>
                     {expenses.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-gray-500">
+                        <td colSpan={10} className="p-8 text-center text-gray-500">
                           No expenses found. Click "Add Expense" to get started.
                         </td>
                       </tr>
@@ -419,6 +429,15 @@ export default function VariableExpenses() {
                           </td>
                           <td className="p-2 text-xs max-w-[150px] truncate">{expense.description || '-'}</td>
                           <td className="p-2 text-right font-medium">₹{expense.amount?.toLocaleString()}</td>
+                          <td className="p-2 text-center">
+                            <span className={`px-2 py-0.5 rounded text-xs ${
+                              expense.vertical === 'qc' ? 'bg-blue-100 text-blue-700' :
+                              expense.vertical === 'retail' ? 'bg-green-100 text-green-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {expense.vertical === 'qc' ? 'QC' : expense.vertical === 'retail' ? 'Retail' : 'All'}
+                            </span>
+                          </td>
                           <td className="p-2 text-xs">
                             {expense.paid_by === 'Company' ? (
                               <span className="text-green-600">Company</span>
@@ -565,6 +584,26 @@ export default function VariableExpenses() {
                     className="h-8 text-sm"
                   />
                 </div>
+              </div>
+              
+              {/* Vertical Allocation */}
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Vertical Incurred For? *</label>
+                <Select value={formData.vertical} onValueChange={(v) => setFormData(prev => ({ ...prev, vertical: v }))}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Select Vertical" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VERTICAL_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-400 mt-1">
+                  {formData.vertical === 'all' && 'Expense will be split equally between QC and Retail'}
+                  {formData.vertical === 'qc' && 'Expense will be allocated only to QC vertical'}
+                  {formData.vertical === 'retail' && 'Expense will be allocated only to Retail vertical'}
+                </p>
               </div>
               
               {/* Employee Expense Section */}

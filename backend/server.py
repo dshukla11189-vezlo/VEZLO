@@ -2986,16 +2986,29 @@ async def get_pnl_report(
     
     variable_by_category = {}
     total_variable = 0
+    # Track variable expenses by vertical
+    variable_qc = 0
+    variable_retail = 0
+    variable_all = 0  # Will be split equally
     
     for exp in variable_expenses:
         category = exp.get("category", "Other")
         amount = exp.get("amount", 0) or 0
         exp_date = exp.get("date", "")[:10]
+        vertical = exp.get("vertical", "all")  # 'qc', 'retail', or 'all'
         
         total_variable += amount
         if category not in variable_by_category:
             variable_by_category[category] = 0
         variable_by_category[category] += amount
+        
+        # Track by vertical
+        if vertical == "qc":
+            variable_qc += amount
+        elif vertical == "retail":
+            variable_retail += amount
+        else:
+            variable_all += amount
         
         if exp_date in sales_by_date:
             sales_by_date[exp_date]["variable_exp"] += amount
@@ -3284,11 +3297,14 @@ async def get_pnl_report(
     qc_wastage = total_wastage_value * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
     retail_wastage = total_wastage_value * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
     
-    qc_variable_exp = total_variable * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
-    retail_variable_exp = total_variable * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    # Variable expenses: QC-specific + half of "all" expenses
+    # Retail-specific + half of "all" expenses
+    qc_variable_exp = variable_qc + (variable_all / 2)
+    retail_variable_exp = variable_retail + (variable_all / 2)
     
-    qc_fixed_exp = total_fixed * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
-    retail_fixed_exp = total_fixed * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    # Fixed expenses: Always divided equally between QC and Retail
+    qc_fixed_exp = total_fixed / 2
+    retail_fixed_exp = total_fixed / 2
     
     # Calculate QC P&L
     qc_gross_profit = total_qc_sales - qc_purchase - qc_wastage

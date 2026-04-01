@@ -1,0 +1,98 @@
+{
+  "summary": "All features verified successfully. Wastage distribution now uses DISPATCH qty (supplied_qty) instead of GRN qty. QC sub-dashboard shows GRN LOSS metric (₹1,676.64). Retail sub-dashboard shows COMMISSION metric (₹227.40). QC Net Profit formula correctly includes GRN Loss deduction.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. Wastage distribution uses DISPATCH qty (supplied_qty) - PASS: Palak uses 28kg dispatch (140 units × 200gm), not 5.2kg GRN",
+    "2. QC sub-dashboard shows GRN LOSS metric - PASS: ₹1.7K displayed in pink box",
+    "3. QC Net Profit = Gross Profit - GRN Loss - Variable Exp - Fixed Exp - PASS: 6256.69 - 1676.64 - 0 - 0 = 4580.05",
+    "4. Retail sub-dashboard shows COMMISSION metric - PASS: ₹227 displayed in amber box",
+    "5. Line items include supplied_kg field for wastage distribution - PASS",
+    "6. Vertical bifurcation structure has all required fields - PASS",
+    "7. QC dispatches for March 31 verified - PASS: 140 Palak units dispatched",
+    "8. QC GRNs for March 31 verified - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_wastage_dispatch_grn_loss.py",
+    "/app/test_reports/pytest/pytest_wastage_dispatch.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [],
+
+  "updated_files": [
+    "/app/backend/tests/test_wastage_dispatch_grn_loss.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (8/8 pytest tests passed)",
+    "frontend": "100% (GRN LOSS and COMMISSION metrics verified in UI)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing production data imported to test DB for March 31, 2026",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "All features verified: (1) Wastage distribution uses dispatch_qty (supplied_qty) not grn_qty. Palak on March 31 uses 28kg dispatch qty (140 units × 200gm). (2) QC sub-dashboard shows GRN LOSS = ₹1,676.64 in pink. (3) QC Net Profit correctly deducts GRN Loss. (4) Retail sub-dashboard shows COMMISSION = ₹227.40 in amber. (5) Daily P&L table shows REJECTION and COMMISSION columns.",
+
+  "features_verified": {
+    "wastage_uses_dispatch_qty": "Palak uses 28kg dispatch (140 units × 200gm), not 5.2kg GRN qty",
+    "qc_grn_loss_metric": "₹1,676.64 displayed in QC sub-dashboard (pink box)",
+    "qc_net_profit_formula": "Gross Profit (₹6,256.69) - GRN Loss (₹1,676.64) - Var Exp (₹0) - Fixed Exp (₹0) = Net Profit (₹4,580.05)",
+    "retail_commission_metric": "₹227.40 displayed in Retail sub-dashboard (amber box)",
+    "daily_pnl_table": "Shows REJECTION and COMMISSION columns with correct values"
+  },
+
+  "verification_data": {
+    "march_31_palak_dispatch": {
+      "ninjacart_dispatch_units": 140,
+      "packaging_weight_gm": 200,
+      "dispatch_kg": 28.0,
+      "retail_dispatch_units": 5,
+      "retail_dispatch_kg": 1.0,
+      "total_dispatch_kg": 29.0
+    },
+    "march_31_qc_metrics": {
+      "sales": 19523.20,
+      "purchase": 7118.24,
+      "wastage": 6148.27,
+      "grn_loss": 1676.64,
+      "gross_profit": 6256.69,
+      "net_profit": 4580.05,
+      "net_margin_pct": 23.5
+    },
+    "march_31_retail_metrics": {
+      "sales": 1137.00,
+      "purchase": 51.97,
+      "wastage": 46.43,
+      "commission": 227.40,
+      "gross_profit": 811.20,
+      "net_profit": 811.20,
+      "net_margin_pct": 71.3
+    }
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

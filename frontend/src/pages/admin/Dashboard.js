@@ -379,6 +379,10 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-orange-600 font-medium">WASTAGE</p>
                     <p className="text-sm font-bold text-orange-700">{formatCurrency(pnlData.vertical_bifurcation.qc.wastage)}</p>
                   </div>
+                  <div className="p-1.5 bg-pink-100/50 rounded">
+                    <p className="text-[9px] text-pink-600 font-medium">GRN LOSS</p>
+                    <p className="text-sm font-bold text-pink-700">{formatCurrency(pnlData.vertical_bifurcation.qc.grn_loss || 0)}</p>
+                  </div>
                   <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.qc.gross_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
                     <p className="text-[9px] text-gray-600 font-medium">GROSS PROFIT</p>
                     <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -436,6 +440,10 @@ export default function AdminDashboard() {
                   <div className="p-1.5 bg-orange-100/50 rounded">
                     <p className="text-[9px] text-orange-600 font-medium">WASTAGE</p>
                     <p className="text-sm font-bold text-orange-700">{formatCurrency(pnlData.vertical_bifurcation.retail.wastage)}</p>
+                  </div>
+                  <div className="p-1.5 bg-amber-100/50 rounded">
+                    <p className="text-[9px] text-amber-600 font-medium">COMMISSION</p>
+                    <p className="text-sm font-bold text-amber-700">{formatCurrency(pnlData.vertical_bifurcation.retail.commission || 0)}</p>
                   </div>
                   <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.retail.gross_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
                     <p className="text-[9px] text-gray-600 font-medium">GROSS PROFIT</p>

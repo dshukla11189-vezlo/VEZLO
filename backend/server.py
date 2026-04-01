@@ -2592,6 +2592,8 @@ async def get_pnl_report(
     product_by_date = {}  # {date: {product: {sales, purchase, wastage, qty, customers: []}}}
     # NEW: Detailed line items per date for Customer->Product breakdown
     line_items_by_date = {}  # {date: [line_item, ...]}
+    # Track GRN loss per date (difference between dispatched and received)
+    grn_loss_by_date = {}  # {date: {value: X, qty_kg: Y}}
     total_sales = 0
     total_sales_qty = 0
     
@@ -2630,15 +2632,21 @@ async def get_pnl_report(
             if customer not in sales_by_customer:
                 sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
             
-            # Calculate kg from units if packaging weight available
-            # Use grn_qty_kg if available (already in kg), otherwise calculate from supplied_qty
-            if item.get("grn_qty_kg"):
-                supplied_kg = item.get("grn_qty_kg", 0) or qty
-            elif packaging_weight_gm > 0:
-                # Convert from units to kg
-                supplied_kg = (supplied_qty_units * packaging_weight_gm) / 1000
+            # Calculate kg from DISPATCH qty (what was sent), not GRN qty (what was received)
+            # Use supplied_qty for wastage distribution as it represents what was dispatched
+            dispatch_qty_units = item.get("supplied_qty", 0) or qty
+            if packaging_weight_gm > 0:
+                # Convert dispatch units to kg
+                supplied_kg = (dispatch_qty_units * packaging_weight_gm) / 1000
             else:
-                supplied_kg = qty
+                # If no packaging weight, assume supplied_qty is already in kg
+                supplied_kg = dispatch_qty_units
+            
+            # Also track GRN qty for loss calculation
+            grn_qty_kg = item.get("grn_qty_kg", 0) or 0
+            if grn_qty_kg == 0 and packaging_weight_gm > 0:
+                grn_qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
+                grn_qty_kg = (grn_qty * packaging_weight_gm) / 1000 if grn_qty else supplied_kg
             
             total_sales += amount
             total_sales_qty += qty
@@ -2670,8 +2678,9 @@ async def get_pnl_report(
                 "customer_type": "QC",
                 "product": product,
                 "unit": unit,
-                "supplied_qty": round(supplied_qty_units, 2),
+                "supplied_qty": round(dispatch_qty_units, 2),
                 "supplied_kg": round(supplied_kg, 3),
+                "grn_qty_kg": round(grn_qty_kg, 3),  # Track GRN received kg for loss calculation
                 "revenue": round(amount, 2),
                 "rate_per_kg": round(rate_per_kg, 2),
                 "rate_per_unit": round(rate_per_unit, 2),
@@ -2680,6 +2689,15 @@ async def get_pnl_report(
                 "wastage_kg": 0,
                 "wastage_value": 0
             })
+            
+            # Calculate GRN loss for this item (dispatched - received)
+            if item_dispatch_date not in grn_loss_by_date:
+                grn_loss_by_date[item_dispatch_date] = {"value": 0, "qty_kg": 0}
+            loss_kg = supplied_kg - grn_qty_kg
+            loss_value = loss_kg * rate_per_kg if rate_per_kg > 0 else 0
+            if loss_kg > 0:  # Only track positive losses (dispatched > received)
+                grn_loss_by_date[item_dispatch_date]["qty_kg"] += loss_kg
+                grn_loss_by_date[item_dispatch_date]["value"] += loss_value
         
         # Only count invoice if this customer had items in the date range
         if customer in sales_by_customer:
@@ -3340,14 +3358,20 @@ async def get_pnl_report(
     qc_fixed_exp = total_fixed / 2
     retail_fixed_exp = total_fixed / 2
     
-    # Calculate QC P&L
+    # Calculate total GRN loss
+    total_grn_loss = sum(data.get("value", 0) for data in grn_loss_by_date.values())
+    total_grn_loss_qty = sum(data.get("qty_kg", 0) for data in grn_loss_by_date.values())
+    
+    # Calculate QC P&L (GRN Loss affects net profit)
     qc_gross_profit = total_qc_sales - qc_purchase - qc_wastage
     qc_cost_base = qc_purchase + qc_wastage
     qc_gross_margin = (qc_gross_profit / qc_cost_base * 100) if qc_cost_base > 0 else 0
-    qc_net_profit = qc_gross_profit - qc_variable_exp - qc_fixed_exp
+    # QC Net Profit = Gross Profit - GRN Loss - Variable Exp - Fixed Exp
+    qc_net_profit = qc_gross_profit - total_grn_loss - qc_variable_exp - qc_fixed_exp
     qc_net_margin = (qc_net_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0
     
     # Calculate Retail P&L (including rejection and commission)
+    # Gross Profit = Sales - COGS - Wastage - Rejection - Commission
     retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage - total_retail_rejection - total_retail_commission
     retail_cost_base = retail_purchase + retail_wastage + total_retail_rejection + total_retail_commission
     retail_gross_margin = (retail_gross_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
@@ -3399,6 +3423,7 @@ async def get_pnl_report(
                 "orders": qc_order_count,
                 "purchase": round(qc_purchase, 2),
                 "wastage": round(qc_wastage, 2),
+                "grn_loss": round(total_grn_loss, 2),  # GRN Loss (dispatched - received)
                 "gross_profit": round(qc_gross_profit, 2),
                 "gross_margin_pct": round(qc_gross_margin, 1),
                 "variable_exp": round(qc_variable_exp, 2),

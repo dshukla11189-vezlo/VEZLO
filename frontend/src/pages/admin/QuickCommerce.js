@@ -3212,11 +3212,15 @@ Email: ${companyEmail}`;
                 </div>
               )}
 
-              {/* GRN Loss Summary Card */}
+              {/* GRN Loss Summary Card - Collapsible */}
               <Card className="mb-6 border-red-200">
-                <CardHeader className="py-3 bg-red-50">
+                <CardHeader 
+                  className="py-3 bg-red-50 cursor-pointer hover:bg-red-100 transition-colors"
+                  onClick={() => setGrnLossSummary(prev => ({ ...prev, expanded: !prev?.expanded }))}
+                >
                   <CardTitle className="text-sm flex items-center justify-between text-red-700">
                     <span className="flex items-center gap-2">
+                      {grnLossSummary?.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                       <AlertTriangle size={16} />
                       GRN Loss Summary (Supplied vs Received Difference)
                     </span>
@@ -3225,59 +3229,60 @@ Email: ${companyEmail}`;
                     </span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="p-4">
-                  {/* Date Filters */}
-                  <div className="flex flex-wrap gap-3 mb-4">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">From:</Label>
-                      <Input
-                        type="date"
-                        value={grnLossFilters.fromDate}
-                        onChange={(e) => setGrnLossFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                        className="w-36 h-8"
-                      />
+                {grnLossSummary?.expanded && (
+                  <CardContent className="p-4">
+                    {/* Date Filters */}
+                    <div className="flex flex-wrap gap-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm whitespace-nowrap">From:</Label>
+                        <Input
+                          type="date"
+                          value={grnLossFilters.fromDate}
+                          onChange={(e) => setGrnLossFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                          className="w-36 h-8"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm whitespace-nowrap">To:</Label>
+                        <Input
+                          type="date"
+                          value={grnLossFilters.toDate}
+                          onChange={(e) => setGrnLossFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                          className="w-36 h-8"
+                        />
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            const lossRes = await api.get(`/api/qc-grns/loss-summary?from_date=${grnLossFilters.fromDate}&to_date=${grnLossFilters.toDate}`);
+                            setGrnLossSummary({ ...lossRes.data, expanded: true });
+                            toast.success('Loss summary updated');
+                          } catch (err) {
+                            toast.error('Failed to fetch loss summary');
+                          }
+                        }}
+                      >
+                        <RefreshCw size={14} className="mr-1" /> Refresh
+                      </Button>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">To:</Label>
-                      <Input
-                        type="date"
-                        value={grnLossFilters.toDate}
-                        onChange={(e) => setGrnLossFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                        className="w-36 h-8"
-                      />
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const lossRes = await api.get(`/api/qc-grns/loss-summary?from_date=${grnLossFilters.fromDate}&to_date=${grnLossFilters.toDate}`);
-                          setGrnLossSummary(lossRes.data);
-                          toast.success('Loss summary updated');
-                        } catch (err) {
-                          toast.error('Failed to fetch loss summary');
-                        }
-                      }}
-                    >
-                      <RefreshCw size={14} className="mr-1" /> Refresh
-                    </Button>
-                  </div>
-                  
-                  {/* Loss by Date */}
-                  {grnLossSummary?.by_date?.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-red-50">
-                          <tr>
-                            <th className="p-2 text-left">Date</th>
-                            <th className="p-2 text-left">Product</th>
-                            <th className="p-2 text-left">Packaging</th>
-                            <th className="p-2 text-right">Supplied</th>
-                            <th className="p-2 text-right">GRN</th>
-                            <th className="p-2 text-right">Difference</th>
-                            <th className="p-2 text-right">Loss Amount</th>
-                          </tr>
-                        </thead>
+                    
+                    {/* Loss by Date */}
+                    {grnLossSummary?.items?.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-red-50">
+                            <tr>
+                              <th className="p-2 text-left">Date</th>
+                              <th className="p-2 text-left">Product</th>
+                              <th className="p-2 text-left">Packaging</th>
+                              <th className="p-2 text-right">Supplied</th>
+                              <th className="p-2 text-right">GRN</th>
+                              <th className="p-2 text-right">Difference</th>
+                              <th className="p-2 text-right">Loss Amount</th>
+                            </tr>
+                          </thead>
                         <tbody>
                           {(grnLossSummary?.items || []).slice(0, 20).map((item, idx) => (
                             <tr key={idx} className="border-b hover:bg-red-25">
@@ -3308,6 +3313,7 @@ Email: ${companyEmail}`;
                     <p className="text-sm text-gray-500 text-center py-4">No GRN loss data for selected period. Upload GRN files to see loss summary.</p>
                   )}
                 </CardContent>
+                )}
               </Card>
 
               {/* GRN Matched Items Table (from CSV upload) */}

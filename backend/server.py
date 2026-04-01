@@ -1990,35 +1990,29 @@ async def get_grn_loss_summary(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Build date query
+    # Build date query - use dispatch_date (actual supply date) not grn_date (upload date)
     query = {}
-    if from_date and to_date:
-        query["grn_date"] = {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    elif from_date:
-        query["grn_date"] = {"$gte": from_date}
-    elif to_date:
-        query["grn_date"] = {"$lte": to_date + "T23:59:59"}
     
-    # Get all saved GRNs within date range
-    saved_grns = await db.qc_grns.find(query, {"_id": 0}).sort("grn_date", -1).to_list(1000)
+    # Get all saved GRNs
+    saved_grns = await db.qc_grns.find({}, {"_id": 0}).sort("grn_date", -1).to_list(1000)
     
-    # Aggregate loss by date and product
+    # Aggregate loss by dispatch_date (actual supply date) and product
     loss_by_date = {}
     total_loss = 0
     items_with_loss = []
     
     for grn in saved_grns:
-        grn_date = grn.get('grn_date', '')[:10] if grn.get('grn_date') else 'Unknown'
-        
-        if grn_date not in loss_by_date:
-            loss_by_date[grn_date] = {
-                'date': grn_date,
-                'total_loss': 0,
-                'total_difference_qty': 0,
-                'items': []
-            }
-        
         for item in grn.get('items', []):
+            # Use dispatch_date from item (actual supply date), not grn_date (upload date)
+            dispatch_date = item.get('dispatch_date', grn.get('grn_date', ''))
+            dispatch_date_str = dispatch_date[:10] if dispatch_date else 'Unknown'
+            
+            # Filter by date range using dispatch_date
+            if from_date and dispatch_date_str < from_date:
+                continue
+            if to_date and dispatch_date_str > to_date:
+                continue
+            
             difference = item.get('difference', 0)
             loss_amount = item.get('loss_gain_amount', 0)
             
@@ -2026,12 +2020,20 @@ async def get_grn_loss_summary(
             if difference < 0 or loss_amount < 0:
                 actual_loss = abs(loss_amount) if loss_amount < 0 else abs(difference) * (item.get('rate_per_unit', 0) or item.get('rate_per_kg', 0))
                 
-                loss_by_date[grn_date]['total_loss'] += actual_loss
-                loss_by_date[grn_date]['total_difference_qty'] += abs(difference)
+                if dispatch_date_str not in loss_by_date:
+                    loss_by_date[dispatch_date_str] = {
+                        'date': dispatch_date_str,
+                        'total_loss': 0,
+                        'total_difference_qty': 0,
+                        'items': []
+                    }
+                
+                loss_by_date[dispatch_date_str]['total_loss'] += actual_loss
+                loss_by_date[dispatch_date_str]['total_difference_qty'] += abs(difference)
                 total_loss += actual_loss
                 
                 items_with_loss.append({
-                    'date': grn_date,
+                    'date': dispatch_date_str,
                     'product_name': item.get('product_name', ''),
                     'packaging_name': item.get('packaging_name', ''),
                     'supplied_qty': item.get('supplied_qty', 0),
@@ -2799,6 +2801,22 @@ async def get_pnl_report(
             item_value = item.get("total_value", 0) or 0  # MRP * qty
             mrp = item.get("mrp", 0) or 0
             
+            # Calculate supplied_kg - need to convert pieces to kg for packet items
+            # Get packaging weight from item or extract from variant_name
+            packaging_weight_gm = item.get("packaging_weight", 0) or item.get("packaging_weight_gm", 0)
+            if not packaging_weight_gm and unit:
+                # Try to extract weight from variant_name like "240-260 gm" or "200 gm"
+                import re
+                weight_match = re.search(r'(\d+)(?:\s*-\s*\d+)?\s*(?:gm|g)\b', unit.lower())
+                if weight_match:
+                    packaging_weight_gm = float(weight_match.group(1))
+            
+            # If we have packaging weight in gm, convert qty to kg; otherwise assume qty is already in kg
+            if packaging_weight_gm > 0:
+                supplied_kg = qty * (packaging_weight_gm / 1000)
+            else:
+                supplied_kg = qty  # Assume qty is already in kg
+            
             dispatch_qty += qty
             
             # Calculate COGS using average purchase price from the product
@@ -2810,7 +2828,8 @@ async def get_pnl_report(
             if avg_purchase_price == 0 and lookup_product != product:
                 avg_purchase_price = avg_price_by_product.get(product, 0)
             
-            item_cogs = qty * avg_purchase_price
+            # COGS should be based on kg, not pieces
+            item_cogs = supplied_kg * avg_purchase_price
             dispatch_cogs += item_cogs
             
             if product not in sales_by_product:
@@ -2835,9 +2854,9 @@ async def get_pnl_report(
                 "product": product,
                 "unit": unit,
                 "supplied_qty": round(qty, 2),
-                "supplied_kg": round(qty, 3),  # Retailers typically use Kg directly
+                "supplied_kg": round(supplied_kg, 3),  # Converted to kg based on packaging weight
                 "revenue": round(item_value, 2),  # Gross MRP
-                "rate_per_kg": round(mrp, 2),  # MRP as rate
+                "rate_per_kg": round(mrp / (packaging_weight_gm / 1000) if packaging_weight_gm > 0 else mrp, 2),
                 "rate_per_unit": round(mrp, 2),
                 "cogs": round(item_cogs, 2),
                 "wastage_kg": 0,

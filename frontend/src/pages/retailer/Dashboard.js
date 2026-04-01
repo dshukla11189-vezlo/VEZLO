@@ -9,7 +9,7 @@ import {
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
-  ClipboardList, Save, Trash2, RefreshCw
+  ClipboardList, Save, Trash2, RefreshCw, Pencil
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
@@ -41,6 +41,7 @@ export default function RetailerDashboard() {
     received_qty: 0
   });
   const [savingAll, setSavingAll] = useState(false);
+  const [editingRows, setEditingRows] = useState({}); // Track which rows are in edit mode
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
@@ -1320,29 +1321,32 @@ export default function RetailerDashboard() {
           <Card>
             <CardHeader className="border-b py-2 px-3">
               <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base flex items-center gap-2 whitespace-nowrap">
                     <ClipboardList className="text-green-600" size={18} />
-                    Daily Inventory
+                    <span className="hidden sm:inline">Daily Inventory</span>
+                    <span className="sm:hidden">Inventory</span>
                   </CardTitle>
-                  <Input
-                    type="date"
-                    value={inventoryDate}
-                    onChange={(e) => setInventoryDate(e.target.value)}
-                    className="w-32 h-8 text-sm"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="date"
+                      value={inventoryDate}
+                      onChange={(e) => setInventoryDate(e.target.value)}
+                      className="w-[120px] h-7 text-xs px-1.5"
+                    />
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => loadInventory(inventoryDate)}
+                      disabled={inventoryLoading}
+                      className="h-7 w-7 p-0"
+                      title="Refresh"
+                    >
+                      <RefreshCw size={12} className={inventoryLoading ? 'animate-spin' : ''} />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={() => loadInventory(inventoryDate)}
-                    disabled={inventoryLoading}
-                    className="h-7 text-xs px-2"
-                  >
-                    <RefreshCw size={12} className={`mr-1 ${inventoryLoading ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </Button>
                   <Button 
                     size="sm" 
                     onClick={generateInventory}
@@ -1390,17 +1394,18 @@ export default function RetailerDashboard() {
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="p-1.5 text-left font-medium">Product</th>
-                        <th className="p-1.5 text-center font-medium w-12">Open</th>
-                        <th className="p-1.5 text-center font-medium w-12">+Rcvd</th>
-                        <th className="p-1.5 text-center font-medium w-16">Sold</th>
-                        <th className="p-1.5 text-center font-medium w-16">Waste</th>
-                        <th className="p-1.5 text-center font-medium w-12">Close</th>
-                        <th className="p-1.5 text-center font-medium w-14"></th>
+                        <th className="p-1.5 text-center font-medium w-10">Open</th>
+                        <th className="p-1.5 text-center font-medium w-10">+Rcvd</th>
+                        <th className="p-1.5 text-center font-medium w-14">Sold</th>
+                        <th className="p-1.5 text-center font-medium w-14">Waste</th>
+                        <th className="p-1.5 text-center font-medium w-10">Close</th>
+                        <th className="p-1.5 text-center font-medium w-20">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {inventoryItems.map(item => {
                         const editing = editingInventory[item.id] || {};
+                        const isEditing = editingRows[item.id] || false;
                         const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : item.sold_qty;
                         const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : item.wastage_qty;
                         const closingQty = item.opening_qty + item.received_qty - soldQty - wastageQty;
@@ -1417,39 +1422,62 @@ export default function RetailerDashboard() {
                             <td className="p-1 text-center text-gray-500">{item.opening_qty}</td>
                             <td className="p-1 text-center text-green-600">+{item.received_qty}</td>
                             <td className="p-1 text-center">
-                              <Input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={soldQty}
-                                onChange={(e) => updateInventoryItem(item.id, 'sold_qty', e.target.value)}
-                                className="w-14 h-7 text-center text-xs px-1"
-                              />
+                              {isEditing ? (
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={soldQty}
+                                  onChange={(e) => updateInventoryItem(item.id, 'sold_qty', e.target.value)}
+                                  className="w-12 h-6 text-center text-xs px-0.5"
+                                />
+                              ) : (
+                                <span className={soldQty > 0 ? 'text-blue-600 font-medium' : 'text-gray-400'}>{soldQty}</span>
+                              )}
                             </td>
                             <td className="p-1 text-center">
-                              <Input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={wastageQty}
-                                onChange={(e) => updateInventoryItem(item.id, 'wastage_qty', e.target.value)}
-                                className="w-14 h-7 text-center text-xs px-1"
-                              />
+                              {isEditing ? (
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={wastageQty}
+                                  onChange={(e) => updateInventoryItem(item.id, 'wastage_qty', e.target.value)}
+                                  className="w-12 h-6 text-center text-xs px-0.5"
+                                />
+                              ) : (
+                                <span className={wastageQty > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}>{wastageQty}</span>
+                              )}
                             </td>
                             <td className={`p-1 text-center font-semibold ${closingQty < 0 ? 'text-red-600' : 'text-blue-600'}`}>
                               {closingQty.toFixed(0)}
                             </td>
                             <td className="p-1 text-center">
                               <div className="flex justify-center gap-0.5">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => saveInventoryItem(item)}
-                                  className="h-6 w-6 p-0 hover:bg-green-100"
-                                  title="Save"
-                                >
-                                  <Save size={12} className="text-green-600" />
-                                </Button>
+                                {isEditing ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      saveInventoryItem(item);
+                                      setEditingRows(prev => ({ ...prev, [item.id]: false }));
+                                    }}
+                                    className="h-6 w-6 p-0 hover:bg-green-100"
+                                    title="Save"
+                                  >
+                                    <Save size={12} className="text-green-600" />
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setEditingRows(prev => ({ ...prev, [item.id]: true }))}
+                                    className="h-6 w-6 p-0 hover:bg-blue-100"
+                                    title="Edit"
+                                  >
+                                    <Pencil size={12} className="text-blue-600" />
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="ghost"

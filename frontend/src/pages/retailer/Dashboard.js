@@ -32,6 +32,15 @@ export default function RetailerDashboard() {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [editingInventory, setEditingInventory] = useState({});
+  const [showAddItemDialog, setShowAddItemDialog] = useState(false);
+  const [newInventoryItem, setNewInventoryItem] = useState({
+    product_id: '',
+    product_name: '',
+    variant_name: '',
+    opening_qty: 0,
+    received_qty: 0
+  });
+  const [savingAll, setSavingAll] = useState(false);
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
@@ -419,6 +428,76 @@ export default function RetailerDashboard() {
       await api.delete(`/api/retailer-inventory/${itemId}`);
       toast.success('Item deleted');
       await loadInventory(inventoryDate);
+    } catch (error) {
+      console.error('Failed to delete inventory item:', error);
+      toast.error('Failed to delete');
+    }
+  };
+
+  // Add single inventory item
+  const addInventoryItem = async () => {
+    if (!newInventoryItem.product_id) {
+      toast.error('Please select a product');
+      return;
+    }
+    
+    try {
+      await api.post(`/api/retailer-inventory/add-item`, {
+        retailer_id: dashboardData?.retailer?.id,
+        product_id: newInventoryItem.product_id,
+        product_name: newInventoryItem.product_name,
+        variant_name: newInventoryItem.variant_name,
+        date: inventoryDate,
+        opening_qty: parseFloat(newInventoryItem.opening_qty) || 0,
+        received_qty: parseFloat(newInventoryItem.received_qty) || 0
+      });
+      toast.success('Inventory item added');
+      setShowAddItemDialog(false);
+      setNewInventoryItem({
+        product_id: '',
+        product_name: '',
+        variant_name: '',
+        opening_qty: 0,
+        received_qty: 0
+      });
+      await loadInventory(inventoryDate);
+    } catch (error) {
+      console.error('Failed to add inventory item:', error);
+      toast.error('Failed to add item');
+    }
+  };
+
+  // Save all inventory items at once
+  const saveAllInventory = async () => {
+    const itemsToSave = inventoryItems.filter(item => editingInventory[item.id]);
+    if (itemsToSave.length === 0) {
+      toast.info('No changes to save');
+      return;
+    }
+    
+    setSavingAll(true);
+    try {
+      const updates = itemsToSave.map(item => {
+        const edits = editingInventory[item.id] || {};
+        return {
+          id: item.id,
+          sold_qty: edits.sold_qty !== undefined ? edits.sold_qty : item.sold_qty,
+          wastage_qty: edits.wastage_qty !== undefined ? edits.wastage_qty : item.wastage_qty,
+          remarks: edits.remarks !== undefined ? edits.remarks : item.remarks
+        };
+      });
+      
+      await api.post(`/api/retailer-inventory/save-all`, { items: updates });
+      toast.success(`Saved ${updates.length} items`);
+      setEditingInventory({});
+      await loadInventory(inventoryDate);
+    } catch (error) {
+      console.error('Failed to save all inventory:', error);
+      toast.error('Failed to save all');
+    } finally {
+      setSavingAll(false);
+    }
+  };
     } catch (error) {
       console.error('Failed to delete inventory item:', error);
       toast.error('Failed to delete');

@@ -1530,24 +1530,28 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 # Only apply Mint-specific matching if BOTH product and SKU mention mint
                 if is_mint_product and is_mint_sku and sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
-                    # For Mint PCS items, match based on roots type and weight
-                    # Collect ALL matching items (not just the first one)
+                    # For Mint PCS items, match based on BOTH roots type AND weight
+                    # This prevents 70-80gm "without roots" from matching 100gm "with roots"
                     matched_mint_items = []
                     for item in items:
                         pkg_name_lower = item.get('packaging_name', '').lower()
                         pkg_has_with_roots = 'with roots' in pkg_name_lower and 'without' not in pkg_name_lower
                         pkg_has_without_roots = 'without roots' in pkg_name_lower
                         
-                        # Match roots type
+                        # Match roots type (REQUIRED)
                         roots_match = (sku_has_with_roots and pkg_has_with_roots) or \
                                      (sku_has_without_roots and pkg_has_without_roots)
                         
-                        # Match weight (within 20gm tolerance)
-                        pkg_weight = item.get('packaging_weight_gm', 0)
-                        weight_match = sku_weight > 0 and pkg_weight > 0 and abs(pkg_weight - sku_weight) <= 20
+                        if not roots_match:
+                            continue  # Skip if roots type doesn't match
                         
-                        if roots_match or (weight_match and (sku_has_with_roots == pkg_has_with_roots)):
-                            logger.info(f"  Mint match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}")
+                        # Match weight (within 30gm tolerance for 70-80 range)
+                        pkg_weight = item.get('packaging_weight_gm', 0)
+                        weight_match = sku_weight > 0 and pkg_weight > 0 and abs(pkg_weight - sku_weight) <= 30
+                        
+                        # For Mint, require BOTH roots match AND (weight match OR no weight specified)
+                        if roots_match and (weight_match or sku_weight == 0 or pkg_weight == 0):
+                            logger.info(f"  Mint match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}, sku_weight={sku_weight}, pkg_weight={pkg_weight}")
                             matched_mint_items.append(item)
                     
                     if matched_mint_items:
@@ -1729,32 +1733,32 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 logger.info(f"  Combining Kg SKUs for {base_name}: {total_grn_kg}kg @ ₹{combined_rate_per_kg:.2f}/kg from {len(group_data['kg_skus'])} SKUs")
                 
-                # Get all Kg-based dispatch items for this product (deduplicated by dispatch_id + packaging_id)
-                kg_items = []
-                seen_item_keys = set()  # Use dispatch_id + packaging_id as key
+                # Get ALL dispatch items for this product - Kg SKUs can map to BOTH Kg and PCS dispatch items
+                # (e.g., Palak (Kg) SKU -> Palak 200gm Packet dispatch)
+                all_items = []
+                seen_item_keys = set()
                 for i in group_data['items']:
-                    if not i.get('dispatch_is_pcs'):
-                        # Create unique key with dispatch_id AND packaging_id
-                        item_key = f"{i.get('dispatch_id')}_{i.get('packaging_id')}"
-                        if item_key not in seen_item_keys:
-                            kg_items.append(i)
-                            seen_item_keys.add(item_key)
+                    # Include ALL items (both Kg and PCS) - Kg SKU can distribute to packet-based dispatches
+                    item_key = f"{i.get('dispatch_id')}_{i.get('packaging_id')}"
+                    if item_key not in seen_item_keys:
+                        all_items.append(i)
+                        seen_item_keys.add(item_key)
                 
                 # Calculate total supplied weight
                 total_supplied_kg = 0
-                for item in kg_items:
+                for item in all_items:
                     pkg_weight_kg = item.get('packaging_weight_gm', 100) / 1000
                     supplied_qty = item.get('supplied_qty', 0)
                     total_supplied_kg += supplied_qty * pkg_weight_kg
                 
                 if total_supplied_kg == 0:
-                    logger.warning(f"  No Kg-based items found for {base_name}")
+                    logger.warning(f"  No items found for Kg SKU: {base_name}")
                     continue
                 
-                logger.info(f"  Total supplied: {total_supplied_kg:.2f}kg, GRN: {total_grn_kg}kg, Dispatch items: {len(kg_items)}")
+                logger.info(f"  Total supplied: {total_supplied_kg:.2f}kg, GRN: {total_grn_kg}kg, Dispatch items: {len(all_items)}")
                 
                 # Distribute combined GRN proportionally to each dispatch item
-                for item in kg_items:
+                for item in all_items:
                     pkg_weight_gm = item.get('packaging_weight_gm', 100)
                     pkg_weight_kg = pkg_weight_gm / 1000
                     supplied_qty = item.get('supplied_qty', 0)

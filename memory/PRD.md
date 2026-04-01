@@ -272,6 +272,10 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
     - [x] Editable Sold and Wastage fields with auto-calculated Closing
     - [x] Save and Delete buttons for each item
     - [x] Previous day's closing becomes next day's opening
+    - [x] **Add Item Modal** (Apr 1, 2026): Manual single item creation with Product/Variant dropdowns and Opening/Received qty inputs
+    - [x] **Save All Button** (Apr 1, 2026): Bulk save all pending changes with count indicator
+    - [x] **Row Highlighting** (Apr 1, 2026): Yellow background for unsaved changes
+    - [x] **Mobile-Optimized Table** (Apr 1, 2026): Compact design with smaller fonts, inputs, and abbreviated headers for mobile viewing
   - [x] Backend APIs: /api/retailer-indents, /api/retailer-dispatches, /api/retailer-invoices, /api/retailer-grn, /api/retailer-rejections, /api/retailer-payments, /api/retailer-dashboard
   - [x] **Retailer Orders UI Enhancement** (COMPLETED - Mar 29, 2026):
     - [x] **Dashboard Summary Cards**: Indents, Dispatches, Net Receivable, Payments with pending amounts

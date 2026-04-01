@@ -1507,10 +1507,10 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             sku_has_with_roots = 'with roots' in sku_name_lower and 'without' not in sku_name_lower
             sku_has_without_roots = 'without roots' in sku_name_lower
             
-            # Special product name mappings (Palak = Spinach, Mint variants, Methi = Fenugreek, etc.)
+            # Special product name mappings (Mint variants, Methi = Fenugreek)
+            # NOTE: Palak and Spinach are NOT aliased - they should match separately
+            # Each Excel SKU should match only its corresponding dispatch product
             product_aliases = {
-                'palak': ['palak', 'spinach'],
-                'spinach': ['palak', 'spinach'],
                 'mint': ['mint', 'fresh mint leaves', 'premium fresh mint leaves', 'fresh mint', 'premium mint'],
                 'fresh mint leaves': ['mint', 'fresh mint leaves', 'premium fresh mint leaves'],
                 'premium fresh mint leaves': ['mint', 'fresh mint leaves', 'premium fresh mint leaves'],
@@ -1774,19 +1774,22 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     
                     # Distribute GRN kg proportionally
                     grn_kg_for_item = total_grn_kg * proportion
-                    grn_units_for_item = grn_kg_for_item / pkg_weight_kg if pkg_weight_kg > 0 else 0
+                    
+                    # For Kg-based SKUs, GRN should be in Kg (not converted to piece count)
+                    # The grn_qty represents the actual GRN value in the same unit as Excel (Kg)
+                    grn_qty_display = grn_kg_for_item  # Show Kg value
                     
                     # Rate per unit from combined rate per kg
-                    rate_per_unit = combined_rate_per_kg * pkg_weight_kg
+                    rate_per_unit = combined_rate_per_kg  # Rate is per Kg
                     
                     # Amount for this item
                     amount = grn_kg_for_item * combined_rate_per_kg
                     
-                    # Difference and loss/gain
-                    difference = grn_units_for_item - supplied_qty
-                    loss_gain = difference * rate_per_unit
+                    # Difference in Kg (GRN kg - Supplied kg)
+                    difference_kg = grn_kg_for_item - supplied_kg
+                    loss_gain = difference_kg * combined_rate_per_kg
                     
-                    logger.info(f"    {item.get('product_name')} {item.get('packaging_name')}: supplied={supplied_qty}, grn={grn_units_for_item:.2f}")
+                    logger.info(f"    {item.get('product_name')} {item.get('packaging_name')}: supplied_kg={supplied_kg:.2f}, grn_kg={grn_kg_for_item:.2f}, diff_kg={difference_kg:.2f}")
                     
                     matched_items.append({
                         'dispatch_id': item.get('dispatch_id'),
@@ -1798,9 +1801,10 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                         'packaging_name': item.get('packaging_name'),
                         'packaging_weight_gm': pkg_weight_gm,
                         'supplied_qty': supplied_qty,
-                        'grn_qty': round(grn_units_for_item, 2),
+                        'supplied_qty_kg': round(supplied_kg, 2),
+                        'grn_qty': round(grn_qty_display, 2),  # GRN in Kg for Kg-based SKUs
                         'grn_qty_kg': round(grn_kg_for_item, 2),
-                        'difference': round(difference, 2),
+                        'difference': round(difference_kg, 2),  # Difference in Kg
                         'rate_per_kg': round(combined_rate_per_kg, 2),
                         'rate_per_unit': round(rate_per_unit, 2),
                         'rate_type': 'per_kg',

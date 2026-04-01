@@ -1,0 +1,92 @@
+{
+  "summary": "All bug fixes verified successfully. Palak Retail wastage is now ₹128.56 (was ₹432), COGS label displayed correctly on dashboard, and COGS/wastage values match sum of line items.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. Palak Retail wastage = ₹128.56 (12.2% of ₹1054.20 pool) - PASS (was ₹432 before fix)",
+    "2. QC line items use grn_qty_kg for kg calculation - PASS (12/12 items have supplied_kg > 0)",
+    "3. Dashboard shows 'COGS' label instead of 'Purchase Cost' - PASS (verified in UI)",
+    "4. total_cogs = ₹6699.81 = sum of line item COGS (not procurement total ₹12772) - PASS",
+    "5. QC vertical purchase = ₹6647.84 = sum of QC line item COGS - PASS",
+    "6. Retail vertical purchase = ₹51.97 = sum of Retail line item COGS - PASS",
+    "7. QC vertical wastage = ₹6044.93 = sum of QC line item wastage - PASS",
+    "8. Retail vertical wastage = ₹149.77 = sum of Retail line item wastage - PASS",
+    "9. Wastage distribution uses actual Kg ratio (Palak/Spinach aliased together) - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_palak_wastage_cogs.py",
+    "/app/test_reports/pytest/pytest_palak_cogs.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [],
+
+  "updated_files": [
+    "/app/backend/tests/test_palak_wastage_cogs.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (5/5 pytest tests passed)",
+    "frontend": "100% (COGS label verified, dashboard loads correctly)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing production data imported to test DB for March 31, 2026",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "All fixes verified: (1) Palak wastage distribution now uses actual Kg ratio including aliased products (Spinach → Palak). (2) QC line items use grn_qty_kg from GRN data. (3) Dashboard COGS = sum of line item COGS, not procurement total. (4) Frontend displays 'COGS' label correctly.",
+
+  "features_verified": {
+    "palak_retail_wastage": "₹128.56 (was ₹432, now correctly 12.2% of ₹1054.20 pool)",
+    "grn_qty_kg_calculation": "QC items use grn_qty_kg from GRN data",
+    "cogs_label": "Dashboard shows 'COGS' instead of 'Purchase Cost'",
+    "cogs_calculation": "total_cogs = ₹6699.81 = sum of line item COGS",
+    "vertical_cogs_match": "QC ₹6647.84 + Retail ₹51.97 = ₹6699.81",
+    "vertical_wastage_match": "QC ₹6044.93 + Retail ₹149.77 = ₹6194.70"
+  },
+
+  "verification_data": {
+    "march_31_palak_spinach_pool": {
+      "qc_palak_kg": 5.2,
+      "qc_palak_wastage": 668.52,
+      "qc_spinach_kg": 2.0,
+      "qc_spinach_wastage": 257.12,
+      "retail_palak_kg": 1.0,
+      "retail_palak_wastage": 128.56,
+      "total_pool_kg": 8.2,
+      "total_pool_wastage": 1054.20,
+      "retail_kg_ratio": "12.2%",
+      "retail_wastage_ratio": "12.2%"
+    },
+    "march_31_cogs": {
+      "total_cogs_from_api": 6699.81,
+      "total_purchase_procurement": 12772.0,
+      "qc_cogs": 6647.84,
+      "retail_cogs": 51.97
+    }
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

@@ -2631,9 +2631,14 @@ async def get_pnl_report(
                 sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
             
             # Calculate kg from units if packaging weight available
-            supplied_kg = qty
-            if packaging_weight_gm > 0:
-                supplied_kg = (qty * packaging_weight_gm) / 1000
+            # Use grn_qty_kg if available (already in kg), otherwise calculate from supplied_qty
+            if item.get("grn_qty_kg"):
+                supplied_kg = item.get("grn_qty_kg", 0) or qty
+            elif packaging_weight_gm > 0:
+                # Convert from units to kg
+                supplied_kg = (supplied_qty_units * packaging_weight_gm) / 1000
+            else:
+                supplied_kg = qty
             
             total_sales += amount
             total_sales_qty += qty
@@ -3353,6 +3358,18 @@ async def get_pnl_report(
     total_cost_base = total_purchase + total_wastage_value + total_retail_rejection + total_retail_commission
     overall_gross_margin_pct = (gross_profit / total_sales * 100) if total_sales > 0 else 0
     
+    # Total COGS from line items (sum of QC + Retail COGS)
+    total_cogs = actual_qc_cogs + actual_retail_cogs
+    total_wastage_from_items = actual_qc_wastage + actual_retail_wastage
+    
+    # Recalculate gross profit using actual COGS and wastage from line items
+    gross_profit_actual = total_sales - total_cogs - total_wastage_from_items - total_retail_rejection - total_retail_commission
+    gross_margin_actual = (gross_profit_actual / total_sales * 100) if total_sales > 0 else 0
+    
+    # Recalculate net profit
+    net_profit_actual = gross_profit_actual - total_variable - total_fixed
+    net_margin_actual = (net_profit_actual / total_sales * 100) if total_sales > 0 else 0
+    
     return {
         "period": {"from": from_date, "to": to_date},
         "summary": {
@@ -3360,17 +3377,19 @@ async def get_pnl_report(
             "total_sales_qty": round(total_sales_qty, 2),
             "total_purchase": round(total_purchase, 2),
             "total_purchase_qty": round(total_purchase_qty, 2),
+            "total_cogs": round(total_cogs, 2),  # Sum of line item COGS
             "total_wastage_qty": round(total_wastage_qty, 2),
             "total_wastage_value": round(total_wastage_value, 2),
+            "total_wastage_from_items": round(total_wastage_from_items, 2),  # Sum of line item wastage
             "total_retail_rejection": round(total_retail_rejection, 2),
             "total_retail_commission": round(total_retail_commission, 2),
-            "gross_profit": round(gross_profit, 2),
-            "gross_margin": round(gross_margin, 1),
-            "gross_margin_pct": round(overall_gross_margin_pct, 1),
+            "gross_profit": round(gross_profit_actual, 2),  # Using actual COGS
+            "gross_margin": round(gross_margin_actual, 1),
+            "gross_margin_pct": round(gross_margin_actual, 1),
             "total_variable_expenses": round(total_variable, 2),
             "total_fixed_expenses": round(total_fixed, 2),
-            "net_profit": round(net_profit, 2),
-            "net_margin": round(net_margin, 1)
+            "net_profit": round(net_profit_actual, 2),
+            "net_margin": round(net_margin_actual, 1)
         },
         "vertical_bifurcation": {
             "qc": {

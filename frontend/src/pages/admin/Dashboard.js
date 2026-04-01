@@ -166,8 +166,8 @@ export default function AdminDashboard() {
                   <Package className="text-white" size={16} />
                 </div>
                 <div>
-                  <p className="text-[10px] text-orange-800 font-medium uppercase">Purchase Cost</p>
-                  <p className="text-lg font-bold text-orange-900">{formatCurrency(summary.total_purchase)}</p>
+                  <p className="text-[10px] text-orange-800 font-medium uppercase">COGS</p>
+                  <p className="text-lg font-bold text-orange-900">{formatCurrency(summary.total_cogs || summary.total_purchase)}</p>
                 </div>
               </div>
             </CardContent>

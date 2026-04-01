@@ -970,7 +970,7 @@ export default function Procurement() {
                           size="sm" 
                           variant="outline"
                           onClick={() => {
-                            // Select all items
+                            // Select all items - but with blank qty to avoid accidental saves
                             const allItems = [];
                             previousDayProcurements.forEach(proc => {
                               proc.products?.forEach(p => {
@@ -980,11 +980,11 @@ export default function Procurement() {
                                   farmer_name: proc.farmer_name,
                                   product_id: p.product_id,
                                   product_name: p.product_name,
-                                  quantity: p.quantity || 0,
+                                  quantity: '',  // Blank qty to force user to enter value
                                   unit: p.unit || 'Kg',
                                   unit_size: p.unit_size || '',
                                   rate: p.rate || 0,
-                                  total: (p.quantity || 0) * (p.rate || 0)
+                                  total: 0  // Total is 0 since qty is blank
                                 });
                               });
                             });
@@ -1025,11 +1025,11 @@ export default function Procurement() {
                                       farmer_name: proc.farmer_name,
                                       product_id: p.product_id,
                                       product_name: p.product_name,
-                                      quantity: p.quantity || 0,
+                                      quantity: '',  // Blank qty to force user to enter value
                                       unit: p.unit || 'Kg',
                                       unit_size: p.unit_size || '',
                                       rate: p.rate || 0,
-                                      total: (p.quantity || 0) * (p.rate || 0)
+                                      total: 0  // Total is 0 since qty is blank
                                     });
                                   });
                                 });
@@ -1072,11 +1072,11 @@ export default function Procurement() {
                                         farmer_name: proc.farmer_name,
                                         product_id: p.product_id,
                                         product_name: p.product_name,
-                                        quantity: p.quantity || 0,
+                                        quantity: '',  // Blank qty to force user to enter value
                                         unit: p.unit || 'Kg',
                                         unit_size: p.unit_size || '',
                                         rate: p.rate || 0,
-                                        total: (p.quantity || 0) * (p.rate || 0)
+                                        total: 0  // Total is 0 since qty is blank
                                       }]);
                                     } else {
                                       setYesterdayItems(yesterdayItems.filter(i => !(i.farmer_id === proc.farmer_id && i.product_id === p.product_id)));
@@ -1092,13 +1092,14 @@ export default function Procurement() {
                                   type="number"
                                   min="0"
                                   step="0.1"
-                                  value={item?.quantity ?? p.quantity ?? 0}
+                                  placeholder="Enter qty"
+                                  value={item?.quantity ?? ''}
                                   onChange={(e) => {
                                     const newQty = parseFloat(e.target.value) || 0;
                                     const newTotal = newQty * (item?.rate ?? p.rate ?? 0);
                                     if (itemIndex >= 0) {
                                       const updated = [...yesterdayItems];
-                                      updated[itemIndex] = { ...updated[itemIndex], quantity: newQty, total: newTotal };
+                                      updated[itemIndex] = { ...updated[itemIndex], quantity: e.target.value === '' ? '' : newQty, total: newTotal };
                                       setYesterdayItems(updated);
                                     } else {
                                       setYesterdayItems([...yesterdayItems, {
@@ -1107,7 +1108,7 @@ export default function Procurement() {
                                         farmer_name: proc.farmer_name,
                                         product_id: p.product_id,
                                         product_name: p.product_name,
-                                        quantity: newQty,
+                                        quantity: e.target.value === '' ? '' : newQty,
                                         unit: p.unit || 'Kg',
                                         unit_size: p.unit_size || '',
                                         rate: p.rate || 0,

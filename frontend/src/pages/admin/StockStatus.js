@@ -303,10 +303,11 @@ export default function StockStatus() {
     }
   };
 
-  // Filter stock status by product
-  const filteredStockStatus = filterProduct === 'all' 
+  // Filter stock status by product - Also filter out items with zero opening qty
+  const filteredStockStatus = (filterProduct === 'all' 
     ? stockStatus 
-    : stockStatus.filter(s => s.product_id === filterProduct);
+    : stockStatus.filter(s => s.product_id === filterProduct)
+  ).filter(s => s.opening_qty > 0 || s.purchase_qty > 0 || s.dispatch_qty > 0);  // Only show items with activity
 
   // Products that can be closed (have opening or purchase activity)
   const closableProducts = stockStatus.filter(s => 

@@ -479,6 +479,60 @@ def extract_weight_from_packaging_name(name: str) -> float:
     
     return 0  # Unknown
 
+
+@api_router.post("/qc-packaging/sync-weights")
+async def sync_packaging_weights(current_user: dict = Depends(get_current_user)):
+    """Sync all packaging weights - extract from names and store in database"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can sync packaging weights")
+    
+    packagings = await db.qc_packaging.find({}).to_list(200)
+    updated_count = 0
+    
+    for p in packagings:
+        name = p.get('name', '')
+        current_weight = p.get('weight_gm') or 0
+        
+        # Always update weight from name to ensure consistency
+        weight = extract_weight_from_packaging_name(name)
+        if weight > 0 and weight != current_weight:
+            await db.qc_packaging.update_one(
+                {"id": p['id']},
+                {"$set": {"weight_gm": weight}}
+            )
+            updated_count += 1
+    
+    # Also add common variants if missing
+    common_variants = [
+        {"name": "500 gm", "weight_gm": 500},
+        {"name": "250 gm", "weight_gm": 250},
+        {"name": "200 gm Packet", "weight_gm": 200},
+        {"name": "100 gm", "weight_gm": 100},
+        {"name": "400-450 gm", "weight_gm": 425},
+    ]
+    
+    added_count = 0
+    for variant in common_variants:
+        existing = await db.qc_packaging.find_one({
+            "name": {"$regex": f"^{re.escape(variant['name'])}$", "$options": "i"}
+        })
+        if not existing:
+            await db.qc_packaging.insert_one({
+                "id": str(uuid.uuid4()),
+                "name": variant['name'],
+                "weight_gm": variant['weight_gm']
+            })
+            added_count += 1
+    
+    # Return all packagings with weights
+    all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+    
+    return {
+        "message": f"Synced {updated_count} existing, added {added_count} new packaging variants",
+        "packagings": all_packagings
+    }
+
+
 # ============================================================================
 # SECTION: FARMER ROUTES (Lines ~375-425)
 # ============================================================================
@@ -3674,6 +3728,10 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             # Also store without common suffixes for flexible matching
             if 'packet' in name_lower:
                 packaging_map[name_lower.replace('packet', '').strip()] = weight
+            # Store just the number version (e.g., "500 gm" also stored as "500")
+            number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+            if number_match:
+                packaging_map[number_match.group(1)] = weight
     
     # Calculate dispatches by product (convert units to Kg)
     dispatches_by_product = {}
@@ -3972,6 +4030,10 @@ async def get_closable_products_for_date(
             # Also store without common suffixes for flexible matching
             if 'packet' in name_lower:
                 packaging_map[name_lower.replace('packet', '').strip()] = weight
+            # Store just the number version (e.g., "500 gm" also stored as "500")
+            number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+            if number_match:
+                packaging_map[number_match.group(1)] = weight
     
     dispatches_by_product = {}
     for d in all_qc_dispatches + all_retailer_dispatches:

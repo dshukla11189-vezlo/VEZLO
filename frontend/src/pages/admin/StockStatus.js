@@ -62,6 +62,7 @@ export default function StockStatus() {
   
   // Sync packaging weights state
   const [syncingWeights, setSyncingWeights] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   
   // Auto-refresh interval (30 seconds)
   const AUTO_REFRESH_INTERVAL = 30000;
@@ -162,6 +163,29 @@ export default function StockStatus() {
       toast.error('Failed to sync packaging weights');
     } finally {
       setSyncingWeights(false);
+    }
+  };
+
+  // ==================== RECALCULATE DISPATCHES ====================
+  const recalculateDispatches = async () => {
+    setRecalculating(true);
+    try {
+      const response = await api.post(`/api/stock-status/recalculate-dispatches?date=${filterDate}`);
+      const data = response.data;
+      
+      if (data.updates && data.updates.length > 0) {
+        toast.success(`Updated ${data.updates.length} products: ${data.updates.map(u => u.product_name).join(', ')}`);
+      } else {
+        toast.info('No dispatch values needed updating');
+      }
+      
+      // Reload stock status
+      loadStockStatus();
+    } catch (error) {
+      console.error('Recalculate dispatches error:', error);
+      toast.error('Failed to recalculate dispatches');
+    } finally {
+      setRecalculating(false);
     }
   };
 
@@ -369,10 +393,21 @@ export default function StockStatus() {
               onClick={syncPackagingWeights} 
               disabled={syncingWeights}
               className="text-orange-600 border-orange-300 hover:bg-orange-50"
-              title="Fix dispatch qty calculations by syncing packaging weights"
+              title="Sync packaging weights from names"
             >
               <Settings size={14} className={`mr-1 ${syncingWeights ? 'animate-spin' : ''}`} />
               {syncingWeights ? 'Syncing...' : 'Sync Weights'}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={recalculateDispatches} 
+              disabled={recalculating}
+              className="text-blue-600 border-blue-300 hover:bg-blue-50"
+              title="Recalculate dispatch values for this date (fixes closed entries)"
+            >
+              <RefreshCw size={14} className={`mr-1 ${recalculating ? 'animate-spin' : ''}`} />
+              {recalculating ? 'Recalculating...' : 'Fix Dispatches'}
             </Button>
             <Button onClick={handleOpenClosingDialog} className="bg-[#14532D] hover:bg-[#166534]" data-testid="enter-closing-btn">
               <Clock size={16} className="mr-2" /> Enter Closing

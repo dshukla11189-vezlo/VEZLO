@@ -3919,14 +3919,125 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             {"$set": {**status, **update_data}},
             upsert=True
         )
-        
-        updated.append({
-            "product_id": entry.product_id,
-            "product_name": status.get("product_name"),
-            **update_data
-        })
+
+
+@api_router.post("/stock-status/recalculate-dispatches")
+async def recalculate_stock_dispatches(
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recalculate dispatch quantities for ALL stock status entries on a specific date.
+    This fixes closed entries that have incorrect dispatch values.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can recalculate dispatches")
     
-    return {"message": f"Closed {len(updated)} products", "updated": updated}
+    # Get packaging weights from QC packaging table
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {}
+    for p in packaging_variants:
+        name = p['name']
+        name_lower = name.lower().strip()
+        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight > 0:
+            packaging_map[name_lower] = weight
+            if 'packet' in name_lower:
+                packaging_map[name_lower.replace('packet', '').strip()] = weight
+            number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+            if number_match:
+                packaging_map[number_match.group(1)] = weight
+    
+    # Get all dispatches for the target date
+    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
+    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
+    
+    # Calculate dispatch totals by product
+    dispatches_by_product = {}
+    for d in all_qc_dispatches + all_retailer_dispatches:
+        dispatch_date = d.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date_str = str(dispatch_date)[:10]
+        
+        if dispatch_date_str == date:
+            for item in d.get("items", []):
+                product_id = item.get("product_id")
+                supplied_qty = item.get("supplied_qty", 0)
+                packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+                
+                # Get weight from packaging map
+                weight_gm = packaging_map.get(packaging_name)
+                if not weight_gm:
+                    weight_gm = extract_weight_from_packaging_name(packaging_name)
+                if not weight_gm:
+                    weight_gm = 1000  # Default 1kg
+                
+                qty_kg = (supplied_qty * weight_gm) / 1000
+                
+                if product_id not in dispatches_by_product:
+                    dispatches_by_product[product_id] = {"qty": 0, "value": 0}
+                dispatches_by_product[product_id]["qty"] += qty_kg
+                dispatches_by_product[product_id]["value"] += supplied_qty * (item.get("rate") or 0)
+    
+    # Get all stock status entries for the date
+    stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)
+    
+    updated_count = 0
+    updates = []
+    
+    for entry in stock_entries:
+        product_id = entry.get("product_id")
+        old_dispatch = entry.get("dispatch_qty", 0)
+        
+        # Get new dispatch value
+        dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
+        new_dispatch = round(dispatch_data["qty"], 2)
+        
+        # Only update if there's a change
+        if abs(new_dispatch - old_dispatch) > 0.001:
+            # Recalculate wastage if entry is closed
+            update_data = {
+                "dispatch_qty": new_dispatch,
+                "dispatch_value": round(dispatch_data["value"], 2)
+            }
+            
+            # If closed, recalculate wastage
+            if entry.get("status") == "closed" and entry.get("closing_qty") is not None:
+                opening_qty = entry.get("opening_qty", 0)
+                purchase_qty = entry.get("purchase_qty", 0)
+                closing_qty = entry.get("closing_qty", 0)
+                avg_price = entry.get("avg_price", 0)
+                
+                total_available = opening_qty + purchase_qty - new_dispatch
+                wastage_qty = max(0, total_available - closing_qty)
+                wastage_value = wastage_qty * avg_price
+                total_input = opening_qty + purchase_qty
+                wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
+                
+                update_data.update({
+                    "wastage_qty": round(wastage_qty, 2),
+                    "wastage_value": round(wastage_value, 2),
+                    "wastage_percent": round(wastage_percent, 2)
+                })
+            
+            await db.daily_stock_status.update_one(
+                {"date": date, "product_id": product_id},
+                {"$set": update_data}
+            )
+            
+            updates.append({
+                "product_name": entry.get("product_name"),
+                "old_dispatch": old_dispatch,
+                "new_dispatch": new_dispatch
+            })
+            updated_count += 1
+    
+    return {
+        "message": f"Recalculated {updated_count} entries for {date}",
+        "updates": updates
+    }
 
 @api_router.get("/stock-status/history")
 async def get_stock_status_history(

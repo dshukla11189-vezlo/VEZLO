@@ -750,3 +750,28 @@ class RetailerInvoiceCreate(BaseModel):
     dispatch_ids: List[str]
     selected_items: Optional[List[RetailerInvoiceSelectedItem]] = None
     remarks: Optional[str] = None
+
+
+
+# ==================== RETAILER INVENTORY ====================
+class RetailerInventoryItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    retailer_id: str
+    product_id: str
+    product_name: str
+    variant_name: Optional[str] = None
+    date: str  # YYYY-MM-DD format
+    opening_qty: float = 0
+    received_qty: float = 0  # From dispatch
+    sold_qty: float = 0  # User entered
+    wastage_qty: float = 0  # User entered
+    closing_qty: float = 0  # Calculated: opening + received - sold - wastage
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailerInventoryItemUpdate(BaseModel):
+    sold_qty: Optional[float] = None
+    wastage_qty: Optional[float] = None
+    closing_qty: Optional[float] = None
+    remarks: Optional[str] = None

@@ -1,0 +1,104 @@
+{
+  "summary": "All features verified successfully. Invoice rejection amount calculation correctly sums (rejected_qty × mrp) for each item. March 18 invoice shows ₹176 rejection. Retailer Inventory tab fully functional with Generate from Dispatch, editable Sold/Wastage fields, auto-calculated Closing qty, and working Save/Delete buttons.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. Invoice rejection amount = sum of (rejected_qty × mrp) - PASS: March 18 invoice shows ₹176 (1×15 + 3×15 + 1×20 + 3×24 + 2×12)",
+    "2. getInvoiceRejectionAmount helper function works correctly - PASS: Calculates from items when rejection_amount is null",
+    "3. Retailer portal has Inventory tab - PASS: Tab visible and clickable",
+    "4. Generate from Dispatch creates inventory items - PASS: Created 15 items from March 31 dispatches",
+    "5. Inventory items have editable Sold and Wastage fields - PASS: Number inputs visible and editable",
+    "6. Closing qty = Opening + Received - Sold - Wastage (auto-calculated) - PASS: Coriander 0+10-3-1=6.0",
+    "7. Save button works for inventory items - PASS: Toast shows 'Inventory item saved'",
+    "8. Delete button works for inventory items - PASS: Confirmation dialog, item deleted, row count decreased"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_invoice_rejection_inventory.py",
+    "/app/test_reports/pytest/pytest_invoice_inventory.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [],
+
+  "updated_files": [
+    "/app/backend/tests/test_invoice_rejection_inventory.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (11/11 pytest tests passed)",
+    "frontend": "100% (All UI features verified via Playwright)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123",
+    "retailer_email": "tamannamart08@gmail.com",
+    "retailer_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing production data. March 18 invoice has rejection items. March 31 has 15 dispatch items for inventory testing.",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "All features verified: (1) Invoice rejection calculation uses sum of (rejected_qty × mrp) per item. March 18 invoice correctly shows ₹176 rejection. (2) Retailer Inventory tab fully functional - Generate from Dispatch creates items from retailer dispatches, Sold/Wastage fields are editable, Closing qty auto-calculates, Save and Delete buttons work. (3) Retailer ID for Tamanna Mart: a400f104-b0da-475e-af07-dd6d0d8776e9",
+
+  "features_verified": {
+    "invoice_rejection_calculation": {
+      "formula": "sum of (rejected_qty × mrp) for each item",
+      "march_18_invoice": {
+        "invoice_number": "RET-INV-18MAR2026-001",
+        "rejection_breakdown": "1×15 + 3×15 + 1×20 + 3×24 + 2×12 = 176",
+        "total_rejection": "₹176.00",
+        "gross_value": "₹1,243.00",
+        "net_value": "₹1,067.00"
+      }
+    },
+    "retailer_inventory": {
+      "inventory_tab": "Present in retailer portal",
+      "generate_from_dispatch": "Creates inventory items from retailer dispatches",
+      "editable_fields": "Sold and Wastage fields are editable number inputs",
+      "closing_qty_formula": "Opening + Received - Sold - Wastage (auto-calculated)",
+      "save_button": "Works - updates item in database",
+      "delete_button": "Works - shows confirmation dialog, removes item"
+    }
+  },
+
+  "verification_data": {
+    "march_18_invoice_items_with_rejections": [
+      {"product": "Amaranthus Red", "rejected_qty": 1, "mrp": 15, "rejection_value": 15},
+      {"product": "Amaranthus Green", "rejected_qty": 3, "mrp": 15, "rejection_value": 45},
+      {"product": "Dill Leaf", "rejected_qty": 1, "mrp": 20, "rejection_value": 20},
+      {"product": "Fenugreek (Methi)", "rejected_qty": 3, "mrp": 24, "rejection_value": 72},
+      {"product": "Fresh Mint Leaves", "rejected_qty": 2, "mrp": 12, "rejection_value": 24}
+    ],
+    "total_rejection_amount": 176,
+    "march_31_inventory_items_created": 15,
+    "inventory_closing_qty_test": {
+      "product": "Coriander",
+      "opening": 0,
+      "received": 10,
+      "sold": 3,
+      "wastage": 1,
+      "closing": 6.0
+    }
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

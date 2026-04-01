@@ -35,7 +35,7 @@ TABLE OF CONTENTS (Search for SECTION: to jump to each section)
 ================================================================
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status, Request, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -5784,6 +5784,160 @@ async def scheduled_gmail_sync():
         logger.info("Scheduled Gmail GRN sync completed")
     except Exception as e:
         logger.error(f"Gmail sync scheduler error: {e}")
+
+
+# ==================== RETAILER INVENTORY ENDPOINTS ====================
+
+@app.get("/api/retailer-inventory/{retailer_id}")
+async def get_retailer_inventory(
+    retailer_id: str,
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get retailer inventory for a specific date or all dates"""
+    query = {"retailer_id": retailer_id}
+    if date:
+        query["date"] = date
+    
+    inventory = await db.retailer_inventory.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    return inventory
+
+@app.post("/api/retailer-inventory/generate/{retailer_id}")
+async def generate_retailer_inventory(
+    retailer_id: str,
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate inventory items from dispatches for a specific date"""
+    from models import RetailerInventoryItem
+    
+    # Check if inventory already exists for this date
+    existing = await db.retailer_inventory.find_one({"retailer_id": retailer_id, "date": date})
+    if existing:
+        return {"message": "Inventory already exists for this date", "exists": True}
+    
+    # Get dispatches for this retailer on this date
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": retailer_id,
+        "dispatch_date": {"$regex": f"^{date}"}
+    }).to_list(100)
+    
+    if not dispatches:
+        return {"message": "No dispatches found for this date", "items_created": 0}
+    
+    # Get previous day's inventory to calculate opening qty
+    prev_date = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    prev_inventory = await db.retailer_inventory.find(
+        {"retailer_id": retailer_id, "date": prev_date}, {"_id": 0}
+    ).to_list(500)
+    prev_closing = {(i["product_id"], i.get("variant_name", "")): i.get("closing_qty", 0) for i in prev_inventory}
+    
+    # Aggregate items from all dispatches
+    items_map = {}
+    for dispatch in dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id", "")
+            variant = item.get("variant_name", "")
+            key = (product_id, variant)
+            
+            if key not in items_map:
+                items_map[key] = {
+                    "product_id": product_id,
+                    "product_name": item.get("product_name", ""),
+                    "variant_name": variant,
+                    "received_qty": 0
+                }
+            items_map[key]["received_qty"] += item.get("supplied_qty", 0)
+    
+    # Create inventory items
+    created_items = []
+    for key, item_data in items_map.items():
+        opening_qty = prev_closing.get(key, 0)
+        received_qty = item_data["received_qty"]
+        
+        inventory_item = RetailerInventoryItem(
+            retailer_id=retailer_id,
+            product_id=item_data["product_id"],
+            product_name=item_data["product_name"],
+            variant_name=item_data["variant_name"],
+            date=date,
+            opening_qty=opening_qty,
+            received_qty=received_qty,
+            sold_qty=0,
+            wastage_qty=0,
+            closing_qty=opening_qty + received_qty  # Initial closing = opening + received
+        )
+        
+        await db.retailer_inventory.insert_one(inventory_item.model_dump())
+        created_items.append(inventory_item.model_dump())
+    
+    return {"message": f"Created {len(created_items)} inventory items", "items_created": len(created_items), "items": created_items}
+
+@app.put("/api/retailer-inventory/{item_id}")
+async def update_retailer_inventory_item(
+    item_id: str,
+    update: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update inventory item (sold_qty, wastage_qty, closing_qty, remarks)"""
+    from datetime import datetime, timezone
+    
+    # Get current item
+    item = await db.retailer_inventory.find_one({"id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    
+    # Calculate closing qty if sold/wastage updated
+    opening = item.get("opening_qty", 0)
+    received = item.get("received_qty", 0)
+    sold = update.get("sold_qty", item.get("sold_qty", 0))
+    wastage = update.get("wastage_qty", item.get("wastage_qty", 0))
+    closing = opening + received - sold - wastage
+    
+    update_data = {
+        "sold_qty": sold,
+        "wastage_qty": wastage,
+        "closing_qty": closing,
+        "remarks": update.get("remarks", item.get("remarks")),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.retailer_inventory.update_one(
+        {"id": item_id},
+        {"$set": update_data}
+    )
+    
+    # Return updated item
+    updated = await db.retailer_inventory.find_one({"id": item_id}, {"_id": 0})
+    return updated
+
+@app.delete("/api/retailer-inventory/{item_id}")
+async def delete_retailer_inventory_item(
+    item_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete an inventory item"""
+    result = await db.retailer_inventory.delete_one({"id": item_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    return {"message": "Item deleted successfully"}
+
+@app.get("/api/retailer-inventory/dates/{retailer_id}")
+async def get_retailer_inventory_dates(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get list of dates that have inventory data for a retailer"""
+    pipeline = [
+        {"$match": {"retailer_id": retailer_id}},
+        {"$group": {"_id": "$date"}},
+        {"$sort": {"_id": -1}},
+        {"$limit": 30}
+    ]
+    dates = await db.retailer_inventory.aggregate(pipeline).to_list(30)
+    return [d["_id"] for d in dates]
+
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

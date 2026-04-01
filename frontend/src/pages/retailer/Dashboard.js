@@ -8,7 +8,8 @@ import { Input } from '../../components/ui/input';
 import { 
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
-  ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3
+  ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
+  ClipboardList, Save, Trash2, RefreshCw
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
@@ -25,6 +26,12 @@ export default function RetailerDashboard() {
   const [expandedInvoices, setExpandedInvoices] = useState({});
   const [expandedOrderDates, setExpandedOrderDates] = useState({});
   const [expandedRejectionDates, setExpandedRejectionDates] = useState({});
+  
+  // Inventory state
+  const [inventoryDate, setInventoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [editingInventory, setEditingInventory] = useState({});
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
@@ -344,12 +351,94 @@ export default function RetailerDashboard() {
     printWindow.document.close();
   };
 
+  // ==================== INVENTORY FUNCTIONS ====================
+  const loadInventory = async (date) => {
+    setInventoryLoading(true);
+    try {
+      const res = await api.get(`/api/retailer-inventory/${dashboardData?.retailer?.id}?date=${date}`);
+      setInventoryItems(res.data || []);
+      setEditingInventory({});
+    } catch (error) {
+      console.error('Failed to load inventory:', error);
+      toast.error('Failed to load inventory');
+    } finally {
+      setInventoryLoading(false);
+    }
+  };
+
+  const generateInventory = async () => {
+    if (!dashboardData?.retailer?.id) {
+      toast.error('Retailer ID not found');
+      return;
+    }
+    setInventoryLoading(true);
+    try {
+      const res = await api.post(`/api/retailer-inventory/generate/${dashboardData.retailer.id}?date=${inventoryDate}`);
+      if (res.data.exists) {
+        toast.info('Inventory already exists for this date');
+      } else {
+        toast.success(`Created ${res.data.items_created} inventory items`);
+      }
+      await loadInventory(inventoryDate);
+    } catch (error) {
+      console.error('Failed to generate inventory:', error);
+      toast.error('Failed to generate inventory');
+    } finally {
+      setInventoryLoading(false);
+    }
+  };
+
+  const updateInventoryItem = async (itemId, field, value) => {
+    setEditingInventory(prev => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], [field]: parseFloat(value) || 0 }
+    }));
+  };
+
+  const saveInventoryItem = async (item) => {
+    const updates = editingInventory[item.id] || {};
+    const payload = {
+      sold_qty: updates.sold_qty !== undefined ? updates.sold_qty : item.sold_qty,
+      wastage_qty: updates.wastage_qty !== undefined ? updates.wastage_qty : item.wastage_qty,
+      remarks: updates.remarks !== undefined ? updates.remarks : item.remarks
+    };
+    
+    try {
+      await api.put(`/api/retailer-inventory/${item.id}`, payload);
+      toast.success('Inventory item saved');
+      await loadInventory(inventoryDate);
+    } catch (error) {
+      console.error('Failed to save inventory item:', error);
+      toast.error('Failed to save');
+    }
+  };
+
+  const deleteInventoryItem = async (itemId) => {
+    if (!window.confirm('Are you sure you want to delete this item?')) return;
+    try {
+      await api.delete(`/api/retailer-inventory/${itemId}`);
+      toast.success('Item deleted');
+      await loadInventory(inventoryDate);
+    } catch (error) {
+      console.error('Failed to delete inventory item:', error);
+      toast.error('Failed to delete');
+    }
+  };
+
+  // Load inventory when date changes or tab switches
+  useEffect(() => {
+    if (activeTab === 'inventory' && dashboardData?.retailer?.id) {
+      loadInventory(inventoryDate);
+    }
+  }, [activeTab, inventoryDate, dashboardData?.retailer?.id]);
+
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
     { id: 'indents', label: 'My Indents', icon: Package },
     { id: 'orders', label: 'My Orders', icon: Truck },
     { id: 'invoices', label: 'Invoices', icon: FileText },
-    { id: 'rejections', label: 'Rejections', icon: AlertTriangle }
+    { id: 'rejections', label: 'Rejections', icon: AlertTriangle },
+    { id: 'inventory', label: 'Inventory', icon: ClipboardList }
   ];
 
   const summary = dashboardData?.summary || {};
@@ -1133,6 +1222,167 @@ export default function RetailerDashboard() {
                   )}
                 </table>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== INVENTORY TAB ==================== */}
+        {activeTab === 'inventory' && (
+          <Card>
+            <CardHeader className="border-b py-3">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <ClipboardList className="text-green-600" size={20} />
+                  Daily Inventory Tracking
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={inventoryDate}
+                    onChange={(e) => setInventoryDate(e.target.value)}
+                    className="w-40"
+                  />
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => loadInventory(inventoryDate)}
+                    disabled={inventoryLoading}
+                  >
+                    <RefreshCw size={14} className={`mr-1 ${inventoryLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    onClick={generateInventory}
+                    disabled={inventoryLoading}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <Plus size={14} className="mr-1" />
+                    Generate from Dispatch
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {inventoryLoading ? (
+                <div className="text-center py-8 text-gray-500">Loading...</div>
+              ) : inventoryItems.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <ClipboardList size={48} className="mx-auto mb-3 text-gray-300" />
+                  <p>No inventory items for {inventoryDate}</p>
+                  <p className="text-sm mt-1">Click "Generate from Dispatch" to create inventory from today's dispatches.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-2 text-left">PRODUCT</th>
+                        <th className="p-2 text-center">OPENING</th>
+                        <th className="p-2 text-center">RECEIVED</th>
+                        <th className="p-2 text-center">SOLD</th>
+                        <th className="p-2 text-center">WASTAGE</th>
+                        <th className="p-2 text-center">CLOSING</th>
+                        <th className="p-2 text-center">ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventoryItems.map(item => {
+                        const editing = editingInventory[item.id] || {};
+                        const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : item.sold_qty;
+                        const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : item.wastage_qty;
+                        const closingQty = item.opening_qty + item.received_qty - soldQty - wastageQty;
+                        
+                        return (
+                          <tr key={item.id} className="border-b hover:bg-gray-50">
+                            <td className="p-2">
+                              <div className="font-medium">{item.product_name}</div>
+                              {item.variant_name && (
+                                <div className="text-xs text-gray-500">{item.variant_name}</div>
+                              )}
+                            </td>
+                            <td className="p-2 text-center text-gray-600">{item.opening_qty}</td>
+                            <td className="p-2 text-center text-green-600">+{item.received_qty}</td>
+                            <td className="p-2 text-center">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={soldQty}
+                                onChange={(e) => updateInventoryItem(item.id, 'sold_qty', e.target.value)}
+                                className="w-20 h-8 text-center text-sm"
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={wastageQty}
+                                onChange={(e) => updateInventoryItem(item.id, 'wastage_qty', e.target.value)}
+                                className="w-20 h-8 text-center text-sm"
+                              />
+                            </td>
+                            <td className={`p-2 text-center font-semibold ${closingQty < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                              {closingQty.toFixed(1)}
+                            </td>
+                            <td className="p-2 text-center">
+                              <div className="flex justify-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => saveInventoryItem(item)}
+                                  className="h-7 w-7 p-0 hover:bg-green-100"
+                                  title="Save"
+                                >
+                                  <Save size={14} className="text-green-600" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => deleteInventoryItem(item.id)}
+                                  className="h-7 w-7 p-0 hover:bg-red-100"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={14} className="text-red-600" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td className="p-2 text-right">TOTALS:</td>
+                        <td className="p-2 text-center">{inventoryItems.reduce((sum, i) => sum + (i.opening_qty || 0), 0).toFixed(1)}</td>
+                        <td className="p-2 text-center text-green-600">+{inventoryItems.reduce((sum, i) => sum + (i.received_qty || 0), 0).toFixed(1)}</td>
+                        <td className="p-2 text-center">
+                          {inventoryItems.reduce((sum, i) => {
+                            const editing = editingInventory[i.id] || {};
+                            return sum + (editing.sold_qty !== undefined ? editing.sold_qty : i.sold_qty || 0);
+                          }, 0).toFixed(1)}
+                        </td>
+                        <td className="p-2 text-center">
+                          {inventoryItems.reduce((sum, i) => {
+                            const editing = editingInventory[i.id] || {};
+                            return sum + (editing.wastage_qty !== undefined ? editing.wastage_qty : i.wastage_qty || 0);
+                          }, 0).toFixed(1)}
+                        </td>
+                        <td className="p-2 text-center text-blue-600">
+                          {inventoryItems.reduce((sum, i) => {
+                            const editing = editingInventory[i.id] || {};
+                            const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : i.sold_qty || 0;
+                            const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : i.wastage_qty || 0;
+                            return sum + i.opening_qty + i.received_qty - soldQty - wastageQty;
+                          }, 0).toFixed(1)}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

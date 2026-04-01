@@ -315,6 +315,26 @@ export default function RetailerOrders() {
     return `₹${(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  // Calculate rejection amount from invoice items (when rejection_amount field is null/missing)
+  const getInvoiceRejectionAmount = (invoice) => {
+    if (invoice.rejection_amount !== null && invoice.rejection_amount !== undefined) {
+      return invoice.rejection_amount;
+    }
+    // Calculate from items: sum of (rejected_qty * mrp) for each item
+    return (invoice.items || []).reduce((sum, item) => {
+      const rejectedQty = item.rejected_qty || 0;
+      const mrp = item.mrp || 0;
+      return sum + (rejectedQty * mrp);
+    }, 0);
+  };
+
+  // Calculate gross value from invoice items
+  const getInvoiceGrossValue = (invoice) => {
+    if (invoice.gross_value) return invoice.gross_value;
+    const rejectionAmount = getInvoiceRejectionAmount(invoice);
+    return (invoice.total_mrp_value || 0) + rejectionAmount;
+  };
+
   // ==================== EXPORT HANDLERS ====================
   const exportIndents = () => {
     const dataToExport = [];
@@ -883,18 +903,20 @@ export default function RetailerOrders() {
       const rejectedQty = item.rejected_qty || 0;
       const billableQty = suppliedQty - rejectedQty;
       const amount = billableQty * (item.mrp || 0);
+      const rejectionValue = rejectedQty * (item.mrp || 0);  // Calculate per-item rejection value
       return {
         suppliedQty: acc.suppliedQty + suppliedQty,
         rejectedQty: acc.rejectedQty + rejectedQty,
         billableQty: acc.billableQty + billableQty,
-        amount: acc.amount + amount
+        amount: acc.amount + amount,
+        rejectionValue: acc.rejectionValue + rejectionValue  // Sum up all rejection values
       };
-    }, { suppliedQty: 0, rejectedQty: 0, billableQty: 0, amount: 0 });
+    }, { suppliedQty: 0, rejectedQty: 0, billableQty: 0, amount: 0, rejectionValue: 0 });
     
-    // Use stored totals if available
+    // Use stored totals if available, or calculate from items
     const totalMrpValue = invoice.total_mrp_value || totals.amount;
-    const grossValue = invoice.gross_value || (totalMrpValue + (invoice.rejection_amount || 0));
-    const rejectionAmount = invoice.rejection_amount || (totals.rejectedQty * (invoice.items[0]?.mrp || 0));
+    const rejectionAmount = invoice.rejection_amount || totals.rejectionValue;  // Use calculated sum
+    const grossValue = invoice.gross_value || (totalMrpValue + rejectionAmount);
     
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -1774,9 +1796,9 @@ export default function RetailerOrders() {
                           <td className="p-3">{formatDate(invoice.invoice_date)}</td>
                           <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
                           <td className="p-3 text-center">{invoice.items?.length || 0}</td>
-                          <td className="p-3 text-right">{formatCurrency(invoice.gross_value || (invoice.total_mrp_value + (invoice.rejection_amount || 0)))}</td>
+                          <td className="p-3 text-right">{formatCurrency(getInvoiceGrossValue(invoice))}</td>
                           <td className="p-3 text-right text-red-600">
-                            {invoice.rejection_amount > 0 ? `-${formatCurrency(invoice.rejection_amount)}` : '-'}
+                            {getInvoiceRejectionAmount(invoice) > 0 ? `-${formatCurrency(getInvoiceRejectionAmount(invoice))}` : '-'}
                           </td>
                           <td className="p-3 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
                           <td className="p-3 text-right text-green-600">-{formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
@@ -1859,8 +1881,8 @@ export default function RetailerOrders() {
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
                         <td colSpan={5} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.gross_value || i.total_mrp_value + (i.rejection_amount || 0)), 0))}</td>
-                        <td className="p-3 text-right text-red-600">-{formatCurrency(invoices.reduce((sum, i) => sum + (i.rejection_amount || 0), 0))}</td>
+                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + getInvoiceGrossValue(i), 0))}</td>
+                        <td className="p-3 text-right text-red-600">-{formatCurrency(invoices.reduce((sum, i) => sum + getInvoiceRejectionAmount(i), 0))}</td>
                         <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.total_mrp_value || 0), 0))}</td>
                         <td className="p-3 text-right text-green-600">-{formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}</td>
                         <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>

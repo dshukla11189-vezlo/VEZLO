@@ -376,6 +376,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Retail-specific expenses allocated only to Retail P&L
   - [x] "All" expenses split equally (50/50) between QC and Retail
   - [x] Fixed expenses always split equally (50/50) between verticals
+- [x] **Wastage & Purchase Calculation Fix** (COMPLETED - Apr 1, 2026):
+  - [x] Vertical Dashboard now uses SUM of actual line item COGS (not proportional by sales %)
+  - [x] Vertical Dashboard now uses SUM of actual line item wastage (not proportional by sales %)
+  - [x] Wastage distributed proportionally by Kg supplied (line_kg / total_kg)
+  - [x] Retail Dashboard Purchase and Wastage now match line item totals exactly
+  - [x] QC Dashboard Purchase and Wastage now match line item totals exactly
 - [x] **Retailer Section Improvements** (COMPLETED - Mar 31, 2026):
   - [x] **Search-based Retailer Selection (Indent)** - Replaced dropdown with searchable input for retailer selection in Create Indent modal
   - [x] **Larger Product/Variant Dropdowns** - Increased max-height from 40 to 72 for better visibility (shows 12 items)

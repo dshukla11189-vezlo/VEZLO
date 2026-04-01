@@ -489,72 +489,9 @@ export default function AdminDashboard() {
 
         {/* Tab Content */}
         {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Daily P&L Chart */}
+          <div className="space-y-4">
+            {/* Daily P&L Table - Multi-Level Expandable - AT THE TOP */}
             <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <BarChart3 size={16} /> Daily P&L Trend
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {dailyPnl.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={dailyPnl}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={formatDate} fontSize={10} />
-                      <YAxis fontSize={10} tickFormatter={(v) => `₹${v/1000}K`} />
-                      <Tooltip 
-                        formatter={(value) => [`₹${value.toLocaleString()}`, '']}
-                        labelFormatter={(label) => formatDate(label)}
-                      />
-                      <Legend />
-                      <Bar dataKey="sales" name="Sales" fill="#14532D" />
-                      <Bar dataKey="purchase" name="Purchase" fill="#D97706" />
-                      <Bar dataKey="gross_profit" name="Gross Profit" fill="#3B82F6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[250px] flex items-center justify-center text-gray-400">
-                    No data for selected period
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Net Profit Trend */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <TrendingUp size={16} /> Net Profit Trend
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {dailyPnl.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={dailyPnl}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={formatDate} fontSize={10} />
-                      <YAxis fontSize={10} tickFormatter={(v) => `₹${v/1000}K`} />
-                      <Tooltip 
-                        formatter={(value) => [`₹${value.toLocaleString()}`, '']}
-                        labelFormatter={(label) => formatDate(label)}
-                      />
-                      <Legend />
-                      <Line type="monotone" dataKey="gross_profit" name="Gross" stroke="#14532D" strokeWidth={2} />
-                      <Line type="monotone" dataKey="net_profit" name="Net" stroke="#3B82F6" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[250px] flex items-center justify-center text-gray-400">
-                    No data for selected period
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Daily P&L Table - Multi-Level Expandable */}
-            <Card className="lg:col-span-2">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm flex items-center justify-between">
                   <span>Daily P&L Breakdown</span>
@@ -609,9 +546,12 @@ export default function AdminDashboard() {
                           const retailMargin = retailSales > 0 ? (retailGross / retailSales * 100) : 0;
                           
                           // Day total (rejection and commission only apply to retail)
+                          // Calculate day purchase from line items COGS, not procurement
+                          const dayPurchase = qcPurchase + retailPurchase;
+                          const dayWastage = qcWastage + retailWastage;
                           const dayRejection = retailRejection;
                           const dayCommission = retailCommission;
-                          const dayGrossWithDeductions = day.sales - day.purchase - day.wastage - dayRejection - dayCommission;
+                          const dayGrossWithDeductions = day.sales - dayPurchase - dayWastage - dayRejection - dayCommission;
                           const dayMarginWithDeductions = day.sales > 0 ? (dayGrossWithDeductions / day.sales * 100) : 0;
                           
                           // Group by customer within each vertical
@@ -640,8 +580,8 @@ export default function AdminDashboard() {
                                 <td className="p-2 font-semibold text-gray-800">{formatDate(day.date)}</td>
                                 <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
                                 <td className="p-2 text-right text-gray-600">{day.sales_qty?.toLocaleString() || 0}</td>
-                                <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
-                                <td className="p-2 text-right text-red-600">₹{day.wastage.toLocaleString()}</td>
+                                <td className="p-2 text-right text-orange-600">₹{dayPurchase.toLocaleString()}</td>
+                                <td className="p-2 text-right text-red-600">₹{dayWastage.toLocaleString()}</td>
                                 <td className="p-2 text-right text-red-500">{dayRejection > 0 ? `-₹${dayRejection.toLocaleString()}` : '-'}</td>
                                 <td className="p-2 text-right text-amber-600">{dayCommission > 0 ? `-₹${dayCommission.toLocaleString()}` : '-'}</td>
                                 <td className={`p-2 text-right font-semibold ${dayGrossWithDeductions >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -919,43 +859,123 @@ export default function AdminDashboard() {
                         })
                       )}
                     </tbody>
-                    {dailyPnl.length > 0 && (
-                      <tfoot className="bg-gray-100 font-semibold">
-                        <tr>
-                          <td className="p-2"></td>
-                          <td className="p-2">TOTAL</td>
-                          <td className="p-2 text-right text-green-700">₹{summary.total_sales?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-orange-700">₹{summary.total_purchase?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-red-700">₹{summary.total_wastage_value?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-red-500">
-                            {dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0) > 0 ? 
-                              `-₹${dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0).toLocaleString()}` : '-'}
-                          </td>
-                          <td className="p-2 text-right text-amber-600">
-                            {dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0) > 0 ? 
-                              `-₹${dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0).toLocaleString()}` : '-'}
-                          </td>
-                          <td className={`p-2 text-right ${summary.gross_profit >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                            ₹{summary.gross_profit?.toLocaleString()}
-                          </td>
-                          <td className="p-2 text-right">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              summary.gross_margin >= 20 ? 'bg-green-100 text-green-700' : 
-                              summary.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' : 
-                              'bg-red-100 text-red-700'
-                            }`}>{summary.gross_margin}%</span>
-                          </td>
-                          <td className="p-2 text-right text-green-800">
-                            {summary.total_sales_qty > 0 ? `₹${(summary.gross_profit / summary.total_sales_qty).toFixed(1)}` : '-'}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    )}
+                    {dailyPnl.length > 0 && (() => {
+                      // Calculate totals from line items for consistency
+                      const totalPurchaseFromItems = dailyPnl.reduce((sum, day) => {
+                        const lineItems = day.line_items || [];
+                        return sum + lineItems.reduce((s, i) => s + (i.cogs || 0), 0);
+                      }, 0);
+                      const totalWastageFromItems = dailyPnl.reduce((sum, day) => {
+                        const lineItems = day.line_items || [];
+                        return sum + lineItems.reduce((s, i) => s + (i.wastage_value || 0), 0);
+                      }, 0);
+                      const totalRejection = dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0);
+                      const totalCommission = dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0);
+                      const totalGross = (summary.total_sales || 0) - totalPurchaseFromItems - totalWastageFromItems - totalRejection - totalCommission;
+                      const totalMargin = summary.total_sales > 0 ? (totalGross / summary.total_sales * 100) : 0;
+                      
+                      return (
+                        <tfoot className="bg-gray-100 font-semibold">
+                          <tr>
+                            <td className="p-2"></td>
+                            <td className="p-2">TOTAL</td>
+                            <td className="p-2 text-right text-green-700">₹{summary.total_sales?.toLocaleString()}</td>
+                            <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
+                            <td className="p-2 text-right text-orange-700">₹{totalPurchaseFromItems.toLocaleString()}</td>
+                            <td className="p-2 text-right text-red-700">₹{totalWastageFromItems.toLocaleString()}</td>
+                            <td className="p-2 text-right text-red-500">
+                              {totalRejection > 0 ? `-₹${totalRejection.toLocaleString()}` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-amber-600">
+                              {totalCommission > 0 ? `-₹${totalCommission.toLocaleString()}` : '-'}
+                            </td>
+                            <td className={`p-2 text-right ${totalGross >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                              ₹{totalGross.toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                totalMargin >= 20 ? 'bg-green-100 text-green-700' : 
+                                totalMargin >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                'bg-red-100 text-red-700'
+                              }`}>{totalMargin.toFixed(1)}%</span>
+                            </td>
+                            <td className="p-2 text-right text-green-800">
+                              {summary.total_sales_qty > 0 ? `₹${(totalGross / summary.total_sales_qty).toFixed(1)}` : '-'}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      );
+                    })()}
                   </table>
                 </div>
               </CardContent>
             </Card>
+            
+            {/* Charts Row - Below P&L Table */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Daily P&L Chart */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <BarChart3 size={16} /> Daily P&L Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {dailyPnl.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={dailyPnl}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tickFormatter={formatDate} fontSize={10} />
+                        <YAxis fontSize={10} tickFormatter={(v) => `₹${v/1000}K`} />
+                        <Tooltip 
+                          formatter={(value) => [`₹${value.toLocaleString()}`, '']}
+                          labelFormatter={(label) => formatDate(label)}
+                        />
+                        <Legend />
+                        <Bar dataKey="sales" name="Sales" fill="#14532D" />
+                        <Bar dataKey="purchase" name="Purchase" fill="#D97706" />
+                        <Bar dataKey="gross_profit" name="Gross Profit" fill="#3B82F6" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[250px] flex items-center justify-center text-gray-400">
+                      No data for selected period
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Net Profit Trend */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <TrendingUp size={16} /> Net Profit Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {dailyPnl.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <LineChart data={dailyPnl}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tickFormatter={formatDate} fontSize={10} />
+                        <YAxis fontSize={10} tickFormatter={(v) => `₹${v/1000}K`} />
+                        <Tooltip 
+                          formatter={(value) => [`₹${value.toLocaleString()}`, '']}
+                          labelFormatter={(label) => formatDate(label)}
+                        />
+                        <Legend />
+                        <Line type="monotone" dataKey="gross_profit" name="Gross" stroke="#14532D" strokeWidth={2} />
+                        <Line type="monotone" dataKey="net_profit" name="Net" stroke="#3B82F6" strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[250px] flex items-center justify-center text-gray-400">
+                      No data for selected period
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         )}
 

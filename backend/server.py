@@ -1980,6 +1980,74 @@ async def get_dispatch_summary_for_grn(current_user: dict = Depends(get_current_
         "total_pending": len(items)
     }
 
+@api_router.get("/qc-grns/loss-summary")
+async def get_grn_loss_summary(
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get GRN loss summary - difference between Supplied and GRN quantities"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Build date query
+    query = {}
+    if from_date and to_date:
+        query["grn_date"] = {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    elif from_date:
+        query["grn_date"] = {"$gte": from_date}
+    elif to_date:
+        query["grn_date"] = {"$lte": to_date + "T23:59:59"}
+    
+    # Get all saved GRNs within date range
+    saved_grns = await db.qc_grns.find(query, {"_id": 0}).sort("grn_date", -1).to_list(1000)
+    
+    # Aggregate loss by date and product
+    loss_by_date = {}
+    total_loss = 0
+    items_with_loss = []
+    
+    for grn in saved_grns:
+        grn_date = grn.get('grn_date', '')[:10] if grn.get('grn_date') else 'Unknown'
+        
+        if grn_date not in loss_by_date:
+            loss_by_date[grn_date] = {
+                'date': grn_date,
+                'total_loss': 0,
+                'total_difference_qty': 0,
+                'items': []
+            }
+        
+        for item in grn.get('items', []):
+            difference = item.get('difference', 0)
+            loss_amount = item.get('loss_gain_amount', 0)
+            
+            # Only count losses (negative differences mean we received less than supplied)
+            if difference < 0 or loss_amount < 0:
+                actual_loss = abs(loss_amount) if loss_amount < 0 else abs(difference) * (item.get('rate_per_unit', 0) or item.get('rate_per_kg', 0))
+                
+                loss_by_date[grn_date]['total_loss'] += actual_loss
+                loss_by_date[grn_date]['total_difference_qty'] += abs(difference)
+                total_loss += actual_loss
+                
+                items_with_loss.append({
+                    'date': grn_date,
+                    'product_name': item.get('product_name', ''),
+                    'packaging_name': item.get('packaging_name', ''),
+                    'supplied_qty': item.get('supplied_qty', 0),
+                    'grn_qty': item.get('grn_qty', 0),
+                    'difference': difference,
+                    'loss_amount': round(actual_loss, 2),
+                    'rate_type': item.get('rate_type', ''),
+                    'rate': item.get('rate_per_unit', 0) or item.get('rate_per_kg', 0)
+                })
+    
+    return {
+        "total_loss": round(total_loss, 2),
+        "by_date": sorted(loss_by_date.values(), key=lambda x: x['date'], reverse=True),
+        "items": items_with_loss
+    }
+
 # ============================================================================
 # SECTION: QC INVOICE ROUTES (Lines ~1453-1570)
 # ============================================================================

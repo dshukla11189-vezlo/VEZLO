@@ -4,8 +4,9 @@ import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet } from 'lucide-react';
+import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet, RefreshCw } from 'lucide-react';
 
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
@@ -38,9 +39,20 @@ export default function WastageDashboard() {
   const [yesterdayWastage, setYesterdayWastage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState(7);
+  
+  // Date range filter
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split('T')[0];
+  });
+  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [useCustomDates, setUseCustomDates] = useState(false);
 
   useEffect(() => {
-    loadDashboardData();
+    if (!useCustomDates) {
+      loadDashboardData();
+    }
     loadYesterdayWastage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod]);
@@ -48,7 +60,11 @@ export default function WastageDashboard() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const response = await api.get(`/api/stock-status/wastage-dashboard?days=${selectedPeriod}`);
+      let url = `/api/stock-status/wastage-dashboard?days=${selectedPeriod}`;
+      if (useCustomDates) {
+        url = `/api/stock-status/wastage-dashboard?from_date=${dateFrom}&to_date=${dateTo}`;
+      }
+      const response = await api.get(url);
       setDashboardData(response.data);
     } catch (error) {
       console.error('Load wastage dashboard error:', error);
@@ -56,6 +72,22 @@ export default function WastageDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDateFilter = () => {
+    setUseCustomDates(true);
+    loadDashboardData();
+  };
+
+  const handlePeriodChange = (days) => {
+    setUseCustomDates(false);
+    setSelectedPeriod(days);
+    // Update date inputs to reflect the period
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    setDateFrom(from.toISOString().split('T')[0]);
+    setDateTo(to.toISOString().split('T')[0]);
   };
 
   const loadYesterdayWastage = async () => {
@@ -110,7 +142,10 @@ export default function WastageDashboard() {
 
   const summary = dashboardData?.summary || {};
   const dailyTrend = dashboardData?.daily_trend || [];
-  const topProducts = dashboardData?.top_wastage_products || [];
+  // Sort top products by wastage percentage in descending order
+  const topProducts = [...(dashboardData?.top_wastage_products || [])].sort((a, b) => 
+    (b.wastage_percent || 0) - (a.wastage_percent || 0)
+  );
   const maxDailyWastage = Math.max(...dailyTrend.map(d => d.total_wastage_kg), 1);
 
   return (
@@ -123,30 +158,57 @@ export default function WastageDashboard() {
         ) : (
           <>
             {/* Header */}
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Wastage Dashboard</h1>
-          <p className="text-gray-500 mt-1">
-            {dashboardData?.start_date} to {dashboardData?.end_date}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={exportWastageData} title="Export to Excel">
-            <FileSpreadsheet size={14} className="mr-1" /> Export
-          </Button>
-          {[7, 15, 30].map(days => (
-            <Button
-              key={days}
-              variant={selectedPeriod === days ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedPeriod(days)}
-              className={selectedPeriod === days ? 'bg-[#14532D] hover:bg-[#166534]' : ''}
-            >
-              {days} Days
-            </Button>
-          ))}
-        </div>
-      </div>
+            <div className="flex flex-col gap-4 mb-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Wastage Dashboard</h1>
+                  <p className="text-gray-500 mt-1">
+                    {dashboardData?.start_date} to {dashboardData?.end_date}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={exportWastageData} title="Export to Excel">
+                    <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                  {[7, 15, 30].map(days => (
+                    <Button
+                      key={days}
+                      variant={selectedPeriod === days && !useCustomDates ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handlePeriodChange(days)}
+                      className={selectedPeriod === days && !useCustomDates ? 'bg-[#14532D] hover:bg-[#166534]' : ''}
+                    >
+                      {days}D
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Date Range Filter */}
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-600">Filter:</span>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+                <span className="text-gray-400">to</span>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+                <Button 
+                  size="sm" 
+                  onClick={handleDateFilter}
+                  className="bg-[#14532D] hover:bg-[#166534] h-8"
+                >
+                  <RefreshCw size={14} className="mr-1" /> Apply
+                </Button>
+              </div>
+            </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -351,11 +413,11 @@ export default function WastageDashboard() {
           </CardContent>
         </Card>
 
-        {/* Top Wastage Products */}
+        {/* Top Wastage Products (Sorted by Wastage %) */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <TrendingDown size={20} /> Top Wastage Products
+              <TrendingDown size={20} /> Top Wastage Products (by %)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -366,8 +428,8 @@ export default function WastageDashboard() {
             ) : (
               <div className="space-y-3">
                 {topProducts.map((product, idx) => {
-                  const maxWastage = topProducts[0]?.total_wastage_kg || 1;
-                  const barWidth = (product.total_wastage_kg / maxWastage) * 100;
+                  const maxPercent = topProducts[0]?.wastage_percent || 1;
+                  const barWidth = (product.wastage_percent / maxPercent) * 100;
                   
                   return (
                     <div key={idx} className="flex items-center gap-3">
@@ -377,18 +439,22 @@ export default function WastageDashboard() {
                       <div className="flex-1">
                         <div className="flex justify-between items-center mb-1">
                           <span className="font-medium text-sm">{product.product_name}</span>
-                          <span className="text-sm text-gray-600">
-                            {product.total_wastage_kg.toFixed(2)} Kg
+                          <span className={`text-sm font-semibold px-2 py-0.5 rounded ${getWastageColor(product.wastage_percent)}`}>
+                            {product.wastage_percent?.toFixed(1)}%
                           </span>
                         </div>
                         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                           <div 
-                            className="h-full bg-red-500 rounded-full transition-all"
+                            className={`h-full rounded-full transition-all ${
+                              product.wastage_percent > 10 ? 'bg-red-500' :
+                              product.wastage_percent > 5 ? 'bg-orange-500' :
+                              product.wastage_percent > 2 ? 'bg-yellow-500' : 'bg-green-500'
+                            }`}
                             style={{ width: `${barWidth}%` }}
                           />
                         </div>
                         <div className="flex justify-between text-xs text-gray-500 mt-1">
-                          <span>₹{product.total_wastage_value.toFixed(0)} lost</span>
+                          <span>{product.total_wastage_kg.toFixed(2)} Kg | ₹{product.total_wastage_value.toFixed(0)}</span>
                           <span>{product.days_count} days</span>
                         </div>
                       </div>

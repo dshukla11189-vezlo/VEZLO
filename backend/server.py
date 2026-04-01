@@ -3970,15 +3970,21 @@ async def get_closable_products_for_date(
 @api_router.get("/stock-status/wastage-dashboard")
 async def get_wastage_dashboard(
     days: int = 7,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get wastage dashboard data with trends"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Get data for the specified number of days
-    end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d')
+    # Use custom dates if provided, otherwise use days parameter
+    if from_date and to_date:
+        start_date = from_date
+        end_date = to_date
+    else:
+        end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d')
     
     history = await db.daily_stock_status.find(
         {"date": {"$gte": start_date, "$lte": end_date}, "status": "closed"},
@@ -4017,14 +4023,16 @@ async def get_wastage_dashboard(
                 "product_name": product_name,
                 "total_wastage_kg": 0,
                 "total_wastage_value": 0,
-                "avg_wastage_percent": 0,
+                "total_input": 0,
+                "wastage_percent": 0,
                 "days_count": 0
             }
         product_totals[product_name]["total_wastage_kg"] += wastage_qty
         product_totals[product_name]["total_wastage_value"] += wastage_value
+        product_totals[product_name]["total_input"] += opening_qty + purchase_qty
         product_totals[product_name]["days_count"] += 1
     
-    # Calculate averages
+    # Calculate averages for daily data
     for date in daily_totals:
         total_input = daily_totals[date]["total_input"]
         if total_input > 0:
@@ -4037,8 +4045,18 @@ async def get_wastage_dashboard(
     # Sort daily data by date
     daily_data = sorted(daily_totals.values(), key=lambda x: x["date"])
     
-    # Top wastage products
-    product_data = sorted(product_totals.values(), key=lambda x: x["total_wastage_kg"], reverse=True)[:10]
+    # Calculate wastage_percent for each product
+    for product_name in product_totals:
+        total_input = product_totals[product_name]["total_input"]
+        if total_input > 0:
+            product_totals[product_name]["wastage_percent"] = round(
+                (product_totals[product_name]["total_wastage_kg"] / total_input) * 100, 2
+            )
+        product_totals[product_name]["total_wastage_kg"] = round(product_totals[product_name]["total_wastage_kg"], 2)
+        product_totals[product_name]["total_wastage_value"] = round(product_totals[product_name]["total_wastage_value"], 2)
+    
+    # Top wastage products - sorted by wastage_percent descending
+    product_data = sorted(product_totals.values(), key=lambda x: x["wastage_percent"], reverse=True)[:15]
     
     # Overall summary
     total_wastage_kg = sum(d["total_wastage_kg"] for d in daily_data)

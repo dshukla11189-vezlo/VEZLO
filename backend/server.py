@@ -2689,10 +2689,18 @@ async def get_pnl_report(
     # Build cost alias map: {product_name: aliased_product_name}
     # e.g., {"Spinach": "Palak"} means Spinach uses Palak's purchase cost
     cost_alias_map = {}
+    # Also build reverse alias map: {aliased_product: [products_that_alias_to_it]}
+    # e.g., {"Palak": ["Spinach"]} means Spinach is aliased to Palak
+    reverse_alias_map = {}
     for p in all_products:
         alias_id = p.get("cost_alias_product_id")
         if alias_id and alias_id in product_id_to_name:
-            cost_alias_map[p.get("name")] = product_id_to_name[alias_id]
+            alias_name = product_id_to_name[alias_id]
+            cost_alias_map[p.get("name")] = alias_name
+            # Build reverse map
+            if alias_name not in reverse_alias_map:
+                reverse_alias_map[alias_name] = []
+            reverse_alias_map[alias_name].append(p.get("name"))
     
     # Fetch all procurements to calculate average purchase price per product
     all_procurements = await db.procurements.find({

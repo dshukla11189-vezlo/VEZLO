@@ -765,7 +765,12 @@ export default function AdminDashboard() {
                                         const custQty = items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
                                         const custPurchase = items.reduce((sum, i) => sum + (i.cogs || 0), 0);
                                         const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
-                                        const custGross = custSales - custPurchase - custWastage;
+                                        // For Retail customers, distribute rejection and commission proportionally
+                                        // (or fully if there's only one customer)
+                                        const numRetailCustomers = Object.keys(retailByCustomer).length;
+                                        const custRejection = numRetailCustomers === 1 ? retailRejection : (custSales / retailSales) * retailRejection;
+                                        const custCommission = numRetailCustomers === 1 ? retailCommission : (custSales / retailSales) * retailCommission;
+                                        const custGross = custSales - custPurchase - custWastage - custRejection - custCommission;
                                         const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
                                         const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
                                         const custKey = `${day.date}_Retail_${customer}`;
@@ -790,8 +795,8 @@ export default function AdminDashboard() {
                                               <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
                                               <td className="p-2 text-right text-orange-500 text-sm">₹{custPurchase.toLocaleString()}</td>
                                               <td className="p-2 text-right text-red-500 text-sm">₹{custWastage.toLocaleString()}</td>
-                                              <td className="p-2 text-right text-red-500 text-sm">-</td>
-                                              <td className="p-2 text-right text-amber-500 text-sm">-</td>
+                                              <td className="p-2 text-right text-red-500 text-sm">{custRejection > 0 ? `-₹${custRejection.toLocaleString()}` : '-'}</td>
+                                              <td className="p-2 text-right text-amber-500 text-sm">{custCommission > 0 ? `-₹${custCommission.toLocaleString()}` : '-'}</td>
                                               <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                 {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
                                               </td>

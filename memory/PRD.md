@@ -379,13 +379,18 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] **Wastage & Purchase Calculation Fix** (COMPLETED - Apr 1, 2026):
   - [x] Vertical Dashboard now uses SUM of actual line item COGS (not proportional by sales %)
   - [x] Vertical Dashboard now uses SUM of actual line item wastage (not proportional by sales %)
-  - [x] Wastage distributed proportionally by Kg supplied (line_kg / total_kg)
+  - [x] Wastage distributed proportionally by **DISPATCH Kg** (not GRN qty)
   - [x] Retail Dashboard Purchase and Wastage now match line item totals exactly
   - [x] QC Dashboard Purchase and Wastage now match line item totals exactly
-  - [x] QC line items use grn_qty_kg for kg calculation (not recalculate from packaging_weight_gm)
   - [x] Renamed "Purchase Cost" to "COGS" on main dashboard
   - [x] Added total_cogs field = sum of all line item COGS
   - [x] Gross Profit now calculated from actual COGS (not procurement total)
+  - [x] **QC Sub-Dashboard: GRN LOSS metric** (Apr 1, 2026)
+    - [x] Shows Dispatch - Received difference in pink box
+    - [x] Net Profit = Gross Profit - GRN Loss - Var Exp - Fixed Exp
+  - [x] **Retail Sub-Dashboard: COMMISSION metric** (Apr 1, 2026)
+    - [x] Shows total commission in amber box
+    - [x] Already deducted from Gross Profit calculation
 - [x] **Retailer Section Improvements** (COMPLETED - Mar 31, 2026):
   - [x] **Search-based Retailer Selection (Indent)** - Replaced dropdown with searchable input for retailer selection in Create Indent modal
   - [x] **Larger Product/Variant Dropdowns** - Increased max-height from 40 to 72 for better visibility (shows 12 items)

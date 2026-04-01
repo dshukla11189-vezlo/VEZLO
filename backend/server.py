@@ -420,6 +420,10 @@ async def create_qc_packaging(name: str, weight_gm: float = 0, current_user: dic
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # Auto-extract weight from name if not provided
+    if weight_gm == 0:
+        weight_gm = extract_weight_from_packaging_name(name)
+    
     packaging = {
         "id": str(uuid.uuid4()),
         "name": name,
@@ -427,6 +431,53 @@ async def create_qc_packaging(name: str, weight_gm: float = 0, current_user: dic
     }
     await db.qc_packaging.insert_one(packaging)
     return {"id": packaging["id"], "message": "Packaging created"}
+
+@api_router.put("/qc-packaging/{packaging_id}")
+async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: float = None, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {}
+    if name is not None:
+        update_data["name"] = name
+    if weight_gm is not None:
+        update_data["weight_gm"] = weight_gm
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.qc_packaging.update_one(
+        {"id": packaging_id},
+        {"$set": update_data}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Packaging not found")
+    return {"message": "Packaging updated"}
+
+
+def extract_weight_from_packaging_name(name: str) -> float:
+    """Extract weight in grams from packaging name like '500 gm', '240-260 gm', '200 gm Packet'"""
+    if not name:
+        return 0
+    
+    name_lower = name.lower().strip()
+    
+    # Pattern 1: Simple number + gm/g (e.g., "500 gm", "250 gm")
+    match = re.search(r'^(\d+)\s*(gm|g)\b', name_lower)
+    if match:
+        return float(match.group(1))
+    
+    # Pattern 2: Range like "240-260 gm" or "90-110 gm Packet" - take average
+    range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(gm|g)', name_lower)
+    if range_match:
+        return (float(range_match.group(1)) + float(range_match.group(2))) / 2
+    
+    # Pattern 3: Just a number (assume gm if no unit, e.g., "500")
+    just_number = re.search(r'^(\d+)$', name_lower)
+    if just_number:
+        return float(just_number.group(1))
+    
+    return 0  # Unknown
 
 # ============================================================================
 # SECTION: FARMER ROUTES (Lines ~375-425)
@@ -3609,29 +3660,20 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
         if dispatch_date_str == today:
             retailer_dispatches.append(d)
     
-    # Get packaging weights for unit conversion
+    # Get packaging weights for unit conversion from QC packaging table
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
-    # Build packaging map with fallback weight extraction from name
+    # Build packaging map: name -> weight_gm
     packaging_map = {}
     for p in packaging_variants:
         name = p['name']
-        name_lower = name.lower()
-        # Try to get stored weight, otherwise extract from name
-        weight = p.get('weight_gm')
-        if not weight:
-            # Extract weight from packaging name like "500 gm", "250 gm", "200 gm Packet"
-            import re
-            match = re.search(r'(\d+)\s*(gm|g|gram)', name_lower)
-            if match:
-                weight = int(match.group(1))
-            else:
-                # Check for patterns like "90-110 gm" - take average
-                range_match = re.search(r'(\d+)-(\d+)\s*(gm|g|gram)', name_lower)
-                if range_match:
-                    weight = (int(range_match.group(1)) + int(range_match.group(2))) / 2
-                else:
-                    weight = 1000  # Default to 1kg if unknown (assume bulk)
-        packaging_map[name_lower] = weight
+        name_lower = name.lower().strip()
+        # Use stored weight_gm if available, otherwise extract from name
+        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight > 0:
+            packaging_map[name_lower] = weight
+            # Also store without common suffixes for flexible matching
+            if 'packet' in name_lower:
+                packaging_map[name_lower.replace('packet', '').strip()] = weight
     
     # Calculate dispatches by product (convert units to Kg)
     dispatches_by_product = {}
@@ -3643,24 +3685,16 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             # Check both packaging_name (QC) and variant_name (Retail)
             packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
             
-            # Get weight from packaging map or extract from name
+            # Look up weight from packaging map first
             weight_gm = packaging_map.get(packaging_name)
+            
+            # If not found, try extracting from the packaging name
             if not weight_gm:
-                import re
-                match = re.search(r'(\d+)\s*(gm|g|gram)', packaging_name)
-                if match:
-                    weight_gm = int(match.group(1))
-                else:
-                    range_match = re.search(r'(\d+)-(\d+)\s*(gm|g|gram)', packaging_name)
-                    if range_match:
-                        weight_gm = (int(range_match.group(1)) + int(range_match.group(2))) / 2
-                    else:
-                        # Try to match just a number (like "500" meaning 500gm)
-                        just_number = re.search(r'^(\d+)$', packaging_name)
-                        if just_number:
-                            weight_gm = int(just_number.group(1))
-                        else:
-                            weight_gm = 1000  # Default to 1kg if unknown
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            
+            # If still not found, assume bulk (1kg)
+            if not weight_gm:
+                weight_gm = 1000
             
             # Convert units to Kg based on packaging weight
             qty_kg = (supplied_qty * weight_gm) / 1000
@@ -3924,33 +3958,20 @@ async def get_closable_products_for_date(
     all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
     all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
     
-    # Get packaging weights from database
+    # Get packaging weights from QC packaging table
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
-    # Build packaging map with fallback weight extraction from name
+    # Build packaging map: name -> weight_gm
     packaging_map = {}
     for p in packaging_variants:
         name = p['name']
-        name_lower = name.lower()
-        # Try to get stored weight, otherwise extract from name
-        weight = p.get('weight_gm')
-        if not weight:
-            # Extract weight from packaging name like "500 gm", "250 gm", "200 gm Packet"
-            import re
-            match = re.search(r'(\d+)\s*(gm|g|gram)', name_lower)
-            if match:
-                weight = int(match.group(1))
-            else:
-                # Check for patterns like "90-110 gm" - take average
-                range_match = re.search(r'(\d+)-(\d+)\s*(gm|g|gram)', name_lower)
-                if range_match:
-                    weight = (int(range_match.group(1)) + int(range_match.group(2))) / 2
-                else:
-                    weight = 1000  # Default to 1kg if unknown (assume bulk)
-        packaging_map[name_lower] = weight
-        # Also store without 'packet' suffix for matching
-        if 'packet' in name_lower:
-            clean_name = name_lower.replace('packet', '').strip()
-            packaging_map[clean_name] = weight
+        name_lower = name.lower().strip()
+        # Use stored weight_gm if available, otherwise extract from name
+        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight > 0:
+            packaging_map[name_lower] = weight
+            # Also store without common suffixes for flexible matching
+            if 'packet' in name_lower:
+                packaging_map[name_lower.replace('packet', '').strip()] = weight
     
     dispatches_by_product = {}
     for d in all_qc_dispatches + all_retailer_dispatches:
@@ -3967,27 +3988,16 @@ async def get_closable_products_for_date(
                 # Check both packaging_name (QC) and variant_name (Retail)
                 packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
                 
-                # Try to get weight from packaging map
+                # Look up weight from packaging map first
                 weight_gm = packaging_map.get(packaging_name)
                 
-                # If not found, try to extract directly from packaging name
+                # If not found, try extracting from the packaging name
                 if not weight_gm:
-                    import re
-                    match = re.search(r'(\d+)\s*(gm|g|gram)', packaging_name)
-                    if match:
-                        weight_gm = int(match.group(1))
-                    else:
-                        range_match = re.search(r'(\d+)-(\d+)\s*(gm|g|gram)', packaging_name)
-                        if range_match:
-                            weight_gm = (int(range_match.group(1)) + int(range_match.group(2))) / 2
-                        else:
-                            # Try to match just a number (like "500" meaning 500gm)
-                            just_number = re.search(r'^(\d+)$', packaging_name)
-                            if just_number:
-                                weight_gm = int(just_number.group(1))
-                            else:
-                                # If still not found, assume bulk (1kg)
-                                weight_gm = 1000
+                    weight_gm = extract_weight_from_packaging_name(packaging_name)
+                
+                # If still not found, assume bulk (1kg)
+                if not weight_gm:
+                    weight_gm = 1000
                 
                 qty_kg = (supplied_qty * weight_gm) / 1000
                 dispatches_by_product[product_id] = dispatches_by_product.get(product_id, 0) + qty_kg

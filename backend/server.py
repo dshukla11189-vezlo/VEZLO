@@ -567,6 +567,58 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
     doc['date'] = doc['date'].isoformat()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.procurements.insert_one(doc)
+    
+    # Real-time sync: Update stock status for each product
+    proc_date = procurement.date.strftime('%Y-%m-%d') if hasattr(procurement.date, 'strftime') else str(procurement.date)[:10]
+    for item in procurement.products:
+        product = await db.products.find_one({"id": item.product_id}, {"_id": 0})
+        if not product:
+            continue
+            
+        # Check if stock status entry exists for this product/date
+        existing = await db.daily_stock_status.find_one({
+            "product_id": item.product_id,
+            "date": proc_date
+        })
+        
+        # Use rate as the price per kg
+        item_price = item.rate if hasattr(item, 'rate') else 0
+        
+        if existing:
+            # Update existing entry - add to purchase_qty
+            new_purchase = existing.get("purchase_qty", 0) + item.quantity
+            new_avg_price = item_price if item_price else existing.get("avg_price", 0)
+            await db.daily_stock_status.update_one(
+                {"id": existing["id"]},
+                {"$set": {"purchase_qty": new_purchase, "avg_price": new_avg_price}}
+            )
+        else:
+            # Create new stock status entry
+            # Get previous day's closing as opening
+            yesterday = (procurement.date - timedelta(days=1)).strftime('%Y-%m-%d') if hasattr(procurement.date, 'strftime') else (datetime.strptime(str(procurement.date)[:10], '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+            prev_status = await db.daily_stock_status.find_one({
+                "product_id": item.product_id,
+                "date": yesterday,
+                "status": "closed"
+            })
+            opening_qty = prev_status.get("closing_qty", 0) if prev_status else 0
+            
+            new_status = {
+                "id": str(uuid.uuid4()),
+                "date": proc_date,
+                "product_id": item.product_id,
+                "product_name": product["name"],
+                "opening_qty": opening_qty,
+                "purchase_qty": item.quantity,
+                "dispatch_qty": 0,
+                "wastage_qty": 0,
+                "wastage_value": 0,
+                "avg_price": item_price,
+                "status": "open",
+                "closed_at": None
+            }
+            await db.daily_stock_status.insert_one(new_status)
+    
     return procurement
 
 @api_router.put("/procurement/{procurement_id}")
@@ -3857,10 +3909,23 @@ async def get_closable_products_for_date(
             
         product_name = product["name"]
         opening_qty = existing.get("opening_qty", 0)
-        purchase_qty = existing.get("purchase_qty", 0)
-        dispatch_qty = existing.get("dispatch_qty", 0)
         status = existing.get("status", "open")
         closing_qty = existing.get("closing_qty", None)
+        
+        # For OPEN entries, always use FRESH procurement and dispatch data (real-time sync)
+        if status == "open":
+            purchase_qty = round(purchases_by_product.get(product_id, 0), 2)
+            dispatch_qty = round(dispatches_by_product.get(product_id, 0), 2)
+            
+            # Update the stored entry with fresh data
+            await db.daily_stock_status.update_one(
+                {"id": existing["id"]},
+                {"$set": {"purchase_qty": purchase_qty, "dispatch_qty": dispatch_qty}}
+            )
+        else:
+            # For CLOSED entries, use stored values
+            purchase_qty = existing.get("purchase_qty", 0)
+            dispatch_qty = existing.get("dispatch_qty", 0)
         
         closable_products.append({
             "product_id": product_id,

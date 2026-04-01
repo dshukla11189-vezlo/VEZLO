@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, Save, RefreshCw, Clock, CheckCircle, ArrowRight, Edit2, Trash2, Filter, Calendar, Search, FileSpreadsheet } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, Save, RefreshCw, Clock, CheckCircle, ArrowRight, Edit2, Trash2, Filter, Calendar, Search, FileSpreadsheet, Settings } from 'lucide-react';
 
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
@@ -59,6 +59,9 @@ export default function StockStatus() {
   // Delete states
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletingItem, setDeletingItem] = useState(null);
+  
+  // Sync packaging weights state
+  const [syncingWeights, setSyncingWeights] = useState(false);
   
   // Auto-refresh interval (30 seconds)
   const AUTO_REFRESH_INTERVAL = 30000;
@@ -144,6 +147,22 @@ export default function StockStatus() {
       { label: 'Closing Qty', getter: (d) => d.closing_qty ?? '-' },
       { label: 'Status', getter: (d) => d.status }
     ]);
+  };
+
+  // ==================== SYNC PACKAGING WEIGHTS ====================
+  const syncPackagingWeights = async () => {
+    setSyncingWeights(true);
+    try {
+      const response = await api.post('/api/qc-packaging/sync-weights');
+      toast.success(response.data.message || 'Packaging weights synced successfully!');
+      // Reload stock status to reflect new calculations
+      loadStockStatus();
+    } catch (error) {
+      console.error('Sync packaging weights error:', error);
+      toast.error('Failed to sync packaging weights');
+    } finally {
+      setSyncingWeights(false);
+    }
   };
 
   const handleClosingQtyChange = (productId, value) => {
@@ -343,7 +362,18 @@ export default function StockStatus() {
             <h1 className="text-2xl font-bold text-gray-900">Stock Status</h1>
             <p className="text-gray-500 mt-1">{formatDisplayDate(filterDate)}</p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={syncPackagingWeights} 
+              disabled={syncingWeights}
+              className="text-orange-600 border-orange-300 hover:bg-orange-50"
+              title="Fix dispatch qty calculations by syncing packaging weights"
+            >
+              <Settings size={14} className={`mr-1 ${syncingWeights ? 'animate-spin' : ''}`} />
+              {syncingWeights ? 'Syncing...' : 'Sync Weights'}
+            </Button>
             <Button onClick={handleOpenClosingDialog} className="bg-[#14532D] hover:bg-[#166534]" data-testid="enter-closing-btn">
               <Clock size={16} className="mr-2" /> Enter Closing
             </Button>

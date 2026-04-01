@@ -363,6 +363,19 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Delete All for Date** - Added "Delete All" button to remove all GRN data for a specific date
   - [x] **Individual Item Delete Fix** - Fixed bug where delete was failing due to incorrect item index lookup
   - [x] **Duplicate Detection Warning** - Shows warning when saving GRN if data already exists for the dispatch date(s)
+- [x] **Commission at Product Level** (COMPLETED - Apr 1, 2026):
+  - [x] Each retail product shows commission = revenue × commission_pct / 100
+  - [x] Product Gross P/L = Revenue - COGS - Wastage - Commission  
+  - [x] Product GM% = (Gross P/L / Revenue) × 100
+  - [x] Commission sums correctly: Product → Customer → Vertical → Date
+  - [x] Commission column displayed in amber color in Daily P&L table
+  - [x] Customer-level commission calculated from sum of product commissions
+- [x] **Variable Expense Vertical Allocation** (COMPLETED - Apr 1, 2026):
+  - [x] "Vertical Incurred For?" field in Variable Expenses (QC Only, Retail Only, All)
+  - [x] QC-specific expenses allocated only to QC P&L
+  - [x] Retail-specific expenses allocated only to Retail P&L
+  - [x] "All" expenses split equally (50/50) between QC and Retail
+  - [x] Fixed expenses always split equally (50/50) between verticals
 - [x] **Retailer Section Improvements** (COMPLETED - Mar 31, 2026):
   - [x] **Search-based Retailer Selection (Indent)** - Replaced dropdown with searchable input for retailer selection in Create Indent modal
   - [x] **Larger Product/Variant Dropdowns** - Increased max-height from 40 to 72 for better visibility (shows 12 items)

@@ -765,11 +765,12 @@ export default function AdminDashboard() {
                                         const custQty = items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
                                         const custPurchase = items.reduce((sum, i) => sum + (i.cogs || 0), 0);
                                         const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
-                                        // For Retail customers, distribute rejection and commission proportionally
+                                        // Commission is now tracked per item from backend - sum up item commissions
+                                        const custCommission = items.reduce((sum, i) => sum + (i.commission || 0), 0);
+                                        // For Retail customers, distribute rejection proportionally
                                         // (or fully if there's only one customer)
                                         const numRetailCustomers = Object.keys(retailByCustomer).length;
                                         const custRejection = numRetailCustomers === 1 ? retailRejection : (custSales / retailSales) * retailRejection;
-                                        const custCommission = numRetailCustomers === 1 ? retailCommission : (custSales / retailSales) * retailCommission;
                                         const custGross = custSales - custPurchase - custWastage - custRejection - custCommission;
                                         const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
                                         const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
@@ -813,6 +814,7 @@ export default function AdminDashboard() {
                                             {/* Level 4: Product/Item Details - Sorted by GM% DESC */}
                                             {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
                                               const itemGross = item.gross_profit || 0;
+                                              const itemCommission = item.commission || 0;
                                               const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
                                               const itemGM = item.gross_margin || 0;
                                               
@@ -828,7 +830,7 @@ export default function AdminDashboard() {
                                                   <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-gray-400 text-sm">-</td>
-                                                  <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                                  <td className="p-2 text-right text-amber-500 text-sm">{itemCommission > 0 ? `-₹${itemCommission.toFixed(2)}` : '-'}</td>
                                                   <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                     ₹{itemGross.toLocaleString()}
                                                   </td>

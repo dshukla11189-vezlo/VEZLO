@@ -1,0 +1,98 @@
+{
+  "summary": "Commission Feature for Retail Products - All tests passed. Backend correctly calculates commission at product, customer, vertical, and date levels. Frontend displays commission in amber color in the Daily P&L Breakdown table with proper hierarchy expansion.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. Retailer Ghisendra Choudhary has 20% commission_percentage - PASS",
+    "2. P&L API returns 'commission' field in each retail line item - PASS",
+    "3. Product commission = revenue × 20% for each retail product - PASS",
+    "4. Product Gross P/L = Revenue - COGS - Wastage - Commission - PASS",
+    "5. Product GM% = (Gross P/L / Revenue) × 100 - PASS",
+    "6. Sum of product commissions equals customer-level commission (₹248.6) - PASS",
+    "7. Customer commission equals vertical commission equals summary commission - PASS",
+    "8. Vertical Gross Profit = Sales - Purchase - Wastage - Rejection - Commission - PASS",
+    "9. Summary Gross Profit includes commission deduction - PASS",
+    "10. Commission only applies to Retail, not QC - PASS",
+    "11. Frontend: COMMISSION column header visible in Daily P&L table - PASS",
+    "12. Frontend: Commission value -₹248.6 displayed in amber color - PASS",
+    "13. Frontend: Date row (18 Mar) shows commission at date level - PASS",
+    "14. Frontend: Retail vertical row shows commission - PASS",
+    "15. Frontend: Customer row (Tamanna Mart) shows commission - PASS",
+    "16. Frontend: Product rows show individual commission amounts - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_commission_feature.py",
+    "/app/test_reports/pytest/pytest_commission.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [],
+
+  "updated_files": [
+    "/app/backend/tests/test_commission_feature.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (10/10 tests passed)",
+    "frontend": "100% (all UI elements verified)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing data for 2026-03-18 with retailer Ghisendra Choudhary (Tamanna Mart) having 20% commission.",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "Commission feature fully implemented and tested. Key points: (1) Each retail product line item has 'commission' field = revenue × commission_pct / 100. (2) Gross P/L = Revenue - COGS - Wastage - Commission. (3) GM% = (Gross P/L / Revenue) × 100. (4) Commission sums correctly from product → customer → vertical → date levels. (5) Frontend displays commission in amber color in COMMISSION column. (6) Test date 2026-03-18 has retail data with Tamanna Mart (Ghisendra Choudhary) at 20% commission.",
+
+  "features_verified": {
+    "product_level_commission": "PASS - Each product shows commission = revenue × 20%",
+    "product_gross_profit": "PASS - Gross P/L = Revenue - COGS - Wastage - Commission",
+    "product_gross_margin": "PASS - GM% = (Gross P/L / Revenue) × 100 = 80% (when COGS=0, Wastage=0)",
+    "customer_level_commission": "PASS - Sum of product commissions = ₹248.6",
+    "vertical_level_commission": "PASS - Retail vertical commission = ₹248.6",
+    "date_level_commission": "PASS - Day retail_commission = ₹248.6",
+    "summary_commission": "PASS - total_retail_commission = ₹248.6",
+    "commission_column_display": "PASS - COMMISSION column visible in table header",
+    "commission_value_display": "PASS - Commission values displayed in amber color",
+    "hierarchy_expansion": "PASS - Date → Retail → Customer → Products all show commission"
+  },
+
+  "commission_calculation_verification": {
+    "test_data": {
+      "retailer": "Ghisendra Choudhary (Tamanna Mart)",
+      "commission_percentage": 20,
+      "total_revenue": 1243,
+      "expected_total_commission": 248.6
+    },
+    "sample_products": [
+      {"product": "Garlic", "revenue": 300, "commission": 60, "gross_profit": 240, "gm_pct": 80},
+      {"product": "Ginger", "revenue": 150, "commission": 30, "gross_profit": 120, "gm_pct": 80},
+      {"product": "Onion", "revenue": 140, "commission": 28, "gross_profit": 112, "gm_pct": 80},
+      {"product": "Fenugreek (Methi)", "revenue": 120, "commission": 24, "gross_profit": 96, "gm_pct": 80}
+    ],
+    "result": "PASS - All calculations match expected values"
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

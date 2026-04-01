@@ -2855,7 +2855,7 @@ async def get_pnl_report(
             product_by_date[dispatch_date][product]["customers"][customer]["sales"] += item_value
             product_by_date[dispatch_date][product]["customers"][customer]["qty"] += qty
             
-            # Add detailed line item for retailer
+            # Add detailed line item for retailer (include commission % for later calculation)
             line_items_by_date[dispatch_date].append({
                 "customer": customer,
                 "customer_type": "Retail",
@@ -2868,7 +2868,8 @@ async def get_pnl_report(
                 "rate_per_unit": round(mrp, 2),
                 "cogs": round(item_cogs, 2),
                 "wastage_kg": 0,
-                "wastage_value": 0
+                "wastage_value": 0,
+                "commission_pct": commission_pct  # Store commission % for proportional allocation
             })
         
         # Track gross MRP for retail (before any deductions)
@@ -3108,7 +3109,8 @@ async def get_pnl_report(
                         "supplied_kg": 0,
                         "revenue": 0,
                         "rate_per_kg": line["rate_per_kg"],
-                        "rate_per_unit": line["rate_per_unit"]
+                        "rate_per_unit": line["rate_per_unit"],
+                        "commission_pct": line.get("commission_pct", 0)  # Track commission % for retail
                     }
                 customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
                 customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
@@ -3189,8 +3191,15 @@ async def get_pnl_report(
                     wastage_value = 0
                     wastage_kg = 0
                 
+                # Calculate commission for retail items (proportional to revenue)
+                commission_pct = item.get("commission_pct", 0)
+                commission_value = 0
+                if item["customer_type"] == "Retail" and commission_pct > 0:
+                    commission_value = item["revenue"] * commission_pct / 100
+                
                 # Calculate gross profit and margins for this line item
-                line_gross_profit = item["revenue"] - cogs - wastage_value
+                # For retail: Gross Profit = Revenue - COGS - Wastage - Commission
+                line_gross_profit = item["revenue"] - cogs - wastage_value - commission_value
                 line_gross_margin = (line_gross_profit / item["revenue"] * 100) if item["revenue"] > 0 else 0
                 
                 # Calculate price/kg metrics
@@ -3209,6 +3218,7 @@ async def get_pnl_report(
                     "cogs": round(cogs, 2),
                     "wastage_kg": round(wastage_kg, 3),
                     "wastage_value": round(wastage_value, 2),
+                    "commission": round(commission_value, 2),  # Commission amount for this product
                     "gross_profit": round(line_gross_profit, 2),
                     "gross_margin": round(line_gross_margin, 1),
                     "selling_price_per_kg": round(selling_price_per_kg, 2),

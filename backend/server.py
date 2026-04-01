@@ -6003,6 +6003,98 @@ async def get_retailer_inventory_dates(
     return [d["_id"] for d in dates]
 
 
+@app.post("/api/retailer-inventory/add-item")
+async def add_retailer_inventory_item(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add a single inventory item manually"""
+    from models import RetailerInventoryItem
+    
+    retailer_id = data.get("retailer_id")
+    product_id = data.get("product_id")
+    product_name = data.get("product_name")
+    variant_name = data.get("variant_name", "")
+    date = data.get("date")
+    opening_qty = float(data.get("opening_qty", 0))
+    received_qty = float(data.get("received_qty", 0))
+    
+    if not retailer_id or not product_id or not date:
+        raise HTTPException(status_code=400, detail="retailer_id, product_id, and date are required")
+    
+    # Check if item already exists
+    existing = await db.retailer_inventory.find_one({
+        "retailer_id": retailer_id,
+        "product_id": product_id,
+        "variant_name": variant_name or "",
+        "date": date
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Item already exists for this product and date")
+    
+    inventory_item = RetailerInventoryItem(
+        retailer_id=retailer_id,
+        product_id=product_id,
+        product_name=product_name,
+        variant_name=variant_name,
+        date=date,
+        opening_qty=opening_qty,
+        received_qty=received_qty,
+        sold_qty=0,
+        wastage_qty=0,
+        closing_qty=opening_qty + received_qty
+    )
+    
+    await db.retailer_inventory.insert_one(inventory_item.model_dump())
+    return {"message": "Item added successfully", "item": inventory_item.model_dump()}
+
+
+@app.post("/api/retailer-inventory/save-all")
+async def save_all_retailer_inventory(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Bulk save multiple inventory items"""
+    from datetime import datetime, timezone
+    
+    items = data.get("items", [])
+    if not items:
+        return {"message": "No items to save", "updated": 0}
+    
+    updated_count = 0
+    for item in items:
+        item_id = item.get("id")
+        if not item_id:
+            continue
+            
+        # Get current item
+        current_item = await db.retailer_inventory.find_one({"id": item_id})
+        if not current_item:
+            continue
+        
+        # Calculate closing qty
+        opening = current_item.get("opening_qty", 0)
+        received = current_item.get("received_qty", 0)
+        sold = item.get("sold_qty", current_item.get("sold_qty", 0))
+        wastage = item.get("wastage_qty", current_item.get("wastage_qty", 0))
+        closing = opening + received - sold - wastage
+        
+        update_data = {
+            "sold_qty": sold,
+            "wastage_qty": wastage,
+            "closing_qty": closing,
+            "remarks": item.get("remarks", current_item.get("remarks")),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.retailer_inventory.update_one(
+            {"id": item_id},
+            {"$set": update_data}
+        )
+        updated_count += 1
+    
+    return {"message": f"Saved {updated_count} items", "updated": updated_count}
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

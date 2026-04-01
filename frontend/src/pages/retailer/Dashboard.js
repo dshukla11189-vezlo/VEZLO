@@ -498,11 +498,6 @@ export default function RetailerDashboard() {
       setSavingAll(false);
     }
   };
-    } catch (error) {
-      console.error('Failed to delete inventory item:', error);
-      toast.error('Failed to delete');
-    }
-  };
 
   // Load inventory when date changes or tab switches
   useEffect(() => {
@@ -1308,61 +1303,84 @@ export default function RetailerDashboard() {
         {/* ==================== INVENTORY TAB ==================== */}
         {activeTab === 'inventory' && (
           <Card>
-            <CardHeader className="border-b py-3">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <ClipboardList className="text-green-600" size={20} />
-                  Daily Inventory Tracking
-                </CardTitle>
-                <div className="flex items-center gap-2">
+            <CardHeader className="border-b py-2 px-3">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ClipboardList className="text-green-600" size={18} />
+                    Daily Inventory
+                  </CardTitle>
                   <Input
                     type="date"
                     value={inventoryDate}
                     onChange={(e) => setInventoryDate(e.target.value)}
-                    className="w-40"
+                    className="w-32 h-8 text-sm"
                   />
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Button 
                     size="sm" 
                     variant="outline" 
                     onClick={() => loadInventory(inventoryDate)}
                     disabled={inventoryLoading}
+                    className="h-7 text-xs px-2"
                   >
-                    <RefreshCw size={14} className={`mr-1 ${inventoryLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw size={12} className={`mr-1 ${inventoryLoading ? 'animate-spin' : ''}`} />
                     Refresh
                   </Button>
                   <Button 
                     size="sm" 
                     onClick={generateInventory}
                     disabled={inventoryLoading}
-                    className="bg-green-600 hover:bg-green-700"
+                    className="bg-green-600 hover:bg-green-700 h-7 text-xs px-2"
                   >
-                    <Plus size={14} className="mr-1" />
-                    Generate from Dispatch
+                    <Plus size={12} className="mr-1" />
+                    From Dispatch
                   </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => setShowAddItemDialog(true)}
+                    className="h-7 text-xs px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
+                  >
+                    <Plus size={12} className="mr-1" />
+                    Add Item
+                  </Button>
+                  {Object.keys(editingInventory).length > 0 && (
+                    <Button 
+                      size="sm" 
+                      onClick={saveAllInventory}
+                      disabled={savingAll}
+                      className="bg-blue-600 hover:bg-blue-700 h-7 text-xs px-2"
+                    >
+                      <Save size={12} className="mr-1" />
+                      {savingAll ? 'Saving...' : `Save All (${Object.keys(editingInventory).length})`}
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-4">
+            <CardContent className="p-2">
               {inventoryLoading ? (
-                <div className="text-center py-8 text-gray-500">Loading...</div>
+                <div className="text-center py-6 text-gray-500 text-sm">Loading...</div>
               ) : inventoryItems.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <ClipboardList size={48} className="mx-auto mb-3 text-gray-300" />
-                  <p>No inventory items for {inventoryDate}</p>
-                  <p className="text-sm mt-1">Click "Generate from Dispatch" to create inventory from today's dispatches.</p>
+                <div className="text-center py-6 text-gray-500">
+                  <ClipboardList size={36} className="mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">No inventory for {inventoryDate}</p>
+                  <p className="text-xs mt-1">Click "From Dispatch" or "Add Item" to start.</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="overflow-x-auto -mx-2">
+                  <table className="w-full text-xs">
                     <thead className="bg-gray-100">
                       <tr>
-                        <th className="p-2 text-left">PRODUCT</th>
-                        <th className="p-2 text-center">OPENING</th>
-                        <th className="p-2 text-center">RECEIVED</th>
-                        <th className="p-2 text-center">SOLD</th>
-                        <th className="p-2 text-center">WASTAGE</th>
-                        <th className="p-2 text-center">CLOSING</th>
-                        <th className="p-2 text-center">ACTIONS</th>
+                        <th className="p-1.5 text-left font-medium">Product</th>
+                        <th className="p-1.5 text-center font-medium w-12">Open</th>
+                        <th className="p-1.5 text-center font-medium w-12">+Rcvd</th>
+                        <th className="p-1.5 text-center font-medium w-16">Sold</th>
+                        <th className="p-1.5 text-center font-medium w-16">Waste</th>
+                        <th className="p-1.5 text-center font-medium w-12">Close</th>
+                        <th className="p-1.5 text-center font-medium w-14"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1371,59 +1389,60 @@ export default function RetailerDashboard() {
                         const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : item.sold_qty;
                         const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : item.wastage_qty;
                         const closingQty = item.opening_qty + item.received_qty - soldQty - wastageQty;
+                        const hasChanges = editing.sold_qty !== undefined || editing.wastage_qty !== undefined;
                         
                         return (
-                          <tr key={item.id} className="border-b hover:bg-gray-50">
-                            <td className="p-2">
-                              <div className="font-medium">{item.product_name}</div>
+                          <tr key={item.id} className={`border-b ${hasChanges ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
+                            <td className="p-1.5">
+                              <div className="font-medium text-xs leading-tight">{item.product_name}</div>
                               {item.variant_name && (
-                                <div className="text-xs text-gray-500">{item.variant_name}</div>
+                                <div className="text-[10px] text-gray-400">{item.variant_name}</div>
                               )}
                             </td>
-                            <td className="p-2 text-center text-gray-600">{item.opening_qty}</td>
-                            <td className="p-2 text-center text-green-600">+{item.received_qty}</td>
-                            <td className="p-2 text-center">
+                            <td className="p-1 text-center text-gray-500">{item.opening_qty}</td>
+                            <td className="p-1 text-center text-green-600">+{item.received_qty}</td>
+                            <td className="p-1 text-center">
                               <Input
                                 type="number"
                                 min="0"
-                                step="0.1"
+                                step="1"
                                 value={soldQty}
                                 onChange={(e) => updateInventoryItem(item.id, 'sold_qty', e.target.value)}
-                                className="w-20 h-8 text-center text-sm"
+                                className="w-14 h-7 text-center text-xs px-1"
                               />
                             </td>
-                            <td className="p-2 text-center">
+                            <td className="p-1 text-center">
                               <Input
                                 type="number"
                                 min="0"
-                                step="0.1"
+                                step="1"
                                 value={wastageQty}
                                 onChange={(e) => updateInventoryItem(item.id, 'wastage_qty', e.target.value)}
-                                className="w-20 h-8 text-center text-sm"
+                                className="w-14 h-7 text-center text-xs px-1"
                               />
                             </td>
-                            <td className={`p-2 text-center font-semibold ${closingQty < 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                              {closingQty.toFixed(1)}
+                            <td className={`p-1 text-center font-semibold ${closingQty < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                              {closingQty.toFixed(0)}
                             </td>
-                            <td className="p-2 text-center">
-                              <div className="flex justify-center gap-1">
+                            <td className="p-1 text-center">
+                              <div className="flex justify-center gap-0.5">
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => saveInventoryItem(item)}
-                                  className="h-7 w-7 p-0 hover:bg-green-100"
+                                  className="h-6 w-6 p-0 hover:bg-green-100"
                                   title="Save"
                                 >
-                                  <Save size={14} className="text-green-600" />
+                                  <Save size={12} className="text-green-600" />
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => deleteInventoryItem(item.id)}
-                                  className="h-7 w-7 p-0 hover:bg-red-100"
+                                  className="h-6 w-6 p-0 hover:bg-red-100"
                                   title="Delete"
                                 >
-                                  <Trash2 size={14} className="text-red-600" />
+                                  <Trash2 size={12} className="text-red-600" />
                                 </Button>
                               </div>
                             </td>
@@ -1431,30 +1450,30 @@ export default function RetailerDashboard() {
                         );
                       })}
                     </tbody>
-                    <tfoot className="bg-gray-100 font-semibold">
+                    <tfoot className="bg-gray-100 font-semibold text-xs">
                       <tr>
-                        <td className="p-2 text-right">TOTALS:</td>
-                        <td className="p-2 text-center">{inventoryItems.reduce((sum, i) => sum + (i.opening_qty || 0), 0).toFixed(1)}</td>
-                        <td className="p-2 text-center text-green-600">+{inventoryItems.reduce((sum, i) => sum + (i.received_qty || 0), 0).toFixed(1)}</td>
-                        <td className="p-2 text-center">
+                        <td className="p-1.5 text-right">Total:</td>
+                        <td className="p-1 text-center">{inventoryItems.reduce((sum, i) => sum + (i.opening_qty || 0), 0)}</td>
+                        <td className="p-1 text-center text-green-600">+{inventoryItems.reduce((sum, i) => sum + (i.received_qty || 0), 0)}</td>
+                        <td className="p-1 text-center">
                           {inventoryItems.reduce((sum, i) => {
                             const editing = editingInventory[i.id] || {};
                             return sum + (editing.sold_qty !== undefined ? editing.sold_qty : i.sold_qty || 0);
-                          }, 0).toFixed(1)}
+                          }, 0)}
                         </td>
-                        <td className="p-2 text-center">
+                        <td className="p-1 text-center">
                           {inventoryItems.reduce((sum, i) => {
                             const editing = editingInventory[i.id] || {};
                             return sum + (editing.wastage_qty !== undefined ? editing.wastage_qty : i.wastage_qty || 0);
-                          }, 0).toFixed(1)}
+                          }, 0)}
                         </td>
-                        <td className="p-2 text-center text-blue-600">
+                        <td className="p-1 text-center text-blue-600">
                           {inventoryItems.reduce((sum, i) => {
                             const editing = editingInventory[i.id] || {};
                             const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : i.sold_qty || 0;
                             const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : i.wastage_qty || 0;
                             return sum + i.opening_qty + i.received_qty - soldQty - wastageQty;
-                          }, 0).toFixed(1)}
+                          }, 0)}
                         </td>
                         <td></td>
                       </tr>
@@ -1464,6 +1483,104 @@ export default function RetailerDashboard() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* ==================== ADD INVENTORY ITEM MODAL ==================== */}
+        {showAddItemDialog && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="flex items-center justify-between p-3 border-b">
+                <h3 className="text-base font-semibold">Add Inventory Item</h3>
+                <button 
+                  onClick={() => {
+                    setShowAddItemDialog(false);
+                    setNewInventoryItem({ product_id: '', product_name: '', variant_name: '', opening_qty: 0, received_qty: 0 });
+                  }} 
+                  className="p-1 hover:bg-gray-100 rounded"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+                  <select
+                    value={newInventoryItem.product_id}
+                    onChange={(e) => {
+                      const product = products.find(p => p.id === e.target.value);
+                      setNewInventoryItem(prev => ({
+                        ...prev,
+                        product_id: e.target.value,
+                        product_name: product?.name || ''
+                      }));
+                    }}
+                    className="w-full h-9 px-3 rounded border text-sm"
+                    required
+                  >
+                    <option value="">Select Product</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Variant (Optional)</label>
+                  <select
+                    value={newInventoryItem.variant_name}
+                    onChange={(e) => setNewInventoryItem(prev => ({ ...prev, variant_name: e.target.value }))}
+                    className="w-full h-9 px-3 rounded border text-sm"
+                  >
+                    <option value="">No Variant</option>
+                    {packagings.map(p => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Opening Qty</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={newInventoryItem.opening_qty}
+                      onChange={(e) => setNewInventoryItem(prev => ({ ...prev, opening_qty: parseFloat(e.target.value) || 0 }))}
+                      className="h-9"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Received Qty</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={newInventoryItem.received_qty}
+                      onChange={(e) => setNewInventoryItem(prev => ({ ...prev, received_qty: parseFloat(e.target.value) || 0 }))}
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">Date: {inventoryDate}</p>
+              </div>
+              <div className="flex gap-2 p-4 border-t">
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowAddItemDialog(false);
+                    setNewInventoryItem({ product_id: '', product_name: '', variant_name: '', opening_qty: 0, received_qty: 0 });
+                  }} 
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={addInventoryItem}
+                  disabled={!newInventoryItem.product_id}
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  Add Item
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ==================== INDENT MODAL ==================== */}

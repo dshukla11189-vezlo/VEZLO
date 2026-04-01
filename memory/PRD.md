@@ -221,6 +221,14 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Auto-generate recurring monthly fixed expenses
   - [x] Date/Category/Status filters
   - [x] Category breakdown summary
+  - [x] **Vertical Expense Allocation** (COMPLETED - Apr 1, 2026)
+    - [x] "Vertical Incurred For?" field in Variable Expenses form (QC Only, Retail Only, All - Split Equally)
+    - [x] QC-specific expenses allocated only to QC P&L
+    - [x] Retail-specific expenses allocated only to Retail P&L
+    - [x] "All" expenses split equally (50/50) between QC and Retail
+    - [x] Fixed expenses always split equally (50/50) between QC and Retail
+    - [x] VERTICAL column added to expenses table
+    - [x] Backend P&L calculation updated for accurate vertical bifurcation
 - [x] **P&L Dashboard UI Updates** (VALIDATED - Mar 27, 2026)
   - [x] Customer Name column in expanded product breakdown
   - [x] NET P/L removed from daily row headers (available in summary cards)

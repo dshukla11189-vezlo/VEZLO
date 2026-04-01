@@ -5069,6 +5069,7 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
     return {"message": "Invoice deleted successfully"}
 
 # Get uninvoiced dispatches for a retailer (for creating invoices)
+# Now returns items that haven't been invoiced yet (item-level filtering)
 @api_router.get("/retailer-dispatches/uninvoiced")
 async def get_uninvoiced_dispatches(
     retailer_id: str,
@@ -5077,23 +5078,46 @@ async def get_uninvoiced_dispatches(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can view uninvoiced dispatches")
     
+    # Get all dispatches for this retailer
     dispatches = await db.retailer_dispatches.find({
-        "retailer_id": retailer_id,
-        "$or": [
-            {"invoice_id": None}, 
-            {"invoice_id": {"$exists": False}},
-            {"invoice_number": None},
-            {"invoice_number": {"$exists": False}}
-        ]
-    }, {"_id": 0}).sort("dispatch_date", -1).to_list(100)
+        "retailer_id": retailer_id
+    }, {"_id": 0}).sort("dispatch_date", -1).to_list(500)
     
-    # Filter to only truly uninvoiced (both invoice_id and invoice_number must be None/missing)
-    uninvoiced = [
-        d for d in dispatches 
-        if not d.get("invoice_id") and not d.get("invoice_number")
-    ]
+    # Get all invoices for this retailer to find which items are already invoiced
+    invoices = await db.retailer_invoices.find({
+        "retailer_id": retailer_id
+    }, {"_id": 0, "items": 1}).to_list(500)
     
-    return uninvoiced
+    # Build a set of already invoiced items (dispatch_id + product_id combo)
+    # Using dispatch_id + product_id + variant as key since item_index may not be reliable
+    invoiced_item_keys = set()
+    for invoice in invoices:
+        for item in invoice.get("items", []):
+            dispatch_id = item.get("dispatch_id", "")
+            product_id = item.get("product_id", "")
+            variant = item.get("variant_name", "") or ""
+            if dispatch_id and product_id:
+                invoiced_item_keys.add(f"{dispatch_id}_{product_id}_{variant}")
+    
+    # Filter dispatches to only include uninvoiced items
+    result = []
+    for dispatch in dispatches:
+        uninvoiced_items = []
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id", "")
+            variant = item.get("variant_name", "") or ""
+            item_key = f"{dispatch['id']}_{product_id}_{variant}"
+            
+            if item_key not in invoiced_item_keys:
+                uninvoiced_items.append(item)
+        
+        # Only include dispatch if it has uninvoiced items
+        if uninvoiced_items:
+            dispatch_copy = dict(dispatch)
+            dispatch_copy["items"] = uninvoiced_items
+            result.append(dispatch_copy)
+    
+    return result
 
 # ------------ RETAILER DASHBOARD ------------
 @api_router.get("/retailer-dashboard")

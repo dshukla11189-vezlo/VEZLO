@@ -278,6 +278,8 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
     - [x] **Mobile-Optimized Table** (Apr 1, 2026): Compact design with smaller fonts, inputs, and abbreviated headers for mobile viewing
   - [x] **GRN Confirmation Visual Feedback** (Apr 1, 2026): Dispatches with confirmed GRNs show green "GRN Confirmed" badge instead of button
   - [x] **Indent Export Totals** (Apr 1, 2026): PDF and Excel exports include TOTAL row with sum of Qty and Crates columns
+  - [x] **Previous Day Carry Forward** (Apr 1, 2026): When generating inventory, Opening qty auto-populates from previous day's Closing qty
+  - [x] **Invoice Item-Level Filtering** (Apr 1, 2026): Already invoiced items are excluded from invoice creation modal (both QC and Retail)
   - [x] Backend APIs: /api/retailer-indents, /api/retailer-dispatches, /api/retailer-invoices, /api/retailer-grn, /api/retailer-rejections, /api/retailer-payments, /api/retailer-dashboard
   - [x] **Retailer Orders UI Enhancement** (COMPLETED - Mar 29, 2026):
     - [x] **Dashboard Summary Cards**: Indents, Dispatches, Net Receivable, Payments with pending amounts

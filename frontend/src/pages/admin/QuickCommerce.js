@@ -997,21 +997,39 @@ export default function QuickCommerce() {
   
   const getDispatchedItemsForCustomer = (customerName, dateFilter) => {
     // Get all dispatched items for a customer on a specific date
+    // Exclude items that have already been invoiced
     const items = [];
     const filterDate = dateFilter ? new Date(dateFilter).toDateString() : null;
+    
+    // Build a set of already invoiced items (dispatch_id + item_index)
+    const invoicedItemKeys = new Set();
+    invoices.forEach(invoice => {
+      if (invoice.customer_name === customerName && invoice.status !== 'cancelled') {
+        invoice.items?.forEach(item => {
+          if (item.dispatch_id && item.item_index !== undefined && item.item_index !== null) {
+            invoicedItemKeys.add(`${item.dispatch_id}-${item.item_index}`);
+          }
+        });
+      }
+    });
     
     dispatches
       .filter(d => d.customer_name === customerName)
       .filter(d => !filterDate || new Date(d.dispatch_date).toDateString() === filterDate)
       .forEach(dispatch => {
         dispatch.items?.forEach((item, itemIndex) => {
+          const itemKey = `${dispatch.id}-${itemIndex}`;
+          // Skip if already invoiced
+          if (invoicedItemKeys.has(itemKey)) {
+            return;
+          }
           items.push({
             ...item,
             dispatch_id: dispatch.id,
             dispatch_date: dispatch.dispatch_date,
             dispatch_time: dispatch.dispatch_time,
             item_index: itemIndex,
-            key: `${dispatch.id}-${itemIndex}`
+            key: itemKey
           });
         });
       });
@@ -1084,26 +1102,19 @@ export default function QuickCommerce() {
           return;
         }
         
-        // Aggregate items by product+packaging
-        const itemsMap = {};
+        // Keep items separate (don't aggregate) to track dispatch_id and item_index
         selectedItems.forEach(item => {
-          const key = `${item.product_id}-${item.packaging_id || ''}`;
-          if (itemsMap[key]) {
-            itemsMap[key].supplied_qty += item.supplied_qty;
-            itemsMap[key].no_of_crates += item.no_of_crates;
-          } else {
-            itemsMap[key] = { 
-              ...item, 
-              receiving_qty: null,  // Keep blank - to be filled by customer
-              amount: (item.supplied_qty || 0) * (item.rate || 0)
-            };
-          }
+          finalItems.push({ 
+            ...item, 
+            receiving_qty: null,  // Keep blank - to be filled by customer
+            amount: (item.supplied_qty || 0) * (item.rate || 0),
+            dispatch_id: item.dispatch_id,
+            item_index: item.item_index
+          });
           if (!dispatchIds.includes(item.dispatch_id)) {
             dispatchIds.push(item.dispatch_id);
           }
         });
-        
-        finalItems = Object.values(itemsMap);
       }
 
       const subtotal = finalItems.reduce((sum, item) => sum + ((item.supplied_qty || 0) * (item.rate || 0)), 0);

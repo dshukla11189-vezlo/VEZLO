@@ -295,6 +295,9 @@ class QCInvoiceItem(BaseModel):
     receiving_qty: Optional[float] = None  # For Ninjacart format
     rate: Optional[float] = None  # Rate per unit
     amount: Optional[float] = None  # supplied_qty * rate
+    # Track source dispatch for avoiding duplicate invoicing
+    dispatch_id: Optional[str] = None
+    item_index: Optional[int] = None
 
 # QC Invoice Models
 class QCInvoice(BaseModel):

@@ -264,6 +264,14 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Retailer Confirm GRN**: Retailers can confirm received quantities vs supplied
   - [x] **Retailer View Rejections**: Read-only view of rejected items
   - [x] **Retailer View & Download Invoices**: Retailers can see and print/download their invoices
+  - [x] **Invoice Rejection Fix** (Apr 1, 2026): rejection_amount = sum(rejected_qty × mrp) per item
+  - [x] **Retailer Inventory Tracking** (Apr 1, 2026):
+    - [x] New "Inventory" tab in retailer portal
+    - [x] Generate from Dispatch button creates items from retailer dispatches
+    - [x] Tracks Opening, Received, Sold, Wastage, Closing quantities
+    - [x] Editable Sold and Wastage fields with auto-calculated Closing
+    - [x] Save and Delete buttons for each item
+    - [x] Previous day's closing becomes next day's opening
   - [x] Backend APIs: /api/retailer-indents, /api/retailer-dispatches, /api/retailer-invoices, /api/retailer-grn, /api/retailer-rejections, /api/retailer-payments, /api/retailer-dashboard
   - [x] **Retailer Orders UI Enhancement** (COMPLETED - Mar 29, 2026):
     - [x] **Dashboard Summary Cards**: Indents, Dispatches, Net Receivable, Payments with pending amounts

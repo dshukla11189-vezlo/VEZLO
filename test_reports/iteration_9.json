@@ -1,0 +1,95 @@
+{
+  "summary": "Wastage Distribution and Retail Dashboard Mismatch Fix - All tests passed. Backend correctly calculates vertical bifurcation values by summing actual line item COGS and wastage_value instead of proportional allocation by sales %. Wastage is distributed proportionally by actual Kg supplied ratio.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. QC Only Date (2026-03-29): vertical_bifurcation.qc.purchase === sum(qc_items.cogs) - PASS (7068.09)",
+    "2. QC Only Date (2026-03-29): vertical_bifurcation.qc.wastage === sum(qc_items.wastage_value) - PASS (2334.46)",
+    "3. Retail Only Date (2026-03-18): vertical_bifurcation.retail.purchase === sum(retail_items.cogs) - PASS (0.0)",
+    "4. Retail Only Date (2026-03-18): vertical_bifurcation.retail.wastage === sum(retail_items.wastage_value) - PASS (0.0)",
+    "5. Mixed Date Range (March 2026): QC and Retail vertical values match sum of line items - PASS",
+    "6. Wastage distribution uses actual Kg ratio (line_kg / total_kg) not sales ratio - PASS",
+    "7. Coriander wastage distributed: 89.1% kg → 89.1% wastage, 7.0% kg → 7.0% wastage, 3.8% kg → 3.8% wastage - PASS",
+    "8. Vertical bifurcation structure has all required fields (purchase, wastage, sales, gross_profit) - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_wastage_distribution_fix.py",
+    "/app/test_reports/pytest/pytest_wastage_fix.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [],
+
+  "updated_files": [
+    "/app/backend/tests/test_wastage_distribution_fix.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (8/8 tests passed)",
+    "frontend": "N/A - Backend fix verified via API"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing data: 2026-03-29 (QC only with Ninjacart), 2026-03-18 (Retail only with Tamanna Mart)",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "Wastage distribution fix verified. Key changes in server.py lines 3287-3328: (1) actual_qc_cogs and actual_retail_cogs calculated by summing line item COGS. (2) actual_qc_wastage and actual_retail_wastage calculated by summing line item wastage_value. (3) qc_purchase = actual_qc_cogs (not proportional). (4) retail_purchase = actual_retail_cogs (not proportional). (5) Wastage distributed by kg_ratio = item.supplied_kg / total_kg_for_alias_group.",
+
+  "features_verified": {
+    "qc_purchase_equals_sum_cogs": "PASS - vertical_bifurcation.qc.purchase = 7068.09 = sum(qc_items.cogs)",
+    "qc_wastage_equals_sum_wastage": "PASS - vertical_bifurcation.qc.wastage = 2334.46 = sum(qc_items.wastage_value)",
+    "retail_purchase_equals_sum_cogs": "PASS - vertical_bifurcation.retail.purchase = 0 = sum(retail_items.cogs)",
+    "retail_wastage_equals_sum_wastage": "PASS - vertical_bifurcation.retail.wastage = 0 = sum(retail_items.wastage_value)",
+    "wastage_by_kg_ratio": "PASS - Wastage distributed proportionally by supplied_kg / total_kg"
+  },
+
+  "verification_data": {
+    "qc_only_date_2026_03_29": {
+      "qc_purchase_vertical": 7068.09,
+      "qc_purchase_sum_items": 7068.09,
+      "qc_wastage_vertical": 2334.46,
+      "qc_wastage_sum_items": 2334.46
+    },
+    "retail_only_date_2026_03_18": {
+      "retail_purchase_vertical": 0,
+      "retail_purchase_sum_items": 0,
+      "retail_wastage_vertical": 0,
+      "retail_wastage_sum_items": 0
+    },
+    "wastage_kg_ratio_example": {
+      "product": "Coriander",
+      "date": "2026-03-29",
+      "total_kg": 201.999,
+      "total_wastage": 1023.12,
+      "items": [
+        {"kg": 180, "kg_pct": 89.1, "wastage": 911.7, "wastage_pct": 89.1},
+        {"kg": 14.235, "kg_pct": 7.0, "wastage": 72.1, "wastage_pct": 7.0},
+        {"kg": 7.764, "kg_pct": 3.8, "wastage": 39.32, "wastage_pct": 3.8}
+      ]
+    }
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

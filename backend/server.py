@@ -2976,9 +2976,12 @@ async def get_pnl_report(
         if product in sales_by_product:
             sales_by_product[product]["wastage_amount"] += wastage_value
         
-        # Product breakdown per date
-        if status_date in product_by_date and product in product_by_date[status_date]:
-            product_by_date[status_date][product]["wastage"] += wastage_value
+        # Product breakdown per date - ensure entry exists even without procurement
+        if status_date not in product_by_date:
+            product_by_date[status_date] = {}
+        if product not in product_by_date[status_date]:
+            product_by_date[status_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+        product_by_date[status_date][product]["wastage"] += wastage_value
     
     # ========== VARIABLE EXPENSES ==========
     variable_expenses = await db.variable_expenses.find({
@@ -3281,6 +3284,22 @@ async def get_pnl_report(
     total_qc_sales = sum(day.get("qc_sales", 0) for day in daily_pnl)
     total_retail_sales = sum(day.get("retail_sales", 0) for day in daily_pnl)
     
+    # Calculate ACTUAL QC and Retail COGS and Wastage from line items
+    # (instead of proportional allocation by sales %)
+    actual_qc_cogs = 0
+    actual_retail_cogs = 0
+    actual_qc_wastage = 0
+    actual_retail_wastage = 0
+    
+    for day in daily_pnl:
+        for item in day.get("line_items", []):
+            if item.get("customer_type") == "QC":
+                actual_qc_cogs += item.get("cogs", 0)
+                actual_qc_wastage += item.get("wastage_value", 0)
+            else:  # Retail
+                actual_retail_cogs += item.get("cogs", 0)
+                actual_retail_wastage += item.get("wastage_value", 0)
+    
     # Count QC and Retail orders and quantities
     qc_order_count = 0
     qc_qty_total = 0
@@ -3296,16 +3315,16 @@ async def get_pnl_report(
             retail_qty_total += data.get("qty", 0)
     
     # Calculate QC and Retail specific P&L metrics
-    # Since purchases are shared, allocate proportionally based on sales
+    # Use ACTUAL COGS and wastage from line items (not proportional allocation)
     qc_sales_pct = (total_qc_sales / total_sales * 100) if total_sales > 0 else 0
     retail_sales_pct = (total_retail_sales / total_sales * 100) if total_sales > 0 else 0
     
-    # Proportional allocation
-    qc_purchase = total_purchase * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
-    retail_purchase = total_purchase * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    # Use actual calculated values from line items
+    qc_purchase = actual_qc_cogs
+    retail_purchase = actual_retail_cogs
     
-    qc_wastage = total_wastage_value * (qc_sales_pct / 100) if qc_sales_pct > 0 else 0
-    retail_wastage = total_wastage_value * (retail_sales_pct / 100) if retail_sales_pct > 0 else 0
+    qc_wastage = actual_qc_wastage
+    retail_wastage = actual_retail_wastage
     
     # Variable expenses: QC-specific + half of "all" expenses
     # Retail-specific + half of "all" expenses

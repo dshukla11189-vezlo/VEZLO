@@ -62,18 +62,20 @@ export default function RetailerDashboard() {
   const [showGrnModal, setShowGrnModal] = useState(false);
   const [selectedDispatch, setSelectedDispatch] = useState(null);
   const [grnItems, setGrnItems] = useState([]);
+  const [confirmedGrns, setConfirmedGrns] = useState({}); // Track which dispatches have confirmed GRNs
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
         api.get('/api/retailer-invoices'),
         api.get('/api/retailer-rejections'),
         api.get('/api/products'),
-        api.get('/api/qc-packaging')
+        api.get('/api/qc-packaging'),
+        api.get('/api/retailer-grn')
       ]);
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
@@ -82,6 +84,13 @@ export default function RetailerDashboard() {
       setRejections(rejectionsRes.data);
       setProducts(productsRes.data);
       setPackagings(packagingsRes.data);
+      
+      // Build a map of dispatch_id -> GRN confirmed status
+      const grnMap = {};
+      (grnsRes.data || []).forEach(grn => {
+        grnMap[grn.dispatch_id] = true;
+      });
+      setConfirmedGrns(grnMap);
     } catch (error) {
       console.error('Failed to load data:', error);
       toast.error('Failed to load data');
@@ -1000,9 +1009,15 @@ export default function RetailerDashboard() {
                           <td className="p-3 text-right">{formatCurrency(dispatch.total_mrp_value)}</td>
                           <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(dispatch.net_payable)}</td>
                           <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
-                            <Button size="sm" variant="outline" onClick={() => openGrnModal(dispatch)}>
-                              <CheckCircle size={14} className="mr-1" /> Confirm GRN
-                            </Button>
+                            {confirmedGrns[dispatch.id] ? (
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                <CheckCircle size={12} className="mr-1" /> GRN Confirmed
+                              </span>
+                            ) : (
+                              <Button size="sm" variant="outline" onClick={() => openGrnModal(dispatch)}>
+                                <CheckCircle size={14} className="mr-1" /> Confirm GRN
+                              </Button>
+                            )}
                           </td>
                         </tr>
                         {expandedDispatches[dispatch.id] && (

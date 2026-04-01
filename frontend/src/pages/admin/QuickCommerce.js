@@ -205,7 +205,21 @@ export default function QuickCommerce() {
         api.get('/api/qc-invoices'),
         api.get('/api/customer-product-settings')
       ]);
-      setIndents(indentsRes.data);
+      
+      // Parse items if stored as JSON string (fix for legacy data)
+      const parsedIndents = indentsRes.data.map(indent => {
+        if (typeof indent.items === 'string') {
+          try {
+            indent.items = JSON.parse(indent.items);
+          } catch (e) {
+            console.error('Failed to parse indent items:', e);
+            indent.items = [];
+          }
+        }
+        return indent;
+      });
+      
+      setIndents(parsedIndents);
       setDispatches(dispatchesRes.data);
       setGrns(grnsRes.data);
       setCustomers(customersRes.data);
@@ -371,8 +385,13 @@ export default function QuickCommerce() {
 
     // Flatten data for Excel
     const rows = [];
+    let totalQty = 0;
+    let totalCrates = 0;
+    
     exportData.forEach(indent => {
       indent.items?.forEach(item => {
+        totalQty += item.required_qty || 0;
+        totalCrates += item.no_of_crates || 0;
         rows.push({
           'Date': formatDate(indent.indent_date),
           'Customer': indent.customer_name,
@@ -386,6 +405,20 @@ export default function QuickCommerce() {
           'Status': indent.status
         });
       });
+    });
+
+    // Add totals row
+    rows.push({
+      'Date': '',
+      'Customer': '',
+      'Product': '',
+      'Packaging': '',
+      'Unit': 'TOTAL:',
+      'Quantity': totalQty,
+      'Lot Size': '',
+      'Crates': totalCrates,
+      'Rate': '',
+      'Status': ''
     });
 
     // Create CSV content
@@ -402,7 +435,7 @@ export default function QuickCommerce() {
     link.download = `indents_${exportFilters.fromDate}_to_${exportFilters.toDate}.csv`;
     link.click();
     
-    toast.success(`Exported ${rows.length} items to Excel`);
+    toast.success(`Exported ${rows.length - 1} items to Excel`);
     setOpenExport(false);
   };
 
@@ -412,6 +445,16 @@ export default function QuickCommerce() {
       toast.error('No indents found for selected date range');
       return;
     }
+
+    // Calculate totals
+    let totalQty = 0;
+    let totalCrates = 0;
+    exportData.forEach(indent => {
+      indent.items?.forEach(item => {
+        totalQty += item.required_qty || 0;
+        totalCrates += item.no_of_crates || 0;
+      });
+    });
 
     // Create printable HTML
     let htmlContent = `
@@ -428,6 +471,8 @@ export default function QuickCommerce() {
           tr:nth-child(even) { background-color: #f2f2f2; }
           .text-right { text-align: right; }
           .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
+          .totals-row { background-color: #14532D !important; color: white; font-weight: bold; }
+          .totals-row td { border-color: #0f4025; }
         </style>
       </head>
       <body>
@@ -468,7 +513,15 @@ export default function QuickCommerce() {
       });
     });
 
+    // Add totals row
     htmlContent += `
+          <tr class="totals-row">
+            <td colspan="5" style="text-align: right; font-weight: bold;">TOTAL:</td>
+            <td class="text-right">${totalQty}</td>
+            <td></td>
+            <td class="text-right">${totalCrates}</td>
+            <td></td>
+          </tr>
           </tbody>
         </table>
         <p class="footer">Generated on ${new Date().toLocaleString('en-IN')}</p>

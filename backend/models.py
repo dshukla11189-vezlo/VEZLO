@@ -83,6 +83,7 @@ class Product(BaseModel):
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
     lifecycle_duration: Optional[str] = None  # "low" (3 days), "medium" (5 days), "high" (7 days)
+    cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost (e.g., Spinach uses Palak's cost)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ProductCreate(BaseModel):
@@ -93,6 +94,7 @@ class ProductCreate(BaseModel):
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
     lifecycle_duration: Optional[str] = None  # "low", "medium", "high"
+    cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
@@ -102,6 +104,7 @@ class ProductUpdate(BaseModel):
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
     lifecycle_duration: Optional[str] = None
+    cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost
 
 # Farmer Models
 class Farmer(BaseModel):

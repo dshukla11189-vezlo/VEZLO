@@ -2611,6 +2611,19 @@ async def get_pnl_report(
             sales_by_customer[customer]["invoices"] = sales_by_customer[customer].get("invoices", 0) + 1
     
     # ========== PRE-CALCULATE AVERAGE PURCHASE PRICES (for COGS) ==========
+    # First, load products to get cost_alias mappings
+    all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+    product_id_to_name = {p.get("id"): p.get("name") for p in all_products}
+    product_name_to_id = {p.get("name"): p.get("id") for p in all_products}
+    
+    # Build cost alias map: {product_name: aliased_product_name}
+    # e.g., {"Spinach": "Palak"} means Spinach uses Palak's purchase cost
+    cost_alias_map = {}
+    for p in all_products:
+        alias_id = p.get("cost_alias_product_id")
+        if alias_id and alias_id in product_id_to_name:
+            cost_alias_map[p.get("name")] = product_id_to_name[alias_id]
+    
     # Fetch all procurements to calculate average purchase price per product
     all_procurements = await db.procurements.find({
         "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
@@ -2721,8 +2734,14 @@ async def get_pnl_report(
             dispatch_qty += qty
             
             # Calculate COGS using average purchase price from the product
-            # Get average purchase price for this product from procurements
-            avg_purchase_price = avg_price_by_product.get(product, 0)
+            # If product has a cost_alias (e.g., Spinach -> Palak), use aliased product's price
+            lookup_product = cost_alias_map.get(product, product)
+            avg_purchase_price = avg_price_by_product.get(lookup_product, 0)
+            
+            # If no price found for lookup product, try original product
+            if avg_purchase_price == 0 and lookup_product != product:
+                avg_purchase_price = avg_price_by_product.get(product, 0)
+            
             item_cogs = qty * avg_purchase_price
             dispatch_cogs += item_cogs
             
@@ -3000,12 +3019,22 @@ async def get_pnl_report(
                         product_cogs_rate[prod_name] = 0
             
             # Calculate total supplied kg per product for proportional wastage allocation
+            # For aliased products, we need combined totals for proper wastage distribution
             product_total_supplied_kg = {}
+            product_total_supplied_kg_with_alias = {}  # Combined totals for aliased products
+            
             for key, item in customer_product_map.items():
                 product = item["product"]
                 if product not in product_total_supplied_kg:
                     product_total_supplied_kg[product] = 0
                 product_total_supplied_kg[product] += item["supplied_kg"]
+                
+                # Also track combined totals for aliased products
+                # e.g., both Palak and Spinach (aliased to Palak) contribute to "Palak" pool
+                alias_product = cost_alias_map.get(product, product)
+                if alias_product not in product_total_supplied_kg_with_alias:
+                    product_total_supplied_kg_with_alias[alias_product] = 0
+                product_total_supplied_kg_with_alias[alias_product] += item["supplied_kg"]
             
             # Get product-level total wastage (value) for this date
             product_total_wastage = {}
@@ -3019,17 +3048,33 @@ async def get_pnl_report(
                 product = item["product"]
                 
                 # Calculate COGS for this line item
-                cogs_rate = product_cogs_rate.get(product, 0)
+                # Use cost alias if defined (e.g., Spinach uses Palak's cost)
+                lookup_product = cost_alias_map.get(product, product)
+                cogs_rate = product_cogs_rate.get(lookup_product, 0)
+                # Fallback to original product if alias has no cost
+                if cogs_rate == 0 and lookup_product != product:
+                    cogs_rate = product_cogs_rate.get(product, 0)
                 cogs = item["supplied_kg"] * cogs_rate
                 
                 # Calculate wastage proportionally based on kg supplied ratio
                 # If there are 3 supplies in the ratio of 50:30:20 kg, wastage is divided in same ratio
-                total_kg_for_product = product_total_supplied_kg.get(product, 0)
-                total_wastage_for_product = product_total_wastage.get(product, 0)
+                # For aliased products, use the alias product's wastage pool
+                wastage_lookup_product = cost_alias_map.get(product, product)
                 
-                if total_kg_for_product > 0:
-                    # Proportional wastage = (this_line_kg / total_product_kg) * total_wastage
-                    kg_ratio = item["supplied_kg"] / total_kg_for_product
+                # For wastage distribution, use the COMBINED total of aliased products
+                # e.g., if Spinach (10 kg) is aliased to Palak (100 kg), 
+                # total pool is 110 kg and wastage is distributed proportionally
+                total_kg_for_alias_group = product_total_supplied_kg_with_alias.get(wastage_lookup_product, 0)
+                
+                # For wastage, combine quantities of aliased products
+                # e.g., if Spinach is aliased to Palak, Spinach dispatches share Palak's wastage pool
+                total_wastage_for_product = product_total_wastage.get(wastage_lookup_product, 0)
+                if total_wastage_for_product == 0 and wastage_lookup_product != product:
+                    total_wastage_for_product = product_total_wastage.get(product, 0)
+                
+                if total_kg_for_alias_group > 0:
+                    # Proportional wastage = (this_line_kg / total_alias_group_kg) * total_wastage
+                    kg_ratio = item["supplied_kg"] / total_kg_for_alias_group
                     wastage_value = kg_ratio * total_wastage_for_product
                     wastage_kg = (wastage_value / cogs_rate) if cogs_rate > 0 else 0
                 else:

@@ -20,7 +20,8 @@ export default function Products() {
     current_stock: 0,
     price_per_kg: 0,
     price_per_packet: 0,
-    lifecycle_duration: ''  // 'low', 'medium', 'high'
+    lifecycle_duration: '',  // 'low', 'medium', 'high'
+    cost_alias_product_id: ''  // For P&L: use this product's purchase cost
   });
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export default function Products() {
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', category: '', unit: 'Kg', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '' });
+      setFormData({ name: '', category: '', unit: 'Kg', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '' });
       loadProducts();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save product');
@@ -66,7 +67,8 @@ export default function Products() {
       current_stock: product.current_stock,
       price_per_kg: product.price_per_kg || 0,
       price_per_packet: product.price_per_packet || 0,
-      lifecycle_duration: product.lifecycle_duration || ''
+      lifecycle_duration: product.lifecycle_duration || '',
+      cost_alias_product_id: product.cost_alias_product_id || ''
     });
     setOpen(true);
   };
@@ -189,6 +191,23 @@ export default function Products() {
                   <option value="high">High (7 Days)</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">How long the product stays fresh - critical for retail invoicing</p>
+              </div>
+              {/* Cost Alias Field - For P&L calculation */}
+              <div>
+                <Label htmlFor="cost_alias">Cost Alias (For P&L)</Label>
+                <select
+                  id="cost_alias"
+                  value={formData.cost_alias_product_id}
+                  onChange={(e) => setFormData({ ...formData, cost_alias_product_id: e.target.value })}
+                  className="w-full h-10 px-3 py-2 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  data-testid="product-cost-alias-input"
+                >
+                  <option value="">No Alias (Use Own Cost)</option>
+                  {products.filter(p => p.id !== editProduct?.id).map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Use another product's purchase cost for P&L (e.g., Spinach uses Palak's cost)</p>
               </div>
               <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="product-submit-button">
                 {editProduct ? 'Update' : 'Create'} Product

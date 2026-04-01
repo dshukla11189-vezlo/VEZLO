@@ -1445,18 +1445,10 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             packaging_name = item.get('packaging_name', '') or ''
             packaging_upper = packaging_name.upper()
             
-            # Determine if dispatch item is PCS-based or Kg-based
-            # "(PCS)" in packaging = PCS-based, can match with PCS Excel SKUs
-            # "PACKET" without "(PCS)" = Packet-based, should NOT match with Kg Excel SKUs
-            # Items without "(PCS)" and without "PACKET" = Kg-based, can match with Kg Excel SKUs
-            has_pcs_marker = '(PCS)' in packaging_upper
-            has_packet_marker = 'PACKET' in packaging_upper
-            
-            # dispatch_is_pcs: True for PCS items (can match PCS Excel SKUs)
-            # dispatch_is_kg: True for pure Kg items (can match Kg Excel SKUs)
-            # Items with "Packet" but no "(PCS)" should match neither - they remain unmatched
-            dispatch_is_pcs = has_pcs_marker
-            dispatch_is_kg = not has_pcs_marker and not has_packet_marker
+            # Simple PCS vs Kg classification:
+            # "(PCS)" in packaging = PCS-based, matches Excel SKUs with Kgs_Pcs = "PCS"
+            # Everything else (Packet, gm, etc.) = Kg-based, matches Excel SKUs with Kgs_Pcs = "Kgs"
+            dispatch_is_pcs = '(PCS)' in packaging_upper
             
             # Get packaging weight
             packaging_weight_gm = 0
@@ -1476,7 +1468,6 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 **item,
                 'packaging_weight_gm': packaging_weight_gm,
                 'dispatch_is_pcs': dispatch_is_pcs,
-                'dispatch_is_kg': dispatch_is_kg,
                 'base_product_name': base_name
             }
             
@@ -1571,13 +1562,12 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                         break
                 
                 # Regular matching logic
-                # Filter items by type: PCS SKU matches PCS items, Kg SKU matches Kg items
-                # Packet items (without PCS marker) don't match either
+                # PCS SKU (Excel Kgs_Pcs = "PCS") matches dispatch items with "(PCS)" in packaging
+                # Kg SKU (Excel Kgs_Pcs = "Kgs") matches ALL other dispatch items (Packet, gm, etc.)
                 if sku_is_pcs:
                     type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
                 else:
-                    # Kg SKU - only match with pure Kg dispatch items (not Packet items)
-                    type_matched_items = [i for i in items if i.get('dispatch_is_kg', False)]
+                    type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
                 
                 if not type_matched_items:
                     continue  # No items match the required type
@@ -1747,15 +1737,13 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 logger.info(f"  Combining Kg SKUs for {base_name}: {total_grn_kg}kg @ ₹{combined_rate_per_kg:.2f}/kg from {len(group_data['kg_skus'])} SKUs")
                 
-                # Get ONLY Kg-based dispatch items (NOT PCS items and NOT Packet items)
-                # PCS items should only match with PCS Excel SKUs
-                # Packet items should remain unmatched
+                # Get ALL non-PCS dispatch items for Kg SKU matching
+                # This includes "Packet" items, "gm" items, etc. - everything without "(PCS)"
                 kg_items = []
                 seen_item_keys = set()
                 for i in group_data['items']:
-                    # Only include pure Kg-based items (dispatch_is_kg = True)
-                    # This excludes both "(PCS)" items and "Packet" items
-                    if i.get('dispatch_is_kg', False):
+                    # Include all items that are NOT PCS (dispatch_is_pcs = False)
+                    if not i.get('dispatch_is_pcs'):
                         item_key = f"{i.get('dispatch_id')}_{i.get('packaging_id')}"
                         if item_key not in seen_item_keys:
                             kg_items.append(i)

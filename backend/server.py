@@ -6082,11 +6082,53 @@ async def startup_event():
             scheduled_gmail_sync,
             CronTrigger(hour=0, minute=30),  # 6:00 AM IST
             id='gmail_grn_sync',
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=3600  # Allow 1 hour grace period
         )
         logger.info("Gmail GRN sync scheduled for 6:00 AM IST daily")
+        
+        # Check if we missed the 6 AM sync today and run it now
+        await check_and_run_missed_gmail_sync()
+        
+        # Log all scheduled jobs for debugging
+        jobs = backup_scheduler.get_jobs()
+        for job in jobs:
+            logger.info(f"Scheduled job: {job.id} - Next run: {job.next_run_time}")
+            
     except Exception as e:
         logger.error(f"Failed to initialize schedulers: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def check_and_run_missed_gmail_sync():
+    """Check if we missed today's 6 AM sync and run it if needed"""
+    try:
+        # Get the last sync time from settings or sync history
+        settings = await db.gmail_settings.find_one({}, {"_id": 0})
+        last_sync = settings.get("last_sync_time") if settings else None
+        
+        if last_sync:
+            # Parse the last sync time
+            if isinstance(last_sync, str):
+                last_sync_dt = datetime.fromisoformat(last_sync.replace('Z', '+00:00'))
+            else:
+                last_sync_dt = last_sync
+            
+            # Get today's 6 AM IST (00:30 UTC)
+            now = datetime.now(timezone.utc)
+            today_6am_ist = now.replace(hour=0, minute=30, second=0, microsecond=0)
+            
+            # If it's past 6 AM IST today and last sync was before today's 6 AM
+            if now > today_6am_ist and last_sync_dt < today_6am_ist:
+                logger.info(f"Missed 6 AM sync. Last sync: {last_sync_dt}, Running now...")
+                await scheduled_gmail_sync()
+                logger.info("Catch-up sync completed")
+        else:
+            logger.info("No previous sync found, skipping catch-up check")
+            
+    except Exception as e:
+        logger.error(f"Error checking missed sync: {e}")
 
 async def scheduled_gmail_sync():
     """Scheduled job to sync Ninjacart GRN from Gmail at 6 AM"""

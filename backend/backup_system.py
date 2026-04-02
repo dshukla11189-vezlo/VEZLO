@@ -580,14 +580,15 @@ def setup_backup_scheduler(db):
         timezone="UTC"
     )
     
-    # Add job
+    # Add job with misfire grace time to catch up on missed runs
     scheduler.add_job(
         run_daily_backup,
         trigger=trigger,
         args=[db],
         id="daily_backup",
         name="Daily FreshFlow Backup",
-        replace_existing=True
+        replace_existing=True,
+        misfire_grace_time=3600  # Allow 1 hour grace period
     )
     
     scheduler.start()

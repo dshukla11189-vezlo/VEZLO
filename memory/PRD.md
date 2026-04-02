@@ -487,6 +487,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Date rows show: DATE | RETAILER (count) | QTY | VALUE | (items count)
   - [x] Expanded rows show: Product (variant) | Retailer | QTY | VALUE | REASON | ACTIONS
   - [x] Added `expandedRejectionDates` state to both portals
+- [x] **GRN Total Supplied Duplicate Fix** (COMPLETED - Apr 2, 2026):
+  - [x] **Bug**: When multiple Excel SKUs matched the same dispatch item, `supplied_qty` was counted multiple times, causing GRN "Total Supplied" to show inflated values (e.g., 6053 instead of 3933)
+  - [x] **Root Cause**: For PCS SKUs, each SKU was processed separately and appended to `matched_items` with the full dispatch `supplied_qty`, causing duplicates
+  - [x] **Fix**: Implemented deduplication logic for PCS SKUs - now accumulates GRN quantities for the same dispatch item instead of creating duplicate entries
+  - [x] Combined SKU names shown (e.g., "SKU1 + SKU2") when multiple SKUs match
+  - [x] Added `processed_dispatch_items` tracking to prevent cross-product group duplicates
+  - [x] Kg SKUs now also check against `processed_dispatch_items` to prevent any duplicate entries
 - [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
   - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
   - [x] Subtotals row shows totals for each column

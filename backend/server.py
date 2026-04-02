@@ -1820,15 +1820,23 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 })
         
         # Step 5: Now distribute GRN to dispatch items
-        # For PCS items: Process each SKU separately to avoid mixing different weight variants
+        # Track processed dispatch items to prevent duplicate supplied_qty entries
+        processed_dispatch_items = {}  # {dispatch_id_product_id_packaging_id: matched_item_dict}
+        
         for base_name, group_data in product_group_matches.items():
-            # Process PCS SKUs - Each SKU separately to maintain variant accuracy
+            # Process PCS SKUs - COMBINE all PCS SKUs that match the same dispatch items
+            # This prevents double-counting supplied_qty when multiple Excel SKUs match the same dispatch
             if group_data['pcs_skus']:
+                # First, collect ALL unique PCS dispatch items and combine GRN quantities
+                all_pcs_items = {}  # {item_key: item_dict_with_accumulated_grn}
+                combined_sku_names = []
+                
                 for pcs_sku in group_data['pcs_skus']:
                     sku_name = pcs_sku['sku_name']
                     grn_qty = pcs_sku['grn_qty']
                     rate_per_pcs = pcs_sku['rate']
                     sku_items = pcs_sku['items']
+                    combined_sku_names.append(sku_name)
                     
                     # Get only PCS dispatch items for this specific SKU
                     pcs_items = [item for item in sku_items if item.get('dispatch_is_pcs')]
@@ -1856,32 +1864,66 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                         # Distribute GRN proportionally
                         grn_qty_for_item = grn_qty * proportion
                         
-                        amount = grn_qty_for_item * rate_per_pcs
-                        difference = grn_qty_for_item - supplied_qty
-                        loss_gain = difference * rate_per_pcs
+                        # Create unique key for this dispatch item
+                        item_key = f"{item.get('dispatch_id')}_{item.get('product_id')}_{item.get('packaging_id')}"
                         
-                        logger.info(f"    Dispatch {item.get('dispatch_id')}: supplied={supplied_qty}, proportion={proportion:.4f}, grn={grn_qty_for_item:.2f}")
-                        
-                        matched_items.append({
-                            'dispatch_id': item.get('dispatch_id'),
-                            'dispatch_date': dispatch_date_str,
-                            'product_id': item.get('product_id'),
-                            'product_name': item.get('product_name'),
-                            'product_unit': item.get('product_unit'),
-                            'packaging_id': item.get('packaging_id'),
-                            'packaging_name': item.get('packaging_name'),
-                            'packaging_weight_gm': item.get('packaging_weight_gm', 0),
-                            'supplied_qty': supplied_qty,
-                            'grn_qty': round(grn_qty_for_item, 2),
-                            'grn_qty_kg': None,
-                            'difference': round(difference, 2),
-                            'rate_per_kg': None,
-                            'rate_per_unit': round(rate_per_pcs, 2),
-                            'rate_type': 'per_pcs',
-                            'sku_name': sku_name,
-                            'amount': round(amount, 2),
-                            'loss_gain_amount': round(loss_gain, 2)
-                        })
+                        if item_key in all_pcs_items:
+                            # Accumulate GRN qty for same dispatch item
+                            all_pcs_items[item_key]['grn_qty'] += grn_qty_for_item
+                            all_pcs_items[item_key]['sku_names'].append(sku_name)
+                            logger.info(f"    Accumulating to existing item: {item_key}, total grn_qty={all_pcs_items[item_key]['grn_qty']:.2f}")
+                        else:
+                            # New dispatch item
+                            all_pcs_items[item_key] = {
+                                'dispatch_id': item.get('dispatch_id'),
+                                'dispatch_date': dispatch_date_str,
+                                'product_id': item.get('product_id'),
+                                'product_name': item.get('product_name'),
+                                'product_unit': item.get('product_unit'),
+                                'packaging_id': item.get('packaging_id'),
+                                'packaging_name': item.get('packaging_name'),
+                                'packaging_weight_gm': item.get('packaging_weight_gm', 0),
+                                'supplied_qty': supplied_qty,
+                                'grn_qty': grn_qty_for_item,
+                                'rate_per_pcs': rate_per_pcs,
+                                'sku_names': [sku_name]
+                            }
+                            logger.info(f"    New dispatch item: {item_key}, supplied={supplied_qty}, grn={grn_qty_for_item:.2f}")
+                
+                # Now add all unique PCS items to matched_items
+                for item_key, item_data in all_pcs_items.items():
+                    grn_qty_final = item_data['grn_qty']
+                    supplied_qty = item_data['supplied_qty']
+                    rate_per_pcs = item_data['rate_per_pcs']
+                    
+                    amount = grn_qty_final * rate_per_pcs
+                    difference = grn_qty_final - supplied_qty
+                    loss_gain = difference * rate_per_pcs
+                    combined_sku = ' + '.join(item_data['sku_names'])
+                    
+                    matched_items.append({
+                        'dispatch_id': item_data['dispatch_id'],
+                        'dispatch_date': item_data['dispatch_date'],
+                        'product_id': item_data['product_id'],
+                        'product_name': item_data['product_name'],
+                        'product_unit': item_data['product_unit'],
+                        'packaging_id': item_data['packaging_id'],
+                        'packaging_name': item_data['packaging_name'],
+                        'packaging_weight_gm': item_data['packaging_weight_gm'],
+                        'supplied_qty': supplied_qty,
+                        'grn_qty': round(grn_qty_final, 2),
+                        'grn_qty_kg': None,
+                        'difference': round(difference, 2),
+                        'rate_per_kg': None,
+                        'rate_per_unit': round(rate_per_pcs, 2),
+                        'rate_type': 'per_pcs',
+                        'sku_name': combined_sku,
+                        'amount': round(amount, 2),
+                        'loss_gain_amount': round(loss_gain, 2)
+                    })
+                    
+                    # Mark as processed
+                    processed_dispatch_items[item_key] = True
             
             # Process Kg SKUs - COMBINE all Kg SKUs for this product group
             # Kg SKUs should ONLY match with Kg-based dispatch items (NOT PCS items)
@@ -1901,7 +1943,11 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 for i in group_data['items']:
                     # Include all items that are NOT PCS (dispatch_is_pcs = False)
                     if not i.get('dispatch_is_pcs'):
-                        item_key = f"{i.get('dispatch_id')}_{i.get('packaging_id')}"
+                        item_key = f"{i.get('dispatch_id')}_{i.get('product_id')}_{i.get('packaging_id')}"
+                        # Skip if already processed by PCS SKUs or another product group
+                        if item_key in processed_dispatch_items:
+                            logger.info(f"    Skipping already processed item: {item_key}")
+                            continue
                         if item_key not in seen_item_keys:
                             kg_items.append(i)
                             seen_item_keys.add(item_key)
@@ -1969,6 +2015,10 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                         'amount': round(amount, 2),
                         'loss_gain_amount': round(loss_gain, 2)
                     })
+                    
+                    # Mark as processed to prevent duplicate additions from other product groups
+                    kg_item_key = f"{item.get('dispatch_id')}_{item.get('product_id')}_{item.get('packaging_id')}"
+                    processed_dispatch_items[kg_item_key] = True
     
     # Build response with warnings
     warnings = []

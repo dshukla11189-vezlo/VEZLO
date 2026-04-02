@@ -494,6 +494,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Combined SKU names shown (e.g., "SKU1 + SKU2") when multiple SKUs match
   - [x] Added `processed_dispatch_items` tracking to prevent cross-product group duplicates
   - [x] Kg SKUs now also check against `processed_dispatch_items` to prevent any duplicate entries
+- [x] **GRN Loss Dashboard Calculation Fix** (COMPLETED - Apr 2, 2026):
+  - [x] **Bug**: Fenugreek (Methi) GRN Loss (₹902.53) not showing in QC Dashboard - only showing ₹19 (Dill Leaf)
+  - [x] **Root Cause 1**: When GRN item had no `grn_qty_kg` stored, code incorrectly fell back to `supplied_qty` instead of using actual `grn_qty` (piece count)
+  - [x] **Root Cause 2**: When `rate_per_kg` was 0/missing for PCS items, loss_value was calculated as 0
+  - [x] **Fix 1**: Updated GRN loss calculation to properly use `grn_qty` (piece count) to calculate `grn_qty_kg`
+  - [x] **Fix 2**: If `rate_per_kg` is 0, derive it from `rate_per_unit` using packaging weight, or fall back to stored `loss_gain_amount`
 - [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
   - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
   - [x] Subtotals row shows totals for each column

@@ -2859,9 +2859,16 @@ async def get_pnl_report(
             
             # Also track GRN qty for loss calculation
             grn_qty_kg = item.get("grn_qty_kg", 0) or 0
+            grn_qty_pcs = item.get("grn_qty", 0) or 0
+            
+            # Calculate grn_qty_kg if not directly available
             if grn_qty_kg == 0 and packaging_weight_gm > 0:
-                grn_qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
-                grn_qty_kg = (grn_qty * packaging_weight_gm) / 1000 if grn_qty else supplied_kg
+                # Use grn_qty (piece count) to calculate kg if available
+                if grn_qty_pcs > 0:
+                    grn_qty_kg = (grn_qty_pcs * packaging_weight_gm) / 1000
+                else:
+                    # If no grn_qty, assume no loss (grn_qty_kg = supplied_kg)
+                    grn_qty_kg = supplied_kg
             
             total_sales += amount
             total_sales_qty += qty
@@ -2909,7 +2916,18 @@ async def get_pnl_report(
             if item_dispatch_date not in grn_loss_by_date:
                 grn_loss_by_date[item_dispatch_date] = {"value": 0, "qty_kg": 0}
             loss_kg = supplied_kg - grn_qty_kg
-            loss_value = loss_kg * rate_per_kg if rate_per_kg > 0 else 0
+            
+            # Calculate loss value using rate_per_kg, or derive from rate_per_unit if needed
+            if rate_per_kg > 0:
+                loss_value = loss_kg * rate_per_kg
+            elif rate_per_unit > 0 and packaging_weight_gm > 0:
+                # Convert rate_per_unit to rate_per_kg: if 1 unit = X gm, rate_per_kg = rate_per_unit / (X/1000)
+                derived_rate_per_kg = rate_per_unit / (packaging_weight_gm / 1000)
+                loss_value = loss_kg * derived_rate_per_kg
+            else:
+                # Try to get loss_gain_amount directly from the item
+                loss_value = abs(item.get("loss_gain_amount", 0) or 0)
+            
             if loss_kg > 0:  # Only track positive losses (dispatched > received)
                 grn_loss_by_date[item_dispatch_date]["qty_kg"] += loss_kg
                 grn_loss_by_date[item_dispatch_date]["value"] += loss_value

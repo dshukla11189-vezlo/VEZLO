@@ -27,21 +27,15 @@ export default function RetailerDashboard() {
   const [expandedOrderDates, setExpandedOrderDates] = useState({});
   const [expandedRejectionDates, setExpandedRejectionDates] = useState({});
   
-  // Inventory state
-  const [inventoryDate, setInventoryDate] = useState(new Date().toISOString().split('T')[0]);
-  const [inventoryItems, setInventoryItems] = useState([]);
-  const [inventoryLoading, setInventoryLoading] = useState(false);
-  const [editingInventory, setEditingInventory] = useState({});
-  const [showAddItemDialog, setShowAddItemDialog] = useState(false);
-  const [newInventoryItem, setNewInventoryItem] = useState({
-    product_id: '',
-    product_name: '',
-    variant_name: '',
-    opening_qty: 0,
-    received_qty: 0
-  });
-  const [savingAll, setSavingAll] = useState(false);
-  const [editingRows, setEditingRows] = useState({}); // Track which rows are in edit mode
+  // Simplified Closing Inventory state
+  const [closingDate, setClosingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showRecordClosingModal, setShowRecordClosingModal] = useState(false);
+  const [closingItems, setClosingItems] = useState([]); // All products with closing qty inputs
+  const [closingHistory, setClosingHistory] = useState([]); // View closing for a selected date
+  const [closingHistoryDate, setClosingHistoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [recordedDates, setRecordedDates] = useState([]); // Dates that have closing recorded
+  const [savingClosing, setSavingClosing] = useState(false);
+  const [loadingClosing, setLoadingClosing] = useState(false);
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
@@ -370,151 +364,104 @@ export default function RetailerDashboard() {
     printWindow.document.close();
   };
 
-  // ==================== INVENTORY FUNCTIONS ====================
-  const loadInventory = async (date) => {
-    setInventoryLoading(true);
+  // ==================== SIMPLIFIED CLOSING INVENTORY FUNCTIONS ====================
+  
+  // Load recorded dates
+  const loadRecordedDates = async () => {
+    if (!dashboardData?.retailer?.id) return;
     try {
-      const res = await api.get(`/api/retailer-inventory/${dashboardData?.retailer?.id}?date=${date}`);
-      setInventoryItems(res.data || []);
-      setEditingInventory({});
+      const res = await api.get(`/api/retailer-closing-inventory/dates/${dashboardData.retailer.id}`);
+      setRecordedDates(res.data || []);
     } catch (error) {
-      console.error('Failed to load inventory:', error);
-      toast.error('Failed to load inventory');
-    } finally {
-      setInventoryLoading(false);
+      console.error('Failed to load recorded dates:', error);
     }
   };
 
-  const generateInventory = async () => {
+  // Load closing history for a specific date
+  const loadClosingHistory = async (date) => {
+    if (!dashboardData?.retailer?.id) return;
+    setLoadingClosing(true);
+    try {
+      const res = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}`);
+      // Filter to only show items that have a closing qty recorded
+      const recordedItems = (res.data.items || []).filter(item => item.closing_qty !== null && item.closing_qty !== undefined);
+      setClosingHistory(recordedItems);
+    } catch (error) {
+      console.error('Failed to load closing history:', error);
+      toast.error('Failed to load closing data');
+      setClosingHistory([]);
+    } finally {
+      setLoadingClosing(false);
+    }
+  };
+
+  // Open Record Closing modal - populate with all products
+  const openRecordClosingModal = async () => {
     if (!dashboardData?.retailer?.id) {
       toast.error('Retailer ID not found');
       return;
     }
-    setInventoryLoading(true);
-    try {
-      const res = await api.post(`/api/retailer-inventory/generate/${dashboardData.retailer.id}?date=${inventoryDate}`);
-      if (res.data.exists) {
-        toast.info('Inventory already exists for this date');
-      } else {
-        toast.success(`Created ${res.data.items_created} inventory items`);
-      }
-      await loadInventory(inventoryDate);
-    } catch (error) {
-      console.error('Failed to generate inventory:', error);
-      toast.error('Failed to generate inventory');
-    } finally {
-      setInventoryLoading(false);
-    }
-  };
-
-  const updateInventoryItem = async (itemId, field, value) => {
-    setEditingInventory(prev => ({
-      ...prev,
-      [itemId]: { ...prev[itemId], [field]: parseFloat(value) || 0 }
+    
+    // Initialize with all products, empty closing qty
+    const allProducts = products.map(p => ({
+      product_id: p.id,
+      product_name: p.name,
+      unit: p.unit || 'Kg',
+      closing_qty: ''  // Empty by default
     }));
-  };
-
-  const saveInventoryItem = async (item) => {
-    const updates = editingInventory[item.id] || {};
-    const payload = {
-      sold_qty: updates.sold_qty !== undefined ? updates.sold_qty : item.sold_qty,
-      wastage_qty: updates.wastage_qty !== undefined ? updates.wastage_qty : item.wastage_qty,
-      remarks: updates.remarks !== undefined ? updates.remarks : item.remarks
-    };
     
-    try {
-      await api.put(`/api/retailer-inventory/${item.id}`, payload);
-      toast.success('Inventory item saved');
-      await loadInventory(inventoryDate);
-    } catch (error) {
-      console.error('Failed to save inventory item:', error);
-      toast.error('Failed to save');
-    }
+    setClosingItems(allProducts);
+    setClosingDate(new Date().toISOString().split('T')[0]);
+    setShowRecordClosingModal(true);
   };
 
-  const deleteInventoryItem = async (itemId) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
-    try {
-      await api.delete(`/api/retailer-inventory/${itemId}`);
-      toast.success('Item deleted');
-      await loadInventory(inventoryDate);
-    } catch (error) {
-      console.error('Failed to delete inventory item:', error);
-      toast.error('Failed to delete');
-    }
+  // Update closing qty for a product
+  const updateClosingQty = (productId, value) => {
+    setClosingItems(prev => prev.map(item => 
+      item.product_id === productId 
+        ? { ...item, closing_qty: value }
+        : item
+    ));
   };
 
-  // Add single inventory item
-  const addInventoryItem = async () => {
-    if (!newInventoryItem.product_id) {
-      toast.error('Please select a product');
+  // Save closing inventory
+  const saveClosingInventory = async () => {
+    if (!dashboardData?.retailer?.id || !closingDate) {
+      toast.error('Missing required data');
       return;
     }
-    
-    try {
-      await api.post(`/api/retailer-inventory/add-item`, {
-        retailer_id: dashboardData?.retailer?.id,
-        product_id: newInventoryItem.product_id,
-        product_name: newInventoryItem.product_name,
-        variant_name: newInventoryItem.variant_name,
-        date: inventoryDate,
-        opening_qty: parseFloat(newInventoryItem.opening_qty) || 0,
-        received_qty: parseFloat(newInventoryItem.received_qty) || 0
-      });
-      toast.success('Inventory item added');
-      setShowAddItemDialog(false);
-      setNewInventoryItem({
-        product_id: '',
-        product_name: '',
-        variant_name: '',
-        opening_qty: 0,
-        received_qty: 0
-      });
-      await loadInventory(inventoryDate);
-    } catch (error) {
-      console.error('Failed to add inventory item:', error);
-      toast.error('Failed to add item');
-    }
-  };
 
-  // Save all inventory items at once
-  const saveAllInventory = async () => {
-    const itemsToSave = inventoryItems.filter(item => editingInventory[item.id]);
-    if (itemsToSave.length === 0) {
-      toast.info('No changes to save');
-      return;
-    }
-    
-    setSavingAll(true);
+    setSavingClosing(true);
     try {
-      const updates = itemsToSave.map(item => {
-        const edits = editingInventory[item.id] || {};
-        return {
-          id: item.id,
-          sold_qty: edits.sold_qty !== undefined ? edits.sold_qty : item.sold_qty,
-          wastage_qty: edits.wastage_qty !== undefined ? edits.wastage_qty : item.wastage_qty,
-          remarks: edits.remarks !== undefined ? edits.remarks : item.remarks
-        };
+      const res = await api.post('/api/retailer-closing-inventory/record', {
+        retailer_id: dashboardData.retailer.id,
+        closing_date: closingDate,
+        items: closingItems.map(item => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          closing_qty: item.closing_qty === '' ? null : item.closing_qty
+        }))
       });
       
-      await api.post(`/api/retailer-inventory/save-all`, { items: updates });
-      toast.success(`Saved ${updates.length} items`);
-      setEditingInventory({});
-      await loadInventory(inventoryDate);
+      toast.success(`Saved closing inventory: ${res.data.items_saved} items`);
+      setShowRecordClosingModal(false);
+      await loadRecordedDates();
+      await loadClosingHistory(closingHistoryDate);
     } catch (error) {
-      console.error('Failed to save all inventory:', error);
-      toast.error('Failed to save all');
+      console.error('Failed to save closing inventory:', error);
+      toast.error('Failed to save closing inventory');
     } finally {
-      setSavingAll(false);
+      setSavingClosing(false);
     }
   };
 
-  // Load inventory when date changes or tab switches
+  // Load closing history when date changes or tab switches
   useEffect(() => {
     if (activeTab === 'inventory' && dashboardData?.retailer?.id) {
-      loadInventory(inventoryDate);
+      loadClosingHistory(closingHistoryDate);
+      loadRecordedDates();
     }
-  }, [activeTab, inventoryDate, dashboardData?.retailer?.id]);
+  }, [activeTab, closingHistoryDate, dashboardData?.retailer?.id]);
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
@@ -1316,209 +1263,90 @@ export default function RetailerDashboard() {
           </Card>
         )}
 
-        {/* ==================== INVENTORY TAB ==================== */}
+        {/* ==================== INVENTORY TAB (Simplified Closing Inventory) ==================== */}
         {activeTab === 'inventory' && (
           <Card>
-            <CardHeader className="border-b py-2 px-3">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base flex items-center gap-2 whitespace-nowrap">
-                    <ClipboardList className="text-green-600" size={18} />
-                    <span className="hidden sm:inline">Daily Inventory</span>
-                    <span className="sm:hidden">Inventory</span>
-                  </CardTitle>
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      type="date"
-                      value={inventoryDate}
-                      onChange={(e) => setInventoryDate(e.target.value)}
-                      className="w-[120px] h-7 text-xs px-1.5"
-                    />
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      onClick={() => loadInventory(inventoryDate)}
-                      disabled={inventoryLoading}
-                      className="h-7 w-7 p-0"
-                      title="Refresh"
-                    >
-                      <RefreshCw size={12} className={inventoryLoading ? 'animate-spin' : ''} />
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button 
-                    size="sm" 
-                    onClick={generateInventory}
-                    disabled={inventoryLoading}
-                    className="bg-green-600 hover:bg-green-700 h-7 text-xs px-2"
-                  >
-                    <Plus size={12} className="mr-1" />
-                    From Dispatch
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => setShowAddItemDialog(true)}
-                    className="h-7 text-xs px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
-                  >
-                    <Plus size={12} className="mr-1" />
-                    Add Item
-                  </Button>
-                  {Object.keys(editingInventory).length > 0 && (
-                    <Button 
-                      size="sm" 
-                      onClick={saveAllInventory}
-                      disabled={savingAll}
-                      className="bg-blue-600 hover:bg-blue-700 h-7 text-xs px-2"
-                    >
-                      <Save size={12} className="mr-1" />
-                      {savingAll ? 'Saving...' : `Save All (${Object.keys(editingInventory).length})`}
-                    </Button>
-                  )}
-                </div>
+            <CardHeader className="border-b py-3 px-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="text-green-600" size={18} />
+                  Daily Inventory - Closing Stock
+                </CardTitle>
+                <Button 
+                  onClick={openRecordClosingModal}
+                  className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
+                >
+                  <Plus size={14} className="mr-1.5" />
+                  Record Closing
+                </Button>
               </div>
             </CardHeader>
-            <CardContent className="p-2">
-              {inventoryLoading ? (
-                <div className="text-center py-6 text-gray-500 text-sm">Loading...</div>
-              ) : inventoryItems.length === 0 ? (
-                <div className="text-center py-6 text-gray-500">
-                  <ClipboardList size={36} className="mx-auto mb-2 text-gray-300" />
-                  <p className="text-sm">No inventory for {inventoryDate}</p>
-                  <p className="text-xs mt-1">Click "From Dispatch" or "Add Item" to start.</p>
+            <CardContent className="p-4">
+              {/* Date selector to view closing history */}
+              <div className="flex items-center gap-3 mb-4 pb-4 border-b">
+                <label className="text-sm font-medium text-gray-600">View Closing for:</label>
+                <Input
+                  type="date"
+                  value={closingHistoryDate}
+                  onChange={(e) => setClosingHistoryDate(e.target.value)}
+                  className="w-[160px] h-9"
+                />
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => loadClosingHistory(closingHistoryDate)}
+                  disabled={loadingClosing}
+                  className="h-9 px-3"
+                >
+                  <RefreshCw size={14} className={loadingClosing ? 'animate-spin' : ''} />
+                </Button>
+                {recordedDates.length > 0 && (
+                  <span className="text-xs text-gray-400 hidden sm:inline">
+                    {recordedDates.length} dates recorded
+                  </span>
+                )}
+              </div>
+
+              {/* Closing History Display */}
+              {loadingClosing ? (
+                <div className="text-center py-8 text-gray-500">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                  <p className="text-sm">Loading...</p>
+                </div>
+              ) : closingHistory.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <ClipboardList size={40} className="mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm font-medium">No closing recorded for {closingHistoryDate}</p>
+                  <p className="text-xs text-gray-400 mt-1">Click "Record Closing" to add closing stock</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto -mx-2">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
                     <thead className="bg-gray-100">
                       <tr>
-                        <th className="p-1.5 text-left font-medium">Product</th>
-                        <th className="p-1.5 text-center font-medium w-10">Open</th>
-                        <th className="p-1.5 text-center font-medium w-10">+Rcvd</th>
-                        <th className="p-1.5 text-center font-medium w-14">Sold</th>
-                        <th className="p-1.5 text-center font-medium w-14">Waste</th>
-                        <th className="p-1.5 text-center font-medium w-10">Close</th>
-                        <th className="p-1.5 text-center font-medium w-20">Actions</th>
+                        <th className="p-3 text-left font-medium text-gray-600">Product</th>
+                        <th className="p-3 text-center font-medium text-gray-600">Closing Qty</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {inventoryItems.map(item => {
-                        const editing = editingInventory[item.id] || {};
-                        const isEditing = editingRows[item.id] || false;
-                        const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : item.sold_qty;
-                        const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : item.wastage_qty;
-                        const closingQty = item.opening_qty + item.received_qty - soldQty - wastageQty;
-                        const hasChanges = editing.sold_qty !== undefined || editing.wastage_qty !== undefined;
-                        
-                        return (
-                          <tr key={item.id} className={`border-b ${hasChanges ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
-                            <td className="p-1.5">
-                              <div className="font-medium text-xs leading-tight">{item.product_name}</div>
-                              {item.variant_name && (
-                                <div className="text-[10px] text-gray-400">{item.variant_name}</div>
-                              )}
-                            </td>
-                            <td className="p-1 text-center text-gray-500">{item.opening_qty}</td>
-                            <td className="p-1 text-center text-green-600">+{item.received_qty}</td>
-                            <td className="p-1 text-center">
-                              {isEditing ? (
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={soldQty}
-                                  onChange={(e) => updateInventoryItem(item.id, 'sold_qty', e.target.value)}
-                                  className="w-12 h-6 text-center text-xs px-0.5"
-                                />
-                              ) : (
-                                <span className={soldQty > 0 ? 'text-blue-600 font-medium' : 'text-gray-400'}>{soldQty}</span>
-                              )}
-                            </td>
-                            <td className="p-1 text-center">
-                              {isEditing ? (
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={wastageQty}
-                                  onChange={(e) => updateInventoryItem(item.id, 'wastage_qty', e.target.value)}
-                                  className="w-12 h-6 text-center text-xs px-0.5"
-                                />
-                              ) : (
-                                <span className={wastageQty > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}>{wastageQty}</span>
-                              )}
-                            </td>
-                            <td className={`p-1 text-center font-semibold ${closingQty < 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                              {closingQty.toFixed(0)}
-                            </td>
-                            <td className="p-1 text-center">
-                              <div className="flex justify-center gap-0.5">
-                                {isEditing ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      saveInventoryItem(item);
-                                      setEditingRows(prev => ({ ...prev, [item.id]: false }));
-                                    }}
-                                    className="h-6 w-6 p-0 hover:bg-green-100"
-                                    title="Save"
-                                  >
-                                    <Save size={12} className="text-green-600" />
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setEditingRows(prev => ({ ...prev, [item.id]: true }))}
-                                    className="h-6 w-6 p-0 hover:bg-blue-100"
-                                    title="Edit"
-                                  >
-                                    <Pencil size={12} className="text-blue-600" />
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => deleteInventoryItem(item.id)}
-                                  className="h-6 w-6 p-0 hover:bg-red-100"
-                                  title="Delete"
-                                >
-                                  <Trash2 size={12} className="text-red-600" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {closingHistory.map(item => (
+                        <tr key={item.product_id} className="border-b hover:bg-gray-50">
+                          <td className="p-3">
+                            <div className="font-medium text-gray-800">{item.product_name}</div>
+                            <div className="text-xs text-gray-400">{item.unit}</div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="text-lg font-semibold text-blue-600">
+                              {item.closing_qty}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
-                    <tfoot className="bg-gray-100 font-semibold text-xs">
+                    <tfoot className="bg-gray-100 font-semibold">
                       <tr>
-                        <td className="p-1.5 text-right">Total:</td>
-                        <td className="p-1 text-center">{inventoryItems.reduce((sum, i) => sum + (i.opening_qty || 0), 0)}</td>
-                        <td className="p-1 text-center text-green-600">+{inventoryItems.reduce((sum, i) => sum + (i.received_qty || 0), 0)}</td>
-                        <td className="p-1 text-center">
-                          {inventoryItems.reduce((sum, i) => {
-                            const editing = editingInventory[i.id] || {};
-                            return sum + (editing.sold_qty !== undefined ? editing.sold_qty : i.sold_qty || 0);
-                          }, 0)}
-                        </td>
-                        <td className="p-1 text-center">
-                          {inventoryItems.reduce((sum, i) => {
-                            const editing = editingInventory[i.id] || {};
-                            return sum + (editing.wastage_qty !== undefined ? editing.wastage_qty : i.wastage_qty || 0);
-                          }, 0)}
-                        </td>
-                        <td className="p-1 text-center text-blue-600">
-                          {inventoryItems.reduce((sum, i) => {
-                            const editing = editingInventory[i.id] || {};
-                            const soldQty = editing.sold_qty !== undefined ? editing.sold_qty : i.sold_qty || 0;
-                            const wastageQty = editing.wastage_qty !== undefined ? editing.wastage_qty : i.wastage_qty || 0;
-                            return sum + i.opening_qty + i.received_qty - soldQty - wastageQty;
-                          }, 0)}
-                        </td>
-                        <td></td>
+                        <td className="p-3 text-right">Total Items:</td>
+                        <td className="p-3 text-center text-blue-600">{closingHistory.length}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1528,99 +1356,101 @@ export default function RetailerDashboard() {
           </Card>
         )}
 
-        {/* ==================== ADD INVENTORY ITEM MODAL ==================== */}
-        {showAddItemDialog && (
+        {/* ==================== RECORD CLOSING MODAL ==================== */}
+        {showRecordClosingModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-              <div className="flex items-center justify-between p-3 border-b">
-                <h3 className="text-base font-semibold">Add Inventory Item</h3>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">Record Closing Stock</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Enter closing quantities for each product</p>
+                </div>
                 <button 
-                  onClick={() => {
-                    setShowAddItemDialog(false);
-                    setNewInventoryItem({ product_id: '', product_name: '', variant_name: '', opening_qty: 0, received_qty: 0 });
-                  }} 
-                  className="p-1 hover:bg-gray-100 rounded"
+                  onClick={() => setShowRecordClosingModal(false)} 
+                  className="p-1.5 hover:bg-gray-100 rounded"
                 >
-                  <X size={18} />
+                  <X size={20} />
                 </button>
               </div>
-              <div className="p-4 space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
-                  <select
-                    value={newInventoryItem.product_id}
-                    onChange={(e) => {
-                      const product = products.find(p => p.id === e.target.value);
-                      setNewInventoryItem(prev => ({
-                        ...prev,
-                        product_id: e.target.value,
-                        product_name: product?.name || ''
-                      }));
-                    }}
-                    className="w-full h-9 px-3 rounded border text-sm"
-                    required
-                  >
-                    <option value="">Select Product</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Variant (Optional)</label>
-                  <select
-                    value={newInventoryItem.variant_name}
-                    onChange={(e) => setNewInventoryItem(prev => ({ ...prev, variant_name: e.target.value }))}
-                    className="w-full h-9 px-3 rounded border text-sm"
-                  >
-                    <option value="">No Variant</option>
-                    {packagings.map(p => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Opening Qty</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={newInventoryItem.opening_qty}
-                      onChange={(e) => setNewInventoryItem(prev => ({ ...prev, opening_qty: parseFloat(e.target.value) || 0 }))}
-                      className="h-9"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Received Qty</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={newInventoryItem.received_qty}
-                      onChange={(e) => setNewInventoryItem(prev => ({ ...prev, received_qty: parseFloat(e.target.value) || 0 }))}
-                      className="h-9"
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500">Date: {inventoryDate}</p>
+              
+              {/* Date Picker */}
+              <div className="p-4 border-b bg-gray-50">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <Calendar size={14} className="inline mr-1" />
+                  Closing Date
+                </label>
+                <Input
+                  type="date"
+                  value={closingDate}
+                  onChange={(e) => setClosingDate(e.target.value)}
+                  className="w-full h-10"
+                />
               </div>
-              <div className="flex gap-2 p-4 border-t">
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setShowAddItemDialog(false);
-                    setNewInventoryItem({ product_id: '', product_name: '', variant_name: '', opening_qty: 0, received_qty: 0 });
-                  }} 
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={addInventoryItem}
-                  disabled={!newInventoryItem.product_id}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
-                >
-                  Add Item
-                </Button>
+              
+              {/* Products List */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="space-y-3">
+                  {closingItems.map((item, index) => (
+                    <div 
+                      key={item.product_id} 
+                      className={`flex items-center justify-between p-3 rounded-lg border ${
+                        item.closing_qty !== '' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-800">{item.product_name}</div>
+                        <div className="text-xs text-gray-400">{item.unit}</div>
+                      </div>
+                      <div className="ml-3">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="Qty"
+                          value={item.closing_qty}
+                          onChange={(e) => updateClosingQty(item.product_id, e.target.value)}
+                          className="w-24 h-9 text-center font-medium"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Footer */}
+              <div className="p-4 border-t bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-500">
+                    {closingItems.filter(i => i.closing_qty !== '').length} of {closingItems.length} products filled
+                  </span>
+                </div>
+                <div className="flex gap-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowRecordClosingModal(false)} 
+                    className="flex-1"
+                    disabled={savingClosing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={saveClosingInventory}
+                    disabled={savingClosing}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    {savingClosing ? (
+                      <>
+                        <RefreshCw size={14} className="mr-1.5 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={14} className="mr-1.5" />
+                        Save Closing
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

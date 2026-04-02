@@ -505,6 +505,15 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Root Cause**: QC Gross Margin was incorrectly calculated as `Gross Profit / Cost Base` instead of `Gross Profit / Sales`
   - [x] **Fix**: Changed `qc_gross_margin = (qc_gross_profit / qc_cost_base * 100)` to `qc_gross_margin = (qc_gross_profit / total_qc_sales * 100)`
   - [x] Now both Dashboard and Daily P&L will show consistent ~46% Gross Margin
+- [x] **Simplified Retailer Inventory System** (COMPLETED - Apr 2, 2026):
+  - [x] Complete redesign of Inventory tab in Retailer Portal
+  - [x] **"Record Closing" button**: Opens modal with all products from database
+  - [x] **Date picker**: Select which date the closing is for
+  - [x] **Product list**: All products with single "Qty" input box each
+  - [x] **Save all at once**: Saves only products with values entered (blank = not saved)
+  - [x] **View closing history**: Select any date to view recorded closing for that date
+  - [x] **Visual feedback**: Green background for filled items, counter showing filled/total
+  - [x] **Backend APIs**: Added 4 new endpoints for closing inventory management
 - [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
   - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
   - [x] Subtotals row shows totals for each column

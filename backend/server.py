@@ -6525,6 +6525,132 @@ async def save_all_retailer_inventory(
     return {"message": f"Saved {updated_count} items", "updated": updated_count}
 
 
+# ============== SIMPLIFIED CLOSING INVENTORY SYSTEM ==============
+
+@app.get("/api/retailer-closing-inventory/{retailer_id}")
+async def get_retailer_closing_inventory(
+    retailer_id: str,
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get closing inventory for a retailer on a specific date"""
+    query = {"retailer_id": retailer_id}
+    if date:
+        query["closing_date"] = date
+    
+    # Get closing inventory records
+    closing_records = await db.retailer_closing_inventory.find(query, {"_id": 0}).sort("closing_date", -1).to_list(500)
+    return closing_records
+
+@app.get("/api/retailer-closing-inventory/dates/{retailer_id}")
+async def get_retailer_closing_inventory_dates(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get list of dates that have closing inventory recorded"""
+    pipeline = [
+        {"$match": {"retailer_id": retailer_id}},
+        {"$group": {"_id": "$closing_date"}},
+        {"$sort": {"_id": -1}},
+        {"$limit": 60}
+    ]
+    dates = await db.retailer_closing_inventory.aggregate(pipeline).to_list(60)
+    return [d["_id"] for d in dates]
+
+@app.post("/api/retailer-closing-inventory/record")
+async def record_retailer_closing_inventory(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Record closing inventory for a retailer.
+    Expects: {
+        "retailer_id": str,
+        "closing_date": str (YYYY-MM-DD),
+        "items": [{"product_id": str, "product_name": str, "closing_qty": number or null}, ...]
+    }
+    """
+    retailer_id = data.get("retailer_id")
+    closing_date = data.get("closing_date")
+    items = data.get("items", [])
+    
+    if not retailer_id or not closing_date:
+        raise HTTPException(status_code=400, detail="retailer_id and closing_date are required")
+    
+    # Delete existing closing inventory for this date and retailer
+    await db.retailer_closing_inventory.delete_many({
+        "retailer_id": retailer_id,
+        "closing_date": closing_date
+    })
+    
+    # Insert new closing inventory items
+    saved_count = 0
+    for item in items:
+        closing_qty = item.get("closing_qty")
+        
+        # Only save items that have a closing qty value (not null, not empty string)
+        if closing_qty is not None and closing_qty != "" and closing_qty != "":
+            try:
+                closing_qty_num = float(closing_qty)
+            except (ValueError, TypeError):
+                continue  # Skip invalid values
+            
+            inventory_record = {
+                "id": str(uuid4()),
+                "retailer_id": retailer_id,
+                "closing_date": closing_date,
+                "product_id": item.get("product_id"),
+                "product_name": item.get("product_name"),
+                "closing_qty": closing_qty_num,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": current_user.get("user_id")
+            }
+            await db.retailer_closing_inventory.insert_one(inventory_record)
+            saved_count += 1
+    
+    return {
+        "message": f"Recorded closing inventory for {closing_date}",
+        "items_saved": saved_count
+    }
+
+@app.get("/api/retailer-closing-inventory/summary/{retailer_id}")
+async def get_retailer_closing_summary(
+    retailer_id: str,
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get closing inventory summary - all products with their closing qty for a specific date"""
+    # Get all products
+    all_products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "unit": 1}).to_list(500)
+    
+    # Get closing inventory for this date
+    closing_items = await db.retailer_closing_inventory.find(
+        {"retailer_id": retailer_id, "closing_date": date},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Map closing qty by product_id
+    closing_map = {item["product_id"]: item.get("closing_qty") for item in closing_items}
+    
+    # Build result with all products
+    result = []
+    for product in all_products:
+        result.append({
+            "product_id": product["id"],
+            "product_name": product["name"],
+            "unit": product.get("unit", "Kg"),
+            "closing_qty": closing_map.get(product["id"])  # Will be None if not recorded
+        })
+    
+    return {
+        "closing_date": date,
+        "items": result,
+        "recorded_items": len(closing_items)
+    }
+
+
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     global backup_scheduler

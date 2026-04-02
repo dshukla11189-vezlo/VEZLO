@@ -500,6 +500,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **Root Cause 2**: When `rate_per_kg` was 0/missing for PCS items, loss_value was calculated as 0
   - [x] **Fix 1**: Updated GRN loss calculation to properly use `grn_qty` (piece count) to calculate `grn_qty_kg`
   - [x] **Fix 2**: If `rate_per_kg` is 0, derive it from `rate_per_unit` using packaging weight, or fall back to stored `loss_gain_amount`
+- [x] **QC Gross Margin % Formula Fix** (COMPLETED - Apr 2, 2026):
+  - [x] **Bug**: QC Summary Dashboard showed 84.4% Gross Margin but Daily P&L showed 45.8% - values didn't match
+  - [x] **Root Cause**: QC Gross Margin was incorrectly calculated as `Gross Profit / Cost Base` instead of `Gross Profit / Sales`
+  - [x] **Fix**: Changed `qc_gross_margin = (qc_gross_profit / qc_cost_base * 100)` to `qc_gross_margin = (qc_gross_profit / total_qc_sales * 100)`
+  - [x] Now both Dashboard and Daily P&L will show consistent ~46% Gross Margin
 - [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
   - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
   - [x] Subtotals row shows totals for each column

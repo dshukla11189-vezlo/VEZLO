@@ -3597,8 +3597,8 @@ async def get_pnl_report(
     
     # Calculate QC P&L (GRN Loss affects net profit)
     qc_gross_profit = total_qc_sales - qc_purchase - qc_wastage
-    qc_cost_base = qc_purchase + qc_wastage
-    qc_gross_margin = (qc_gross_profit / qc_cost_base * 100) if qc_cost_base > 0 else 0
+    # Gross Margin % = (Gross Profit / Sales) * 100 - MUST use Sales as denominator, not cost base
+    qc_gross_margin = (qc_gross_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0
     # QC Net Profit = Gross Profit - GRN Loss - Variable Exp - Fixed Exp
     qc_net_profit = qc_gross_profit - total_grn_loss - qc_variable_exp - qc_fixed_exp
     qc_net_margin = (qc_net_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0

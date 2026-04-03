@@ -77,6 +77,7 @@ class Product(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
+    name_hi: Optional[str] = None  # Hindi translation of product name
     category: str
     unit: str
     current_stock: float = 0
@@ -88,6 +89,7 @@ class Product(BaseModel):
 
 class ProductCreate(BaseModel):
     name: str
+    name_hi: Optional[str] = None  # Hindi translation
     category: str
     unit: str
     current_stock: float = 0
@@ -98,6 +100,7 @@ class ProductCreate(BaseModel):
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
+    name_hi: Optional[str] = None  # Hindi translation
     category: Optional[str] = None
     unit: Optional[str] = None
     current_stock: Optional[float] = None

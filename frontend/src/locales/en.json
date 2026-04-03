@@ -80,7 +80,10 @@
     "repeatPurchase": "Repeat",
     "editPurchase": "Edit Purchase",
     "addPayment": "Add Payment",
-    "markFullyPaid": "Mark as Fully Paid"
+    "markFullyPaid": "Mark as Fully Paid",
+    "orAddManually": "OR add new purchase manually",
+    "unit": "Unit",
+    "size": "Size"
   },
   "farmer": {
     "addNew": "Add New Farmer",

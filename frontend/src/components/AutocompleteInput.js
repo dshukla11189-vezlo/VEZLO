@@ -14,7 +14,8 @@ export default function AutocompleteInput({
   secondaryKey = null,
   testId,
   storageKey = null, // For recent selections
-  allowCustom = false // New: allow custom input without selection
+  allowCustom = false, // New: allow custom input without selection
+  compact = false // New: compact mode for table rows
 }) {
   const [searchTerm, setSearchTerm] = useState(value || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -150,7 +151,7 @@ export default function AutocompleteInput({
 
   return (
     <div ref={wrapperRef} className="relative">
-      {label && <Label className="text-sm mb-1 block">{label}</Label>}
+      {label && !compact && <Label className="text-sm mb-1 block">{label}</Label>}
       <Input
         type="text"
         placeholder={placeholder}
@@ -160,7 +161,7 @@ export default function AutocompleteInput({
         onBlur={handleBlur}
         data-testid={testId}
         autoComplete="off"
-        className="h-10"
+        className={compact ? "h-8 text-xs" : "h-10"}
       />
       
       {showSuggestions && displayItems.length > 0 && (

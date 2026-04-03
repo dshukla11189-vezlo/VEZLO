@@ -47,7 +47,16 @@ const UNIT_TYPES = [
 ];
 
 export default function Procurement() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  
+  // Helper to get translated product name based on current language
+  const getProductName = (product) => {
+    if (i18n.language === 'hi' && product.name_hi) {
+      return product.name_hi;
+    }
+    return product.name;
+  };
+  
   const [procurements, setProcurements] = useState([]);
   const [filteredProcurements, setFilteredProcurements] = useState([]);
   const [farmers, setFarmers] = useState([]);
@@ -1288,7 +1297,7 @@ export default function Procurement() {
             {!editMode && (
               <div className="flex items-center gap-4 my-4">
                 <div className="flex-1 border-t border-gray-300"></div>
-                <span className="text-sm text-gray-500 font-medium">OR add new purchase manually</span>
+                <span className="text-sm text-gray-500 font-medium">{t('procurement.orAddManually')}</span>
                 <div className="flex-1 border-t border-gray-300"></div>
               </div>
             )}
@@ -1323,43 +1332,44 @@ export default function Procurement() {
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <Label className="text-base font-semibold">{t('procurement.products')}</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={handleAddProductRow}
-                    data-testid="add-product-row-button"
-                  >
-                    <Plus size={16} className="mr-1" />
-                    {t('procurement.addProduct')}
-                  </Button>
                 </div>
 
-                <div className="space-y-3">
-                  {procurementForm.products.map((product, index) => (
-                    <Card key={index} className="p-4">
-                      <div className="grid grid-cols-1 gap-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div>
+                {/* Table-style one-line product rows */}
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-2 text-left font-medium text-gray-600 w-1/4">{t('procurement.productName')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600 w-20">Unit</th>
+                        <th className="p-2 text-center font-medium text-gray-600 w-20">Size</th>
+                        <th className="p-2 text-center font-medium text-gray-600 w-20">{t('common.qty')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600 w-20">{t('retailer.rate')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600 w-24">{t('common.total')}</th>
+                        <th className="p-2 text-center w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {procurementForm.products.map((product, index) => (
+                        <tr key={index} className="border-t hover:bg-gray-50">
+                          <td className="p-2">
                             <AutocompleteInput
-                              label="Product *"
-                              placeholder="Start typing product name..."
+                              placeholder={t('procurement.productName')}
                               items={products}
                               displayKey="name"
                               secondaryKey="category"
-                              onSelect={(product) => handleProductSelect(index, product)}
+                              onSelect={(p) => handleProductSelect(index, p)}
                               testId={`product-autocomplete-${index}`}
                               storageKey="recent_products"
+                              compact={true}
                             />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Unit Type *</Label>
+                          </td>
+                          <td className="p-2">
                             <Select
                               value={product.unit}
                               onValueChange={(value) => handleProductChange(index, 'unit', value)}
                             >
-                              <SelectTrigger data-testid={`unit-select-${index}`}>
-                                <SelectValue placeholder="Select unit" />
+                              <SelectTrigger className="h-8 text-xs" data-testid={`unit-select-${index}`}>
+                                <SelectValue placeholder="Unit" />
                               </SelectTrigger>
                               <SelectContent>
                                 {UNIT_TYPES.map((u) => (
@@ -1369,72 +1379,79 @@ export default function Procurement() {
                                 ))}
                               </SelectContent>
                             </Select>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          {product.unit === 'Bunch' && (
-                            <div>
-                              <Label className="text-xs">Bunch Size (e.g., 250g) *</Label>
+                          </td>
+                          <td className="p-2">
+                            {product.unit === 'Bunch' ? (
                               <Input
                                 type="text"
                                 placeholder="250g"
+                                className="h-8 text-xs text-center w-16"
                                 data-testid={`bunch-size-input-${index}`}
                                 value={product.unit_size || ''}
                                 onChange={(e) => handleProductChange(index, 'unit_size', e.target.value)}
                               />
-                              <p className="text-xs text-gray-500 mt-1">Custom: 350g, 480g, etc.</p>
-                            </div>
-                          )}
-                          <div>
-                            <Label className="text-xs">Quantity *</Label>
+                            ) : (
+                              <span className="text-gray-400 text-xs">-</span>
+                            )}
+                          </td>
+                          <td className="p-2">
                             <Input
                               type="number"
                               step="0.01"
                               placeholder="0"
+                              className="h-8 text-xs text-center w-16"
                               data-testid={`quantity-input-${index}`}
                               value={product.quantity || ''}
                               onChange={(e) => handleProductChange(index, 'quantity', e.target.value)}
                             />
-                          </div>
-                          <div>
-                            <Label className="text-xs">{getRateLabel(product.unit)} *</Label>
+                          </td>
+                          <td className="p-2">
                             <Input
                               type="number"
                               step="0.01"
                               placeholder="0"
+                              className="h-8 text-xs text-center w-16"
                               data-testid={`rate-input-${index}`}
                               value={product.rate || ''}
                               onChange={(e) => handleProductChange(index, 'rate', e.target.value)}
                             />
-                          </div>
-                          <div className="flex items-end gap-2">
-                            <div className="flex-1">
-                              <Label className="text-xs">Total</Label>
-                              <Input
-                                type="text"
-                                value={`₹${product.total.toFixed(2)}`}
-                                disabled
-                                className="bg-gray-50"
-                                data-testid={`total-display-${index}`}
-                              />
-                            </div>
+                          </td>
+                          <td className="p-2 text-center font-semibold text-green-700">
+                            ₹{product.total.toFixed(0)}
+                          </td>
+                          <td className="p-2 text-center">
                             {procurementForm.products.length > 1 && (
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="ghost"
+                                className="h-7 w-7 p-0"
                                 onClick={() => handleRemoveProductRow(index)}
                                 data-testid={`remove-product-${index}`}
                               >
-                                <Trash2 size={16} className="text-red-600" />
+                                <Trash2 size={14} className="text-red-500" />
                               </Button>
                             )}
-                          </div>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add Item Button */}
+                <div className="mt-3 flex justify-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAddProductRow}
+                    data-testid="add-product-row-button"
+                    className="border-dashed border-2 hover:bg-green-50 hover:border-green-400"
+                  >
+                    <Plus size={16} className="mr-1" />
+                    {t('procurement.addProduct')}
+                  </Button>
                 </div>
               </div>
 

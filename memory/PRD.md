@@ -525,6 +525,16 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Updated en.json with expanded translation keys
   - [x] Translations cover: Dashboard, Procurement, Quick Commerce, Retailer, Invoices, Wastage, Expenses, Payments, Stock Status, Backup, Users, Login, Common terms
   - [x] Language switcher now shows only English and Hindi (removed Marathi)
+- [x] **Product Name Hindi Translations** (COMPLETED - Apr 3, 2026):
+  - [x] Added `name_hi` field to Product model for Hindi translations
+  - [x] Updated 42 products with Hindi names (धनिया, पालक, टमाटर, etc.)
+  - [x] Product names display in Hindi when language is set to Hindi
+- [x] **Procurement Form Redesign** (COMPLETED - Apr 3, 2026):
+  - [x] Changed manual purchase entry from card-based layout to table-style one-line rows
+  - [x] Each product row now shows: Product Name | Unit | Size | Qty | Rate | Total
+  - [x] "Add Product" button moved below the table with dashed border style
+  - [x] Matches the layout of "Previous Day's Purchases" table for consistency
+  - [x] Added compact mode to AutocompleteInput component for table rows
 - [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
   - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
   - [x] Subtotals row shows totals for each column

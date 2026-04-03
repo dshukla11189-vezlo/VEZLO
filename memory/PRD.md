@@ -514,6 +514,17 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] **View closing history**: Select any date to view recorded closing for that date
   - [x] **Visual feedback**: Green background for filled items, counter showing filled/total
   - [x] **Backend APIs**: Added 4 new endpoints for closing inventory management
+- [x] **GRN Display Units Fix** (COMPLETED - Apr 3, 2026):
+  - [x] **Bug**: For Kg-based items (like Amaranthus, Curry Leaves, Palak), GRN was showing Kg values instead of piece count
+  - [x] **Example**: Amaranthus Red (240-260 gm) showed GRN=13 Kg instead of 52 pieces (matching Supplied=50)
+  - [x] **Fix**: Updated GRN matching to convert Kg to piece count using packaging weight
+  - [x] Both Supplied and GRN now show piece count for consistency
+  - [x] Note: Existing saved GRN data unchanged; fix applies to new GRN uploads
+- [x] **Complete Hindi Translations** (COMPLETED - Apr 3, 2026):
+  - [x] Added comprehensive Hindi translations for all app sections
+  - [x] Updated en.json with expanded translation keys
+  - [x] Translations cover: Dashboard, Procurement, Quick Commerce, Retailer, Invoices, Wastage, Expenses, Payments, Stock Status, Backup, Users, Login, Common terms
+  - [x] Language switcher now shows only English and Hindi (removed Marathi)
 - [x] **Invoice Item Table Columns Synced** (COMPLETED - Mar 31, 2026):
   - [x] Both Admin & Retailer portals now show: Product | Variant | Supplied Qty | Rejection | Billable Qty | Rate | Amount
   - [x] Subtotals row shows totals for each column

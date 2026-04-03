@@ -13,8 +13,7 @@ export default function LanguageSwitcher() {
 
   const languages = [
     { code: 'en', name: 'English', nativeName: 'English' },
-    { code: 'hi', name: 'Hindi', nativeName: '\u0939\u093f\u0902\u0926\u0940' },
-    { code: 'mr', name: 'Marathi', nativeName: '\u092e\u0930\u093e\u0920\u0940' }
+    { code: 'hi', name: 'Hindi', nativeName: 'हिंदी' }
   ];
 
   return (

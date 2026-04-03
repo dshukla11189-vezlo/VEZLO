@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardData, setDashboardData] = useState(null);
   const [indents, setIndents] = useState([]);
@@ -464,29 +466,29 @@ export default function RetailerDashboard() {
   }, [activeTab, closingHistoryDate, dashboardData?.retailer?.id]);
 
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
-    { id: 'indents', label: 'My Indents', icon: Package },
-    { id: 'orders', label: 'My Orders', icon: Truck },
-    { id: 'invoices', label: 'Invoices', icon: FileText },
-    { id: 'rejections', label: 'Rejections', icon: AlertTriangle },
-    { id: 'inventory', label: 'Inventory', icon: ClipboardList }
+    { id: 'dashboard', label: t('retailer.dashboard'), icon: TrendingUp },
+    { id: 'indents', label: t('retailer.myIndents'), icon: Package },
+    { id: 'orders', label: t('retailer.myOrders'), icon: Truck },
+    { id: 'invoices', label: t('retailer.invoices'), icon: FileText },
+    { id: 'rejections', label: t('retailer.rejections'), icon: AlertTriangle },
+    { id: 'inventory', label: t('retailer.inventory'), icon: ClipboardList }
   ];
 
   const summary = dashboardData?.summary || {};
 
   return (
-    <Layout title="Retailer Portal">
+    <Layout title={t('retailer.portal')}>
       <div data-testid="retailer-dashboard">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">
-              Welcome, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
+              {t('retailer.welcome')}, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
             </h1>
             <p className="text-sm text-gray-500">
               {dashboardData?.retailer?.name && dashboardData?.retailer?.company_name !== dashboardData?.retailer?.name && 
-                `Owner: ${dashboardData.retailer.name} • `}
-              Commission: {dashboardData?.retailer?.commission_percentage || 0}%
+                `${t('retailer.owner')}: ${dashboardData.retailer.name} • `}
+              {t('retailer.commission')}: {dashboardData?.retailer?.commission_percentage || 0}%
             </p>
           </div>
         </div>
@@ -517,7 +519,7 @@ export default function RetailerDashboard() {
             <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-gray-50 rounded-lg border">
               <div className="flex items-center gap-2">
                 <Calendar size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-600">Filter Period:</span>
+                <span className="text-sm font-medium text-gray-600">{t('retailer.filterPeriod')}:</span>
               </div>
               <div className="flex items-center gap-2">
                 <Input
@@ -526,7 +528,7 @@ export default function RetailerDashboard() {
                   onChange={(e) => setDashboardDateFrom(e.target.value)}
                   className="w-36 h-8 text-sm"
                 />
-                <span className="text-gray-400">to</span>
+                <span className="text-gray-400">{t('retailer.to')}</span>
                 <Input
                   type="date"
                   value={dashboardDateTo}
@@ -540,7 +542,7 @@ export default function RetailerDashboard() {
                 onClick={loadData}
                 className="h-8"
               >
-                Refresh
+                {t('retailer.refresh')}
               </Button>
             </div>
 
@@ -625,7 +627,7 @@ export default function RetailerDashboard() {
                             <Package size={22} className="text-blue-600" />
                           </div>
                           <div>
-                            <p className="text-xs text-blue-600 font-medium">Total Items Received</p>
+                            <p className="text-xs text-blue-600 font-medium">{t('retailer.totalItemsReceived')}</p>
                             <p className="text-2xl font-bold text-blue-800">{totalItemsReceived.toLocaleString()}</p>
                           </div>
                         </div>
@@ -639,7 +641,7 @@ export default function RetailerDashboard() {
                             <ShoppingBag size={22} className="text-green-600" />
                           </div>
                           <div>
-                            <p className="text-xs text-green-600 font-medium">Total Items Sold</p>
+                            <p className="text-xs text-green-600 font-medium">{t('retailer.totalItemsSold')}</p>
                             <p className="text-2xl font-bold text-green-800">{totalItemsSold.toLocaleString()}</p>
                           </div>
                         </div>
@@ -653,7 +655,7 @@ export default function RetailerDashboard() {
                             <DollarSign size={22} className="text-emerald-600" />
                           </div>
                           <div>
-                            <p className="text-xs text-emerald-600 font-medium">Your Earnings</p>
+                            <p className="text-xs text-emerald-600 font-medium">{t('retailer.yourEarnings')}</p>
                             <p className="text-2xl font-bold text-emerald-800">{formatCurrency(totalCommission)}</p>
                           </div>
                         </div>
@@ -667,7 +669,7 @@ export default function RetailerDashboard() {
                             <BarChart3 size={22} className="text-purple-600" />
                           </div>
                           <div>
-                            <p className="text-xs text-purple-600 font-medium">Avg Earning/Day</p>
+                            <p className="text-xs text-purple-600 font-medium">{t('retailer.avgEarningDay')}</p>
                             <p className="text-2xl font-bold text-purple-800">{formatCurrency(avgEarningPerDay)}</p>
                           </div>
                         </div>
@@ -678,23 +680,23 @@ export default function RetailerDashboard() {
                   {/* Additional Stats Row */}
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                     <div className="bg-gray-50 p-3 rounded-lg border text-center">
-                      <p className="text-xs text-gray-500">Supplied Qty</p>
+                      <p className="text-xs text-gray-500">{t('retailer.suppliedQty')}</p>
                       <p className="text-lg font-semibold">{totalItemsReceived}</p>
                     </div>
                     <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
-                      <p className="text-xs text-red-500">Rejected Qty</p>
+                      <p className="text-xs text-red-500">{t('retailer.rejectedQty')}</p>
                       <p className="text-lg font-semibold text-red-600">-{totalItemsRejected}</p>
                     </div>
                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
-                      <p className="text-xs text-blue-500">Net MRP Value</p>
+                      <p className="text-xs text-blue-500">{t('retailer.netMrpValue')}</p>
                       <p className="text-lg font-semibold text-blue-700">{formatCurrency(netMrpValue)}</p>
                     </div>
                     <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
-                      <p className="text-xs text-yellow-600">Payable by You</p>
+                      <p className="text-xs text-yellow-600">{t('retailer.payableByYou')}</p>
                       <p className="text-lg font-semibold text-yellow-700">{formatCurrency(payableByRetailer)}</p>
                     </div>
                     <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
-                      <p className="text-xs text-green-500">Amount Paid</p>
+                      <p className="text-xs text-green-500">{t('retailer.amountPaid')}</p>
                       <p className="text-lg font-semibold text-green-600">{formatCurrency(summary.total_paid)}</p>
                     </div>
                   </div>
@@ -702,16 +704,16 @@ export default function RetailerDashboard() {
                   {/* Invoice Summary Row */}
                   {filteredInvoices.length > 0 && (
                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-6">
-                      <h4 className="text-sm font-medium text-blue-800 mb-2">Invoice Summary (Period: {formatDate(dashboardDateFrom)} - {formatDate(dashboardDateTo)})</h4>
+                      <h4 className="text-sm font-medium text-blue-800 mb-2">{t('retailer.invoiceSummary')} ({t('retailer.period')}: {formatDate(dashboardDateFrom)} - {formatDate(dashboardDateTo)})</h4>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
-                          <p className="text-xs text-blue-500">Total Invoiced</p>
+                          <p className="text-xs text-blue-500">{t('retailer.totalInvoiced')}</p>
                           <p className="font-semibold text-blue-800">
                             {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.total_mrp_value || 0), 0))}
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-green-500">Your Commission</p>
+                          <p className="text-xs text-green-500">{t('retailer.yourCommission')}</p>
                           <p className="font-semibold text-green-700">
                             {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.commission_amount || 0), 0))}
                           </p>
@@ -735,7 +737,7 @@ export default function RetailerDashboard() {
                     <CardHeader className="py-3 border-b">
                       <CardTitle className="text-sm flex items-center gap-2">
                         <Truck size={16} />
-                        Recent Orders
+                        {t('retailer.recentOrders')}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
@@ -744,13 +746,13 @@ export default function RetailerDashboard() {
                           <thead className="bg-gray-50 border-b">
                             <tr>
                               <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
-                              <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                              <th className="p-3 text-center font-medium text-gray-500">SUPPLIED</th>
-                              <th className="p-3 text-center font-medium text-red-500">REJECTION</th>
-                              <th className="p-3 text-center font-medium text-gray-500">NET QTY</th>
-                              <th className="p-3 text-right font-medium text-gray-500">NET AMT</th>
-                              <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
-                              <th className="p-3 text-right font-medium text-gray-500">PAYABLE</th>
+                              <th className="p-3 text-left font-medium text-gray-500">{t('retailer.date')}</th>
+                              <th className="p-3 text-center font-medium text-gray-500">{t('retailer.supplied')}</th>
+                              <th className="p-3 text-center font-medium text-red-500">{t('retailer.rejection')}</th>
+                              <th className="p-3 text-center font-medium text-gray-500">{t('retailer.netQty')}</th>
+                              <th className="p-3 text-right font-medium text-gray-500">{t('retailer.netAmt')}</th>
+                              <th className="p-3 text-right font-medium text-green-600">{t('retailer.commission')}</th>
+                              <th className="p-3 text-right font-medium text-gray-500">{t('retailer.payable')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1270,21 +1272,21 @@ export default function RetailerDashboard() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <ClipboardList className="text-green-600" size={18} />
-                  Daily Inventory - Closing Stock
+                  {t('retailer.dailyInventory')} - {t('retailer.closingStock')}
                 </CardTitle>
                 <Button 
                   onClick={openRecordClosingModal}
                   className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
                 >
                   <Plus size={14} className="mr-1.5" />
-                  Record Closing
+                  {t('retailer.recordClosing')}
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="p-4">
               {/* Date selector to view closing history */}
               <div className="flex items-center gap-3 mb-4 pb-4 border-b">
-                <label className="text-sm font-medium text-gray-600">View Closing for:</label>
+                <label className="text-sm font-medium text-gray-600">{t('retailer.viewClosingFor')}</label>
                 <Input
                   type="date"
                   value={closingHistoryDate}
@@ -1302,7 +1304,7 @@ export default function RetailerDashboard() {
                 </Button>
                 {recordedDates.length > 0 && (
                   <span className="text-xs text-gray-400 hidden sm:inline">
-                    {recordedDates.length} dates recorded
+                    {recordedDates.length} {t('retailer.datesRecorded')}
                   </span>
                 )}
               </div>
@@ -1311,21 +1313,21 @@ export default function RetailerDashboard() {
               {loadingClosing ? (
                 <div className="text-center py-8 text-gray-500">
                   <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-                  <p className="text-sm">Loading...</p>
+                  <p className="text-sm">{t('common.loading')}</p>
                 </div>
               ) : closingHistory.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <ClipboardList size={40} className="mx-auto mb-3 text-gray-300" />
-                  <p className="text-sm font-medium">No closing recorded for {closingHistoryDate}</p>
-                  <p className="text-xs text-gray-400 mt-1">Click "Record Closing" to add closing stock</p>
+                  <p className="text-sm font-medium">{t('retailer.noClosingRecorded')} {closingHistoryDate}</p>
+                  <p className="text-xs text-gray-400 mt-1">{t('retailer.clickRecordClosing')}</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100">
                       <tr>
-                        <th className="p-3 text-left font-medium text-gray-600">Product</th>
-                        <th className="p-3 text-center font-medium text-gray-600">Closing Qty</th>
+                        <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product')}</th>
+                        <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1362,8 +1364,8 @@ export default function RetailerDashboard() {
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
               <div className="flex items-center justify-between p-4 border-b">
                 <div>
-                  <h3 className="text-lg font-semibold">Record Closing Stock</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Enter closing quantities for each product</p>
+                  <h3 className="text-lg font-semibold">{t('retailer.recordClosingStock')}</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{t('retailer.enterClosingQty')}</p>
                 </div>
                 <button 
                   onClick={() => setShowRecordClosingModal(false)} 
@@ -1377,7 +1379,7 @@ export default function RetailerDashboard() {
               <div className="p-4 border-b bg-gray-50">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   <Calendar size={14} className="inline mr-1" />
-                  Closing Date
+                  {t('retailer.closingDate')}
                 </label>
                 <Input
                   type="date"
@@ -1406,7 +1408,7 @@ export default function RetailerDashboard() {
                           type="number"
                           min="0"
                           step="0.1"
-                          placeholder="Qty"
+                          placeholder={t('common.qty')}
                           value={item.closing_qty}
                           onChange={(e) => updateClosingQty(item.product_id, e.target.value)}
                           className="w-24 h-9 text-center font-medium"
@@ -1421,7 +1423,7 @@ export default function RetailerDashboard() {
               <div className="p-4 border-t bg-gray-50">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-gray-500">
-                    {closingItems.filter(i => i.closing_qty !== '').length} of {closingItems.length} products filled
+                    {closingItems.filter(i => i.closing_qty !== '').length} {t('retailer.of')} {closingItems.length} {t('retailer.productsFilled')}
                   </span>
                 </div>
                 <div className="flex gap-3">
@@ -1431,7 +1433,7 @@ export default function RetailerDashboard() {
                     className="flex-1"
                     disabled={savingClosing}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                   <Button 
                     onClick={saveClosingInventory}
@@ -1441,12 +1443,12 @@ export default function RetailerDashboard() {
                     {savingClosing ? (
                       <>
                         <RefreshCw size={14} className="mr-1.5 animate-spin" />
-                        Saving...
+                        {t('common.loading')}
                       </>
                     ) : (
                       <>
                         <Save size={14} className="mr-1.5" />
-                        Save Closing
+                        {t('retailer.saveClosing')}
                       </>
                     )}
                   </Button>

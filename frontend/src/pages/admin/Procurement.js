@@ -1324,56 +1324,57 @@ export default function Procurement() {
               </div>
 
               {/* Single-row table matching Yesterday's Purchases layout */}
-              <div className="bg-white rounded border overflow-x-auto">
-                <table className="w-full text-sm" style={{ minWidth: '950px' }}>
-                  <thead className="bg-gray-100 sticky top-0">
-                    <tr>
-                      <th className="p-2 text-left font-medium text-gray-600" style={{ width: '140px' }}>{t('procurement.farmer')}</th>
-                      <th className="p-2 text-left font-medium text-gray-600" style={{ width: '160px' }}>{t('procurement.productName')}</th>
-                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('common.qty')}</th>
-                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>Unit</th>
-                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>Size</th>
-                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('retailer.rate')}</th>
-                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('common.total')}</th>
-                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('procurement.paid')}</th>
-                      <th className="p-2 text-center" style={{ width: '40px' }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {procurementForm.products.map((product, index) => (
-                      <tr key={index} className="border-t hover:bg-gray-50">
-                        {/* Farmer - only show on first row */}
-                        <td className="p-2">
-                          {index === 0 ? (
+              <div className="bg-white rounded border">
+                <div style={{ minWidth: '950px' }}>
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-2 text-left font-medium text-gray-600" style={{ width: '140px' }}>{t('procurement.farmer')}</th>
+                        <th className="p-2 text-left font-medium text-gray-600" style={{ width: '160px' }}>{t('procurement.productName')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('common.qty')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>Unit</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>Size</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('retailer.rate')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('common.total')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('procurement.paid')}</th>
+                        <th className="p-2 text-center" style={{ width: '40px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {procurementForm.products.map((product, index) => (
+                        <tr key={index} className="border-t hover:bg-gray-50">
+                          {/* Farmer - only show on first row */}
+                          <td className="p-2 relative">
+                            {index === 0 ? (
+                              <AutocompleteInput
+                                placeholder={t('procurement.selectFarmer')}
+                                items={farmers}
+                                displayKey="name"
+                                secondaryKey="contact"
+                                onSelect={handleFarmerSelect}
+                                testId="procurement-farmer-autocomplete"
+                                storageKey="recent_farmers"
+                                compact={true}
+                              />
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">
+                                {procurementForm.farmer_name || '—'}
+                              </span>
+                            )}
+                          </td>
+                          {/* Product */}
+                          <td className="p-2 relative">
                             <AutocompleteInput
-                              placeholder={t('procurement.selectFarmer')}
-                              items={farmers}
+                              placeholder={t('procurement.productName')}
+                              items={products}
                               displayKey="name"
-                              secondaryKey="contact"
-                              onSelect={handleFarmerSelect}
-                              testId="procurement-farmer-autocomplete"
-                              storageKey="recent_farmers"
+                              secondaryKey="category"
+                              onSelect={(p) => handleProductSelect(index, p)}
+                              testId={`product-autocomplete-${index}`}
+                              storageKey="recent_products"
                               compact={true}
                             />
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">
-                              {procurementForm.farmer_name || '—'}
-                            </span>
-                          )}
-                        </td>
-                        {/* Product */}
-                        <td className="p-2">
-                          <AutocompleteInput
-                            placeholder={t('procurement.productName')}
-                            items={products}
-                            displayKey="name"
-                            secondaryKey="category"
-                            onSelect={(p) => handleProductSelect(index, p)}
-                            testId={`product-autocomplete-${index}`}
-                            storageKey="recent_products"
-                            compact={true}
-                          />
-                        </td>
+                          </td>
                         {/* Qty */}
                         <td className="p-2">
                           <Input
@@ -1470,6 +1471,7 @@ export default function Procurement() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Add Item Button */}

@@ -278,7 +278,7 @@ export default function RetailerDashboard() {
       </head>
       <body>
         <div class="header">
-          <h1>FreshFlow</h1>
+          <h1>Mr Organix</h1>
           <p>TAX INVOICE</p>
         </div>
         <div class="info-row">

@@ -93,7 +93,7 @@ SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'freshflow-secret-key-change-in-pr
 ALGORITHM = "HS256"
 
 # Create the main app
-app = FastAPI(title="FreshFlow API")
+app = FastAPI(title="Mr Organix API")
 api_router = APIRouter(prefix="/api")
 
 # Store recent errors for diagnostics (in-memory, last 50 errors)
@@ -5588,7 +5588,7 @@ async def download_backup(current_user: dict = Depends(get_current_user)):
     try:
         excel_data = await generate_backup_excel(db)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        filename = f"FreshFlow_Backup_{today}.xlsx"
+        filename = f"MrOrganix_Backup_{today}.xlsx"
         
         return StreamingResponse(
             io.BytesIO(excel_data),

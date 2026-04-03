@@ -51,10 +51,10 @@ export default function Register() {
       <Card className="w-full max-w-lg mx-4">
         <CardHeader className="text-center">
           <div className="mb-4">
-            <h1 className="text-3xl font-bold text-[#14532D]" data-testid="register-title">FreshFlow</h1>
+            <h1 className="text-3xl font-bold text-[#14532D]" data-testid="register-title">Mr Organix</h1>
           </div>
           <CardTitle className="text-2xl">Create Account</CardTitle>
-          <CardDescription>Register to get started with FreshFlow</CardDescription>
+          <CardDescription>Register to get started with Mr Organix</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

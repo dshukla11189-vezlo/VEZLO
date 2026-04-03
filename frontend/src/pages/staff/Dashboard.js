@@ -75,7 +75,7 @@ export default function StaffDashboard() {
 
       <Card>
         <CardContent className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Welcome to FreshFlow</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Welcome to Mr Organix</h3>
           <p className="text-gray-600 mb-4">
             As a warehouse staff member, you can manage products, record procurement, and update wastage records.
           </p>

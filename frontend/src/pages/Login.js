@@ -42,7 +42,7 @@ export default function Login() {
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="text-center">
           <div className="mb-4">
-            <h1 className="text-3xl font-bold text-[#14532D]" data-testid="login-title">FreshFlow</h1>
+            <h1 className="text-3xl font-bold text-[#14532D]" data-testid="login-title">Mr Organix</h1>
           </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
           <CardDescription>Sign in to your account to continue</CardDescription>

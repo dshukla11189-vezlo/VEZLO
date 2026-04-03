@@ -131,7 +131,7 @@ export default function BackupPage() {
       const link = document.createElement('a');
       link.href = url;
       const today = new Date().toISOString().split('T')[0];
-      link.setAttribute('download', `FreshFlow_Backup_${today}.xlsx`);
+      link.setAttribute('download', `MrOrganix_Backup_${today}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();

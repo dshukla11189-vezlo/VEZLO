@@ -476,7 +476,7 @@ export default function QuickCommerce() {
         </style>
       </head>
       <body>
-        <h1>FreshFlow - Indent Report</h1>
+        <h1>Mr Organix - Indent Report</h1>
         <p class="date-range">From: ${formatDate(exportFilters.fromDate)} To: ${formatDate(exportFilters.toDate)}</p>
         <table>
           <thead>

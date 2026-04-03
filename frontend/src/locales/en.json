@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "FreshFlow",
+    "title": "Mr Organix",
     "dashboard": "Dashboard",
     "products": "Products",
     "stockStatus": "Stock Status",
@@ -25,7 +25,7 @@
     "pendingPayments": "Pending Payments",
     "todayWastage": "Today Wastage (Kg)",
     "overview": "Overview",
-    "welcomeMessage": "Welcome to FreshFlow dashboard. Track your daily operations, manage inventory, and monitor business performance.",
+    "welcomeMessage": "Welcome to Mr Organix dashboard. Track your daily operations, manage inventory, and monitor business performance.",
     "status": "Status",
     "allSystemsOperational": "All Systems Operational",
     "quickActions": "Quick Actions",

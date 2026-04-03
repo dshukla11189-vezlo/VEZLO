@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardData, setDashboardData] = useState(null);
   const [indents, setIndents] = useState([]);
@@ -38,6 +39,31 @@ export default function RetailerDashboard() {
   const [recordedDates, setRecordedDates] = useState([]); // Dates that have closing recorded
   const [savingClosing, setSavingClosing] = useState(false);
   const [loadingClosing, setLoadingClosing] = useState(false);
+  
+  // Helper to get translated product name based on current language
+  // Can accept either a product object with name/name_hi, or an item with product_id
+  const getProductName = useCallback((item) => {
+    if (!item) return '';
+    
+    // If it's a full product object with name_hi
+    if (item.name_hi && i18n.language === 'hi') {
+      return item.name_hi;
+    }
+    
+    // If it has product_id, try to find matching product from loaded products
+    if (item.product_id && products.length > 0) {
+      const product = products.find(p => p.id === item.product_id);
+      if (product) {
+        if (i18n.language === 'hi' && product.name_hi) {
+          return product.name_hi;
+        }
+        return product.name;
+      }
+    }
+    
+    // Fallback to stored product_name
+    return item.product_name || item.name || '';
+  }, [products, i18n.language]);
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
@@ -313,10 +339,13 @@ export default function RetailerDashboard() {
               const billableQty = suppliedQty - rejectedQty;
               const rate = item.mrp || 0;
               const amount = billableQty * rate;
+              // Get translated product name for PDF
+              const productMatch = products.find(p => p.id === item.product_id);
+              const displayName = (i18n.language === 'hi' && productMatch?.name_hi) ? productMatch.name_hi : (item.product_name || productMatch?.name || '');
               return `
                 <tr>
                   <td>${idx + 1}</td>
-                  <td class="text-left">${item.product_name}${item.variant_name ? ' (' + item.variant_name + ')' : ''}</td>
+                  <td class="text-left">${displayName}${item.variant_name ? ' (' + item.variant_name + ')' : ''}</td>
                   <td>${suppliedQty}</td>
                   <td class="rejection">${rejectedQty > 0 ? '-' + rejectedQty : '-'}</td>
                   <td class="billable">${billableQty}</td>
@@ -820,7 +849,7 @@ export default function RetailerDashboard() {
                                       <tr key={`${dispatch.id}-${idx}`} className="border-b bg-white hover:bg-blue-50">
                                         <td className="p-2 pl-8"></td>
                                         <td className="p-2 pl-8">
-                                          <span className="text-sm text-gray-700">{item.product_name}</span>
+                                          <span className="text-sm text-gray-700">{getProductName(item)}</span>
                                           {item.variant_name && (
                                             <span className="text-xs text-gray-400 ml-1">({item.variant_name})</span>
                                           )}
@@ -893,7 +922,7 @@ export default function RetailerDashboard() {
                         <td className="p-3 text-center">
                           {indent.items?.map((item, idx) => (
                             <div key={idx} className="text-xs">
-                              {item.product_name} {item.variant_name && `(${item.variant_name})`} x {item.quantity}
+                              {getProductName(item)} {item.variant_name && `(${item.variant_name})`} x {item.quantity}
                             </div>
                           ))}
                         </td>
@@ -985,7 +1014,7 @@ export default function RetailerDashboard() {
                                 <tbody>
                                   {dispatch.items?.map((item, idx) => (
                                     <tr key={idx}>
-                                      <td className="p-2">{item.product_name} {item.variant_name && `(${item.variant_name})`}</td>
+                                      <td className="p-2">{getProductName(item)} {item.variant_name && `(${item.variant_name})`}</td>
                                       <td className="p-2 text-center">{item.supplied_qty}</td>
                                       <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
                                       <td className="p-2 text-right">{formatCurrency(item.total_value)}</td>
@@ -1089,7 +1118,7 @@ export default function RetailerDashboard() {
                                         
                                         return (
                                           <tr key={idx} className={`border-t ${rejectedQty > 0 ? 'bg-red-50/50' : ''}`}>
-                                            <td className="p-2 font-medium">{item.product_name}</td>
+                                            <td className="p-2 font-medium">{getProductName(item)}</td>
                                             <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
                                             <td className="p-2 text-center">{suppliedQty}</td>
                                             <td className="p-2 text-center text-red-600 font-medium">
@@ -1233,7 +1262,7 @@ export default function RetailerDashboard() {
                               <tr key={rejection.id || idx} className="border-b bg-white hover:bg-gray-50">
                                 <td className="p-2 pl-8"></td>
                                 <td className="p-2 pl-8">
-                                  <span className="text-sm text-gray-700">{rejection.product_name}</span>
+                                  <span className="text-sm text-gray-700">{getProductName(rejection)}</span>
                                   {rejection.variant_name && (
                                     <span className="text-xs text-gray-400 ml-1">({rejection.variant_name})</span>
                                   )}
@@ -1334,7 +1363,7 @@ export default function RetailerDashboard() {
                       {closingHistory.map(item => (
                         <tr key={item.product_id} className="border-b hover:bg-gray-50">
                           <td className="p-3">
-                            <div className="font-medium text-gray-800">{item.product_name}</div>
+                            <div className="font-medium text-gray-800">{getProductName(item)}</div>
                             <div className="text-xs text-gray-400">{item.unit}</div>
                           </td>
                           <td className="p-3 text-center">
@@ -1400,7 +1429,7 @@ export default function RetailerDashboard() {
                       }`}
                     >
                       <div className="flex-1">
-                        <div className="font-medium text-gray-800">{item.product_name}</div>
+                        <div className="font-medium text-gray-800">{getProductName(item)}</div>
                         <div className="text-xs text-gray-400">{item.unit}</div>
                       </div>
                       <div className="ml-3">
@@ -1576,7 +1605,7 @@ export default function RetailerDashboard() {
                     <tbody>
                       {grnItems.map((item, index) => (
                         <tr key={index} className="border-t">
-                          <td className="p-2">{item.product_name} {item.variant_name && `(${item.variant_name})`}</td>
+                          <td className="p-2">{getProductName(item)} {item.variant_name && `(${item.variant_name})`}</td>
                           <td className="p-2 text-center text-gray-500">{item.supplied_qty}</td>
                           <td className="p-2 text-center">
                             <Input

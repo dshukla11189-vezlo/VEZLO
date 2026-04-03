@@ -940,7 +940,11 @@ export default function Procurement() {
               {t('procurement.recordPurchase')}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+          <DialogContent 
+            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto"
+            onInteractOutside={(e) => e.preventDefault()}
+            onPointerDownOutside={(e) => e.preventDefault()}
+          >
             <DialogHeader>
               <DialogTitle>{editMode ? t('procurement.editPurchase') : t('procurement.recordPurchase')}</DialogTitle>
             </DialogHeader>
@@ -1303,9 +1307,10 @@ export default function Procurement() {
             )}
             
             <form onSubmit={handleSubmitProcurement} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="proc-date">{t('procurement.date')} *</Label>
+              {/* Date selector row */}
+              <div className="flex items-center gap-4 pb-3 border-b">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="proc-date" className="text-sm font-medium whitespace-nowrap">{t('procurement.date')}:</Label>
                   <Input
                     id="proc-date"
                     type="date"
@@ -1313,203 +1318,220 @@ export default function Procurement() {
                     value={procurementForm.date}
                     onChange={(e) => setProcurementForm({ ...procurementForm, date: e.target.value })}
                     required
-                  />
-                </div>
-                <div>
-                  <AutocompleteInput
-                    label={t('procurement.selectFarmer')}
-                    placeholder={t('procurement.selectFarmer')}
-                    items={farmers}
-                    displayKey="name"
-                    secondaryKey="contact"
-                    onSelect={handleFarmerSelect}
-                    testId="procurement-farmer-autocomplete"
-                    storageKey="recent_farmers"
+                    className="w-40 h-8 text-sm"
                   />
                 </div>
               </div>
 
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <Label className="text-base font-semibold">{t('procurement.products')}</Label>
-                </div>
-
-                {/* Table-style one-line product rows */}
-                <div className="overflow-x-auto border rounded-lg">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="p-2 text-left font-medium text-gray-600 w-1/4">{t('procurement.productName')}</th>
-                        <th className="p-2 text-center font-medium text-gray-600 w-20">Unit</th>
-                        <th className="p-2 text-center font-medium text-gray-600 w-20">Size</th>
-                        <th className="p-2 text-center font-medium text-gray-600 w-20">{t('common.qty')}</th>
-                        <th className="p-2 text-center font-medium text-gray-600 w-20">{t('retailer.rate')}</th>
-                        <th className="p-2 text-center font-medium text-gray-600 w-24">{t('common.total')}</th>
-                        <th className="p-2 text-center w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {procurementForm.products.map((product, index) => (
-                        <tr key={index} className="border-t hover:bg-gray-50">
-                          <td className="p-2">
+              {/* Single-row table matching Yesterday's Purchases layout */}
+              <div className="bg-white rounded border overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: '950px' }}>
+                  <thead className="bg-gray-100 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left font-medium text-gray-600" style={{ width: '140px' }}>{t('procurement.farmer')}</th>
+                      <th className="p-2 text-left font-medium text-gray-600" style={{ width: '160px' }}>{t('procurement.productName')}</th>
+                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('common.qty')}</th>
+                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>Unit</th>
+                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>Size</th>
+                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('retailer.rate')}</th>
+                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('common.total')}</th>
+                      <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('procurement.paid')}</th>
+                      <th className="p-2 text-center" style={{ width: '40px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {procurementForm.products.map((product, index) => (
+                      <tr key={index} className="border-t hover:bg-gray-50">
+                        {/* Farmer - only show on first row */}
+                        <td className="p-2">
+                          {index === 0 ? (
                             <AutocompleteInput
-                              placeholder={t('procurement.productName')}
-                              items={products}
+                              placeholder={t('procurement.selectFarmer')}
+                              items={farmers}
                               displayKey="name"
-                              secondaryKey="category"
-                              onSelect={(p) => handleProductSelect(index, p)}
-                              testId={`product-autocomplete-${index}`}
-                              storageKey="recent_products"
+                              secondaryKey="contact"
+                              onSelect={handleFarmerSelect}
+                              testId="procurement-farmer-autocomplete"
+                              storageKey="recent_farmers"
                               compact={true}
                             />
-                          </td>
-                          <td className="p-2">
-                            <Select
-                              value={product.unit}
-                              onValueChange={(value) => handleProductChange(index, 'unit', value)}
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">
+                              {procurementForm.farmer_name || '—'}
+                            </span>
+                          )}
+                        </td>
+                        {/* Product */}
+                        <td className="p-2">
+                          <AutocompleteInput
+                            placeholder={t('procurement.productName')}
+                            items={products}
+                            displayKey="name"
+                            secondaryKey="category"
+                            onSelect={(p) => handleProductSelect(index, p)}
+                            testId={`product-autocomplete-${index}`}
+                            storageKey="recent_products"
+                            compact={true}
+                          />
+                        </td>
+                        {/* Qty */}
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="0"
+                            className="h-7 text-xs text-center"
+                            data-testid={`quantity-input-${index}`}
+                            value={product.quantity || ''}
+                            onChange={(e) => handleProductChange(index, 'quantity', e.target.value)}
+                          />
+                        </td>
+                        {/* Unit */}
+                        <td className="p-2">
+                          <Select
+                            value={product.unit}
+                            onValueChange={(value) => handleProductChange(index, 'unit', value)}
+                          >
+                            <SelectTrigger className="h-7 text-xs" data-testid={`unit-select-${index}`}>
+                              <SelectValue placeholder="Unit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {UNIT_TYPES.map((u) => (
+                                <SelectItem key={u.value} value={u.value}>
+                                  {u.value}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        {/* Size (for Bunch) */}
+                        <td className="p-2">
+                          {product.unit === 'Bunch' ? (
+                            <Input
+                              type="text"
+                              placeholder="gm"
+                              className="h-7 text-xs text-center"
+                              data-testid={`bunch-size-input-${index}`}
+                              value={product.unit_size || ''}
+                              onChange={(e) => handleProductChange(index, 'unit_size', e.target.value)}
+                            />
+                          ) : (
+                            <span className="text-gray-400 text-xs flex justify-center">-</span>
+                          )}
+                        </td>
+                        {/* Rate */}
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.5"
+                            placeholder="0"
+                            className="h-7 text-xs text-center"
+                            data-testid={`rate-input-${index}`}
+                            value={product.rate || ''}
+                            onChange={(e) => handleProductChange(index, 'rate', e.target.value)}
+                          />
+                        </td>
+                        {/* Total */}
+                        <td className="p-2 text-center font-semibold text-green-700">
+                          ₹{product.total.toFixed(0)}
+                        </td>
+                        {/* Paid - only show on first row */}
+                        <td className="p-2">
+                          {index === 0 ? (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0"
+                              className="h-7 text-xs text-center"
+                              data-testid="paid-amount-input"
+                              value={procurementForm.paid_amount || ''}
+                              onChange={(e) => handlePaidAmountChange(e.target.value)}
+                            />
+                          ) : (
+                            <span className="text-xs text-gray-400 flex justify-center">—</span>
+                          )}
+                        </td>
+                        {/* Delete */}
+                        <td className="p-2 text-center">
+                          {procurementForm.products.length > 1 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0"
+                              onClick={() => handleRemoveProductRow(index)}
+                              data-testid={`remove-product-${index}`}
                             >
-                              <SelectTrigger className="h-8 text-xs" data-testid={`unit-select-${index}`}>
-                                <SelectValue placeholder="Unit" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {UNIT_TYPES.map((u) => (
-                                  <SelectItem key={u.value} value={u.value}>
-                                    {u.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="p-2">
-                            {product.unit === 'Bunch' ? (
-                              <Input
-                                type="text"
-                                placeholder="250g"
-                                className="h-8 text-xs text-center w-16"
-                                data-testid={`bunch-size-input-${index}`}
-                                value={product.unit_size || ''}
-                                onChange={(e) => handleProductChange(index, 'unit_size', e.target.value)}
-                              />
-                            ) : (
-                              <span className="text-gray-400 text-xs">-</span>
-                            )}
-                          </td>
-                          <td className="p-2">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="0"
-                              className="h-8 text-xs text-center w-16"
-                              data-testid={`quantity-input-${index}`}
-                              value={product.quantity || ''}
-                              onChange={(e) => handleProductChange(index, 'quantity', e.target.value)}
-                            />
-                          </td>
-                          <td className="p-2">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="0"
-                              className="h-8 text-xs text-center w-16"
-                              data-testid={`rate-input-${index}`}
-                              value={product.rate || ''}
-                              onChange={(e) => handleProductChange(index, 'rate', e.target.value)}
-                            />
-                          </td>
-                          <td className="p-2 text-center font-semibold text-green-700">
-                            ₹{product.total.toFixed(0)}
-                          </td>
-                          <td className="p-2 text-center">
-                            {procurementForm.products.length > 1 && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0"
-                                onClick={() => handleRemoveProductRow(index)}
-                                data-testid={`remove-product-${index}`}
-                              >
-                                <Trash2 size={14} className="text-red-500" />
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Add Item Button */}
-                <div className="mt-3 flex justify-center">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={handleAddProductRow}
-                    data-testid="add-product-row-button"
-                    className="border-dashed border-2 hover:bg-green-50 hover:border-green-400"
-                  >
-                    <Plus size={16} className="mr-1" />
-                    {t('procurement.addProduct')}
-                  </Button>
-                </div>
+                              <Trash2 size={14} className="text-red-500" />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="border-t pt-4 space-y-3">
-                <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
-                  <span className="text-lg font-semibold">{t('procurement.totalAmount')}:</span>
-                  <span className="text-2xl font-bold text-[#14532D]" data-testid="grand-total">
-                    ₹{procurementForm.total_amount.toFixed(2)}
-                  </span>
-                </div>
+              {/* Add Item Button */}
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAddProductRow}
+                  data-testid="add-product-row-button"
+                  className="border-dashed border-2 hover:bg-green-50 hover:border-green-400"
+                >
+                  <Plus size={16} className="mr-1" />
+                  {t('procurement.addProduct')}
+                </Button>
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg">
-                  <div>
-                    <Label htmlFor="paid-amount">{t('procurement.paidAmount')}</Label>
-                    <Input
-                      id="paid-amount"
-                      type="number"
-                      step="0.01"
-                      placeholder="0"
-                      data-testid="paid-amount-input"
-                      value={procurementForm.paid_amount || ''}
-                      onChange={(e) => handlePaidAmountChange(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label>{t('procurement.pendingAmount')}</Label>
-                    <Input
-                      type="text"
-                      value={`₹${procurementForm.pending_amount.toFixed(2)}`}
-                      disabled
-                      className="bg-white font-semibold"
-                      data-testid="pending-amount-display"
-                    />
-                  </div>
-                </div>
-
-                {procurementForm.payment_status !== 'pending' && (
-                  <div className="text-sm text-center">
-                    <span className={`badge ${procurementForm.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
-                      {t('procurement.payment')}: {procurementForm.payment_status.toUpperCase()}
+              {/* Summary Row */}
+              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+                <div className="flex items-center gap-6">
+                  <div className="text-sm">
+                    <span className="text-gray-600">{t('procurement.totalAmount')}:</span>
+                    <span className="ml-2 font-bold text-lg text-[#14532D]" data-testid="grand-total">
+                      ₹{procurementForm.total_amount.toFixed(0)}
                     </span>
                   </div>
-                )}
-
-                <div>
-                  <Label htmlFor="remark">{t('procurement.remark')} {t('procurement.optional')}</Label>
-                  <Input
-                    id="remark"
-                    type="text"
-                    placeholder={t('procurement.addNotes')}
-                    data-testid="remark-input"
-                    value={procurementForm.remark || ''}
-                    onChange={(e) => setProcurementForm({ ...procurementForm, remark: e.target.value })}
-                  />
+                  <div className="text-sm">
+                    <span className="text-gray-600">{t('procurement.paidAmount')}:</span>
+                    <span className="ml-2 font-semibold text-green-700">
+                      ₹{(procurementForm.paid_amount || 0).toFixed(0)}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-600">{t('procurement.pendingAmount')}:</span>
+                    <span className="ml-2 font-semibold text-red-600" data-testid="pending-amount-display">
+                      ₹{procurementForm.pending_amount.toFixed(0)}
+                    </span>
+                  </div>
                 </div>
+                {procurementForm.payment_status !== 'pending' && (
+                  <span className={`text-xs px-2 py-1 rounded ${procurementForm.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                    {procurementForm.payment_status.toUpperCase()}
+                  </span>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Remarks at the bottom */}
+              <div className="border-t pt-3">
+                <Label htmlFor="remark" className="text-sm">{t('procurement.remark')} {t('procurement.optional')}</Label>
+                <Input
+                  id="remark"
+                  type="text"
+                  placeholder={t('procurement.addNotes')}
+                  data-testid="remark-input"
+                  value={procurementForm.remark || ''}
+                  onChange={(e) => setProcurementForm({ ...procurementForm, remark: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                 <Button 
                   type="button" 
                   variant="outline"

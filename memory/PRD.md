@@ -69,6 +69,12 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] "Load All Items" button loads all yesterday's items at once
   - [x] Toast notification confirms data loaded
   - [x] Backend endpoint: GET /api/procurement/previous-day
+- [x] **Manual Purchase Layout Refactor** (COMPLETED - Apr 03, 2026):
+  - [x] Single-row table layout matching "Yesterday's Purchases" design
+  - [x] All fields in one row: Farmer, Product, Qty, Unit, Size, Rate, Total, Paid
+  - [x] Remarks field moved to bottom of form
+  - [x] Modal no longer closes on outside click (prevents data loss)
+  - [x] Summary row showing Total, Paid, and Pending amounts
 
 ### Phase 4: Quick Commerce Module (IN PROGRESS - Dec 2026)
 - [x] Renamed "QC Orders" to "Quick Commerce" in sidebar

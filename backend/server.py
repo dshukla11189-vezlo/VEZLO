@@ -6047,7 +6047,7 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
                     
                     # For now, save raw GRN data
                     grn_doc = {
-                        "id": str(uuid4()),
+                        "id": str(uuid.uuid4()),
                         "source": "gmail_auto_sync",
                         "email_id": msg['id'],
                         "email_subject": content['subject'],
@@ -6596,7 +6596,7 @@ async def record_retailer_closing_inventory(
                 continue  # Skip invalid values
             
             inventory_record = {
-                "id": str(uuid4()),
+                "id": str(uuid.uuid4()),
                 "retailer_id": retailer_id,
                 "closing_date": closing_date,
                 "product_id": item.get("product_id"),

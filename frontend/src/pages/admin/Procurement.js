@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -130,6 +130,7 @@ export default function Procurement() {
   const [showPreviousDayItems, setShowPreviousDayItems] = useState(true);
   const [yesterdayItems, setYesterdayItems] = useState([]);  // Selected/edited items from yesterday
   const [referenceDateForPurchase, setReferenceDateForPurchase] = useState(new Date().toISOString().split('T')[0]);  // Date for which to record purchases
+  const [yesterdaySearchTerm, setYesterdaySearchTerm] = useState(''); // Search for yesterday's items
 
   useEffect(() => {
     loadData();
@@ -227,7 +228,8 @@ export default function Procurement() {
   const handleAddProductRow = () => {
     setProcurementForm({
       ...procurementForm,
-      products: [...procurementForm.products, { product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }]
+      // Add new product at the TOP (beginning of array)
+      products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }, ...procurementForm.products]
     });
   };
 
@@ -1017,6 +1019,28 @@ export default function Procurement() {
                         </Button>
                       </div>
                     </div>
+                    
+                    {/* Search Bar for Yesterday's Items */}
+                    <div className="mb-3">
+                      <div className="relative">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          type="text"
+                          placeholder="Search by farmer name or product..."
+                          value={yesterdaySearchTerm}
+                          onChange={(e) => setYesterdaySearchTerm(e.target.value)}
+                          className="pl-9 h-9 border-amber-300"
+                        />
+                        {yesterdaySearchTerm && (
+                          <button 
+                            onClick={() => setYesterdaySearchTerm('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                 
                 {/* Editable Table */}
                 <div className="bg-white rounded border overflow-x-auto max-h-80 overflow-y-auto">
@@ -1065,7 +1089,14 @@ export default function Procurement() {
                     </thead>
                     <tbody>
                       {previousDayProcurements.map((proc, procIdx) => 
-                        proc.products?.map((p, pIdx) => {
+                        proc.products?.filter(p => {
+                          // Filter by search term
+                          if (!yesterdaySearchTerm) return true;
+                          const searchLower = yesterdaySearchTerm.toLowerCase();
+                          const farmerMatch = proc.farmer_name?.toLowerCase().includes(searchLower);
+                          const productMatch = p.product_name?.toLowerCase().includes(searchLower);
+                          return farmerMatch || productMatch;
+                        }).map((p, pIdx) => {
                           const itemKey = `${proc.farmer_id}-${p.product_id}`;
                           const itemIndex = yesterdayItems.findIndex(i => i.farmer_id === proc.farmer_id && i.product_id === p.product_id);
                           const item = itemIndex >= 0 ? yesterdayItems[itemIndex] : null;

@@ -3859,6 +3859,7 @@ Email: ${companyEmail}`;
                                         <th className="text-right">GRN</th>
                                         <th className="text-right">DIFF</th>
                                         <th className="text-right">RATE</th>
+                                        <th className="text-center">RATE Δ</th>
                                         <th className="text-right">AMOUNT</th>
                                         <th className="text-center">ACT</th>
                                       </tr>
@@ -3887,6 +3888,18 @@ Email: ${companyEmail}`;
                                             </td>
                                             <td className="text-right whitespace-nowrap">
                                               ₹{currentRate.toFixed(1)}{item.rate_per_kg ? '/Kg' : '/Pc'}
+                                            </td>
+                                            <td className="text-center">
+                                              {item.rate_change !== null && item.rate_change !== undefined ? (
+                                                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                                  item.rate_change > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                                }`}>
+                                                  {item.rate_change > 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                                                  {item.rate_change > 0 ? '+' : ''}{item.rate_change_percent}%
+                                                </span>
+                                              ) : (
+                                                <span className="text-gray-300">-</span>
+                                              )}
                                             </td>
                                             <td className="text-right font-semibold whitespace-nowrap">
                                               ₹{item.amount?.toFixed(0)}

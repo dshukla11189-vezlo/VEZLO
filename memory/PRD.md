@@ -585,6 +585,11 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] QuickCommerce GRN: Pending dates now scrollable and wrapped (max-h-[60px])
   - [x] QuickCommerce GRN: Rate changes now scrollable (max-h-[80px])
   - [x] Retailer Inventory: Pending items warning now scrollable (max-h-[150px])
+- [x] **GRN Rate Change Persistence** - Rate change data now saved and displayed (Apr 04, 2026):
+  - [x] Added `rate_change` and `rate_change_percent` fields to QCGRNItem model
+  - [x] Added "RATE Δ" column to Saved GRN Records table
+  - [x] Rate changes calculated during upload are now persisted when GRN is saved
+  - [x] Note: Existing GRNs show "-" as they were saved before this update
 
 ---
 

@@ -360,6 +360,8 @@ class QCGRNItem(BaseModel):
     rate_per_kg: Optional[float] = None  # Rate per kg from file
     rate_per_unit: Optional[float] = None  # Calculated rate per unit
     amount: Optional[float] = None  # grn_qty * rate_per_unit
+    rate_change: Optional[float] = None  # Rate change from previous day (₹)
+    rate_change_percent: Optional[float] = None  # Rate change percentage
 
 # QC GRN Models - Ninjacart specific
 class QCGRN(BaseModel):

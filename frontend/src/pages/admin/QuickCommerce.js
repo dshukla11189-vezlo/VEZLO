@@ -863,18 +863,25 @@ export default function QuickCommerce() {
     return field === 'supplied_qty' ? (itemData || '') : '';
   };
 
-  const getDispatchedQtyForIndent = (indentId, productId) => {
-    // Sum up all dispatched quantities for this product from all dispatch logs
+  const getDispatchedQtyForIndent = (indentId, productId, packagingId = null) => {
+    // Sum up all dispatched quantities for this product (and packaging) from all dispatch logs
     return dispatches
       .filter(d => d.indent_id === indentId)
       .reduce((total, dispatch) => {
-        const item = dispatch.items?.find(i => i.product_id === productId);
-        return total + (item?.supplied_qty || 0);
+        // Find items matching both product_id and packaging_id (if provided)
+        const matchingItems = dispatch.items?.filter(i => {
+          if (i.product_id !== productId) return false;
+          // If packaging_id is provided, match it exactly
+          if (packagingId && i.packaging_id !== packagingId) return false;
+          return true;
+        }) || [];
+        // Sum all matching items
+        return total + matchingItems.reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
       }, 0);
   };
 
   const getRemainingQty = (indent, item) => {
-    const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id);
+    const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id, item.packaging_id);
     return Math.max(0, item.required_qty - dispatched);
   };
 
@@ -1798,7 +1805,7 @@ Email: ${companyEmail}`;
     items.forEach((item, idx) => {
       totalRequired += parseFloat(item.required_qty) || 0;
       if (useSupplied && indentId) {
-        totalSupplied += getDispatchedQtyForIndent(indentId, item.product_id);
+        totalSupplied += getDispatchedQtyForIndent(indentId, item.product_id, item.packaging_id);
       }
     });
 
@@ -1860,7 +1867,7 @@ Email: ${companyEmail}`;
   const dispatchGrandTotals = filteredDispatchIndents.reduce((acc, indent) => {
     indent.items?.forEach((item) => {
       acc.totalRequired += parseFloat(item.required_qty) || 0;
-      acc.totalSupplied += getDispatchedQtyForIndent(indent.id, item.product_id);
+      acc.totalSupplied += getDispatchedQtyForIndent(indent.id, item.product_id, item.packaging_id);
     });
     return acc;
   }, { totalRequired: 0, totalSupplied: 0 });
@@ -2503,7 +2510,7 @@ Email: ${companyEmail}`;
                           // Fill all remaining quantities
                           const newDispatchData = {};
                           currentDispatchIndent.items?.forEach((item, idx) => {
-                            const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id);
+                            const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id, item.packaging_id);
                             const remaining = Math.max(0, item.required_qty - dispatched);
                             newDispatchData[idx] = {
                               supplied_qty: remaining > 0 ? remaining.toString() : '',
@@ -2533,7 +2540,7 @@ Email: ${companyEmail}`;
                       </thead>
                       <tbody>
                         {currentDispatchIndent.items?.map((item, idx) => {
-                          const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id);
+                          const dispatched = getDispatchedQtyForIndent(currentDispatchIndent.id, item.product_id, item.packaging_id);
                           const remaining = Math.max(0, item.required_qty - dispatched);
                           const suppliedQty = parseFloat(getDispatchItemValue(currentDispatchIndent.id, idx, 'supplied_qty')) || 0;
                           const lotSize = parseInt(getDispatchItemValue(currentDispatchIndent.id, idx, 'lot_size')) || item.lot_size || 1;
@@ -2735,7 +2742,7 @@ Email: ${companyEmail}`;
                     let totalDispatched = 0;
                     indent.items?.forEach(item => {
                       totalIndentQty += item.required_qty;
-                      totalDispatched += getDispatchedQtyForIndent(indent.id, item.product_id);
+                      totalDispatched += getDispatchedQtyForIndent(indent.id, item.product_id, item.packaging_id);
                     });
                     const remaining = totalIndentQty - totalDispatched;
                     
@@ -2805,7 +2812,7 @@ Email: ${companyEmail}`;
                           {/* Product Summary Row */}
                           <div className="mt-2 ml-10 flex flex-wrap gap-3 text-sm">
                             {indent.items?.map((item, idx) => {
-                              const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id);
+                              const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id, item.packaging_id);
                               const itemRemaining = item.required_qty - dispatched;
                               return (
                                 <div key={idx} className="bg-white border rounded px-2 py-1 flex items-center gap-2">
@@ -2838,7 +2845,7 @@ Email: ${companyEmail}`;
                                 </thead>
                                 <tbody>
                                   {indent.items?.map((item, idx) => {
-                                    const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id);
+                                    const dispatched = getDispatchedQtyForIndent(indent.id, item.product_id, item.packaging_id);
                                     const itemRemaining = item.required_qty - dispatched;
                                     return (
                                       <tr key={idx}>

@@ -44,7 +44,7 @@ export default function RetailerDashboard() {
   
   // Helper to get translated product name based on current language
   // Can accept either a product object with name/name_hi, or an item with product_id
-  const getProductName = (item, productsArray = products) => {
+  const getProductName = useCallback((item) => {
     if (!item) return '';
     
     const isHindi = i18n.language === 'hi';
@@ -55,8 +55,8 @@ export default function RetailerDashboard() {
     }
     
     // If it has product_id, try to find matching product from loaded products
-    if (item.product_id && productsArray && productsArray.length > 0) {
-      const product = productsArray.find(p => p.id === item.product_id);
+    if (item.product_id && products && products.length > 0) {
+      const product = products.find(p => p.id === item.product_id);
       if (product) {
         if (isHindi && product.name_hi) {
           return product.name_hi;
@@ -66,8 +66,8 @@ export default function RetailerDashboard() {
     }
     
     // If we're in Hindi mode and couldn't find a translation, try to match by name
-    if (isHindi && (item.product_name || item.name) && productsArray && productsArray.length > 0) {
-      const productByName = productsArray.find(p => 
+    if (isHindi && (item.product_name || item.name) && products && products.length > 0) {
+      const productByName = products.find(p => 
         p.name === item.product_name || p.name === item.name
       );
       if (productByName && productByName.name_hi) {
@@ -77,7 +77,7 @@ export default function RetailerDashboard() {
     
     // Fallback to stored product_name
     return item.product_name || item.name || '';
-  };
+  }, [products, i18n.language]);
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {

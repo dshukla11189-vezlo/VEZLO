@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -43,6 +43,16 @@ export default function RetailerDashboard() {
   const [showPendingConfirmation, setShowPendingConfirmation] = useState(false); // Confirmation dialog for pending items
   const [editingClosingDate, setEditingClosingDate] = useState(null); // For edit mode
   
+  // Create a product lookup map for fast translations
+  const productMap = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => {
+      if (p.id) map.set(p.id, p);
+      if (p.name) map.set(p.name, p);
+    });
+    return map;
+  }, [products]);
+  
   // Helper to get translated product name based on current language
   // Can accept either a product object with name/name_hi, or an item with product_id
   const getProductName = useCallback((item) => {
@@ -55,35 +65,33 @@ export default function RetailerDashboard() {
       return item.name_hi;
     }
     
-    // Always try to find the product in our products array for Hindi translation
-    if (products && products.length > 0) {
-      // First try by product_id
-      if (item.product_id) {
-        const product = products.find(p => p.id === item.product_id);
-        if (product) {
-          if (isHindi && product.name_hi) {
-            return product.name_hi;
-          }
-          return product.name;
-        }
-      }
-      
-      // Then try by name match (for items that only have product_name)
+    // Try to find the product in our lookup map
+    let product = null;
+    
+    // First try by product_id
+    if (item.product_id) {
+      product = productMap.get(item.product_id);
+    }
+    
+    // Then try by name match
+    if (!product) {
       const itemName = item.product_name || item.name;
       if (itemName) {
-        const productByName = products.find(p => p.name === itemName);
-        if (productByName) {
-          if (isHindi && productByName.name_hi) {
-            return productByName.name_hi;
-          }
-          return productByName.name;
-        }
+        product = productMap.get(itemName);
       }
+    }
+    
+    // If we found a matching product, return translated name
+    if (product) {
+      if (isHindi && product.name_hi) {
+        return product.name_hi;
+      }
+      return product.name;
     }
     
     // Fallback to stored product_name
     return item.product_name || item.name || '';
-  }, [products, i18n.language]);
+  }, [productMap, i18n.language]);
   
   // Date filter for dashboard
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {

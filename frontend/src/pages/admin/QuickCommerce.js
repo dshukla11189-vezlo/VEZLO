@@ -613,8 +613,67 @@ export default function QuickCommerce() {
     setIndentForm({ ...indentForm, items: newItems });
   };
 
-  const handleCustomerSelect = (customer) => {
+  const handleCustomerSelect = async (customer) => {
     setIndentForm({ ...indentForm, customer_name: customer.name });
+    
+    // Auto-load previous indent items when customer is selected (only if creating new indent)
+    if (!editingIndent) {
+      try {
+        const res = await api.get(`/api/qc-indents/previous/${encodeURIComponent(customer.name)}`);
+        if (res.data.indent && res.data.indent.items && res.data.indent.items.length > 0) {
+          const previousItems = res.data.indent.items.map(item => ({
+            product_id: item.product_id || '',
+            product_name: item.product_name || '',
+            product_unit: item.product_unit || '',
+            packaging_id: item.packaging_id || '',
+            packaging_name: item.packaging_name || '',
+            required_qty: '',  // Keep qty blank so user must enter new value
+            lot_size: item.lot_size?.toString() || '',
+            no_of_crates: 0,
+            rate: item.rate?.toString() || ''
+          }));
+          setIndentForm(prev => ({ 
+            ...prev, 
+            customer_name: customer.name,
+            items: previousItems 
+          }));
+          toast.success(`Loaded ${previousItems.length} items from previous indent. Please enter quantities.`);
+        }
+      } catch (error) {
+        console.log('No previous indent found for customer');
+      }
+    }
+  };
+
+  // Function to load previous indent items manually
+  const loadPreviousIndent = async () => {
+    if (!indentForm.customer_name) {
+      toast.error('Please select a customer first');
+      return;
+    }
+    
+    try {
+      const res = await api.get(`/api/qc-indents/previous/${encodeURIComponent(indentForm.customer_name)}`);
+      if (res.data.indent && res.data.indent.items && res.data.indent.items.length > 0) {
+        const previousItems = res.data.indent.items.map(item => ({
+          product_id: item.product_id || '',
+          product_name: item.product_name || '',
+          product_unit: item.product_unit || '',
+          packaging_id: item.packaging_id || '',
+          packaging_name: item.packaging_name || '',
+          required_qty: item.required_qty?.toString() || '',  // Include qty when manually loading
+          lot_size: item.lot_size?.toString() || '',
+          no_of_crates: item.no_of_crates || 0,
+          rate: item.rate?.toString() || ''
+        }));
+        setIndentForm(prev => ({ ...prev, items: previousItems }));
+        toast.success(`Loaded ${previousItems.length} items from previous indent`);
+      } else {
+        toast.info('No previous indent found for this customer');
+      }
+    } catch (error) {
+      toast.error('Failed to load previous indent');
+    }
   };
 
   // Packaging management handlers
@@ -2172,6 +2231,7 @@ Email: ${companyEmail}`;
                         items={customers}
                         displayKey="name"
                         secondaryKey="contact_person"
+                        value={indentForm.customer_name || ''}
                         onSelect={handleCustomerSelect}
                         testId="indent-customer-autocomplete"
                         storageKey="recent_qc_customers"
@@ -2182,16 +2242,31 @@ Email: ${companyEmail}`;
                   <div className="border-t pt-4">
                     <div className="flex items-center justify-between mb-3">
                       <Label className="text-base font-semibold">Products</Label>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleAddIndentItem}
-                        data-testid="add-indent-item-btn"
-                      >
-                        <Plus size={16} className="mr-1" />
-                        Add Product
-                      </Button>
+                      <div className="flex gap-2">
+                        {!editingIndent && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={loadPreviousIndent}
+                            className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                            data-testid="load-previous-indent-btn"
+                          >
+                            <Clock size={16} className="mr-1" />
+                            Load Previous Indent
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleAddIndentItem}
+                          data-testid="add-indent-item-btn"
+                        >
+                          <Plus size={16} className="mr-1" />
+                          Add Product
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-4">
@@ -2206,6 +2281,7 @@ Email: ${companyEmail}`;
                                 items={products}
                                 displayKey="name"
                                 secondaryKey="unit"
+                                value={item.product_name || ''}
                                 onSelect={(product) => handleProductSelect(index, product)}
                                 testId={`product-autocomplete-${index}`}
                                 storageKey="recent_products"
@@ -2218,6 +2294,7 @@ Email: ${companyEmail}`;
                                 items={packagingVariants.map(p => ({ ...p, displayName: `${p.name} - ${p.weight_gm} gm` }))}
                                 displayKey="displayName"
                                 secondaryKey="weight_gm"
+                                value={item.packaging_name || ''}
                                 onSelect={(packaging) => handlePackagingSelect(index, packaging)}
                                 testId={`item-packaging-${index}`}
                                 storageKey="recent_packaging"

@@ -1043,6 +1043,24 @@ async def delete_qc_indent(indent_id: str, current_user: dict = Depends(get_curr
     
     return {"message": "Indent deleted successfully"}
 
+@api_router.get("/qc-indents/previous/{customer_name}")
+async def get_previous_qc_indent(customer_name: str, current_user: dict = Depends(get_current_user)):
+    """Get the most recent indent for a customer to use as template"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Find the most recent indent for this customer
+    indent = await db.qc_indents.find_one(
+        {"customer_name": customer_name},
+        {"_id": 0},
+        sort=[("indent_date", -1), ("created_at", -1)]
+    )
+    
+    if not indent:
+        return {"indent": None, "message": "No previous indent found"}
+    
+    return {"indent": indent, "message": "Previous indent found"}
+
 # ============================================================================
 # SECTION: QC DISPATCH ROUTES (Lines ~825-1000)
 # ============================================================================
@@ -4866,6 +4884,24 @@ async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(ge
     
     await db.retailer_indents.delete_one({"id": indent_id})
     return {"message": "Indent deleted successfully"}
+
+@api_router.get("/retailer-indents/previous/{retailer_id}")
+async def get_previous_retailer_indent(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get the most recent indent for a retailer to use as template"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Find the most recent indent for this retailer
+    indent = await db.retailer_indents.find_one(
+        {"retailer_id": retailer_id},
+        {"_id": 0},
+        sort=[("indent_date", -1), ("created_at", -1)]
+    )
+    
+    if not indent:
+        return {"indent": None, "message": "No previous indent found"}
+    
+    return {"indent": indent, "message": "Previous indent found"}
 
 # ------------ RETAILER DISPATCHES ------------
 @api_router.get("/retailer-dispatches")

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock
 } from 'lucide-react';
 
 // Export utility function
@@ -518,6 +518,67 @@ export default function RetailerOrders() {
     });
     setRetailerSearch('');
     setShowRetailerDropdown(false);
+  };
+
+  // Function to load previous indent items for retailer
+  const loadPreviousRetailerIndent = async (retailerId = null) => {
+    const targetRetailerId = retailerId || indentForm.retailer_id;
+    if (!targetRetailerId) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    
+    try {
+      const res = await api.get(`/api/retailer-indents/previous/${targetRetailerId}`);
+      if (res.data.indent && res.data.indent.items && res.data.indent.items.length > 0) {
+        const previousItems = res.data.indent.items.map(item => ({
+          product_id: item.product_id || '',
+          product_name: item.product_name || '',
+          variant_id: item.variant_id || '',
+          variant_name: item.variant_name || '',
+          quantity: '',  // Keep qty blank so user must enter new value
+          status: 'pending'
+        }));
+        setIndentForm(prev => ({ ...prev, items: previousItems }));
+        toast.success(`Loaded ${previousItems.length} items from previous indent. Please enter quantities.`);
+      } else {
+        toast.info('No previous indent found for this retailer');
+      }
+    } catch (error) {
+      console.log('No previous indent found');
+    }
+  };
+
+  // Handler for retailer selection that auto-loads previous indent
+  const handleRetailerSelectForIndent = async (retailer) => {
+    setIndentForm(prev => ({ ...prev, retailer_id: retailer.id }));
+    setRetailerSearch(retailer.company_name || retailer.name || '');
+    setShowRetailerDropdown(false);
+    
+    // Auto-load previous indent when retailer is selected (only if creating new indent)
+    if (!editingIndent) {
+      try {
+        const res = await api.get(`/api/retailer-indents/previous/${retailer.id}`);
+        if (res.data.indent && res.data.indent.items && res.data.indent.items.length > 0) {
+          const previousItems = res.data.indent.items.map(item => ({
+            product_id: item.product_id || '',
+            product_name: item.product_name || '',
+            variant_id: item.variant_id || '',
+            variant_name: item.variant_name || '',
+            quantity: '',  // Keep qty blank
+            status: 'pending'
+          }));
+          setIndentForm(prev => ({ 
+            ...prev, 
+            retailer_id: retailer.id,
+            items: previousItems 
+          }));
+          toast.success(`Loaded ${previousItems.length} items from previous indent. Please enter quantities.`);
+        }
+      } catch (error) {
+        console.log('No previous indent found for retailer');
+      }
+    }
   };
 
   const addIndentItem = () => {
@@ -2161,9 +2222,7 @@ export default function RetailerOrders() {
                               className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
                               onMouseDown={(e) => {
                                 e.preventDefault();
-                                setIndentForm(prev => ({ ...prev, retailer_id: r.id }));
-                                setRetailerSearch(r.company_name || r.name);
-                                setShowRetailerDropdown(false);
+                                handleRetailerSelectForIndent(r);
                               }}
                             >
                               <div className="font-medium">{r.company_name || r.name}</div>
@@ -2188,9 +2247,22 @@ export default function RetailerOrders() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-gray-700">Items *</label>
-                    <Button type="button" size="sm" variant="outline" onClick={addIndentItem}>
-                      <Plus size={14} className="mr-1" /> Add Item
-                    </Button>
+                    <div className="flex gap-2">
+                      {!editingIndent && (
+                        <Button 
+                          type="button" 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => loadPreviousRetailerIndent()}
+                          className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                        >
+                          <Clock size={14} className="mr-1" /> Load Previous
+                        </Button>
+                      )}
+                      <Button type="button" size="sm" variant="outline" onClick={addIndentItem}>
+                        <Plus size={14} className="mr-1" /> Add Item
+                      </Button>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     {indentForm.items.map((item, index) => (

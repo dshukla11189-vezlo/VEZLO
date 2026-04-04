@@ -2040,15 +2040,12 @@ export default function Procurement() {
                       </div>
                       <div className="mt-2 mb-3">
                         <p className="text-xs text-gray-500">{template.products.length} products</p>
-                        <div className="mt-1 space-y-1">
-                          {template.products.slice(0, 2).map((p, i) => (
+                        <div className="mt-1 space-y-1 max-h-[100px] overflow-y-auto pr-1">
+                          {template.products.map((p, i) => (
                             <p key={i} className="text-xs text-gray-600">
                               • {p.product_name}: {p.quantity} {p.unit}
                             </p>
                           ))}
-                          {template.products.length > 2 && (
-                            <p className="text-xs text-gray-500">+ {template.products.length - 2} more</p>
-                          )}
                         </div>
                       </div>
                       <Button

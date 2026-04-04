@@ -3265,15 +3265,12 @@ Email: ${companyEmail}`;
                     <span className="text-sm font-medium text-amber-800">
                       GRN Pending for: 
                     </span>
-                    <div className="flex gap-1.5">
-                      {grnPendingDates.slice(0, 5).map((date, idx) => (
+                    <div className="flex gap-1.5 flex-wrap max-h-[60px] overflow-y-auto pr-1">
+                      {grnPendingDates.map((date, idx) => (
                         <span key={idx} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-semibold">
                           {date}
                         </span>
                       ))}
-                      {grnPendingDates.length > 5 && (
-                        <span className="text-xs text-amber-600">+{grnPendingDates.length - 5} more</span>
-                      )}
                     </div>
                   </div>
                   <span className="text-sm text-amber-700 font-medium">
@@ -3333,8 +3330,8 @@ Email: ${companyEmail}`;
                       <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
                         <TrendingUp size={14} /> Rate Changes from Previous Day ({grnUploadResult.rate_changes.length} products)
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {grnUploadResult.rate_changes.slice(0, 6).map((rc, idx) => (
+                      <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto pr-1">
+                        {grnUploadResult.rate_changes.map((rc, idx) => (
                           <div key={idx} className={`px-2 py-1 rounded text-xs ${rc.change > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                             <span className="font-medium">{rc.product_name}</span>
                             <span className="ml-1">
@@ -3342,9 +3339,6 @@ Email: ${companyEmail}`;
                             </span>
                           </div>
                         ))}
-                        {grnUploadResult.rate_changes.length > 6 && (
-                          <span className="text-xs text-gray-500">+{grnUploadResult.rate_changes.length - 6} more</span>
-                        )}
                       </div>
                     </div>
                   )}

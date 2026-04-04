@@ -1685,19 +1685,15 @@ export default function RetailerDashboard() {
                   <p className="text-sm font-medium text-orange-800 mb-2">
                     {t('retailer.pendingProductsList') || 'Products without closing qty:'}
                   </p>
-                  <ul className="text-sm text-orange-700 space-y-1">
+                  <ul className="text-sm text-orange-700 space-y-1 max-h-[150px] overflow-y-auto pr-1">
                     {closingItems
                       .filter(item => item.closing_qty === '' || item.closing_qty === null)
-                      .slice(0, 10)
                       .map(item => (
                         <li key={item.product_id} className="flex items-center gap-1">
                           <span className="w-1.5 h-1.5 bg-orange-400 rounded-full"></span>
                           {getProductName(item)}
                         </li>
                       ))}
-                    {pendingItemsCount > 10 && (
-                      <li className="text-orange-600 italic">... and {pendingItemsCount - 10} more</li>
-                    )}
                   </ul>
                 </div>
               </div>

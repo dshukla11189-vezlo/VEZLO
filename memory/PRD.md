@@ -579,6 +579,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - [x] Confirmed complete borders on all sections
 - [x] `numberToWords()` function working correctly for Indian number system
 
+### UI/UX Improvements (COMPLETED - Apr 2026)
+- [x] **UI Truncation Fix** - Replaced "+X more" truncation with scrollable lists (Apr 04, 2026):
+  - [x] Procurement Templates: Products list now scrollable (max-h-[100px])
+  - [x] QuickCommerce GRN: Pending dates now scrollable and wrapped (max-h-[60px])
+  - [x] QuickCommerce GRN: Rate changes now scrollable (max-h-[80px])
+  - [x] Retailer Inventory: Pending items warning now scrollable (max-h-[150px])
+
 ---
 
 ## Key API Endpoints

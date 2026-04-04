@@ -41,6 +41,7 @@ export default function RetailerDashboard() {
   const [loadingClosing, setLoadingClosing] = useState(false);
   const [closingSearchTerm, setClosingSearchTerm] = useState(''); // Search filter for closing products
   const [showPendingConfirmation, setShowPendingConfirmation] = useState(false); // Confirmation dialog for pending items
+  const [editingClosingDate, setEditingClosingDate] = useState(null); // For edit mode
   
   // Helper to get translated product name based on current language
   // Can accept either a product object with name/name_hi, or an item with product_id
@@ -49,29 +50,34 @@ export default function RetailerDashboard() {
     
     const isHindi = i18n.language === 'hi';
     
-    // If it's a full product object with name_hi
+    // If it's a full product object with name_hi already
     if (item.name_hi && isHindi) {
       return item.name_hi;
     }
     
-    // If it has product_id, try to find matching product from loaded products
-    if (item.product_id && products && products.length > 0) {
-      const product = products.find(p => p.id === item.product_id);
-      if (product) {
-        if (isHindi && product.name_hi) {
-          return product.name_hi;
+    // Always try to find the product in our products array for Hindi translation
+    if (products && products.length > 0) {
+      // First try by product_id
+      if (item.product_id) {
+        const product = products.find(p => p.id === item.product_id);
+        if (product) {
+          if (isHindi && product.name_hi) {
+            return product.name_hi;
+          }
+          return product.name;
         }
-        return product.name;
       }
-    }
-    
-    // If we're in Hindi mode and couldn't find a translation, try to match by name
-    if (isHindi && (item.product_name || item.name) && products && products.length > 0) {
-      const productByName = products.find(p => 
-        p.name === item.product_name || p.name === item.name
-      );
-      if (productByName && productByName.name_hi) {
-        return productByName.name_hi;
+      
+      // Then try by name match (for items that only have product_name)
+      const itemName = item.product_name || item.name;
+      if (itemName) {
+        const productByName = products.find(p => p.name === itemName);
+        if (productByName) {
+          if (isHindi && productByName.name_hi) {
+            return productByName.name_hi;
+          }
+          return productByName.name;
+        }
       }
     }
     
@@ -457,6 +463,8 @@ export default function RetailerDashboard() {
     
     setClosingItems(allProducts);
     setClosingDate(new Date().toISOString().split('T')[0]);
+    setEditingClosingDate(null); // Reset editing state
+    setClosingSearchTerm(''); // Reset search
     setShowRecordClosingModal(true);
   };
 
@@ -540,6 +548,54 @@ export default function RetailerDashboard() {
   // Get pending items count
   const pendingItemsCount = closingItems.filter(item => item.closing_qty === '' || item.closing_qty === null).length;
   const filledItemsCount = closingItems.filter(item => item.closing_qty !== '' && item.closing_qty !== null).length;
+  
+  // Edit closing inventory for a date
+  const editClosingInventory = async (date) => {
+    if (!dashboardData?.retailer?.id) return;
+    
+    try {
+      // Load existing closing data for this date
+      const res = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}`);
+      
+      // Populate closingItems with existing values
+      const allProducts = products.map(p => {
+        const existingItem = res.data.items.find(item => item.product_id === p.id);
+        return {
+          product_id: p.id,
+          product_name: p.name,
+          unit: p.unit || 'Kg',
+          closing_qty: existingItem?.closing_qty !== null && existingItem?.closing_qty !== undefined 
+            ? existingItem.closing_qty.toString() 
+            : ''
+        };
+      });
+      
+      setClosingItems(allProducts);
+      setClosingDate(date);
+      setEditingClosingDate(date);
+      setShowRecordClosingModal(true);
+    } catch (error) {
+      toast.error('Failed to load closing data for editing');
+    }
+  };
+  
+  // Delete closing inventory for a date
+  const deleteClosingInventory = async (date) => {
+    if (!dashboardData?.retailer?.id) return;
+    
+    if (!window.confirm(`Are you sure you want to delete closing inventory for ${date}?`)) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/api/retailer-closing-inventory/${dashboardData.retailer.id}/${date}`);
+      toast.success('Closing inventory deleted successfully');
+      await loadRecordedDates();
+      await loadClosingHistory(closingHistoryDate);
+    } catch (error) {
+      toast.error('Failed to delete closing inventory');
+    }
+  };
 
   // Load closing history when date changes or tab switches
   useEffect(() => {
@@ -1406,36 +1462,60 @@ export default function RetailerDashboard() {
                   <p className="text-xs text-gray-400 mt-1">{t('retailer.clickRecordClosing')}</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product')}</th>
-                        <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {closingHistory.map(item => (
-                        <tr key={item.product_id} className="border-b hover:bg-gray-50">
-                          <td className="p-3">
-                            <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                            <div className="text-xs text-gray-400">{item.unit}</div>
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className="text-lg font-semibold text-blue-600">
-                              {item.closing_qty}
-                            </span>
-                          </td>
+                <div>
+                  {/* Edit/Delete buttons */}
+                  <div className="flex justify-end gap-2 mb-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => editClosingInventory(closingHistoryDate)}
+                      className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                    >
+                      <Pencil size={14} className="mr-1" />
+                      {t('common.edit') || 'Edit'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => deleteClosingInventory(closingHistoryDate)}
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                    >
+                      <Trash2 size={14} className="mr-1" />
+                      {t('common.delete') || 'Delete'}
+                    </Button>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product')}</th>
+                          <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty')}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-gray-100 font-semibold">
-                      <tr>
-                        <td className="p-3 text-right">Total Items:</td>
-                        <td className="p-3 text-center text-blue-600">{closingHistory.length}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {closingHistory.map(item => (
+                          <tr key={item.product_id} className="border-b hover:bg-gray-50">
+                            <td className="p-3">
+                              <div className="font-medium text-gray-800">{getProductName(item)}</div>
+                              <div className="text-xs text-gray-400">{item.unit}</div>
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className="text-lg font-semibold text-blue-600">
+                                {item.closing_qty}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-100 font-semibold">
+                        <tr>
+                          <td className="p-3 text-right">Total Items:</td>
+                          <td className="p-3 text-center text-blue-600">{closingHistory.length}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               )}
             </CardContent>

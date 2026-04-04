@@ -6684,6 +6684,36 @@ async def get_retailer_closing_summary(
         "recorded_items": len(closing_items)
     }
 
+@app.delete("/api/retailer-closing-inventory/{retailer_id}/{closing_date}")
+async def delete_retailer_closing_inventory(
+    retailer_id: str,
+    closing_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete all closing inventory records for a specific date"""
+    result = await db.retailer_closing_inventory.delete_many({
+        "retailer_id": retailer_id,
+        "closing_date": closing_date
+    })
+    
+    return {
+        "message": f"Deleted closing inventory for {closing_date}",
+        "deleted_count": result.deleted_count
+    }
+
+@app.delete("/api/retailer-closing-inventory/item/{item_id}")
+async def delete_closing_inventory_item(
+    item_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a single closing inventory item"""
+    result = await db.retailer_closing_inventory.delete_one({"id": item_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    return {"message": "Item deleted successfully"}
+
 
 
 

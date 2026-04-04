@@ -45,8 +45,10 @@ export default function RetailerDashboard() {
   const getProductName = (item, productsArray = products) => {
     if (!item) return '';
     
+    const isHindi = i18n.language === 'hi';
+    
     // If it's a full product object with name_hi
-    if (item.name_hi && i18n.language === 'hi') {
+    if (item.name_hi && isHindi) {
       return item.name_hi;
     }
     
@@ -54,10 +56,20 @@ export default function RetailerDashboard() {
     if (item.product_id && productsArray && productsArray.length > 0) {
       const product = productsArray.find(p => p.id === item.product_id);
       if (product) {
-        if (i18n.language === 'hi' && product.name_hi) {
+        if (isHindi && product.name_hi) {
           return product.name_hi;
         }
         return product.name;
+      }
+    }
+    
+    // If we're in Hindi mode and couldn't find a translation, try to match by name
+    if (isHindi && (item.product_name || item.name) && productsArray && productsArray.length > 0) {
+      const productByName = productsArray.find(p => 
+        p.name === item.product_name || p.name === item.name
+      );
+      if (productByName && productByName.name_hi) {
+        return productByName.name_hi;
       }
     }
     

@@ -10,7 +10,7 @@ import {
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
-  ClipboardList, Save, Trash2, RefreshCw, Pencil
+  ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
@@ -39,6 +39,8 @@ export default function RetailerDashboard() {
   const [recordedDates, setRecordedDates] = useState([]); // Dates that have closing recorded
   const [savingClosing, setSavingClosing] = useState(false);
   const [loadingClosing, setLoadingClosing] = useState(false);
+  const [closingSearchTerm, setClosingSearchTerm] = useState(''); // Search filter for closing products
+  const [showPendingConfirmation, setShowPendingConfirmation] = useState(false); // Confirmation dialog for pending items
   
   // Helper to get translated product name based on current language
   // Can accept either a product object with name/name_hi, or an item with product_id
@@ -468,26 +470,47 @@ export default function RetailerDashboard() {
   };
 
   // Save closing inventory
-  const saveClosingInventory = async () => {
+  const saveClosingInventory = async (forceZeroPending = false) => {
     if (!dashboardData?.retailer?.id || !closingDate) {
       toast.error('Missing required data');
       return;
     }
 
+    // Check for pending items (items without qty)
+    const pendingItems = closingItems.filter(item => item.closing_qty === '' || item.closing_qty === null);
+    const filledItems = closingItems.filter(item => item.closing_qty !== '' && item.closing_qty !== null);
+    
+    // If there are pending items and user hasn't confirmed, show confirmation dialog
+    if (pendingItems.length > 0 && !forceZeroPending) {
+      setShowPendingConfirmation(true);
+      return;
+    }
+
     setSavingClosing(true);
     try {
+      // If forceZeroPending, set all pending items to 0
+      const itemsToSave = forceZeroPending 
+        ? closingItems.map(item => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            closing_qty: item.closing_qty === '' || item.closing_qty === null ? 0 : parseFloat(item.closing_qty)
+          }))
+        : closingItems.map(item => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            closing_qty: item.closing_qty === '' ? null : parseFloat(item.closing_qty)
+          }));
+
       const res = await api.post('/api/retailer-closing-inventory/record', {
         retailer_id: dashboardData.retailer.id,
         closing_date: closingDate,
-        items: closingItems.map(item => ({
-          product_id: item.product_id,
-          product_name: item.product_name,
-          closing_qty: item.closing_qty === '' ? null : item.closing_qty
-        }))
+        items: itemsToSave
       });
       
       toast.success(`Saved closing inventory: ${res.data.items_saved} items`);
       setShowRecordClosingModal(false);
+      setShowPendingConfirmation(false);
+      setClosingSearchTerm('');
       await loadRecordedDates();
       await loadClosingHistory(closingHistoryDate);
     } catch (error) {
@@ -497,6 +520,26 @@ export default function RetailerDashboard() {
       setSavingClosing(false);
     }
   };
+  
+  // Continue filling pending items (dismiss confirmation and return to modal)
+  const continueFilling = () => {
+    setShowPendingConfirmation(false);
+    // Clear search to show all items, focusing on pending ones
+    setClosingSearchTerm('');
+  };
+  
+  // Get filtered closing items based on search term
+  const filteredClosingItems = closingItems.filter(item => {
+    if (!closingSearchTerm) return true;
+    const searchLower = closingSearchTerm.toLowerCase();
+    const productName = getProductName(item).toLowerCase();
+    const englishName = (item.product_name || '').toLowerCase();
+    return productName.includes(searchLower) || englishName.includes(searchLower);
+  });
+  
+  // Get pending items count
+  const pendingItemsCount = closingItems.filter(item => item.closing_qty === '' || item.closing_qty === null).length;
+  const filledItemsCount = closingItems.filter(item => item.closing_qty !== '' && item.closing_qty !== null).length;
 
   // Load closing history when date changes or tab switches
   useEffect(() => {
@@ -1409,7 +1452,7 @@ export default function RetailerDashboard() {
                   <p className="text-xs text-gray-500 mt-0.5">{t('retailer.enterClosingQty')}</p>
                 </div>
                 <button 
-                  onClick={() => setShowRecordClosingModal(false)} 
+                  onClick={() => { setShowRecordClosingModal(false); setClosingSearchTerm(''); }} 
                   className="p-1.5 hover:bg-gray-100 rounded"
                 >
                   <X size={20} />
@@ -1430,14 +1473,42 @@ export default function RetailerDashboard() {
                 />
               </div>
               
+              {/* Search Bar */}
+              <div className="p-4 border-b">
+                <div className="relative">
+                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder={t('retailer.searchProduct') || "Search product..."}
+                    value={closingSearchTerm}
+                    onChange={(e) => setClosingSearchTerm(e.target.value)}
+                    className="w-full pl-10 h-10"
+                    data-testid="closing-search-input"
+                  />
+                  {closingSearchTerm && (
+                    <button 
+                      onClick={() => setClosingSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+                {closingSearchTerm && (
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    Showing {filteredClosingItems.length} of {closingItems.length} products
+                  </p>
+                )}
+              </div>
+              
               {/* Products List */}
               <div className="flex-1 overflow-y-auto p-4">
                 <div className="space-y-3">
-                  {closingItems.map((item, index) => (
+                  {filteredClosingItems.map((item, index) => (
                     <div 
                       key={item.product_id} 
                       className={`flex items-center justify-between p-3 rounded-lg border ${
-                        item.closing_qty !== '' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'
+                        item.closing_qty !== '' && item.closing_qty !== null ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'
                       }`}
                     >
                       <div className="flex-1">
@@ -1457,6 +1528,11 @@ export default function RetailerDashboard() {
                       </div>
                     </div>
                   ))}
+                  {filteredClosingItems.length === 0 && closingSearchTerm && (
+                    <div className="text-center py-8 text-gray-500">
+                      No products found matching "{closingSearchTerm}"
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -1464,20 +1540,21 @@ export default function RetailerDashboard() {
               <div className="p-4 border-t bg-gray-50">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-gray-500">
-                    {closingItems.filter(i => i.closing_qty !== '').length} {t('retailer.of')} {closingItems.length} {t('retailer.productsFilled')}
+                    <span className="text-green-600 font-medium">{filledItemsCount}</span> {t('retailer.filled')}, {' '}
+                    <span className="text-orange-600 font-medium">{pendingItemsCount}</span> {t('retailer.pending')}
                   </span>
                 </div>
                 <div className="flex gap-3">
                   <Button 
                     variant="outline" 
-                    onClick={() => setShowRecordClosingModal(false)} 
+                    onClick={() => { setShowRecordClosingModal(false); setClosingSearchTerm(''); }} 
                     className="flex-1"
                     disabled={savingClosing}
                   >
                     {t('common.cancel')}
                   </Button>
                   <Button 
-                    onClick={saveClosingInventory}
+                    onClick={() => saveClosingInventory(false)}
                     disabled={savingClosing}
                     className="flex-1 bg-green-600 hover:bg-green-700"
                   >
@@ -1494,6 +1571,75 @@ export default function RetailerDashboard() {
                     )}
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* ==================== PENDING ITEMS CONFIRMATION MODAL ==================== */}
+        {showPendingConfirmation && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="p-4 border-b">
+                <h3 className="text-lg font-semibold text-orange-600 flex items-center gap-2">
+                  <AlertTriangle size={20} />
+                  {t('retailer.pendingItemsTitle') || 'Pending Items'}
+                </h3>
+              </div>
+              
+              <div className="p-4">
+                <p className="text-gray-700 mb-4">
+                  {t('retailer.pendingItemsMessage') || `You have ${pendingItemsCount} products without closing quantity. Are you sure there is no remaining stock for these items?`}
+                </p>
+                
+                {/* List of pending items */}
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 max-h-48 overflow-y-auto">
+                  <p className="text-sm font-medium text-orange-800 mb-2">
+                    {t('retailer.pendingProductsList') || 'Products without closing qty:'}
+                  </p>
+                  <ul className="text-sm text-orange-700 space-y-1">
+                    {closingItems
+                      .filter(item => item.closing_qty === '' || item.closing_qty === null)
+                      .slice(0, 10)
+                      .map(item => (
+                        <li key={item.product_id} className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-orange-400 rounded-full"></span>
+                          {getProductName(item)}
+                        </li>
+                      ))}
+                    {pendingItemsCount > 10 && (
+                      <li className="text-orange-600 italic">... and {pendingItemsCount - 10} more</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+              
+              <div className="p-4 border-t bg-gray-50 space-y-3">
+                <Button 
+                  onClick={() => saveClosingInventory(true)}
+                  disabled={savingClosing}
+                  className="w-full bg-orange-600 hover:bg-orange-700"
+                >
+                  {savingClosing ? (
+                    <>
+                      <RefreshCw size={14} className="mr-1.5 animate-spin" />
+                      {t('common.loading')}
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} className="mr-1.5" />
+                      {t('retailer.yesSetZero') || 'Yes, set all pending as 0'}
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={continueFilling}
+                  disabled={savingClosing}
+                  className="w-full"
+                >
+                  {t('retailer.noMoreItems') || 'No, I need to fill more items'}
+                </Button>
               </div>
             </div>
           </div>

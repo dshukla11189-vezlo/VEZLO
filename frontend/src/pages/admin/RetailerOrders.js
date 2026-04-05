@@ -174,6 +174,8 @@ export default function RetailerOrders() {
   const [dailyReqLoading, setDailyReqLoading] = useState(false);
   const [dailyReqError, setDailyReqError] = useState('');
   const [dailyReqRetailer, setDailyReqRetailer] = useState('');
+  const [dailyReqSaving, setDailyReqSaving] = useState(false);
+  const [dailyReqSaved, setDailyReqSaved] = useState(false);
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -865,6 +867,90 @@ export default function RetailerOrders() {
     `);
     printWindow.document.close();
     printWindow.print();
+  };
+
+  // Delete row from daily requirement
+  const deleteRequirementRow = (idx) => {
+    const newData = dailyReqData.filter((_, i) => i !== idx);
+    setDailyReqData(newData);
+    setDailyReqSaved(false);
+    toast.success('Row deleted');
+  };
+
+  // Update Kg field (bidirectional recalculation)
+  const updateKgRequired = (idx, value) => {
+    const newData = [...dailyReqData];
+    const kg = parseFloat(value) || 0;
+    newData[idx].kgRequired = kg;
+    // Recalculate amount if rate is set
+    if (newData[idx].ratePerKg) {
+      newData[idx].amountPaid = (kg * parseFloat(newData[idx].ratePerKg)).toFixed(2);
+    }
+    setDailyReqData(newData);
+    setDailyReqSaved(false);
+  };
+
+  // Bidirectional Rate -> Amount
+  const updateRatePerKg = (idx, value) => {
+    const newData = [...dailyReqData];
+    newData[idx].ratePerKg = value;
+    if (value && newData[idx].kgRequired) {
+      newData[idx].amountPaid = (parseFloat(value) * newData[idx].kgRequired).toFixed(2);
+    }
+    setDailyReqData(newData);
+    setDailyReqSaved(false);
+  };
+
+  // Bidirectional Amount -> Rate
+  const updateAmountPaid = (idx, value) => {
+    const newData = [...dailyReqData];
+    newData[idx].amountPaid = value;
+    if (value && newData[idx].kgRequired > 0) {
+      newData[idx].ratePerKg = (parseFloat(value) / newData[idx].kgRequired).toFixed(2);
+    }
+    setDailyReqData(newData);
+    setDailyReqSaved(false);
+  };
+
+  // Save daily requirement
+  const saveDailyRequirement = async () => {
+    if (dailyReqData.length === 0) {
+      toast.error('No data to save');
+      return;
+    }
+    
+    setDailyReqSaving(true);
+    try {
+      const payload = {
+        requirement_date: dailyReqDate,
+        retailer_id: dailyReqRetailer || null,
+        retailer_name: dailyReqRetailer 
+          ? retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || 'All Retailers'
+          : 'All Retailers',
+        items: dailyReqData.map(item => ({
+          product_id: item.productId,
+          product_name: item.productName,
+          variant_id: item.variantId || null,
+          variant_name: item.variantName || '',
+          indent_qty: item.indentQty,
+          kg_required: item.kgRequired,
+          rate_per_kg: parseFloat(item.ratePerKg) || 0,
+          amount: parseFloat(item.amountPaid) || 0,
+          remarks: item.remarks || ''
+        })),
+        total_kg: dailyReqData.reduce((sum, item) => sum + item.kgRequired, 0),
+        total_amount: dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0)
+      };
+      
+      await api.post('/api/retailer-daily-requirement', payload);
+      setDailyReqSaved(true);
+      toast.success('Daily requirement saved successfully!');
+    } catch (error) {
+      console.error('Failed to save daily requirement:', error);
+      toast.error('Failed to save daily requirement');
+    } finally {
+      setDailyReqSaving(false);
+    }
   };
 
   // ==================== DISPATCH HANDLERS ====================
@@ -1859,10 +1945,35 @@ export default function RetailerOrders() {
                     )}
                   </Button>
                   {dailyReqData.length > 0 && (
-                    <Button variant="outline" onClick={printDailyRequirement} className="h-9">
-                      <Download size={14} className="mr-1" />
-                      Print
-                    </Button>
+                    <>
+                      <Button 
+                        variant="outline" 
+                        onClick={saveDailyRequirement} 
+                        disabled={dailyReqSaving}
+                        className={`h-9 ${dailyReqSaved ? 'border-green-500 text-green-600' : ''}`}
+                      >
+                        {dailyReqSaving ? (
+                          <span className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                            Saving...
+                          </span>
+                        ) : dailyReqSaved ? (
+                          <span className="flex items-center gap-2">
+                            <Check size={14} />
+                            Saved
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <FileSpreadsheet size={14} />
+                            Save
+                          </span>
+                        )}
+                      </Button>
+                      <Button variant="outline" onClick={printDailyRequirement} className="h-9">
+                        <Download size={14} className="mr-1" />
+                        Print
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -1891,44 +2002,47 @@ export default function RetailerOrders() {
                         <th className="p-3 text-left">Product Name</th>
                         <th className="p-3 text-left">Packaging/Variant</th>
                         <th className="p-3 text-center">Indent Qty</th>
-                        <th className="p-3 text-right">Kg Required</th>
+                        <th className="p-3 text-center w-24">Kg Required</th>
                         <th className="p-3 text-right w-24">Rate/Kg (₹)</th>
                         <th className="p-3 text-right w-24">Amount (₹)</th>
                         <th className="p-3 text-left w-32">Remarks</th>
+                        <th className="p-3 text-center w-12">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyReqData.map((item, idx) => (
-                        <tr key={`${item.productId}-${item.variantId}`} className="border-b hover:bg-gray-50">
+                        <tr key={`${item.productId}-${item.variantId}-${idx}`} className="border-b hover:bg-gray-50">
                           <td className="p-3 text-gray-500">{idx + 1}</td>
                           <td className="p-3 font-medium">{getProductName(item)}</td>
                           <td className="p-3 text-gray-600">{item.variantName || '-'}</td>
                           <td className="p-3 text-center font-semibold">{item.indentQty}</td>
-                          <td className="p-3 text-right font-semibold text-green-700">{item.kgRequired.toFixed(2)}</td>
                           <td className="p-3">
                             <Input
                               type="number"
+                              step="0.01"
+                              placeholder="Kg"
+                              value={item.kgRequired}
+                              onChange={(e) => updateKgRequired(idx, e.target.value)}
+                              className="h-8 w-20 text-center text-sm font-semibold text-green-700"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Input
+                              type="number"
+                              step="0.01"
                               placeholder="Rate"
                               value={item.ratePerKg}
-                              onChange={(e) => {
-                                const newData = [...dailyReqData];
-                                newData[idx].ratePerKg = e.target.value;
-                                newData[idx].amountPaid = e.target.value ? (parseFloat(e.target.value) * item.kgRequired).toFixed(2) : '';
-                                setDailyReqData(newData);
-                              }}
+                              onChange={(e) => updateRatePerKg(idx, e.target.value)}
                               className="h-8 w-20 text-right text-sm"
                             />
                           </td>
                           <td className="p-3">
                             <Input
                               type="number"
+                              step="0.01"
                               placeholder="Amount"
                               value={item.amountPaid}
-                              onChange={(e) => {
-                                const newData = [...dailyReqData];
-                                newData[idx].amountPaid = e.target.value;
-                                setDailyReqData(newData);
-                              }}
+                              onChange={(e) => updateAmountPaid(idx, e.target.value)}
                               className="h-8 w-20 text-right text-sm"
                             />
                           </td>
@@ -1941,9 +2055,20 @@ export default function RetailerOrders() {
                                 const newData = [...dailyReqData];
                                 newData[idx].remarks = e.target.value;
                                 setDailyReqData(newData);
+                                setDailyReqSaved(false);
                               }}
                               className="h-8 text-sm"
                             />
+                          </td>
+                          <td className="p-3 text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteRequirementRow(idx)}
+                              className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 size={14} />
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -1952,11 +2077,12 @@ export default function RetailerOrders() {
                       <tr className="bg-gray-100 font-semibold">
                         <td colSpan={3} className="p-3 text-right">TOTAL</td>
                         <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.indentQty, 0)}</td>
-                        <td className="p-3 text-right text-green-700">{dailyReqData.reduce((sum, item) => sum + item.kgRequired, 0).toFixed(2)} Kg</td>
+                        <td className="p-3 text-center text-green-700">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
                         <td className="p-3"></td>
                         <td className="p-3 text-right">
                           ₹{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0).toFixed(2)}
                         </td>
+                        <td className="p-3"></td>
                         <td className="p-3"></td>
                       </tr>
                     </tfoot>

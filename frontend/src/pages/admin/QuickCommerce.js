@@ -229,6 +229,16 @@ export default function QuickCommerce() {
     productName: ''
   });
 
+  // QC Daily Requirement state
+  const [qcDailyReqDate, setQcDailyReqDate] = useState(new Date().toISOString().split('T')[0]);
+  const [qcDailyReqCustomer, setQcDailyReqCustomer] = useState('');
+  const [qcDailyReqData, setQcDailyReqData] = useState([]);
+  const [qcDailyReqLoading, setQcDailyReqLoading] = useState(false);
+  const [qcDailyReqError, setQcDailyReqError] = useState('');
+  const [qcDailyReqSaving, setQcDailyReqSaving] = useState(false);
+  const [qcDailyReqSaved, setQcDailyReqSaved] = useState(false);
+  const [wastageAverages, setWastageAverages] = useState([]);
+
   // ============================================================================
   // SECTION: DATA LOADING (useEffect)
   // ============================================================================
@@ -402,6 +412,304 @@ export default function QuickCommerce() {
   const clearIndentFilters = () => {
     const today = new Date().toISOString().split('T')[0];
     setIndentFilters({ fromDate: today, toDate: today, customerName: '', productName: '' });
+  };
+
+  // ============================================================================
+  // SECTION: QC DAILY REQUIREMENT FUNCTIONS
+  // ============================================================================
+
+  // Load wastage averages
+  const loadWastageAverages = async () => {
+    try {
+      const response = await api.get('/api/qc-wastage-averages');
+      setWastageAverages(response.data || []);
+    } catch (error) {
+      console.error('Failed to load wastage averages:', error);
+    }
+  };
+
+  // Calculate QC Daily Requirement
+  const calculateQcDailyRequirement = async () => {
+    if (!qcDailyReqDate) {
+      setQcDailyReqError('Please select a date');
+      return;
+    }
+
+    setQcDailyReqLoading(true);
+    setQcDailyReqError('');
+    setQcDailyReqData([]);
+    setQcDailyReqSaved(false);
+
+    try {
+      // Fetch indents for the selected date
+      let filtered = indents.filter(indent => {
+        const indentDate = indent.indent_date?.split('T')[0];
+        return indentDate === qcDailyReqDate;
+      });
+
+      // Filter by customer if selected
+      if (qcDailyReqCustomer) {
+        filtered = filtered.filter(indent => indent.customer_name === qcDailyReqCustomer);
+      }
+
+      if (!filtered || filtered.length === 0) {
+        setQcDailyReqError('No indents found for this date. Select another date.');
+        setQcDailyReqLoading(false);
+        return;
+      }
+
+      // Load wastage averages if not loaded
+      if (wastageAverages.length === 0) {
+        await loadWastageAverages();
+      }
+
+      // Aggregate all items from all indents
+      const productMap = new Map();
+
+      for (const indent of filtered) {
+        for (const item of (indent.items || [])) {
+          const key = `${item.product_id}-${item.packaging_id || 'default'}`;
+          
+          // Get packaging info
+          const packaging = packagingVariants.find(p => p.id === item.packaging_id);
+          const packagingWeight = packaging?.weight_gm || 0;
+          
+          // Get wastage average for this product+packaging
+          const wastageInfo = wastageAverages.find(w => 
+            w.product_id === item.product_id && 
+            w.packaging_id === item.packaging_id
+          );
+          const avgWastage = wastageInfo?.avg_wastage_qty || 0;
+
+          const qty = item.required_qty || 0;
+
+          if (productMap.has(key)) {
+            const existing = productMap.get(key);
+            existing.qtyRequired += qty;
+          } else {
+            productMap.set(key, {
+              productId: item.product_id,
+              productName: item.product_name,
+              productUnit: item.product_unit || 'pcs',
+              packagingId: item.packaging_id,
+              packagingName: item.packaging_name || packaging?.name || '-',
+              packagingWeight: packagingWeight,
+              qtyRequired: qty,
+              estimatedWastage: avgWastage,
+              actualQtyKg: 0,  // Will be calculated
+              weightPerBunch: packagingWeight / 1000 || 0.1,  // Default 100g per bunch
+              noOfBunches: 0,  // Will be calculated
+              rate: '',
+              amount: '',
+              remarks: ''
+            });
+          }
+        }
+      }
+
+      // Convert to array and calculate derived fields
+      const requirementData = Array.from(productMap.values()).map(item => {
+        // Actual Qty (Kg) = (Qty Required + Estimated Wastage) * weight per unit / 1000
+        const totalUnits = item.qtyRequired + item.estimatedWastage;
+        const actualQtyKg = item.packagingWeight > 0 
+          ? (totalUnits * item.packagingWeight) / 1000 
+          : totalUnits;
+        
+        // No of bunches = Actual Qty Kg / Weight per bunch (default 0.1 kg = 100g)
+        const weightPerBunch = item.weightPerBunch || 0.1;
+        const noOfBunches = weightPerBunch > 0 ? Math.ceil(actualQtyKg / weightPerBunch) : 0;
+
+        return {
+          ...item,
+          actualQtyKg: parseFloat(actualQtyKg.toFixed(2)),
+          noOfBunches: noOfBunches
+        };
+      }).sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
+
+      setQcDailyReqData(requirementData);
+
+    } catch (error) {
+      console.error('Failed to calculate QC daily requirement:', error);
+      setQcDailyReqError('Failed to fetch indents. Please try again.');
+    } finally {
+      setQcDailyReqLoading(false);
+    }
+  };
+
+  // Update QC requirement row field with recalculations
+  const updateQcReqField = (idx, field, value) => {
+    const newData = [...qcDailyReqData];
+    newData[idx][field] = value;
+
+    // Recalculate derived fields based on what changed
+    if (field === 'qtyRequired' || field === 'estimatedWastage' || field === 'packagingWeight') {
+      const totalUnits = (parseFloat(newData[idx].qtyRequired) || 0) + (parseFloat(newData[idx].estimatedWastage) || 0);
+      const packWeight = parseFloat(newData[idx].packagingWeight) || 0;
+      const actualQtyKg = packWeight > 0 ? (totalUnits * packWeight) / 1000 : totalUnits;
+      newData[idx].actualQtyKg = parseFloat(actualQtyKg.toFixed(2));
+      
+      // Recalculate bunches
+      const weightPerBunch = parseFloat(newData[idx].weightPerBunch) || 0.1;
+      newData[idx].noOfBunches = weightPerBunch > 0 ? Math.ceil(actualQtyKg / weightPerBunch) : 0;
+    }
+
+    if (field === 'actualQtyKg' || field === 'weightPerBunch') {
+      const actualKg = parseFloat(newData[idx].actualQtyKg) || 0;
+      const weightPerBunch = parseFloat(newData[idx].weightPerBunch) || 0.1;
+      newData[idx].noOfBunches = weightPerBunch > 0 ? Math.ceil(actualKg / weightPerBunch) : 0;
+    }
+
+    // Bidirectional rate/amount
+    if (field === 'rate') {
+      const rate = parseFloat(value) || 0;
+      const kg = parseFloat(newData[idx].actualQtyKg) || 0;
+      newData[idx].amount = (rate * kg).toFixed(2);
+    }
+
+    if (field === 'amount') {
+      const amount = parseFloat(value) || 0;
+      const kg = parseFloat(newData[idx].actualQtyKg) || 0;
+      if (kg > 0) {
+        newData[idx].rate = (amount / kg).toFixed(2);
+      }
+    }
+
+    setQcDailyReqData(newData);
+    setQcDailyReqSaved(false);
+  };
+
+  // Delete row from QC daily requirement
+  const deleteQcReqRow = (idx) => {
+    const newData = qcDailyReqData.filter((_, i) => i !== idx);
+    setQcDailyReqData(newData);
+    setQcDailyReqSaved(false);
+    toast.success('Row deleted');
+  };
+
+  // Save QC Daily Requirement
+  const saveQcDailyRequirement = async () => {
+    if (qcDailyReqData.length === 0) {
+      toast.error('No data to save');
+      return;
+    }
+
+    setQcDailyReqSaving(true);
+    try {
+      const payload = {
+        requirement_date: qcDailyReqDate,
+        customer_name: qcDailyReqCustomer || 'All Customers',
+        items: qcDailyReqData.map(item => ({
+          product_id: item.productId,
+          product_name: item.productName,
+          product_unit: item.productUnit,
+          packaging_id: item.packagingId || null,
+          packaging_name: item.packagingName || '',
+          qty_required: parseFloat(item.qtyRequired) || 0,
+          estimated_wastage: parseFloat(item.estimatedWastage) || 0,
+          actual_qty_kg: parseFloat(item.actualQtyKg) || 0,
+          weight_per_bunch: parseFloat(item.weightPerBunch) || 0,
+          no_of_bunches: parseInt(item.noOfBunches) || 0,
+          rate: parseFloat(item.rate) || 0,
+          amount: parseFloat(item.amount) || 0,
+          remarks: item.remarks || ''
+        })),
+        total_qty_required: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.qtyRequired) || 0), 0),
+        total_actual_qty: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.actualQtyKg) || 0), 0),
+        total_bunches: qcDailyReqData.reduce((sum, item) => sum + (parseInt(item.noOfBunches) || 0), 0),
+        total_amount: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0)
+      };
+
+      await api.post('/api/qc-daily-requirement', payload);
+      setQcDailyReqSaved(true);
+      toast.success('QC Daily requirement saved successfully!');
+    } catch (error) {
+      console.error('Failed to save QC daily requirement:', error);
+      toast.error('Failed to save QC daily requirement');
+    } finally {
+      setQcDailyReqSaving(false);
+    }
+  };
+
+  // Print QC Daily Requirement
+  const printQcDailyRequirement = () => {
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>QC Daily Purchase Requirement - ${qcDailyReqDate}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { text-align: center; margin-bottom: 5px; }
+            h2 { text-align: center; color: #666; margin-top: 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 11px; }
+            th, td { border: 1px solid #333; padding: 6px; text-align: left; }
+            th { background-color: #f0f0f0; font-weight: bold; }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
+            .footer { margin-top: 30px; text-align: right; font-size: 12px; color: #666; }
+            @media print { 
+              body { padding: 0; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>QC Daily Purchase Requirement</h1>
+          <h2>Date: ${new Date(qcDailyReqDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>
+          ${qcDailyReqCustomer ? `<p style="text-align:center;">Customer: ${qcDailyReqCustomer}</p>` : '<p style="text-align:center;">All Customers</p>'}
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Product</th>
+                <th>Packaging</th>
+                <th class="text-center">Qty Req</th>
+                <th class="text-center">Est Wastage</th>
+                <th class="text-right">Actual Kg</th>
+                <th class="text-center">Wt/Bunch</th>
+                <th class="text-center">Bunches</th>
+                <th class="text-right">Rate</th>
+                <th class="text-right">Amount</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${qcDailyReqData.map((item, idx) => `
+                <tr>
+                  <td class="text-center">${idx + 1}</td>
+                  <td>${getProductName(item) || item.productName}</td>
+                  <td>${item.packagingName || '-'}</td>
+                  <td class="text-center">${item.qtyRequired}</td>
+                  <td class="text-center">${item.estimatedWastage || 0}</td>
+                  <td class="text-right">${item.actualQtyKg}</td>
+                  <td class="text-center">${item.weightPerBunch || '-'}</td>
+                  <td class="text-center">${item.noOfBunches}</td>
+                  <td class="text-right">${item.rate || ''}</td>
+                  <td class="text-right">${item.amount || ''}</td>
+                  <td>${item.remarks || ''}</td>
+                </tr>
+              `).join('')}
+              <tr style="font-weight:bold; background-color:#f9f9f9;">
+                <td colspan="3">TOTAL</td>
+                <td class="text-center">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.qtyRequired) || 0), 0)}</td>
+                <td class="text-center">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.estimatedWastage) || 0), 0).toFixed(1)}</td>
+                <td class="text-right">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.actualQtyKg) || 0), 0).toFixed(2)} Kg</td>
+                <td></td>
+                <td class="text-center">${qcDailyReqData.reduce((sum, item) => sum + (parseInt(item.noOfBunches) || 0), 0)}</td>
+                <td></td>
+                <td class="text-right">₹${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0).toFixed(2)}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="footer">
+            Generated on: ${new Date().toLocaleString('en-IN')} | Mr Organix
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   const formatDate = (date) => {
@@ -2062,9 +2370,10 @@ Email: ${companyEmail}`;
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="indent" className="w-full">
+      <Tabs defaultValue="dailyReq" className="w-full">
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-2">
-          <TabsList className="inline-flex w-max gap-1 p-1 md:grid md:w-full md:grid-cols-6 md:max-w-3xl">
+          <TabsList className="inline-flex w-max gap-1 p-1 md:grid md:w-full md:grid-cols-7 md:max-w-4xl">
+            <TabsTrigger value="dailyReq" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[80px]">Daily Req</TabsTrigger>
             <TabsTrigger value="indent" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[60px]">Indent</TabsTrigger>
             <TabsTrigger value="dispatch" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[70px]">Dispatch</TabsTrigger>
             <TabsTrigger value="invoices" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[80px]">Invoices ({invoices.length})</TabsTrigger>
@@ -2073,6 +2382,234 @@ Email: ${companyEmail}`;
             <TabsTrigger value="customers" className="whitespace-nowrap text-[11px] md:text-sm px-2 py-1.5 md:px-4 min-w-[100px]">Customers ({customers.length})</TabsTrigger>
           </TabsList>
         </div>
+
+        {/* QC DAILY REQUIREMENT TAB */}
+        <TabsContent value="dailyReq" className="mt-6">
+          <Card>
+            <CardHeader className="py-3 border-b">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Package size={16} className="text-green-600" />
+                    QC Daily Purchase Requirement
+                  </CardTitle>
+                  <p className="text-xs text-gray-500 mt-1">Calculate requirement from indents + estimated wastage (1-month avg)</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={qcDailyReqCustomer}
+                    onChange={(e) => setQcDailyReqCustomer(e.target.value)}
+                    className="h-9 px-3 rounded-md border border-gray-200 text-sm"
+                    data-testid="qc-daily-req-customer"
+                  >
+                    <option value="">All Customers</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                  <Input
+                    type="date"
+                    value={qcDailyReqDate}
+                    onChange={(e) => setQcDailyReqDate(e.target.value)}
+                    className="h-9 w-40"
+                    data-testid="qc-daily-req-date"
+                  />
+                  <Button 
+                    onClick={calculateQcDailyRequirement}
+                    disabled={qcDailyReqLoading}
+                    className="bg-[#14532D] h-9"
+                    data-testid="qc-daily-req-calculate"
+                  >
+                    {qcDailyReqLoading ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={14} className="animate-spin" />
+                        Loading...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <RefreshCw size={14} />
+                        Calculate
+                      </span>
+                    )}
+                  </Button>
+                  {qcDailyReqData.length > 0 && (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        onClick={saveQcDailyRequirement} 
+                        disabled={qcDailyReqSaving}
+                        className={`h-9 ${qcDailyReqSaved ? 'border-green-500 text-green-600' : ''}`}
+                        data-testid="qc-daily-req-save"
+                      >
+                        {qcDailyReqSaving ? (
+                          <span className="flex items-center gap-2">
+                            <Loader2 size={14} className="animate-spin" />
+                            Saving...
+                          </span>
+                        ) : qcDailyReqSaved ? (
+                          <span className="flex items-center gap-2">
+                            <Check size={14} />
+                            Saved
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <Save size={14} />
+                            Save
+                          </span>
+                        )}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={printQcDailyRequirement} 
+                        className="h-9"
+                        data-testid="qc-daily-req-print"
+                      >
+                        <Printer size={14} className="mr-1" />
+                        Print
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4" id="qc-daily-requirement-print">
+              {qcDailyReqError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-center">
+                  <AlertTriangle size={24} className="mx-auto mb-2" />
+                  <p>{qcDailyReqError}</p>
+                </div>
+              )}
+
+              {!qcDailyReqError && qcDailyReqData.length === 0 && !qcDailyReqLoading && (
+                <div className="text-center py-12 text-gray-500">
+                  <Package size={48} className="mx-auto mb-4 opacity-30" />
+                  <p>Select a date and click "Calculate" to view purchase requirements</p>
+                  <p className="text-xs mt-2">Calculation: Indent Qty + Estimated Wastage (1-month avg) = Actual Qty</p>
+                </div>
+              )}
+
+              {qcDailyReqData.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="p-2 text-left w-8">#</th>
+                        <th className="p-2 text-left">Product</th>
+                        <th className="p-2 text-left">Packaging</th>
+                        <th className="p-2 text-center w-20">Qty Req</th>
+                        <th className="p-2 text-center w-24">Est Wastage</th>
+                        <th className="p-2 text-center w-24">Actual Kg</th>
+                        <th className="p-2 text-center w-20">Wt/Bunch</th>
+                        <th className="p-2 text-center w-20">Bunches</th>
+                        <th className="p-2 text-right w-20">Rate (₹)</th>
+                        <th className="p-2 text-right w-24">Amount (₹)</th>
+                        <th className="p-2 text-left w-28">Remarks</th>
+                        <th className="p-2 text-center w-10">Del</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {qcDailyReqData.map((item, idx) => (
+                        <tr key={`${item.productId}-${item.packagingId}-${idx}`} className="border-b hover:bg-gray-50">
+                          <td className="p-2 text-gray-500">{idx + 1}</td>
+                          <td className="p-2 font-medium">{getProductName(item) || item.productName}</td>
+                          <td className="p-2 text-gray-600">{item.packagingName || '-'}</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="1"
+                              value={item.qtyRequired}
+                              onChange={(e) => updateQcReqField(idx, 'qtyRequired', e.target.value)}
+                              className="h-7 w-16 text-center text-xs"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={item.estimatedWastage}
+                              onChange={(e) => updateQcReqField(idx, 'estimatedWastage', e.target.value)}
+                              className="h-7 w-16 text-center text-xs text-amber-600"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.actualQtyKg}
+                              onChange={(e) => updateQcReqField(idx, 'actualQtyKg', e.target.value)}
+                              className="h-7 w-16 text-center text-xs font-semibold text-green-700"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.weightPerBunch}
+                              onChange={(e) => updateQcReqField(idx, 'weightPerBunch', e.target.value)}
+                              className="h-7 w-14 text-center text-xs"
+                            />
+                          </td>
+                          <td className="p-2 text-center font-semibold text-blue-700">{item.noOfBunches}</td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.rate}
+                              onChange={(e) => updateQcReqField(idx, 'rate', e.target.value)}
+                              className="h-7 w-16 text-right text-xs"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.amount}
+                              onChange={(e) => updateQcReqField(idx, 'amount', e.target.value)}
+                              className="h-7 w-18 text-right text-xs"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="text"
+                              placeholder="Remarks"
+                              value={item.remarks || ''}
+                              onChange={(e) => updateQcReqField(idx, 'remarks', e.target.value)}
+                              className="h-7 text-xs"
+                            />
+                          </td>
+                          <td className="p-2 text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteQcReqRow(idx)}
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 size={12} />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-100 font-semibold">
+                        <td colSpan={3} className="p-2 text-right">TOTAL</td>
+                        <td className="p-2 text-center">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.qtyRequired) || 0), 0)}</td>
+                        <td className="p-2 text-center text-amber-600">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.estimatedWastage) || 0), 0).toFixed(1)}</td>
+                        <td className="p-2 text-center text-green-700">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.actualQtyKg) || 0), 0).toFixed(2)} Kg</td>
+                        <td className="p-2"></td>
+                        <td className="p-2 text-center text-blue-700">{qcDailyReqData.reduce((sum, item) => sum + (parseInt(item.noOfBunches) || 0), 0)}</td>
+                        <td className="p-2"></td>
+                        <td className="p-2 text-right">₹{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0).toFixed(2)}</td>
+                        <td className="p-2"></td>
+                        <td className="p-2"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* INDENT TAB */}
         <TabsContent value="indent" className="mt-6">

@@ -938,7 +938,7 @@ async def ocr_qc_order(file: UploadFile = File(...), current_user: dict = Depend
     
     allowed_types = ["image/jpeg", "image/png", "image/bmp", "image/webp"]
     if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: JPG, PNG, BMP, WEBP")
+        raise HTTPException(status_code=400, detail="Invalid file type. Allowed: JPG, PNG, BMP, WEBP")
     
     try:
         content = await file.read()
@@ -1499,7 +1499,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             if rows_data:
                 logger.info(f"First Excel row parsed: {rows_data[0]}")
             else:
-                logger.warning(f"No data rows found in Excel file")
+                logger.warning("No data rows found in Excel file")
             
             workbook.close()
         except Exception as e:
@@ -5864,7 +5864,7 @@ async def gmail_oauth_login(request: Request, current_user: dict = Depends(get_c
     origin = request.headers.get("origin", "")
     referer = request.headers.get("referer", "")
     
-    logger.info(f"OAuth Login - Headers Debug:")
+    logger.info("OAuth Login - Headers Debug:")
     logger.info(f"  host: {host}")
     logger.info(f"  x-forwarded-host: {x_forwarded_host}")
     logger.info(f"  x-forwarded-proto: {x_forwarded_proto}")
@@ -7244,6 +7244,233 @@ async def delete_closing_inventory_item(
     return {"message": "Item deleted successfully"}
 
 
+
+
+# ==================== DAILY REQUIREMENT ENDPOINTS ====================
+
+@app.post("/api/retailer-daily-requirement")
+async def save_retailer_daily_requirement(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Save or update retailer daily purchase requirement"""
+    from datetime import datetime, timezone
+    
+    requirement_date = data.get("requirement_date")
+    retailer_id = data.get("retailer_id")  # Can be null for 'All Retailers'
+    
+    if not requirement_date:
+        raise HTTPException(status_code=400, detail="Requirement date is required")
+    
+    # Check if record exists for this date + retailer combo
+    query = {"requirement_date": requirement_date}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    else:
+        query["retailer_id"] = None
+    
+    existing = await db.retailer_daily_requirements.find_one(query)
+    
+    doc = {
+        "requirement_date": requirement_date,
+        "retailer_id": retailer_id,
+        "retailer_name": data.get("retailer_name", "All Retailers"),
+        "items": data.get("items", []),
+        "total_kg": data.get("total_kg", 0),
+        "total_amount": data.get("total_amount", 0),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user.get("user_id")
+    }
+    
+    if existing:
+        # Update existing
+        await db.retailer_daily_requirements.update_one(
+            {"_id": existing["_id"]},
+            {"$set": doc}
+        )
+        return {"message": "Daily requirement updated", "id": existing.get("id")}
+    else:
+        # Create new
+        doc["id"] = str(uuid.uuid4())
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        doc["created_by"] = current_user.get("user_id")
+        await db.retailer_daily_requirements.insert_one(doc)
+        return {"message": "Daily requirement saved", "id": doc["id"]}
+
+
+@app.get("/api/retailer-daily-requirement/{requirement_date}")
+async def get_retailer_daily_requirement(
+    requirement_date: str,
+    retailer_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get saved daily requirement for a date"""
+    query = {"requirement_date": requirement_date}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    else:
+        query["retailer_id"] = None
+    
+    doc = await db.retailer_daily_requirements.find_one(query, {"_id": 0})
+    if not doc:
+        return None
+    return doc
+
+
+@app.get("/api/retailer-daily-requirements")
+async def list_retailer_daily_requirements(
+    limit: int = Query(default=30, le=100),
+    current_user: dict = Depends(get_current_user)
+):
+    """List recent daily requirements"""
+    docs = await db.retailer_daily_requirements.find(
+        {}, {"_id": 0}
+    ).sort("requirement_date", -1).to_list(limit)
+    return docs
+
+
+# ==================== QC DAILY REQUIREMENT ENDPOINTS ====================
+
+@app.get("/api/qc-wastage-averages")
+async def get_qc_wastage_averages(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate 1-month average wastage per product from QC GRN data.
+    Wastage = supplied_qty - grn_qty (what we sent minus what was accepted)
+    """
+    from datetime import datetime, timedelta, timezone
+    
+    # Get date 30 days ago
+    one_month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    
+    # Get all GRNs from last 30 days
+    grns = await db.qc_grns.find(
+        {"grn_date": {"$gte": one_month_ago}},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Aggregate wastage by product
+    wastage_by_product = {}  # {product_id: {total_wastage_qty: 0, count: 0, product_name: '', packaging_name: ''}}
+    
+    for grn in grns:
+        for item in grn.get("items", []):
+            product_id = item.get("product_id", "")
+            packaging_id = item.get("packaging_id", "")
+            key = f"{product_id}_{packaging_id}"
+            
+            # Wastage = what we supplied - what was accepted in GRN
+            supplied = item.get("supplied_qty", 0) or 0
+            grn_qty = item.get("grn_qty", 0) or 0
+            wastage = max(0, supplied - grn_qty)  # Only count positive wastage
+            
+            if key not in wastage_by_product:
+                wastage_by_product[key] = {
+                    "product_id": product_id,
+                    "product_name": item.get("product_name", ""),
+                    "packaging_id": packaging_id,
+                    "packaging_name": item.get("packaging_name", ""),
+                    "total_wastage": 0,
+                    "total_supplied": 0,
+                    "count": 0
+                }
+            
+            wastage_by_product[key]["total_wastage"] += wastage
+            wastage_by_product[key]["total_supplied"] += supplied
+            wastage_by_product[key]["count"] += 1
+    
+    # Calculate averages
+    result = []
+    for key, data in wastage_by_product.items():
+        avg_wastage = data["total_wastage"] / data["count"] if data["count"] > 0 else 0
+        wastage_pct = (data["total_wastage"] / data["total_supplied"] * 100) if data["total_supplied"] > 0 else 0
+        
+        result.append({
+            "product_id": data["product_id"],
+            "product_name": data["product_name"],
+            "packaging_id": data["packaging_id"],
+            "packaging_name": data["packaging_name"],
+            "avg_wastage_qty": round(avg_wastage, 2),
+            "total_wastage": round(data["total_wastage"], 2),
+            "total_supplied": round(data["total_supplied"], 2),
+            "wastage_percentage": round(wastage_pct, 2),
+            "data_points": data["count"]
+        })
+    
+    return result
+
+
+@app.post("/api/qc-daily-requirement")
+async def save_qc_daily_requirement(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Save or update QC daily purchase requirement"""
+    from datetime import datetime, timezone
+    
+    requirement_date = data.get("requirement_date")
+    customer_name = data.get("customer_name", "All Customers")
+    
+    if not requirement_date:
+        raise HTTPException(status_code=400, detail="Requirement date is required")
+    
+    # Check if record exists for this date + customer combo
+    query = {"requirement_date": requirement_date, "customer_name": customer_name}
+    existing = await db.qc_daily_requirements.find_one(query)
+    
+    doc = {
+        "requirement_date": requirement_date,
+        "customer_name": customer_name,
+        "items": data.get("items", []),
+        "total_qty_required": data.get("total_qty_required", 0),
+        "total_actual_qty": data.get("total_actual_qty", 0),
+        "total_bunches": data.get("total_bunches", 0),
+        "total_amount": data.get("total_amount", 0),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user.get("user_id")
+    }
+    
+    if existing:
+        # Update existing
+        await db.qc_daily_requirements.update_one(
+            {"_id": existing["_id"]},
+            {"$set": doc}
+        )
+        return {"message": "QC daily requirement updated", "id": existing.get("id")}
+    else:
+        # Create new
+        doc["id"] = str(uuid.uuid4())
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+        doc["created_by"] = current_user.get("user_id")
+        await db.qc_daily_requirements.insert_one(doc)
+        return {"message": "QC daily requirement saved", "id": doc["id"]}
+
+
+@app.get("/api/qc-daily-requirement/{requirement_date}")
+async def get_qc_daily_requirement(
+    requirement_date: str,
+    customer_name: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get saved QC daily requirement for a date"""
+    query = {"requirement_date": requirement_date}
+    if customer_name:
+        query["customer_name"] = customer_name
+    
+    doc = await db.qc_daily_requirements.find_one(query, {"_id": 0})
+    return doc
+
+
+@app.get("/api/qc-daily-requirements")
+async def list_qc_daily_requirements(
+    limit: int = Query(default=30, le=100),
+    current_user: dict = Depends(get_current_user)
+):
+    """List recent QC daily requirements"""
+    docs = await db.qc_daily_requirements.find(
+        {}, {"_id": 0}
+    ).sort("requirement_date", -1).to_list(limit)
+    return docs
 
 
 @app.on_event("shutdown")

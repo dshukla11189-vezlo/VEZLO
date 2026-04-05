@@ -3886,12 +3886,25 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             if number_match:
                 packaging_map[number_match.group(1)] = weight
     
+    # Build cost_alias mapping: product_id -> aliased_product_id
+    # This ensures products like Spinach are combined with their alias (Palak)
+    cost_alias_id_map = {}
+    for product in products:
+        alias_id = product.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[product["id"]] = alias_id
+    
     # Calculate dispatches by product (convert units to Kg)
+    # Use cost_alias_id_map to combine aliased products
     dispatches_by_product = {}
     for dispatch in qc_dispatches + retailer_dispatches:
         for item in dispatch.get("items", []):
             product_name = item.get("product_name", "").lower()
             product_id = item.get("product_id")
+            
+            # Map to aliased product if applicable (e.g., Spinach → Palak)
+            target_product_id = cost_alias_id_map.get(product_id, product_id)
+            
             supplied_qty = item.get("supplied_qty", 0)  # in units
             # Check both packaging_name (QC) and variant_name (Retail)
             packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
@@ -3914,10 +3927,11 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             rate = item.get("rate") or 0
             value = supplied_qty * rate
             
-            if product_id not in dispatches_by_product:
-                dispatches_by_product[product_id] = {"qty": 0, "value": 0}
-            dispatches_by_product[product_id]["qty"] += qty_kg
-            dispatches_by_product[product_id]["value"] += value
+            # Use the target_product_id (mapped from alias) for aggregation
+            if target_product_id not in dispatches_by_product:
+                dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
+            dispatches_by_product[target_product_id]["qty"] += qty_kg
+            dispatches_by_product[target_product_id]["value"] += value
     
     # Build stock status for each product
     result = []
@@ -4101,11 +4115,19 @@ async def recalculate_stock_dispatches(
             if number_match:
                 packaging_map[number_match.group(1)] = weight
     
+    # Get all products to build cost_alias mapping
+    products = await db.products.find({}, {"_id": 0}).to_list(1000)
+    cost_alias_id_map = {}
+    for product in products:
+        alias_id = product.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[product["id"]] = alias_id
+    
     # Get all dispatches for the target date
     all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
     all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
     
-    # Calculate dispatch totals by product
+    # Calculate dispatch totals by product (use cost_alias mapping)
     dispatches_by_product = {}
     for d in all_qc_dispatches + all_retailer_dispatches:
         dispatch_date = d.get("dispatch_date", "")
@@ -4117,6 +4139,9 @@ async def recalculate_stock_dispatches(
         if dispatch_date_str == date:
             for item in d.get("items", []):
                 product_id = item.get("product_id")
+                # Map to aliased product if applicable (e.g., Spinach → Palak)
+                target_product_id = cost_alias_id_map.get(product_id, product_id)
+                
                 supplied_qty = item.get("supplied_qty", 0)
                 packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
                 
@@ -4129,10 +4154,11 @@ async def recalculate_stock_dispatches(
                 
                 qty_kg = (supplied_qty * weight_gm) / 1000
                 
-                if product_id not in dispatches_by_product:
-                    dispatches_by_product[product_id] = {"qty": 0, "value": 0}
-                dispatches_by_product[product_id]["qty"] += qty_kg
-                dispatches_by_product[product_id]["value"] += supplied_qty * (item.get("rate") or 0)
+                # Use target_product_id (mapped from alias) for aggregation
+                if target_product_id not in dispatches_by_product:
+                    dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
+                dispatches_by_product[target_product_id]["qty"] += qty_kg
+                dispatches_by_product[target_product_id]["value"] += supplied_qty * (item.get("rate") or 0)
     
     # Get all stock status entries for the date
     stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)

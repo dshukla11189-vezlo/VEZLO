@@ -671,7 +671,7 @@ export default function RetailerOrders() {
   // ==================== AUTO INDENT CREATION ====================
   const handleAutoIndentCreation = async () => {
     if (!autoIndentRetailerId) {
-      toast.error(t('retailerOrdersAdmin.selectRetailerRequired') || 'Please select a retailer');
+      toast.error('Please select a retailer');
       return;
     }
     
@@ -1500,11 +1500,11 @@ export default function RetailerOrders() {
   };
 
   const tabs = [
-    { id: 'indents', label: t('retailerOrdersAdmin.indents') || 'Indents', icon: Package, count: indents.length },
-    { id: 'dispatches', label: t('retailerOrdersAdmin.dispatches') || 'Dispatches', icon: Truck, count: dispatches.length },
-    { id: 'invoices', label: t('retailerOrdersAdmin.invoices') || 'Invoices', icon: FileText, count: invoices.length },
-    { id: 'rejections', label: t('retailerOrdersAdmin.rejections') || 'Rejections', icon: AlertTriangle, count: rejections.length },
-    { id: 'payments', label: t('retailerOrdersAdmin.payments') || 'Payments', icon: DollarSign, count: payments.length }
+    { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
+    { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
+    { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
+    { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
+    { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length }
   ];
 
   // Calculate totals for selected dispatches (for invoice modal)
@@ -1513,13 +1513,13 @@ export default function RetailerOrders() {
     .reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
 
   return (
-    <Layout title={t('retailerOrdersAdmin.retailerOrders') || "Retailer Orders"}>
+    <Layout title="Retailer Orders">
       <div data-testid="retailer-orders-page">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">{t('retailerOrdersAdmin.retailerOrders') || 'Retailer Orders'}</h1>
-            <p className="text-sm text-gray-500">{t('retailerOrdersAdmin.manageRetailerOrders') || 'Manage retailer indents, dispatches, invoices and payments'}</p>
+            <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
+            <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
           </div>
           
           {/* Retailer Filter */}
@@ -1529,7 +1529,7 @@ export default function RetailerOrders() {
               onChange={(e) => setSelectedRetailer(e.target.value)}
               className="h-9 px-3 rounded-md border border-gray-200 text-sm"
             >
-              <option value="">{t('retailerOrdersAdmin.allRetailers') || 'All Retailers'}</option>
+              <option value="">All Retailers</option>
               {retailers.map(r => (
                 <option key={r.id} value={r.id}>{r.company_name || r.name} ({r.commission_percentage || 0}%)</option>
               ))}
@@ -1542,15 +1542,15 @@ export default function RetailerOrders() {
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <Package size={14} />
-              <span>{t('retailerOrdersAdmin.indents') || 'Indents'}</span>
+              <span>Indents</span>
             </div>
             <p className="text-lg font-bold">{dashboardStats.totalIndents}</p>
-            <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} {t('retailerOrdersAdmin.pending') || 'pending'}</p>
+            <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} pending</p>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <Truck size={14} />
-              <span>{t('retailerOrdersAdmin.dispatches') || 'Dispatches'}</span>
+              <span>Dispatches</span>
             </div>
             <p className="text-lg font-bold">{dashboardStats.totalDispatches}</p>
             <p className="text-xs text-gray-500">Total: {formatCurrency(dashboardStats.totalMrpValue)}</p>
@@ -1558,10 +1558,10 @@ export default function RetailerOrders() {
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <IndianRupee size={14} />
-              <span>{t('retailerOrdersAdmin.netReceivable') || 'Net Receivable'}</span>
+              <span>Net Receivable</span>
             </div>
             <p className="text-lg font-bold text-green-700">{formatCurrency(dashboardStats.totalNetReceivable)}</p>
-            <p className="text-xs text-gray-500">{t('retailerOrdersAdmin.invoiced') || 'Invoiced'}: {formatCurrency(dashboardStats.totalInvoiced)}</p>
+            <p className="text-xs text-gray-500">Invoiced: {formatCurrency(dashboardStats.totalInvoiced)}</p>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
@@ -1667,10 +1667,10 @@ export default function RetailerOrders() {
                   <FileSpreadsheet size={14} className="mr-1" /> Export
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50">
-                  <Zap size={14} className="mr-1" /> {t('retailerOrdersAdmin.autoIndentCreation') || 'Auto Indent'}
+                  <Zap size={14} className="mr-1" /> Auto Indent
                 </Button>
                 <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
-                  <Plus size={14} className="mr-1" /> {t('retailerOrdersAdmin.newIndent') || 'New Indent'}
+                  <Plus size={14} className="mr-1" /> New Indent
                 </Button>
               </div>
             </CardHeader>
@@ -2279,7 +2279,7 @@ export default function RetailerOrders() {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="text-lg font-semibold">{t('retailerOrdersAdmin.createIndentFor') || 'Create Indent for Retailer'}</h3>
+                <h3 className="text-lg font-semibold">Create Indent for Retailer</h3>
                 <button onClick={() => { setShowIndentModal(false); resetIndentForm(); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
@@ -2287,7 +2287,7 @@ export default function RetailerOrders() {
               <form onSubmit={handleCreateOrUpdateIndent} className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="relative">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('retailerOrdersAdmin.retailerShop') || 'Retailer (Shop)'} *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Retailer (Shop) *</label>
                     <Input
                       type="text"
                       value={retailerSearch || retailers.find(r => r.id === indentForm.retailer_id)?.company_name || retailers.find(r => r.id === indentForm.retailer_id)?.name || ''}
@@ -2305,7 +2305,7 @@ export default function RetailerOrders() {
                       onBlur={() => {
                         setTimeout(() => setShowRetailerDropdown(false), 200);
                       }}
-                      placeholder={t('retailerOrdersAdmin.searchShopName') || "Search shop name..."}
+                      placeholder="Search shop name..."
                       className="w-full h-9"
                       required
                     />
@@ -2332,7 +2332,7 @@ export default function RetailerOrders() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('retailerOrdersAdmin.date') || 'Date'} *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
                     <Input
                       type="date"
                       value={indentForm.indent_date}
@@ -2344,7 +2344,7 @@ export default function RetailerOrders() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-gray-700">{t('retailerOrdersAdmin.items') || 'Items'} *</label>
+                    <label className="text-sm font-medium text-gray-700">Items *</label>
                     <div className="flex gap-2">
                       {!editingIndent && (
                         <Button 
@@ -2354,11 +2354,11 @@ export default function RetailerOrders() {
                           onClick={() => loadPreviousRetailerIndent()}
                           className="border-blue-300 text-blue-600 hover:bg-blue-50"
                         >
-                          <Clock size={14} className="mr-1" /> {t('retailerOrdersAdmin.loadPrevious') || 'Load Previous'}
+                          <Clock size={14} className="mr-1" /> Load Previous
                         </Button>
                       )}
                       <Button type="button" size="sm" variant="outline" onClick={addIndentItem}>
-                        <Plus size={14} className="mr-1" /> {t('retailerOrdersAdmin.addItem') || 'Add Item'}
+                        <Plus size={14} className="mr-1" /> Add Item
                       </Button>
                     </div>
                   </div>
@@ -2403,7 +2403,7 @@ export default function RetailerOrders() {
                               // Delay hiding to allow click on dropdown items
                               setTimeout(() => setShowProductDropdown(null), 200);
                             }}
-                            placeholder={t('retailerOrdersAdmin.searchProduct') || "Search product..."}
+                            placeholder="Search product..."
                             className="h-9 text-sm"
                             required
                           />
@@ -2511,9 +2511,9 @@ export default function RetailerOrders() {
 
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => { setShowIndentModal(false); setEditingIndent(null); resetIndentForm(); }} className="flex-1">
-                    {t('retailerOrdersAdmin.cancel') || 'Cancel'}
+                    Cancel
                   </Button>
-                  <Button type="submit" className="flex-1 bg-[#14532D]">{editingIndent ? (t('retailerOrdersAdmin.updateIndent') || 'Update Indent') : (t('retailerOrdersAdmin.createIndent') || 'Create Indent')}</Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">{editingIndent ? 'Update Indent' : 'Create Indent'}</Button>
                 </div>
               </form>
             </div>
@@ -3217,7 +3217,7 @@ export default function RetailerOrders() {
               <div className="flex items-center justify-between p-4 border-b">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Zap size={20} className="text-purple-600" />
-                  {t('retailerOrdersAdmin.autoIndentCreation') || 'Auto Indent Creation'}
+                  Auto Indent Creation
                 </h3>
                 <button onClick={() => setShowAutoIndentModal(false)} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
@@ -3225,12 +3225,12 @@ export default function RetailerOrders() {
               </div>
               <div className="p-4 space-y-4">
                 <p className="text-sm text-gray-600 bg-purple-50 p-3 rounded-lg">
-                  {t('retailerOrdersAdmin.autoIndentDesc') || 'This will create an auto-generated indent based on the retailer\'s average sales from the last 7 identical weekdays + 10% buffer.'}
+                  This will create an auto-generated indent based on the retailer's average sales from the last 7 identical weekdays + 10% buffer.
                 </p>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('retailerOrdersAdmin.selectRetailer') || 'Select Retailer'} *
+                    Select Retailer *
                   </label>
                   <select
                     value={autoIndentRetailerId}
@@ -3238,7 +3238,7 @@ export default function RetailerOrders() {
                     className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
                     required
                   >
-                    <option value="">{t('retailerOrdersAdmin.chooseRetailer') || '-- Choose a Retailer --'}</option>
+                    <option value="">-- Choose a Retailer --</option>
                     {retailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
@@ -3247,7 +3247,7 @@ export default function RetailerOrders() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('retailerOrdersAdmin.indentDate') || 'Indent Date'} *
+                    Indent Date *
                   </label>
                   <Input
                     type="date"
@@ -3257,7 +3257,7 @@ export default function RetailerOrders() {
                     min={new Date().toISOString().split('T')[0]}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    {t('retailerOrdersAdmin.dateHelp') || 'Select the date for which the indent should be created'}
+                    Select the date for which the indent should be created
                   </p>
                 </div>
 
@@ -3269,7 +3269,7 @@ export default function RetailerOrders() {
                     className="flex-1"
                     disabled={autoIndentLoading}
                   >
-                    {t('retailerOrdersAdmin.cancel') || 'Cancel'}
+                    Cancel
                   </Button>
                   <Button 
                     type="button" 
@@ -3280,12 +3280,12 @@ export default function RetailerOrders() {
                     {autoIndentLoading ? (
                       <span className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        {t('retailerOrdersAdmin.generating') || 'Generating...'}
+                        Generating...
                       </span>
                     ) : (
                       <span className="flex items-center gap-2">
                         <Zap size={14} />
-                        {t('retailerOrdersAdmin.generateIndent') || 'Generate Indent'}
+                        Generate Indent
                       </span>
                     )}
                   </Button>

@@ -639,6 +639,41 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Improved visual design with ranked badges (1-gold, 2-silver, 3-bronze)
   - [x] Shows wastage %, value, and days of data
 
+### Daily Purchase Requirement Feature (COMPLETED - Apr 2026)
+- [x] **Retailer Daily Purchase Requirement Tab** (Apr 05, 2026):
+  - [x] New "Daily Requirement" tab in Admin Retailer Orders page (first tab position)
+  - [x] Date and Retailer filter dropdowns
+  - [x] Calculate button aggregates all indents for selected date/retailer
+  - [x] Table columns: #, Product Name, Packaging/Variant, Indent Qty, Kg Required (editable), Rate/Kg (editable), Amount (editable), Remarks, Action (delete)
+  - [x] **Bidirectional auto-calculation**: Rate × Kg = Amount, Amount ÷ Kg = Rate
+  - [x] **Editable Kg field**: User can adjust required Kg with auto-recalculation of Amount
+  - [x] **Row deletion**: Delete button removes row from calculation
+  - [x] **Save functionality**: POST /api/retailer-daily-requirement saves the sheet
+  - [x] **Print functionality**: Opens formatted print view
+  - [x] Total row shows sum of Indent Qty, Kg Required, and Amount
+- [x] **Quick Commerce Daily Purchase Requirement Tab** (Apr 05, 2026):
+  - [x] New "Daily Req" tab in Admin Quick Commerce page (first tab position)
+  - [x] Date and Customer filter dropdowns
+  - [x] Calculation logic: Indent Qty + Estimated Wastage (1-month avg) = Actual Qty Required
+  - [x] **Wastage estimation**: GET /api/qc-wastage-averages returns 1-month average wastage per product from GRN data
+  - [x] Table columns: #, Product, Packaging, Qty Req (editable), Est Wastage (editable), Actual Kg (auto-calc), Wt/Bunch (editable), Bunches (auto-calc), Rate (editable), Amount (editable), Remarks, Del
+  - [x] **Auto-calculations**:
+    - Actual Kg = (Qty Req + Est Wastage) × packaging_weight ÷ 1000
+    - No of Bunches = ceil(Actual Kg ÷ Weight per Bunch)
+  - [x] **Bidirectional Rate/Amount**: Rate × Actual Kg = Amount, Amount ÷ Actual Kg = Rate
+  - [x] **Row deletion**: Delete button removes row from calculation
+  - [x] **Save functionality**: POST /api/qc-daily-requirement saves the sheet
+  - [x] **Print functionality**: Opens formatted print view with all columns
+  - [x] Total row shows sums for Qty Req, Est Wastage, Actual Kg, Bunches, and Amount
+- [x] **Backend APIs for Daily Requirements**:
+  - [x] POST /api/retailer-daily-requirement - Save/update retailer daily requirement
+  - [x] GET /api/retailer-daily-requirement/{date} - Get saved requirement by date
+  - [x] GET /api/retailer-daily-requirements - List recent requirements
+  - [x] GET /api/qc-wastage-averages - Get 1-month average wastage per product
+  - [x] POST /api/qc-daily-requirement - Save/update QC daily requirement
+  - [x] GET /api/qc-daily-requirement/{date} - Get saved QC requirement by date
+  - [x] GET /api/qc-daily-requirements - List recent QC requirements
+
 ### Hindi Product Names Translation (COMPLETED - Apr 2026)
 - [x] **Product names display in Hindi when language is switched** (Apr 05, 2026):
   - [x] Added `name_hi` field to all 47 products in database

@@ -216,6 +216,8 @@
     "yourCommission": "आपका कमीशन",
     "invoicesCount": "बिल गिनती",
     "recentOrders": "हाल के ऑर्डर",
+    "indents": "इंडेंट",
+    "dispatched": "डिस्पैच",
     "date": "तारीख",
     "supplied": "आपूर्ति",
     "rejection": "अस्वीकृति",
@@ -484,6 +486,14 @@
     "partial": "आंशिक",
     "completed": "पूर्ण",
     "dispatched": "डिस्पैच किया",
-    "invoiced": "बिल किया"
+    "invoiced": "बिल किया",
+    "autoIndentCreation": "ऑटो इंडेंट",
+    "autoIndentDesc": "यह रिटेलर की पिछले 7 समान वारों की औसत बिक्री + 10% बफर के आधार पर एक ऑटो-जनरेटेड इंडेंट बनाएगा।",
+    "chooseRetailer": "-- रिटेलर चुनें --",
+    "indentDate": "इंडेंट तारीख",
+    "dateHelp": "उस तारीख का चयन करें जिसके लिए इंडेंट बनाना है",
+    "generating": "जनरेट हो रहा है...",
+    "generateIndent": "इंडेंट बनाएं",
+    "selectRetailerRequired": "कृपया रिटेलर चुनें"
   }
 }

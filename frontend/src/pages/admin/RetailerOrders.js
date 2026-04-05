@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap
 } from 'lucide-react';
 
 // Export utility function
@@ -161,6 +161,12 @@ export default function RetailerOrders() {
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
+  
+  // Auto Indent Creation state
+  const [showAutoIndentModal, setShowAutoIndentModal] = useState(false);
+  const [autoIndentDate, setAutoIndentDate] = useState(new Date(Date.now() + 86400000).toISOString().split('T')[0]); // Tomorrow by default
+  const [autoIndentRetailerId, setAutoIndentRetailerId] = useState('');
+  const [autoIndentLoading, setAutoIndentLoading] = useState(false);
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -660,6 +666,36 @@ export default function RetailerOrders() {
       }
       return { ...prev, items };
     });
+  };
+
+  // ==================== AUTO INDENT CREATION ====================
+  const handleAutoIndentCreation = async () => {
+    if (!autoIndentRetailerId) {
+      toast.error(t('retailerOrdersAdmin.selectRetailerRequired') || 'Please select a retailer');
+      return;
+    }
+    
+    setAutoIndentLoading(true);
+    try {
+      const response = await api.post('/api/admin/generate-auto-indent', {
+        retailer_id: autoIndentRetailerId,
+        target_date: autoIndentDate
+      });
+      
+      if (response.data.success) {
+        toast.success(response.data.message || `Auto indent created successfully for ${response.data.retailer_name}`);
+        setShowAutoIndentModal(false);
+        setAutoIndentRetailerId('');
+        loadIndents();
+      } else {
+        toast.error(response.data.message || 'Failed to create auto indent');
+      }
+    } catch (error) {
+      console.error('Auto indent creation error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to create auto indent. Check if retailer has sales history.');
+    } finally {
+      setAutoIndentLoading(false);
+    }
   };
 
   // ==================== DISPATCH HANDLERS ====================
@@ -1630,8 +1666,11 @@ export default function RetailerOrders() {
                 <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
                   <FileSpreadsheet size={14} className="mr-1" /> Export
                 </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50">
+                  <Zap size={14} className="mr-1" /> {t('retailerOrdersAdmin.autoIndentCreation') || 'Auto Indent'}
+                </Button>
                 <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
-                  <Plus size={14} className="mr-1" /> New Indent
+                  <Plus size={14} className="mr-1" /> {t('retailerOrdersAdmin.newIndent') || 'New Indent'}
                 </Button>
               </div>
             </CardHeader>
@@ -3167,6 +3206,91 @@ export default function RetailerOrders() {
                   <Button type="submit" className="flex-1 bg-[#14532D]">Record Payment</Button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== AUTO INDENT MODAL ==================== */}
+        {showAutoIndentModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Zap size={20} className="text-purple-600" />
+                  {t('retailerOrdersAdmin.autoIndentCreation') || 'Auto Indent Creation'}
+                </h3>
+                <button onClick={() => setShowAutoIndentModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <p className="text-sm text-gray-600 bg-purple-50 p-3 rounded-lg">
+                  {t('retailerOrdersAdmin.autoIndentDesc') || 'This will create an auto-generated indent based on the retailer\'s average sales from the last 7 identical weekdays + 10% buffer.'}
+                </p>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('retailerOrdersAdmin.selectRetailer') || 'Select Retailer'} *
+                  </label>
+                  <select
+                    value={autoIndentRetailerId}
+                    onChange={(e) => setAutoIndentRetailerId(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
+                    required
+                  >
+                    <option value="">{t('retailerOrdersAdmin.chooseRetailer') || '-- Choose a Retailer --'}</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('retailerOrdersAdmin.indentDate') || 'Indent Date'} *
+                  </label>
+                  <Input
+                    type="date"
+                    value={autoIndentDate}
+                    onChange={(e) => setAutoIndentDate(e.target.value)}
+                    className="w-full"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {t('retailerOrdersAdmin.dateHelp') || 'Select the date for which the indent should be created'}
+                  </p>
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setShowAutoIndentModal(false)} 
+                    className="flex-1"
+                    disabled={autoIndentLoading}
+                  >
+                    {t('retailerOrdersAdmin.cancel') || 'Cancel'}
+                  </Button>
+                  <Button 
+                    type="button" 
+                    onClick={handleAutoIndentCreation}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
+                    disabled={autoIndentLoading || !autoIndentRetailerId}
+                  >
+                    {autoIndentLoading ? (
+                      <span className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        {t('retailerOrdersAdmin.generating') || 'Generating...'}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Zap size={14} />
+                        {t('retailerOrdersAdmin.generateIndent') || 'Generate Indent'}
+                      </span>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         )}

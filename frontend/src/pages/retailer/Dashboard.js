@@ -1059,7 +1059,7 @@ export default function RetailerDashboard() {
               <CardHeader className="py-3 border-b bg-yellow-50">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <ShoppingBag size={16} className="text-yellow-600" />
-                  {t('retailer.upcomingOrders') || 'Upcoming Orders'} (Indents)
+                  {t('retailer.indents') || 'Indents'}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -1118,7 +1118,7 @@ export default function RetailerDashboard() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Truck size={16} className="text-green-600" />
-                    {t('retailer.receivedOrders') || 'Received Orders'} (Dispatched)
+                    {t('retailer.dispatched') || 'Dispatched'}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     <Calendar size={16} className="text-gray-500" />

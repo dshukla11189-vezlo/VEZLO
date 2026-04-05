@@ -72,6 +72,60 @@ from apscheduler.triggers.cron import CronTrigger
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Hindi translations for all products - used for auto-translation
+HINDI_PRODUCT_NAMES = {
+    "Amaranthus Green": "हरा चौलाई",
+    "Amaranthus Red": "लाल चौलाई",
+    "Coriander": "धनिया",
+    "Curry Leaves": "करी पत्ता",
+    "Dill Leaf": "सोया पत्ता",
+    "Fenugreek (Methi)": "मेथी",
+    "Fresh Mint Leaves": "पुदीना",
+    "Premium Fresh Mint Leaves": "प्रीमियम पुदीना",
+    "Palak": "पालक",
+    "Spinach": "पालक",
+    "Tomato Hybrid": "हाइब्रिड टमाटर",
+    "Lemon": "नींबू",
+    "Raw Mango": "कच्चा आम",
+    "Banana": "केला",
+    "Banana ": "केला",
+    "Onion": "प्याज",
+    "Potato": "आलू",
+    "Garlic": "लहसुन",
+    "Ginger": "अदरक",
+    "Carrot": "गाजर",
+    "Radish": "मूली",
+    "Peeled Garlic": "छिला लहसुन",
+    "Bottle Gourd": "लौकी",
+    "Bitter gourd": "करेला",
+    "Cucumber": "खीरा",
+    "Ridge Gourd": "तोरी",
+    "Capsicum": "शिमला मिर्च",
+    "Green capcicum ": "हरी शिमला मिर्च",
+    "Chilli Light Green": "हल्की हरी मिर्च",
+    "Chilli": "मिर्च",
+    "Green chilli ": "हरी मिर्च",
+    "Cauliflower": "फूलगोभी",
+    "Cabbage ": "पत्तागोभी",
+    "Cabbage": "पत्तागोभी",
+    "Button Mushroom": "बटन मशरूम",
+    "Brinjal": "बैंगन",
+    "Lady Finger": "भिंडी",
+    "Cluster Beans": "ग्वार फली",
+    "Spring onion ": "हरा प्याज",
+    "Spring onion": "हरा प्याज",
+    "Green Pea": "हरी मटर",
+    "Soaked chole": "भीगे छोले",
+    "Soaked yellow peas": "भीगी पीली मटर",
+    "Soaked Green peas": "भीगी हरी मटर",
+    "Sprouted matki": "अंकुरित मोठ",
+    "Matki Sprouts": "मोठ स्प्राउट्स",
+    "Soaked Harbhara": "भीगा हरभरा",
+    "Sprouted moong": "अंकुरित मूंग",
+    "Mixed Sprouts ": "मिक्स स्प्राउट्स",
+    "Mixed Sprouts": "मिक्स स्प्राउट्स",
+}
+
 # Enhanced logging setup
 logging.basicConfig(
     level=logging.INFO,
@@ -380,6 +434,11 @@ async def create_product(input: ProductCreate, current_user: dict = Depends(get_
     product = Product(**input.model_dump())
     doc = product.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
+    
+    # Auto-add Hindi name if available in translation dictionary
+    if not doc.get('name_hi') and doc.get('name'):
+        doc['name_hi'] = HINDI_PRODUCT_NAMES.get(doc['name'], None)
+    
     await db.products.insert_one(doc)
     return product
 
@@ -6419,10 +6478,11 @@ async def generate_single_auto_indent(
             except:
                 continue
         
-        if len(same_weekday_records) < 3:
+        # Use whatever data is available (even 1 record is fine)
+        if len(same_weekday_records) == 0:
             return {
                 "success": False,
-                "message": f"Not enough historical data for {retailer_name}. Found only {len(same_weekday_records)} records for the same weekday. Need at least 3."
+                "message": f"No historical data found for {retailer_name} on this weekday. The retailer needs to have at least one closing record for a {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][target_weekday]}."
             }
         
         # Calculate average items sold per product
@@ -6509,61 +6569,6 @@ async def generate_single_auto_indent(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Hindi translations for all products
-HINDI_PRODUCT_NAMES = {
-    "Amaranthus Green": "हरा चौलाई",
-    "Amaranthus Red": "लाल चौलाई",
-    "Coriander": "धनिया",
-    "Curry Leaves": "करी पत्ता",
-    "Dill Leaf": "सोया पत्ता",
-    "Fenugreek (Methi)": "मेथी",
-    "Fresh Mint Leaves": "पुदीना",
-    "Premium Fresh Mint Leaves": "प्रीमियम पुदीना",
-    "Palak": "पालक",
-    "Spinach": "पालक",
-    "Tomato Hybrid": "हाइब्रिड टमाटर",
-    "Lemon": "नींबू",
-    "Raw Mango": "कच्चा आम",
-    "Banana": "केला",
-    "Banana ": "केला",
-    "Onion": "प्याज",
-    "Potato": "आलू",
-    "Garlic": "लहसुन",
-    "Ginger": "अदरक",
-    "Carrot": "गाजर",
-    "Radish": "मूली",
-    "Peeled Garlic": "छिला लहसुन",
-    "Bottle Gourd": "लौकी",
-    "Bitter gourd": "करेला",
-    "Cucumber": "खीरा",
-    "Ridge Gourd": "तोरी",
-    "Capsicum": "शिमला मिर्च",
-    "Green capcicum ": "हरी शिमला मिर्च",
-    "Chilli Light Green": "हल्की हरी मिर्च",
-    "Chilli": "मिर्च",
-    "Green chilli ": "हरी मिर्च",
-    "Cauliflower": "फूलगोभी",
-    "Cabbage ": "पत्तागोभी",
-    "Cabbage": "पत्तागोभी",
-    "Button Mushroom": "बटन मशरूम",
-    "Brinjal": "बैंगन",
-    "Lady Finger": "भिंडी",
-    "Cluster Beans": "ग्वार फली",
-    "Spring onion ": "हरा प्याज",
-    "Spring onion": "हरा प्याज",
-    "Green Pea": "हरी मटर",
-    "Soaked chole": "भीगे छोले",
-    "Soaked yellow peas": "भीगी पीली मटर",
-    "Soaked Green peas": "भीगी हरी मटर",
-    "Sprouted matki": "अंकुरित मोठ",
-    "Matki Sprouts": "मोठ स्प्राउट्स",
-    "Soaked Harbhara": "भीगा हरभरा",
-    "Sprouted moong": "अंकुरित मूंग",
-    "Mixed Sprouts ": "मिक्स स्प्राउट्स",
-    "Mixed Sprouts": "मिक्स स्प्राउट्स",
-}
-
-
 @api_router.post("/admin/populate-hindi-names")
 async def populate_hindi_product_names(current_user: dict = Depends(get_current_user)):
     """Populate Hindi names for all products in the database"""
@@ -6599,6 +6604,55 @@ async def populate_hindi_product_names(current_user: dict = Depends(get_current_
         }
     except Exception as e:
         print(f"Error populating Hindi names: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/admin/populate-referral-codes")
+async def populate_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
+    """Populate referral codes for all retailers that don't have one"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate referral codes")
+    
+    try:
+        # Find all retailers without referral codes
+        retailers = await db.users.find({
+            "role": "retailer",
+            "$or": [
+                {"referral_code": {"$exists": False}},
+                {"referral_code": None},
+                {"referral_code": ""}
+            ]
+        }).to_list(1000)
+        
+        updated_count = 0
+        
+        for retailer in retailers:
+            # Generate unique referral code
+            referral_code = "MRO-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            
+            # Make sure it's unique
+            while await db.users.find_one({"referral_code": referral_code}):
+                referral_code = "MRO-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            
+            result = await db.users.update_one(
+                {"id": retailer["id"]},
+                {"$set": {"referral_code": referral_code}}
+            )
+            
+            if result.modified_count > 0:
+                updated_count += 1
+        
+        # Count total retailers
+        total_retailers = await db.users.count_documents({"role": "retailer"})
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_retailers": total_retailers,
+            "message": f"Generated referral codes for {updated_count} retailers"
+        }
+    except Exception as e:
+        print(f"Error populating referral codes: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

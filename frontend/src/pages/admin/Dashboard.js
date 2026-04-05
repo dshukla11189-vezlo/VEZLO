@@ -28,6 +28,7 @@ export default function AdminDashboard() {
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState('overview');
   const [populatingHindi, setPopulatingHindi] = useState(false);
+  const [populatingReferrals, setPopulatingReferrals] = useState(false);
   
   // Function to populate Hindi product names
   const populateHindiNames = async () => {
@@ -44,6 +45,24 @@ export default function AdminDashboard() {
       toast.error('Error updating Hindi names: ' + (error.response?.data?.detail || error.message));
     } finally {
       setPopulatingHindi(false);
+    }
+  };
+  
+  // Function to populate referral codes for retailers
+  const populateReferralCodes = async () => {
+    setPopulatingReferrals(true);
+    try {
+      const response = await api.post('/api/admin/populate-referral-codes');
+      if (response.data.success) {
+        toast.success(`Referral codes generated for ${response.data.updated_count} retailers!`);
+      } else {
+        toast.error('Failed to generate referral codes');
+      }
+    } catch (error) {
+      console.error('Error populating referral codes:', error);
+      toast.error('Error generating referral codes: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setPopulatingReferrals(false);
     }
   };
   
@@ -168,6 +187,17 @@ export default function AdminDashboard() {
             >
               <Languages size={14} className="mr-1" />
               {populatingHindi ? 'Updating...' : 'Setup Hindi'}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={populateReferralCodes}
+              disabled={populatingReferrals}
+              className="border-blue-300 text-blue-600 hover:bg-blue-50"
+              title="Generate referral codes for retailers without one"
+            >
+              <Users size={14} className="mr-1" />
+              {populatingReferrals ? 'Generating...' : 'Setup Referrals'}
             </Button>
           </div>
         </div>

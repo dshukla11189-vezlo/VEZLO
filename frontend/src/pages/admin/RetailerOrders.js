@@ -1435,9 +1435,10 @@ export default function RetailerOrders() {
     return getRetailerDisplayName(retailer);
   };
 
-  // Filter products based on search
+  // Filter products based on search (both English and Hindi names)
   const filteredProducts = products.filter(p => 
-    p.name?.toLowerCase().includes(productSearch.toLowerCase())
+    p.name?.toLowerCase().includes(productSearch.toLowerCase()) ||
+    p.name_hi?.includes(productSearch)
   );
 
   // Filter variants based on search
@@ -1463,11 +1464,11 @@ export default function RetailerOrders() {
   };
 
   const tabs = [
-    { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
-    { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
-    { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
-    { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
-    { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length }
+    { id: 'indents', label: t('retailerOrdersAdmin.indents') || 'Indents', icon: Package, count: indents.length },
+    { id: 'dispatches', label: t('retailerOrdersAdmin.dispatches') || 'Dispatches', icon: Truck, count: dispatches.length },
+    { id: 'invoices', label: t('retailerOrdersAdmin.invoices') || 'Invoices', icon: FileText, count: invoices.length },
+    { id: 'rejections', label: t('retailerOrdersAdmin.rejections') || 'Rejections', icon: AlertTriangle, count: rejections.length },
+    { id: 'payments', label: t('retailerOrdersAdmin.payments') || 'Payments', icon: DollarSign, count: payments.length }
   ];
 
   // Calculate totals for selected dispatches (for invoice modal)
@@ -1476,13 +1477,13 @@ export default function RetailerOrders() {
     .reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
 
   return (
-    <Layout title="Retailer Orders">
+    <Layout title={t('retailerOrdersAdmin.retailerOrders') || "Retailer Orders"}>
       <div data-testid="retailer-orders-page">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
-            <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
+            <h1 className="text-xl font-bold text-gray-900">{t('retailerOrdersAdmin.retailerOrders') || 'Retailer Orders'}</h1>
+            <p className="text-sm text-gray-500">{t('retailerOrdersAdmin.manageRetailerOrders') || 'Manage retailer indents, dispatches, invoices and payments'}</p>
           </div>
           
           {/* Retailer Filter */}
@@ -1492,7 +1493,7 @@ export default function RetailerOrders() {
               onChange={(e) => setSelectedRetailer(e.target.value)}
               className="h-9 px-3 rounded-md border border-gray-200 text-sm"
             >
-              <option value="">All Retailers</option>
+              <option value="">{t('retailerOrdersAdmin.allRetailers') || 'All Retailers'}</option>
               {retailers.map(r => (
                 <option key={r.id} value={r.id}>{r.company_name || r.name} ({r.commission_percentage || 0}%)</option>
               ))}
@@ -1505,15 +1506,15 @@ export default function RetailerOrders() {
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <Package size={14} />
-              <span>Indents</span>
+              <span>{t('retailerOrdersAdmin.indents') || 'Indents'}</span>
             </div>
             <p className="text-lg font-bold">{dashboardStats.totalIndents}</p>
-            <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} pending</p>
+            <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} {t('retailerOrdersAdmin.pending') || 'pending'}</p>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <Truck size={14} />
-              <span>Dispatches</span>
+              <span>{t('retailerOrdersAdmin.dispatches') || 'Dispatches'}</span>
             </div>
             <p className="text-lg font-bold">{dashboardStats.totalDispatches}</p>
             <p className="text-xs text-gray-500">Total: {formatCurrency(dashboardStats.totalMrpValue)}</p>
@@ -1521,10 +1522,10 @@ export default function RetailerOrders() {
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <IndianRupee size={14} />
-              <span>Net Receivable</span>
+              <span>{t('retailerOrdersAdmin.netReceivable') || 'Net Receivable'}</span>
             </div>
             <p className="text-lg font-bold text-green-700">{formatCurrency(dashboardStats.totalNetReceivable)}</p>
-            <p className="text-xs text-gray-500">Invoiced: {formatCurrency(dashboardStats.totalInvoiced)}</p>
+            <p className="text-xs text-gray-500">{t('retailerOrdersAdmin.invoiced') || 'Invoiced'}: {formatCurrency(dashboardStats.totalInvoiced)}</p>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
@@ -2239,7 +2240,7 @@ export default function RetailerOrders() {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="text-lg font-semibold">Create Indent for Retailer</h3>
+                <h3 className="text-lg font-semibold">{t('retailerOrdersAdmin.createIndentFor') || 'Create Indent for Retailer'}</h3>
                 <button onClick={() => { setShowIndentModal(false); resetIndentForm(); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
@@ -2247,7 +2248,7 @@ export default function RetailerOrders() {
               <form onSubmit={handleCreateOrUpdateIndent} className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="relative">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Retailer (Shop) *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('retailerOrdersAdmin.retailerShop') || 'Retailer (Shop)'} *</label>
                     <Input
                       type="text"
                       value={retailerSearch || retailers.find(r => r.id === indentForm.retailer_id)?.company_name || retailers.find(r => r.id === indentForm.retailer_id)?.name || ''}
@@ -2265,7 +2266,7 @@ export default function RetailerOrders() {
                       onBlur={() => {
                         setTimeout(() => setShowRetailerDropdown(false), 200);
                       }}
-                      placeholder="Search shop name..."
+                      placeholder={t('retailerOrdersAdmin.searchShopName') || "Search shop name..."}
                       className="w-full h-9"
                       required
                     />
@@ -2292,7 +2293,7 @@ export default function RetailerOrders() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('retailerOrdersAdmin.date') || 'Date'} *</label>
                     <Input
                       type="date"
                       value={indentForm.indent_date}
@@ -2304,7 +2305,7 @@ export default function RetailerOrders() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-gray-700">Items *</label>
+                    <label className="text-sm font-medium text-gray-700">{t('retailerOrdersAdmin.items') || 'Items'} *</label>
                     <div className="flex gap-2">
                       {!editingIndent && (
                         <Button 
@@ -2314,27 +2315,42 @@ export default function RetailerOrders() {
                           onClick={() => loadPreviousRetailerIndent()}
                           className="border-blue-300 text-blue-600 hover:bg-blue-50"
                         >
-                          <Clock size={14} className="mr-1" /> Load Previous
+                          <Clock size={14} className="mr-1" /> {t('retailerOrdersAdmin.loadPrevious') || 'Load Previous'}
                         </Button>
                       )}
                       <Button type="button" size="sm" variant="outline" onClick={addIndentItem}>
-                        <Plus size={14} className="mr-1" /> Add Item
+                        <Plus size={14} className="mr-1" /> {t('retailerOrdersAdmin.addItem') || 'Add Item'}
                       </Button>
                     </div>
                   </div>
                   <div className="space-y-2">
-                    {indentForm.items.map((item, index) => (
+                    {indentForm.items.map((item, index) => {
+                      // Get display name based on language - look up from productMap if needed
+                      let displayProductName = item.product_name || '';
+                      if (i18n.language === 'hi') {
+                        if (item.product_name_hi) {
+                          displayProductName = item.product_name_hi;
+                        } else if (item.product_id) {
+                          const p = productMap.get(item.product_id);
+                          if (p && p.name_hi) displayProductName = p.name_hi;
+                        } else if (item.product_name) {
+                          const p = productMap.get(item.product_name);
+                          if (p && p.name_hi) displayProductName = p.name_hi;
+                        }
+                      }
+                      
+                      return (
                       <div key={index} className="flex gap-2 items-center bg-gray-50 p-2 rounded">
                         {/* Product Search */}
                         <div className="flex-1 relative">
                           <Input
                             type="text"
-                            value={item.product_name || ''}
+                            value={displayProductName}
                             onChange={(e) => {
                               const newValue = e.target.value;
                               setIndentForm(prev => {
                                 const items = [...prev.items];
-                                items[index] = { ...items[index], product_name: newValue, product_id: '' };
+                                items[index] = { ...items[index], product_name: newValue, product_id: '', product_name_hi: '' };
                                 return { ...prev, items };
                               });
                               setShowProductDropdown(index);
@@ -2348,7 +2364,7 @@ export default function RetailerOrders() {
                               // Delay hiding to allow click on dropdown items
                               setTimeout(() => setShowProductDropdown(null), 200);
                             }}
-                            placeholder="Search product..."
+                            placeholder={t('retailerOrdersAdmin.searchProduct') || "Search product..."}
                             className="h-9 text-sm"
                             required
                           />
@@ -2357,24 +2373,27 @@ export default function RetailerOrders() {
                               {filteredProducts.length === 0 ? (
                                 <div className="p-3 text-sm text-gray-500">No products found</div>
                               ) : (
-                                filteredProducts.slice(0, 12).map(p => (
-                                  <div
-                                    key={p.id}
-                                    className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault(); // Prevent blur from firing before click
-                                      setIndentForm(prev => {
-                                        const items = [...prev.items];
-                                        items[index] = { ...items[index], product_id: p.id, product_name: p.name };
-                                        return { ...prev, items };
-                                      });
-                                      setShowProductDropdown(null);
-                                      setProductSearch('');
-                                    }}
-                                  >
-                                    {p.name}
-                                  </div>
-                                ))
+                                filteredProducts.slice(0, 12).map(p => {
+                                  const displayName = i18n.language === 'hi' && p.name_hi ? p.name_hi : p.name;
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault(); // Prevent blur from firing before click
+                                        setIndentForm(prev => {
+                                          const items = [...prev.items];
+                                          items[index] = { ...items[index], product_id: p.id, product_name: p.name, product_name_hi: p.name_hi };
+                                          return { ...prev, items };
+                                        });
+                                        setShowProductDropdown(null);
+                                        setProductSearch('');
+                                      }}
+                                    >
+                                      {displayName}
+                                    </div>
+                                  );
+                                })
                               )}
                             </div>
                           )}
@@ -2446,15 +2465,16 @@ export default function RetailerOrders() {
                           </Button>
                         )}
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
 
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => { setShowIndentModal(false); setEditingIndent(null); resetIndentForm(); }} className="flex-1">
-                    Cancel
+                    {t('retailerOrdersAdmin.cancel') || 'Cancel'}
                   </Button>
-                  <Button type="submit" className="flex-1 bg-[#14532D]">{editingIndent ? 'Update Indent' : 'Create Indent'}</Button>
+                  <Button type="submit" className="flex-1 bg-[#14532D]">{editingIndent ? (t('retailerOrdersAdmin.updateIndent') || 'Update Indent') : (t('retailerOrdersAdmin.createIndent') || 'Create Indent')}</Button>
                 </div>
               </form>
             </div>

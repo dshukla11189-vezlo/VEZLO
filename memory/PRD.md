@@ -651,6 +651,10 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
     - Admin WastageDashboard page
   - [x] Helper checks `i18n.language === 'hi'` and returns `name_hi` if available
   - [x] Sample translations: Coriander→धनिया, Spinach→पालक, Mint→पुदीना, Fenugreek→मेथी
+  - [x] **Product dropdown in Create Indent modal shows Hindi names** (Apr 05, 2026)
+  - [x] **Load Previous loads products and displays them in Hindi** (Apr 05, 2026)
+  - [x] **UI labels translated**: Page headers, tabs, modal titles, buttons, form labels
+  - [x] Added `retailerOrdersAdmin` namespace to hi.json with all UI strings
 
 ---
 

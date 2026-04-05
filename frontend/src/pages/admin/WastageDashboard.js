@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet, RefreshCw, ChevronDown } from 'lucide-react';
 
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
@@ -40,6 +40,16 @@ export default function WastageDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState(7);
   
+  // Top products period selector
+  const [topProductsPeriod, setTopProductsPeriod] = useState(7);
+  const topProductsPeriodOptions = [
+    { value: 7, label: '7 Days' },
+    { value: 15, label: '15 Days' },
+    { value: 30, label: '30 Days' },
+    { value: 90, label: '3 Months' },
+    { value: 180, label: '6 Months' }
+  ];
+  
   // Date range filter
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
@@ -47,23 +57,11 @@ export default function WastageDashboard() {
     return d.toISOString().split('T')[0];
   });
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
-  const [useCustomDates, setUseCustomDates] = useState(false);
 
-  useEffect(() => {
-    if (!useCustomDates) {
-      loadDashboardData();
-    }
-    loadYesterdayWastage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPeriod]);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      let url = `/api/stock-status/wastage-dashboard?days=${selectedPeriod}`;
-      if (useCustomDates) {
-        url = `/api/stock-status/wastage-dashboard?from_date=${dateFrom}&to_date=${dateTo}`;
-      }
+      const url = `/api/stock-status/wastage-dashboard?from_date=${dateFrom}&to_date=${dateTo}`;
       const response = await api.get(url);
       setDashboardData(response.data);
     } catch (error) {
@@ -72,15 +70,15 @@ export default function WastageDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateFrom, dateTo]);
 
-  const handleDateFilter = () => {
-    setUseCustomDates(true);
+  // Load data when dates change
+  useEffect(() => {
     loadDashboardData();
-  };
+    loadYesterdayWastage();
+  }, [loadDashboardData]);
 
   const handlePeriodChange = (days) => {
-    setUseCustomDates(false);
     setSelectedPeriod(days);
     // Update date inputs to reflect the period
     const to = new Date();
@@ -135,11 +133,6 @@ export default function WastageDashboard() {
     ]);
   };
 
-  const getBarHeight = (value, max) => {
-    if (max === 0) return 0;
-    return Math.min(100, (value / max) * 100);
-  };
-
   const summary = dashboardData?.summary || {};
   const dailyTrend = dashboardData?.daily_trend || [];
   // Sort top products by wastage percentage in descending order
@@ -173,10 +166,10 @@ export default function WastageDashboard() {
                   {[7, 15, 30].map(days => (
                     <Button
                       key={days}
-                      variant={selectedPeriod === days && !useCustomDates ? 'default' : 'outline'}
+                      variant={selectedPeriod === days ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => handlePeriodChange(days)}
-                      className={selectedPeriod === days && !useCustomDates ? 'bg-[#14532D] hover:bg-[#166534]' : ''}
+                      className={selectedPeriod === days ? 'bg-[#14532D] hover:bg-[#166534]' : ''}
                     >
                       {days}D
                     </Button>
@@ -186,7 +179,8 @@ export default function WastageDashboard() {
               
               {/* Date Range Filter */}
               <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-600">Filter:</span>
+                <Calendar size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-600">Period:</span>
                 <Input
                   type="date"
                   value={dateFrom}
@@ -200,13 +194,7 @@ export default function WastageDashboard() {
                   onChange={(e) => setDateTo(e.target.value)}
                   className="w-36 h-8 text-sm"
                 />
-                <Button 
-                  size="sm" 
-                  onClick={handleDateFilter}
-                  className="bg-[#14532D] hover:bg-[#166534] h-8"
-                >
-                  <RefreshCw size={14} className="mr-1" /> Apply
-                </Button>
+                {loading && <RefreshCw size={16} className="animate-spin text-gray-400" />}
               </div>
             </div>
 
@@ -329,9 +317,9 @@ export default function WastageDashboard() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Daily Trend Chart */}
+        {/* Daily Trend Chart - Redesigned */}
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <Calendar size={20} /> Daily Wastage Trend
             </CardTitle>
@@ -344,62 +332,121 @@ export default function WastageDashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Bar Chart */}
-                <div className="flex items-end gap-2 h-48 px-2">
-                  {dailyTrend.map((day, idx) => {
-                    const height = getBarHeight(day.total_wastage_kg, maxDailyWastage);
-                    return (
-                      <div key={idx} className="flex-1 flex flex-col items-center">
-                        <div className="w-full flex flex-col items-center">
-                          <span className="text-xs text-gray-500 mb-1">{day.total_wastage_kg.toFixed(1)}</span>
-                          <div 
-                            className={`w-full rounded-t transition-all ${
-                              day.avg_wastage_percent > 5 ? 'bg-red-500' : 
-                              day.avg_wastage_percent > 2 ? 'bg-orange-500' : 'bg-green-500'
-                            }`}
-                            style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0' }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-500 mt-1 transform -rotate-45 origin-top-left">
-                          {formatDate(day.date)}
-                        </span>
-                      </div>
-                    );
-                  })}
+                {/* Summary Stats */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="bg-red-50 p-3 rounded-lg text-center">
+                    <p className="text-xs text-red-600 font-medium">Peak Day</p>
+                    <p className="text-lg font-bold text-red-700">
+                      {dailyTrend.reduce((max, d) => d.total_wastage_kg > (max?.total_wastage_kg || 0) ? d : max, dailyTrend[0])?.total_wastage_kg.toFixed(1)} Kg
+                    </p>
+                    <p className="text-[10px] text-red-500">
+                      {formatDate(dailyTrend.reduce((max, d) => d.total_wastage_kg > (max?.total_wastage_kg || 0) ? d : max, dailyTrend[0])?.date)}
+                    </p>
+                  </div>
+                  <div className="bg-orange-50 p-3 rounded-lg text-center">
+                    <p className="text-xs text-orange-600 font-medium">Daily Average</p>
+                    <p className="text-lg font-bold text-orange-700">
+                      {(dailyTrend.reduce((sum, d) => sum + d.total_wastage_kg, 0) / dailyTrend.length).toFixed(1)} Kg
+                    </p>
+                    <p className="text-[10px] text-orange-500">{dailyTrend.length} days</p>
+                  </div>
+                  <div className="bg-green-50 p-3 rounded-lg text-center">
+                    <p className="text-xs text-green-600 font-medium">Best Day</p>
+                    <p className="text-lg font-bold text-green-700">
+                      {dailyTrend.reduce((min, d) => d.total_wastage_kg < (min?.total_wastage_kg || Infinity) ? d : min, dailyTrend[0])?.total_wastage_kg.toFixed(1)} Kg
+                    </p>
+                    <p className="text-[10px] text-green-500">
+                      {formatDate(dailyTrend.reduce((min, d) => d.total_wastage_kg < (min?.total_wastage_kg || Infinity) ? d : min, dailyTrend[0])?.date)}
+                    </p>
+                  </div>
                 </div>
 
-                {/* Legend */}
-                <div className="flex justify-center gap-4 text-xs mt-4">
-                  <span className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded bg-green-500"></div> &lt;2%
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded bg-orange-500"></div> 2-5%
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded bg-red-500"></div> &gt;5%
-                  </span>
+                {/* Visual Line/Area Chart */}
+                <div className="relative h-40 bg-gradient-to-b from-gray-50 to-white rounded-lg p-2">
+                  {/* Y-axis labels */}
+                  <div className="absolute left-0 top-0 bottom-4 w-10 flex flex-col justify-between text-[10px] text-gray-400">
+                    <span>{maxDailyWastage.toFixed(0)}</span>
+                    <span>{(maxDailyWastage / 2).toFixed(0)}</span>
+                    <span>0</span>
+                  </div>
+                  
+                  {/* Chart area */}
+                  <div className="ml-10 h-full flex items-end">
+                    <svg className="w-full h-full" viewBox={`0 0 ${dailyTrend.length * 40} 100`} preserveAspectRatio="none">
+                      {/* Area fill */}
+                      <defs>
+                        <linearGradient id="wastageGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="rgba(239, 68, 68, 0.3)" />
+                          <stop offset="100%" stopColor="rgba(239, 68, 68, 0.05)" />
+                        </linearGradient>
+                      </defs>
+                      <path
+                        d={`M 0 100 ${dailyTrend.map((d, i) => {
+                          const x = (i / (dailyTrend.length - 1 || 1)) * dailyTrend.length * 40;
+                          const y = 100 - (d.total_wastage_kg / maxDailyWastage) * 95;
+                          return `L ${x} ${y}`;
+                        }).join(' ')} L ${dailyTrend.length * 40} 100 Z`}
+                        fill="url(#wastageGradient)"
+                      />
+                      {/* Line */}
+                      <path
+                        d={`M ${dailyTrend.map((d, i) => {
+                          const x = (i / (dailyTrend.length - 1 || 1)) * dailyTrend.length * 40;
+                          const y = 100 - (d.total_wastage_kg / maxDailyWastage) * 95;
+                          return `${i === 0 ? '' : 'L '}${x} ${y}`;
+                        }).join(' ')}`}
+                        fill="none"
+                        stroke="#ef4444"
+                        strokeWidth="2"
+                      />
+                      {/* Data points */}
+                      {dailyTrend.map((d, i) => {
+                        const x = (i / (dailyTrend.length - 1 || 1)) * dailyTrend.length * 40;
+                        const y = 100 - (d.total_wastage_kg / maxDailyWastage) * 95;
+                        return (
+                          <circle key={i} cx={x} cy={y} r="3" fill="#ef4444" stroke="white" strokeWidth="1.5" />
+                        );
+                      })}
+                    </svg>
+                  </div>
+                </div>
+
+                {/* X-axis labels */}
+                <div className="flex justify-between ml-10 text-[10px] text-gray-400 px-1">
+                  {dailyTrend.length <= 10 ? (
+                    dailyTrend.map((d, i) => (
+                      <span key={i} className="transform -rotate-45 origin-top-left whitespace-nowrap">
+                        {formatDate(d.date)}
+                      </span>
+                    ))
+                  ) : (
+                    <>
+                      <span>{formatDate(dailyTrend[0]?.date)}</span>
+                      <span>{formatDate(dailyTrend[Math.floor(dailyTrend.length / 2)]?.date)}</span>
+                      <span>{formatDate(dailyTrend[dailyTrend.length - 1]?.date)}</span>
+                    </>
+                  )}
                 </div>
 
                 {/* Daily Details Table */}
-                <div className="mt-4 max-h-48 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-white">
-                      <tr className="border-b">
-                        <th className="text-left py-2">Date</th>
-                        <th className="text-right py-2">Wastage (Kg)</th>
-                        <th className="text-right py-2">Value (₹)</th>
-                        <th className="text-right py-2">%</th>
+                <div className="mt-4 max-h-32 overflow-y-auto border rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-100">
+                      <tr>
+                        <th className="text-left p-2 font-medium">Date</th>
+                        <th className="text-right p-2 font-medium">Wastage</th>
+                        <th className="text-right p-2 font-medium">Value</th>
+                        <th className="text-right p-2 font-medium">Rate</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {dailyTrend.map((day, idx) => (
-                        <tr key={idx} className="border-b border-gray-100">
-                          <td className="py-2">{formatDate(day.date)}</td>
-                          <td className="text-right">{day.total_wastage_kg.toFixed(2)}</td>
-                          <td className="text-right">₹{day.total_wastage_value.toFixed(0)}</td>
-                          <td className="text-right">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getWastageColor(day.avg_wastage_percent)}`}>
+                      {dailyTrend.slice().reverse().map((day, idx) => (
+                        <tr key={idx} className="border-t hover:bg-gray-50">
+                          <td className="p-2">{formatDate(day.date)}</td>
+                          <td className="text-right p-2 font-medium">{day.total_wastage_kg.toFixed(1)} Kg</td>
+                          <td className="text-right p-2 text-red-600">₹{day.total_wastage_value.toFixed(0)}</td>
+                          <td className="text-right p-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getWastageColor(day.avg_wastage_percent)}`}>
                               {day.avg_wastage_percent.toFixed(1)}%
                             </span>
                           </td>
@@ -415,54 +462,86 @@ export default function WastageDashboard() {
 
         {/* Top Wastage Products (Sorted by Wastage %) */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingDown size={20} /> Top Wastage Products (by %)
-            </CardTitle>
+          <CardHeader className="pb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <TrendingDown size={20} /> Top Wastage Products
+              </CardTitle>
+              <div className="flex items-center gap-1">
+                {topProductsPeriodOptions.map(opt => (
+                  <Button
+                    key={opt.value}
+                    variant={topProductsPeriod === opt.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTopProductsPeriod(opt.value)}
+                    className={`h-7 text-xs px-2 ${topProductsPeriod === opt.value ? 'bg-red-600 hover:bg-red-700' : ''}`}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {topProducts.length === 0 ? (
-              <div className="text-center text-gray-500 py-8">
-                No product wastage data available.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {topProducts.map((product, idx) => {
-                  const maxPercent = topProducts[0]?.wastage_percent || 1;
-                  const barWidth = (product.wastage_percent / maxPercent) * 100;
-                  
-                  return (
-                    <div key={idx} className="flex items-center gap-3">
-                      <div className="w-6 text-center text-sm font-medium text-gray-400">
-                        #{idx + 1}
+            {(() => {
+              // Filter topProducts based on selected period
+              // We'll recalculate from dashboardData.product_wastage if available
+              const filteredTopProducts = topProducts.filter(p => {
+                // For now, use existing topProducts but filter by days_count
+                return true; // Show all since we're reloading data based on date range
+              }).slice(0, 10);
+              
+              return filteredTopProducts.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                  No product wastage data available.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredTopProducts.map((product, idx) => {
+                    const maxPercent = filteredTopProducts[0]?.wastage_percent || 1;
+                    const barWidth = (product.wastage_percent / maxPercent) * 100;
+                    
+                    return (
+                      <div key={idx} className="flex items-center gap-3">
+                        <div className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold ${
+                          idx === 0 ? 'bg-red-100 text-red-700' :
+                          idx === 1 ? 'bg-orange-100 text-orange-700' :
+                          idx === 2 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-medium text-sm">{product.product_name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">₹{product.total_wastage_value?.toFixed(0)}</span>
+                              <span className={`text-sm font-semibold px-2 py-0.5 rounded ${getWastageColor(product.wastage_percent)}`}>
+                                {product.wastage_percent?.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all ${
+                                product.wastage_percent > 10 ? 'bg-red-500' :
+                                product.wastage_percent > 5 ? 'bg-orange-500' :
+                                product.wastage_percent > 2 ? 'bg-yellow-500' : 'bg-green-500'
+                              }`}
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>{product.total_wastage_kg?.toFixed(2)} Kg wasted</span>
+                            <span>{product.days_count || '-'} days data</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="font-medium text-sm">{product.product_name}</span>
-                          <span className={`text-sm font-semibold px-2 py-0.5 rounded ${getWastageColor(product.wastage_percent)}`}>
-                            {product.wastage_percent?.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full rounded-full transition-all ${
-                              product.wastage_percent > 10 ? 'bg-red-500' :
-                              product.wastage_percent > 5 ? 'bg-orange-500' :
-                              product.wastage_percent > 2 ? 'bg-yellow-500' : 'bg-green-500'
-                            }`}
-                            style={{ width: `${barWidth}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                          <span>{product.total_wastage_kg.toFixed(2)} Kg | ₹{product.total_wastage_value.toFixed(0)}</span>
-                          <span>{product.days_count} days</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>

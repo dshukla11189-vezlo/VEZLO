@@ -5,10 +5,11 @@ import api from '../../utils/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { toast } from 'sonner';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
@@ -26,6 +27,25 @@ export default function AdminDashboard() {
   });
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [populatingHindi, setPopulatingHindi] = useState(false);
+  
+  // Function to populate Hindi product names
+  const populateHindiNames = async () => {
+    setPopulatingHindi(true);
+    try {
+      const response = await api.post('/api/admin/populate-hindi-names');
+      if (response.data.success) {
+        toast.success(`Hindi names updated for ${response.data.updated_count} products!`);
+      } else {
+        toast.error('Failed to update Hindi names');
+      }
+    } catch (error) {
+      console.error('Error populating Hindi names:', error);
+      toast.error('Error updating Hindi names: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setPopulatingHindi(false);
+    }
+  };
   
   // Multi-level expansion states
   const [expandedDates, setExpandedDates] = useState({});        // Date → QC/Retail
@@ -137,6 +157,17 @@ export default function AdminDashboard() {
             />
             <Button variant="outline" size="sm" onClick={loadPnlData}>
               <RefreshCw size={14} className="mr-1" /> Refresh
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={populateHindiNames}
+              disabled={populatingHindi}
+              className="border-purple-300 text-purple-600 hover:bg-purple-50"
+              title="Update Hindi product names in database"
+            >
+              <Languages size={14} className="mr-1" />
+              {populatingHindi ? 'Updating...' : 'Setup Hindi'}
             </Button>
           </div>
         </div>

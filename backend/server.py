@@ -6509,6 +6509,99 @@ async def generate_single_auto_indent(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Hindi translations for all products
+HINDI_PRODUCT_NAMES = {
+    "Amaranthus Green": "हरा चौलाई",
+    "Amaranthus Red": "लाल चौलाई",
+    "Coriander": "धनिया",
+    "Curry Leaves": "करी पत्ता",
+    "Dill Leaf": "सोया पत्ता",
+    "Fenugreek (Methi)": "मेथी",
+    "Fresh Mint Leaves": "पुदीना",
+    "Premium Fresh Mint Leaves": "प्रीमियम पुदीना",
+    "Palak": "पालक",
+    "Spinach": "पालक",
+    "Tomato Hybrid": "हाइब्रिड टमाटर",
+    "Lemon": "नींबू",
+    "Raw Mango": "कच्चा आम",
+    "Banana": "केला",
+    "Banana ": "केला",
+    "Onion": "प्याज",
+    "Potato": "आलू",
+    "Garlic": "लहसुन",
+    "Ginger": "अदरक",
+    "Carrot": "गाजर",
+    "Radish": "मूली",
+    "Peeled Garlic": "छिला लहसुन",
+    "Bottle Gourd": "लौकी",
+    "Bitter gourd": "करेला",
+    "Cucumber": "खीरा",
+    "Ridge Gourd": "तोरी",
+    "Capsicum": "शिमला मिर्च",
+    "Green capcicum ": "हरी शिमला मिर्च",
+    "Chilli Light Green": "हल्की हरी मिर्च",
+    "Chilli": "मिर्च",
+    "Green chilli ": "हरी मिर्च",
+    "Cauliflower": "फूलगोभी",
+    "Cabbage ": "पत्तागोभी",
+    "Cabbage": "पत्तागोभी",
+    "Button Mushroom": "बटन मशरूम",
+    "Brinjal": "बैंगन",
+    "Lady Finger": "भिंडी",
+    "Cluster Beans": "ग्वार फली",
+    "Spring onion ": "हरा प्याज",
+    "Spring onion": "हरा प्याज",
+    "Green Pea": "हरी मटर",
+    "Soaked chole": "भीगे छोले",
+    "Soaked yellow peas": "भीगी पीली मटर",
+    "Soaked Green peas": "भीगी हरी मटर",
+    "Sprouted matki": "अंकुरित मोठ",
+    "Matki Sprouts": "मोठ स्प्राउट्स",
+    "Soaked Harbhara": "भीगा हरभरा",
+    "Sprouted moong": "अंकुरित मूंग",
+    "Mixed Sprouts ": "मिक्स स्प्राउट्स",
+    "Mixed Sprouts": "मिक्स स्प्राउट्स",
+}
+
+
+@api_router.post("/admin/populate-hindi-names")
+async def populate_hindi_product_names(current_user: dict = Depends(get_current_user)):
+    """Populate Hindi names for all products in the database"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate Hindi names")
+    
+    try:
+        products = await db.products.find({}).to_list(1000)
+        updated_count = 0
+        missing = []
+        
+        for product in products:
+            name = product.get("name", "")
+            product_id = product.get("id")
+            
+            if name in HINDI_PRODUCT_NAMES:
+                hindi_name = HINDI_PRODUCT_NAMES[name]
+                result = await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": {"name_hi": hindi_name}}
+                )
+                if result.modified_count > 0:
+                    updated_count += 1
+            else:
+                missing.append(name)
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_products": len(products),
+            "missing_translations": missing[:10] if missing else [],
+            "message": f"Updated {updated_count} products with Hindi names"
+        }
+    except Exception as e:
+        print(f"Error populating Hindi names: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Include router
 app.include_router(api_router)
 

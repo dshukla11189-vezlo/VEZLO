@@ -595,8 +595,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Added hamburger menu with: Home, My Orders, Invoices, Closing, Inventory, My Account
   - [x] Big "Your Earnings" card with date picker at top
   - [x] 6 metric boxes: Items Received, Rejection, Items Sold, Total MRP Value, Payable by You, Paid Amount
-  - [x] New "My Account" tab with Profile Information and Account Summary
+  - [x] **My Orders tab**: Added date picker filter for order history
+  - [x] **Inventory tab**: Complete redesign with Opening Qty, Received, Rejection, Items Sold, Closing Qty columns
+  - [x] **Closing tab**: New tab for viewing/editing closing history; Edit/Delete only allowed for today
+  - [x] **Record Closing**: Date locked to today only - no date picker in modal
+  - [x] **My Account tab**: Removed Account Summary, added Referral Code field (MRO-XXXXXXXX format)
   - [x] Layout component updated with `hideTitle` and `hideSidebar` props
+  - [x] Backend API updated to return email, phone, address, referral_code in retailer dashboard
 
 ---
 

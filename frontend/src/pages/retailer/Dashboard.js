@@ -32,6 +32,19 @@ export default function RetailerDashboard() {
   const [expandedOrderDates, setExpandedOrderDates] = useState({});
   const [expandedRejectionDates, setExpandedRejectionDates] = useState({});
   
+  // Orders date filter
+  const [ordersDateFrom, setOrdersDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [ordersDateTo, setOrdersDateTo] = useState(new Date().toISOString().split('T')[0]);
+  
+  // Inventory view date (for daily inventory tab)
+  const [inventoryDate, setInventoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [inventoryData, setInventoryData] = useState([]); // Combined inventory view
+  
   // Simplified Closing Inventory state
   const [closingDate, setClosingDate] = useState(new Date().toISOString().split('T')[0]);
   const [showRecordClosingModal, setShowRecordClosingModal] = useState(false);
@@ -427,6 +440,115 @@ export default function RetailerDashboard() {
 
   // ==================== SIMPLIFIED CLOSING INVENTORY FUNCTIONS ====================
   
+  // Load inventory data for a specific date (combines opening, received, sold, rejection, closing)
+  const loadInventoryData = useCallback(async (date) => {
+    if (!dashboardData?.retailer?.id) return;
+    setLoadingClosing(true);
+    
+    try {
+      // Get previous day for opening qty
+      const prevDate = new Date(date);
+      prevDate.setDate(prevDate.getDate() - 1);
+      const prevDateStr = prevDate.toISOString().split('T')[0];
+      
+      // Load previous day closing (for opening qty)
+      let prevClosingMap = {};
+      try {
+        const prevRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${prevDateStr}`);
+        (prevRes.data.items || []).forEach(item => {
+          if (item.closing_qty !== null && item.closing_qty !== undefined) {
+            prevClosingMap[item.product_id] = item.closing_qty;
+          }
+        });
+      } catch (e) {
+        // No previous closing data
+      }
+      
+      // Load current day closing
+      let currentClosingMap = {};
+      try {
+        const curRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}`);
+        (curRes.data.items || []).forEach(item => {
+          if (item.closing_qty !== null && item.closing_qty !== undefined) {
+            currentClosingMap[item.product_id] = item.closing_qty;
+          }
+        });
+      } catch (e) {
+        // No current closing data
+      }
+      
+      // Filter dispatches for this date to get received items
+      const dateDispatches = dispatches.filter(d => {
+        const dispDate = d.dispatch_date?.split('T')[0];
+        return dispDate === date;
+      });
+      
+      // Calculate received qty per product
+      const receivedMap = {};
+      dateDispatches.forEach(d => {
+        (d.items || []).forEach(item => {
+          const productId = item.product_id;
+          const qty = item.supplied_qty || 0;
+          receivedMap[productId] = (receivedMap[productId] || 0) + qty;
+        });
+      });
+      
+      // Filter rejections for this date
+      const dateRejections = rejections.filter(r => {
+        const rejDate = r.rejection_date?.split('T')[0];
+        return rejDate === date;
+      });
+      
+      // Calculate rejection qty per product
+      const rejectionMap = {};
+      dateRejections.forEach(r => {
+        const productId = r.product_id;
+        const qty = r.quantity || 0;
+        rejectionMap[productId] = (rejectionMap[productId] || 0) + qty;
+      });
+      
+      // Build inventory data for all products
+      const inventoryItems = products.map(p => {
+        const openingQty = prevClosingMap[p.id] || 0;
+        const receivedQty = receivedMap[p.id] || 0;
+        const rejectionQty = rejectionMap[p.id] || 0;
+        const closingQty = currentClosingMap[p.id];
+        // Items sold = Opening + Received - Rejection - Closing (if we have closing)
+        // Or we show: Items Sold = Opening + Received - Rejection (estimated based on what's available)
+        const itemsSold = closingQty !== undefined 
+          ? (openingQty + receivedQty - rejectionQty - closingQty)
+          : null;
+        
+        return {
+          product_id: p.id,
+          product_name: p.name,
+          product_name_hi: p.name_hi,
+          unit: p.unit || 'Kg',
+          opening_qty: openingQty,
+          received_qty: receivedQty,
+          rejection_qty: rejectionQty,
+          items_sold: itemsSold,
+          closing_qty: closingQty
+        };
+      });
+      
+      setInventoryData(inventoryItems);
+    } catch (error) {
+      console.error('Failed to load inventory data:', error);
+      toast.error('Failed to load inventory data');
+      setInventoryData([]);
+    } finally {
+      setLoadingClosing(false);
+    }
+  }, [dashboardData, dispatches, rejections, products]);
+
+  // Load inventory when date or tab changes
+  useEffect(() => {
+    if (activeTab === 'inventory' && dashboardData?.retailer?.id && products.length > 0) {
+      loadInventoryData(inventoryDate);
+    }
+  }, [activeTab, inventoryDate, dashboardData, products.length, loadInventoryData]);
+  
   // Load recorded dates
   const loadRecordedDates = async () => {
     if (!dashboardData?.retailer?.id) return;
@@ -619,8 +741,8 @@ export default function RetailerDashboard() {
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
     { id: 'invoices', label: t('retailer.invoices') || 'Invoices', icon: FileText },
-    { id: 'inventory', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
-    { id: 'indents', label: t('retailer.inventory') || 'Inventory', icon: Package },
+    { id: 'closing', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
+    { id: 'inventory', label: t('retailer.inventory') || 'Inventory', icon: Package },
     { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
   ];
 
@@ -925,10 +1047,36 @@ export default function RetailerDashboard() {
         {/* ==================== ORDERS TAB ==================== */}
         {activeTab === 'orders' && (
           <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm">My Orders (Dispatched)</CardTitle>
+            <CardHeader className="py-3 border-b">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle className="text-sm">{t('retailer.myOrders') || 'My Orders'} (Dispatched)</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-gray-500" />
+                  <Input
+                    type="date"
+                    value={ordersDateFrom}
+                    onChange={(e) => setOrdersDateFrom(e.target.value)}
+                    className="w-[140px] h-8 text-sm"
+                  />
+                  <span className="text-gray-400">to</span>
+                  <Input
+                    type="date"
+                    value={ordersDateTo}
+                    onChange={(e) => setOrdersDateTo(e.target.value)}
+                    className="w-[140px] h-8 text-sm"
+                  />
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
+              {(() => {
+                // Filter dispatches by date range
+                const filteredDispatches = dispatches.filter(d => {
+                  const dispDate = d.dispatch_date?.split('T')[0];
+                  return dispDate >= ordersDateFrom && dispDate <= ordersDateTo;
+                });
+                
+                return (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
@@ -943,9 +1091,9 @@ export default function RetailerDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dispatches.length === 0 ? (
-                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No orders received yet</td></tr>
-                    ) : dispatches.map(dispatch => (
+                    {filteredDispatches.length === 0 ? (
+                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No orders found for selected period</td></tr>
+                    ) : filteredDispatches.map(dispatch => (
                       <React.Fragment key={dispatch.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleDispatchExpand(dispatch.id)}>
                           <td className="p-3">
@@ -999,6 +1147,8 @@ export default function RetailerDashboard() {
                   </tbody>
                 </table>
               </div>
+                );
+              })()}
             </CardContent>
           </Card>
         )}
@@ -1263,28 +1413,199 @@ export default function RetailerDashboard() {
           </Card>
         )}
 
-        {/* ==================== INVENTORY TAB (Simplified Closing Inventory) ==================== */}
+        {/* ==================== INVENTORY TAB (Daily Inventory View) ==================== */}
         {activeTab === 'inventory' && (
           <Card>
             <CardHeader className="border-b py-3 px-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <ClipboardList className="text-green-600" size={18} />
-                  {t('retailer.dailyInventory')} - {t('retailer.closingStock')}
+                  {t('retailer.dailyInventory') || 'Daily Inventory'}
+                </CardTitle>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Calendar size={16} className="text-gray-500" />
+                    <Input
+                      type="date"
+                      value={inventoryDate}
+                      onChange={(e) => setInventoryDate(e.target.value)}
+                      className="w-[150px] h-9"
+                    />
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => loadInventoryData(inventoryDate)}
+                      disabled={loadingClosing}
+                      className="h-9 px-3"
+                    >
+                      <RefreshCw size={14} className={loadingClosing ? 'animate-spin' : ''} />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {/* Search Bar */}
+              <div className="flex items-center gap-3 mb-4">
+                <div className="relative flex-1 max-w-md">
+                  <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder={t('retailer.searchProduct') || 'Search product...'}
+                    value={inventorySearchTerm}
+                    onChange={(e) => setInventorySearchTerm(e.target.value)}
+                    className="pl-10 h-9"
+                  />
+                </div>
+                <Button 
+                  onClick={openRecordClosingModal}
+                  className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
+                >
+                  <Plus size={14} className="mr-1.5" />
+                  {t('retailer.recordClosing') || 'Record Closing'}
+                </Button>
+              </div>
+
+              {/* Inventory Table */}
+              {loadingClosing ? (
+                <div className="text-center py-8 text-gray-500">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                  <p className="text-sm">{t('common.loading') || 'Loading...'}</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
+                        <th className="p-3 text-center font-medium text-blue-600">{t('retailer.openingQty') || 'Opening Qty'}</th>
+                        <th className="p-3 text-center font-medium text-green-600">{t('retailer.receivedQty') || 'Received'}</th>
+                        <th className="p-3 text-center font-medium text-red-600">{t('retailer.rejectionQty') || 'Rejection'}</th>
+                        <th className="p-3 text-center font-medium text-purple-600">{t('retailer.itemsSoldQty') || 'Items Sold'}</th>
+                        <th className="p-3 text-center font-medium text-amber-600">{t('retailer.closingQty') || 'Closing Qty'}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        // Filter inventory data based on search
+                        const filtered = inventoryData.filter(item => {
+                          if (!inventorySearchTerm) return true;
+                          const searchLower = inventorySearchTerm.toLowerCase();
+                          return (
+                            item.product_name?.toLowerCase().includes(searchLower) ||
+                            item.product_name_hi?.includes(inventorySearchTerm)
+                          );
+                        });
+                        
+                        // Only show items that have any activity (opening, received, rejection, or closing)
+                        const activeItems = filtered.filter(item => 
+                          item.opening_qty > 0 || item.received_qty > 0 || item.rejection_qty > 0 || item.closing_qty !== undefined
+                        );
+                        
+                        if (activeItems.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} className="p-8 text-center text-gray-400">
+                                <ClipboardList size={40} className="mx-auto mb-3 text-gray-300" />
+                                <p className="font-medium">{t('retailer.noInventoryData') || 'No inventory data for this date'}</p>
+                              </td>
+                            </tr>
+                          );
+                        }
+                        
+                        return activeItems.map(item => (
+                          <tr key={item.product_id} className="border-b hover:bg-gray-50">
+                            <td className="p-3">
+                              <div className="font-medium text-gray-800">{getProductName(item)}</div>
+                              <div className="text-xs text-gray-400">{item.unit}</div>
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                                {item.opening_qty || 0}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className={`font-semibold ${item.received_qty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
+                                {item.received_qty > 0 ? `+${item.received_qty}` : '0'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className={`font-semibold ${item.rejection_qty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                                {item.rejection_qty > 0 ? `-${item.rejection_qty}` : '0'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center">
+                              {item.items_sold !== null ? (
+                                <span className="font-semibold text-purple-600">{item.items_sold}</span>
+                              ) : (
+                                <span className="text-gray-300">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {item.closing_qty !== undefined ? (
+                                <span className="font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">{item.closing_qty}</span>
+                              ) : (
+                                <span className="text-gray-300 italic">Not recorded</span>
+                              )}
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                    {/* Totals Footer */}
+                    {inventoryData.filter(item => 
+                      item.opening_qty > 0 || item.received_qty > 0 || item.rejection_qty > 0 || item.closing_qty !== undefined
+                    ).length > 0 && (
+                      <tfoot className="bg-gray-100 font-semibold">
+                        <tr>
+                          <td className="p-3 text-right">Totals:</td>
+                          <td className="p-3 text-center text-blue-600">
+                            {inventoryData.reduce((sum, item) => sum + (item.opening_qty || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-green-600">
+                            +{inventoryData.reduce((sum, item) => sum + (item.received_qty || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-red-600">
+                            -{inventoryData.reduce((sum, item) => sum + (item.rejection_qty || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-purple-600">
+                            {inventoryData.reduce((sum, item) => sum + (item.items_sold || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-amber-600">
+                            {inventoryData.filter(i => i.closing_qty !== undefined).reduce((sum, item) => sum + (item.closing_qty || 0), 0)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== CLOSING TAB (View/Edit Closing History) ==================== */}
+        {activeTab === 'closing' && (
+          <Card>
+            <CardHeader className="border-b py-3 px-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="text-green-600" size={18} />
+                  {t('retailer.closingStock') || 'Closing Stock History'}
                 </CardTitle>
                 <Button 
                   onClick={openRecordClosingModal}
                   className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
                 >
                   <Plus size={14} className="mr-1.5" />
-                  {t('retailer.recordClosing')}
+                  {t('retailer.recordClosing') || 'Record Today\'s Closing'}
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="p-4">
               {/* Date selector to view closing history */}
               <div className="flex items-center gap-3 mb-4 pb-4 border-b">
-                <label className="text-sm font-medium text-gray-600">{t('retailer.viewClosingFor')}</label>
+                <label className="text-sm font-medium text-gray-600">{t('retailer.viewClosingFor') || 'View Closing for:'}</label>
                 <Input
                   type="date"
                   value={closingHistoryDate}
@@ -1302,7 +1623,7 @@ export default function RetailerDashboard() {
                 </Button>
                 {recordedDates.length > 0 && (
                   <span className="text-xs text-gray-400 hidden sm:inline">
-                    {recordedDates.length} {t('retailer.datesRecorded')}
+                    {recordedDates.length} {t('retailer.datesRecorded') || 'dates recorded'}
                   </span>
                 )}
               </div>
@@ -1311,44 +1632,46 @@ export default function RetailerDashboard() {
               {loadingClosing ? (
                 <div className="text-center py-8 text-gray-500">
                   <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-                  <p className="text-sm">{t('common.loading')}</p>
+                  <p className="text-sm">{t('common.loading') || 'Loading...'}</p>
                 </div>
               ) : closingHistory.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <ClipboardList size={40} className="mx-auto mb-3 text-gray-300" />
-                  <p className="text-sm font-medium">{t('retailer.noClosingRecorded')} {closingHistoryDate}</p>
-                  <p className="text-xs text-gray-400 mt-1">{t('retailer.clickRecordClosing')}</p>
+                  <p className="text-sm font-medium">{t('retailer.noClosingRecorded') || 'No closing recorded for'} {closingHistoryDate}</p>
+                  <p className="text-xs text-gray-400 mt-1">{t('retailer.clickRecordClosing') || 'Click "Record Closing" to add closing stock'}</p>
                 </div>
               ) : (
                 <div>
-                  {/* Edit/Delete buttons */}
-                  <div className="flex justify-end gap-2 mb-3">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => editClosingInventory(closingHistoryDate)}
-                      className="text-blue-600 border-blue-300 hover:bg-blue-50"
-                    >
-                      <Pencil size={14} className="mr-1" />
-                      {t('common.edit') || 'Edit'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => deleteClosingInventory(closingHistoryDate)}
-                      className="text-red-600 border-red-300 hover:bg-red-50"
-                    >
-                      <Trash2 size={14} className="mr-1" />
-                      {t('common.delete') || 'Delete'}
-                    </Button>
-                  </div>
+                  {/* Edit/Delete buttons - only for today */}
+                  {closingHistoryDate === new Date().toISOString().split('T')[0] && (
+                    <div className="flex justify-end gap-2 mb-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editClosingInventory(closingHistoryDate)}
+                        className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                      >
+                        <Pencil size={14} className="mr-1" />
+                        {t('common.edit') || 'Edit'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => deleteClosingInventory(closingHistoryDate)}
+                        className="text-red-600 border-red-300 hover:bg-red-50"
+                      >
+                        <Trash2 size={14} className="mr-1" />
+                        {t('common.delete') || 'Delete'}
+                      </Button>
+                    </div>
+                  )}
                   
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-100">
                         <tr>
-                          <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product')}</th>
-                          <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty')}</th>
+                          <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
+                          <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty') || 'Closing Qty'}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1390,57 +1713,53 @@ export default function RetailerDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="space-y-6">
-                {/* Profile Info */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-4">{t('retailer.profileInfo') || 'Profile Information'}</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-500">{t('retailer.companyName') || 'Company Name'}</p>
-                      <p className="font-semibold">{dashboardData?.retailer?.company_name || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">{t('retailer.ownerName') || 'Owner Name'}</p>
-                      <p className="font-semibold">{dashboardData?.retailer?.name || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">{t('retailer.email') || 'Email'}</p>
-                      <p className="font-semibold">{dashboardData?.retailer?.email || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">{t('retailer.phone') || 'Phone'}</p>
-                      <p className="font-semibold">{dashboardData?.retailer?.contact || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">{t('retailer.address') || 'Address'}</p>
-                      <p className="font-semibold">{dashboardData?.retailer?.address || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">{t('retailer.commissionRate') || 'Commission Rate'}</p>
-                      <p className="font-semibold text-green-600">{dashboardData?.retailer?.commission_percentage || 0}%</p>
-                    </div>
+              {/* Profile Info */}
+              <div className="bg-gray-50 rounded-lg p-5">
+                <h4 className="text-sm font-semibold text-gray-700 mb-5">{t('retailer.profileInfo') || 'Profile Information'}</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.companyName') || 'Company Name'}</p>
+                    <p className="font-semibold text-lg">{dashboardData?.retailer?.company_name || '-'}</p>
                   </div>
-                </div>
-
-                {/* Summary Stats */}
-                <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
-                  <h4 className="text-sm font-semibold text-emerald-700 mb-4">{t('retailer.accountSummary') || 'Account Summary'}</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-emerald-600">{summary.total_indents || 0}</p>
-                      <p className="text-gray-600">{t('retailer.totalIndents') || 'Total Indents'}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-blue-600">{summary.total_dispatches || dispatches.length}</p>
-                      <p className="text-gray-600">{t('retailer.totalDispatches') || 'Dispatches'}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-purple-600">{invoices.length}</p>
-                      <p className="text-gray-600">{t('retailer.totalInvoices') || 'Invoices'}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-red-600">{rejections.length}</p>
-                      <p className="text-gray-600">{t('retailer.totalRejections') || 'Rejections'}</p>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.ownerName') || 'Owner Name'}</p>
+                    <p className="font-semibold text-lg">{dashboardData?.retailer?.name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.email') || 'Email'}</p>
+                    <p className="font-semibold">{dashboardData?.retailer?.email || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.phone') || 'Phone'}</p>
+                    <p className="font-semibold">{dashboardData?.retailer?.contact || '-'}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.address') || 'Address'}</p>
+                    <p className="font-semibold">{dashboardData?.retailer?.address || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.commissionRate') || 'Commission Rate'}</p>
+                    <p className="font-semibold text-lg text-green-600">{dashboardData?.retailer?.commission_percentage || 0}%</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{t('retailer.myReferralCode') || 'My Referral Code'}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-lg text-purple-600 bg-purple-50 px-3 py-1 rounded">
+                        {dashboardData?.retailer?.referral_code || 'N/A'}
+                      </p>
+                      {dashboardData?.retailer?.referral_code && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            navigator.clipboard.writeText(dashboardData?.retailer?.referral_code);
+                            toast.success('Referral code copied!');
+                          }}
+                          className="text-purple-600 hover:bg-purple-50"
+                        >
+                          Copy
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1468,18 +1787,19 @@ export default function RetailerDashboard() {
                 </button>
               </div>
               
-              {/* Date Picker */}
-              <div className="p-4 border-b bg-gray-50">
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  <Calendar size={14} className="inline mr-1" />
-                  {t('retailer.closingDate')}
-                </label>
-                <Input
-                  type="date"
-                  value={closingDate}
-                  onChange={(e) => setClosingDate(e.target.value)}
-                  className="w-full h-10"
-                />
+              {/* Date Display - Locked to Today */}
+              <div className="p-4 border-b bg-emerald-50">
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-emerald-600" />
+                  <span className="text-sm font-medium text-emerald-700">
+                    {editingClosingDate ? (
+                      <>Editing: {formatDate(closingDate)}</>
+                    ) : (
+                      <>Recording for Today: {formatDate(new Date().toISOString().split('T')[0])}</>
+                    )}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Closing can only be recorded for today's date</p>
               </div>
               
               {/* Search Bar */}

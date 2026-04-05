@@ -5584,8 +5584,12 @@ async def get_retailer_dashboard(
         "retailer": {
             "id": retailer.get("id"),
             "name": retailer.get("name"),
+            "email": retailer.get("email"),
+            "contact": retailer.get("contact"),
+            "address": retailer.get("address"),
             "company_name": retailer.get("company_name"),
-            "commission_percentage": retailer.get("commission_percentage", 0)
+            "commission_percentage": retailer.get("commission_percentage", 0),
+            "referral_code": retailer.get("referral_code")
         },
         "summary": {
             "total_mrp_value": round(total_mrp_value, 2),

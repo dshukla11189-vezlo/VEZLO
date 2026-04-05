@@ -11,11 +11,13 @@ import {
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
   ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check,
-  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon
+  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon, LogOut
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function RetailerDashboard() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sideMenuOpen, setSideMenuOpen] = useState(false);
@@ -737,6 +739,14 @@ export default function RetailerDashboard() {
     }
   }, [activeTab, closingHistoryDate, dashboardData?.retailer?.id]);
 
+  // Logout handler
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    toast.success('Logged out successfully');
+    navigate('/login');
+  };
+
   const menuItems = [
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
@@ -790,6 +800,18 @@ export default function RetailerDashboard() {
                 </button>
               );
             })}
+            
+            {/* Logout Button */}
+            <div className="border-t mt-4 pt-4">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50"
+                data-testid="logout-btn"
+              >
+                <LogOut size={20} />
+                <span className="font-medium">Logout</span>
+              </button>
+            </div>
           </nav>
         </div>
 

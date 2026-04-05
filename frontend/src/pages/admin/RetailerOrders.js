@@ -718,6 +718,7 @@ export default function RetailerOrders() {
     setDailyReqLoading(true);
     setDailyReqError('');
     setDailyReqData([]);
+    setDailyReqSaved(false);
     
     try {
       // Fetch indents for the selected date
@@ -733,16 +734,42 @@ export default function RetailerOrders() {
         return;
       }
       
+      // Helper to extract weight from variant name (e.g., "100 gm", "240-260 gm", "500 gm")
+      const extractWeightFromName = (name) => {
+        if (!name || name === '-') return 0;
+        // Try to find patterns like "100 gm", "240-260 gm", "500 gm Packet"
+        const rangeMatch = name.match(/(\d+)\s*-\s*(\d+)\s*g/i);
+        if (rangeMatch) {
+          return (parseInt(rangeMatch[1]) + parseInt(rangeMatch[2])) / 2;
+        }
+        const singleMatch = name.match(/(\d+)\s*g/i);
+        if (singleMatch) {
+          return parseInt(singleMatch[1]);
+        }
+        return 0;
+      };
+      
       // Aggregate all items from all indents
       const productMap = new Map();
       
       for (const indent of dateIndents) {
         for (const item of (indent.items || [])) {
-          const key = `${item.product_id}-${item.variant_id || 'default'}`;
+          // Normalize variant_id to handle null/undefined consistently
+          const variantId = item.variant_id || '';
+          const key = `${item.product_id}-${variantId}`;
           
           // Get variant info to calculate kg
           const variant = packagings.find(p => p.id === item.variant_id);
-          const variantWeight = variant?.weight_gm || variant?.weight || 0; // weight in grams
+          
+          // Try multiple sources for weight
+          let variantWeight = variant?.weight_gm || variant?.weight || 0; // weight in grams
+          if (variantWeight === 0 && item.variant_name) {
+            variantWeight = extractWeightFromName(item.variant_name);
+          }
+          if (variantWeight === 0 && variant?.name) {
+            variantWeight = extractWeightFromName(variant.name);
+          }
+          
           const variantUnit = variant?.unit || 'pcs';
           
           // Calculate kg required
@@ -752,10 +779,10 @@ export default function RetailerOrders() {
           if (variantWeight > 0) {
             // If we have weight in grams, convert to kg
             kgRequired = (qty * variantWeight) / 1000;
-          } else if (variantUnit === 'kg') {
+          } else if (variantUnit === 'kg' || variantUnit === 'Kg') {
             kgRequired = qty;
           } else {
-            // For items without weight info, use quantity as-is (assume 1 unit = 1 kg for now)
+            // For items without weight info, use quantity as-is (assume 1 unit = 1 kg)
             kgRequired = qty;
           }
           
@@ -767,10 +794,10 @@ export default function RetailerOrders() {
             productMap.set(key, {
               productId: item.product_id,
               productName: item.product_name,
-              variantId: item.variant_id,
+              variantId: item.variant_id || null,
               variantName: item.variant_name || variant?.name || '-',
               indentQty: qty,
-              kgRequired: kgRequired,
+              kgRequired: parseFloat(kgRequired.toFixed(2)),
               ratePerKg: '',
               amountPaid: '',
               remarks: ''
@@ -779,8 +806,12 @@ export default function RetailerOrders() {
         }
       }
       
-      // Convert to array and sort by product name
+      // Convert to array, sort by product name, and round kgRequired
       const requirementData = Array.from(productMap.values())
+        .map(item => ({
+          ...item,
+          kgRequired: parseFloat(item.kgRequired.toFixed(2))
+        }))
         .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
       
       setDailyReqData(requirementData);

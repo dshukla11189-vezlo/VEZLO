@@ -466,18 +466,42 @@ export default function QuickCommerce() {
       // Aggregate all items from all indents
       const productMap = new Map();
 
+      // Helper to extract weight from packaging name (e.g., "100 gm", "240-260 gm", "500 gm")
+      const extractWeightFromName = (name) => {
+        if (!name) return 0;
+        // Try to find patterns like "100 gm", "240-260 gm", "500 gm Packet"
+        const rangeMatch = name.match(/(\d+)\s*-\s*(\d+)\s*g/i);
+        if (rangeMatch) {
+          // Take average of range
+          return (parseInt(rangeMatch[1]) + parseInt(rangeMatch[2])) / 2;
+        }
+        const singleMatch = name.match(/(\d+)\s*g/i);
+        if (singleMatch) {
+          return parseInt(singleMatch[1]);
+        }
+        return 0;
+      };
+
       for (const indent of filtered) {
         for (const item of (indent.items || [])) {
           const key = `${item.product_id}-${item.packaging_id || 'default'}`;
           
           // Get packaging info
           const packaging = packagingVariants.find(p => p.id === item.packaging_id);
-          const packagingWeight = packaging?.weight_gm || 0;
+          
+          // Try to get weight from packaging, then from packaging_name, then from product_unit
+          let packagingWeight = packaging?.weight_gm || 0;
+          if (packagingWeight === 0 && item.packaging_name) {
+            packagingWeight = extractWeightFromName(item.packaging_name);
+          }
+          if (packagingWeight === 0 && item.product_unit) {
+            packagingWeight = extractWeightFromName(item.product_unit);
+          }
           
           // Get wastage average for this product+packaging
           const wastageInfo = wastageAverages.find(w => 
             w.product_id === item.product_id && 
-            w.packaging_id === item.packaging_id
+            (w.packaging_id === item.packaging_id || w.packaging_name === item.packaging_name)
           );
           const avgWastage = wastageInfo?.avg_wastage_qty || 0;
 
@@ -497,7 +521,7 @@ export default function QuickCommerce() {
               qtyRequired: qty,
               estimatedWastage: avgWastage,
               actualQtyKg: 0,  // Will be calculated
-              weightPerBunch: packagingWeight / 1000 || 0.1,  // Default 100g per bunch
+              weightPerBunch: 0.25,  // Default 250g per bunch (more realistic)
               noOfBunches: 0,  // Will be calculated
               rate: '',
               amount: '',
@@ -510,13 +534,21 @@ export default function QuickCommerce() {
       // Convert to array and calculate derived fields
       const requirementData = Array.from(productMap.values()).map(item => {
         // Actual Qty (Kg) = (Qty Required + Estimated Wastage) * weight per unit / 1000
-        const totalUnits = item.qtyRequired + item.estimatedWastage;
-        const actualQtyKg = item.packagingWeight > 0 
-          ? (totalUnits * item.packagingWeight) / 1000 
-          : totalUnits;
+        const totalUnits = (parseFloat(item.qtyRequired) || 0) + (parseFloat(item.estimatedWastage) || 0);
+        const packWeight = parseFloat(item.packagingWeight) || 0;
         
-        // No of bunches = Actual Qty Kg / Weight per bunch (default 0.1 kg = 100g)
-        const weightPerBunch = item.weightPerBunch || 0.1;
+        // Calculate actual kg - if packaging weight exists, use formula; otherwise assume qty is already in kg
+        let actualQtyKg;
+        if (packWeight > 0) {
+          actualQtyKg = (totalUnits * packWeight) / 1000;
+        } else {
+          // If no packaging weight, assume the unit is already kg or use qty as-is
+          // This handles cases where product_unit might be "Kg"
+          actualQtyKg = totalUnits;
+        }
+        
+        // No of bunches = Actual Qty Kg / Weight per bunch
+        const weightPerBunch = parseFloat(item.weightPerBunch) || 0.25;
         const noOfBunches = weightPerBunch > 0 ? Math.ceil(actualQtyKg / weightPerBunch) : 0;
 
         return {

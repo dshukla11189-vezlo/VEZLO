@@ -10,13 +10,15 @@ import {
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
-  ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check
+  ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check,
+  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon
 } from 'lucide-react';
 
 export default function RetailerDashboard() {
   const { t, i18n } = useTranslation();
   
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [sideMenuOpen, setSideMenuOpen] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
   const [indents, setIndents] = useState([]);
   const [dispatches, setDispatches] = useState([]);
@@ -613,399 +615,247 @@ export default function RetailerDashboard() {
     }
   }, [activeTab, closingHistoryDate, dashboardData?.retailer?.id]);
 
-  const tabs = [
-    { id: 'dashboard', label: t('retailer.dashboard'), icon: TrendingUp },
-    { id: 'indents', label: t('retailer.myIndents'), icon: Package },
-    { id: 'orders', label: t('retailer.myOrders'), icon: Truck },
-    { id: 'invoices', label: t('retailer.invoices'), icon: FileText },
-    { id: 'rejections', label: t('retailer.rejections'), icon: AlertTriangle },
-    { id: 'inventory', label: t('retailer.inventory'), icon: ClipboardList }
+  const menuItems = [
+    { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
+    { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
+    { id: 'invoices', label: t('retailer.invoices') || 'Invoices', icon: FileText },
+    { id: 'inventory', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
+    { id: 'indents', label: t('retailer.inventory') || 'Inventory', icon: Package },
+    { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
   ];
 
   const summary = dashboardData?.summary || {};
 
   return (
-    <Layout title={t('retailer.portal')}>
-      <div data-testid="retailer-dashboard">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">
-              {t('retailer.welcome')}, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
-            </h1>
-            <p className="text-sm text-gray-500">
-              {dashboardData?.retailer?.name && dashboardData?.retailer?.company_name !== dashboardData?.retailer?.name && 
-                `${t('retailer.owner')}: ${dashboardData.retailer.name} • `}
-              {t('retailer.commission')}: {dashboardData?.retailer?.commission_percentage || 0}%
-            </p>
+    <Layout title={t('retailer.portal')} hideTitle hideSidebar>
+      <div data-testid="retailer-dashboard" className="relative">
+        {/* Side Menu Overlay */}
+        {sideMenuOpen && (
+          <div 
+            className="fixed inset-0 bg-black/50 z-40"
+            onClick={() => setSideMenuOpen(false)}
+          />
+        )}
+        
+        {/* Side Menu */}
+        <div className={`fixed top-0 left-0 h-full w-64 bg-white shadow-xl z-50 transform transition-transform duration-300 ${sideMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="p-4 border-b bg-[#14532D]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Menu</h2>
+              <Button variant="ghost" size="sm" onClick={() => setSideMenuOpen(false)} className="text-white hover:bg-white/20">
+                <X size={20} />
+              </Button>
+            </div>
           </div>
+          <nav className="p-2">
+            {menuItems.map(item => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setSideMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
+                    activeTab === item.id 
+                      ? 'bg-[#14532D] text-white' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Icon size={20} />
+                  <span className="font-medium">{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-2 mb-4 border-b pb-2">
-          {tabs.map(tab => {
-            const Icon = tab.icon;
-            return (
-              <Button
-                key={tab.id}
-                variant={activeTab === tab.id ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setActiveTab(tab.id)}
-                className={activeTab === tab.id ? 'bg-[#14532D]' : ''}
-              >
-                <Icon size={14} className="mr-1" />
-                {tab.label}
-              </Button>
-            );
-          })}
-        </div>
+        {/* Main Content */}
+        <div className="min-h-screen">
+          {/* Header with Hamburger */}
+          <div className="flex items-center gap-4 mb-6">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setSideMenuOpen(true)}
+              className="p-2"
+              data-testid="hamburger-menu-btn"
+            >
+              <Menu size={24} />
+            </Button>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+              {t('retailer.welcome')}, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
+            </h1>
+          </div>
 
         {/* ==================== DASHBOARD TAB ==================== */}
         {activeTab === 'dashboard' && (
           <>
-            {/* Date Filter Row */}
-            <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-gray-50 rounded-lg border">
-              <div className="flex items-center gap-2">
-                <Calendar size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-600">{t('retailer.filterPeriod')}:</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={dashboardDateFrom}
-                  onChange={(e) => setDashboardDateFrom(e.target.value)}
-                  className="w-36 h-8 text-sm"
-                />
-                <span className="text-gray-400">{t('retailer.to')}</span>
-                <Input
-                  type="date"
-                  value={dashboardDateTo}
-                  onChange={(e) => setDashboardDateTo(e.target.value)}
-                  className="w-36 h-8 text-sm"
-                />
-              </div>
-              <Button 
-                size="sm" 
-                variant="outline" 
-                onClick={loadData}
-                className="h-8"
-              >
-                {t('retailer.refresh')}
-              </Button>
-            </div>
+            {/* Your Earnings - Big Card with Date Picker */}
+            <Card className="mb-6 border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50 shadow-lg">
+              <CardContent className="p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="p-4 bg-emerald-100 rounded-xl">
+                      <DollarSign size={36} className="text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-emerald-600 font-semibold uppercase tracking-wide">{t('retailer.yourEarnings') || 'Your Earnings'}</p>
+                      {(() => {
+                        const filteredDispatches = dispatches.filter(d => {
+                          const dispDate = d.dispatch_date?.split('T')[0];
+                          return dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
+                        });
+                        const filteredRejections = rejections.filter(r => {
+                          const rejDate = r.rejection_date?.split('T')[0];
+                          return rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
+                        });
+                        const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
+                        const grossMrpValue = filteredDispatches.reduce((sum, d) => {
+                          if (d.total_mrp_value && d.total_mrp_value > 0) return sum + d.total_mrp_value;
+                          return sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
+                        }, 0);
+                        const totalRejectionValue = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+                        const netMrpValue = grossMrpValue - totalRejectionValue;
+                        const totalCommission = netMrpValue * retailerCommPct / 100;
+                        return (
+                          <p className="text-4xl md:text-5xl font-bold text-emerald-700">{formatCurrency(totalCommission)}</p>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-white/70 p-3 rounded-xl border border-emerald-200">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={18} className="text-emerald-600" />
+                      <span className="text-sm font-medium text-gray-600">{t('retailer.period') || 'Period'}:</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="date"
+                        value={dashboardDateFrom}
+                        onChange={(e) => setDashboardDateFrom(e.target.value)}
+                        className="w-36 h-9 text-sm border-emerald-200 focus:border-emerald-400"
+                      />
+                      <span className="text-gray-400">to</span>
+                      <Input
+                        type="date"
+                        value={dashboardDateTo}
+                        onChange={(e) => setDashboardDateTo(e.target.value)}
+                        className="w-36 h-9 text-sm border-emerald-200 focus:border-emerald-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-            {/* Compute filtered metrics */}
+            {/* 6 Metric Boxes */}
             {(() => {
-              // Filter dispatches by date range
               const filteredDispatches = dispatches.filter(d => {
                 const dispDate = d.dispatch_date?.split('T')[0];
                 return dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
               });
-              
-              // Filter invoices by date range
-              const filteredInvoices = invoices.filter(inv => {
-                const invDate = inv.invoice_date?.split('T')[0];
-                return invDate >= dashboardDateFrom && invDate <= dashboardDateTo;
-              });
-              
-              // Filter rejections by date range
               const filteredRejections = rejections.filter(r => {
                 const rejDate = r.rejection_date?.split('T')[0];
                 return rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
               });
               
-              // Calculate metrics
               const totalItemsReceived = filteredDispatches.reduce((sum, d) => 
                 sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
-              
-              // Total items rejected (quantity)
               const totalItemsRejected = filteredRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
-              
-              // Items sold = Received - Rejected
               const totalItemsSold = totalItemsReceived - totalItemsRejected;
               
-              // Get retailer's commission percentage (fallback)
               const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
-              
-              // Calculate GROSS MRP value (before rejections)
               const grossMrpValue = filteredDispatches.reduce((sum, d) => {
-                if (d.total_mrp_value && d.total_mrp_value > 0) {
-                  return sum + d.total_mrp_value;
-                }
-                const itemsTotal = d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0;
-                return sum + itemsTotal;
+                if (d.total_mrp_value && d.total_mrp_value > 0) return sum + d.total_mrp_value;
+                return sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
               }, 0);
-              
-              // Rejection value from rejections collection (date filtered)
               const totalRejectionValue = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
-              
-              // NET MRP value = Gross - Rejections
               const netMrpValue = grossMrpValue - totalRejectionValue;
-              
-              // Calculate earnings (commission) - BASED ON NET VALUE AFTER REJECTIONS
               const totalCommission = netMrpValue * retailerCommPct / 100;
-              
-              // Payable by retailer = Net MRP - Commission
               const payableByRetailer = netMrpValue - totalCommission;
               
-              // Calculate days in range
-              const daysDiff = Math.max(1, Math.ceil((new Date(dashboardDateTo) - new Date(dashboardDateFrom)) / (1000 * 60 * 60 * 24)) + 1);
-              const avgEarningPerDay = totalCommission / daysDiff;
-              
-              // Group dispatches by date for Recent Orders
-              const dispatchesByDate = {};
-              filteredDispatches.forEach(d => {
-                const date = d.dispatch_date?.split('T')[0] || 'Unknown';
-                if (!dispatchesByDate[date]) {
-                  dispatchesByDate[date] = [];
-                }
-                dispatchesByDate[date].push(d);
-              });
-              
-              const sortedDates = Object.keys(dispatchesByDate).sort().reverse();
-
               return (
-                <>
-                  {/* Summary Cards - New Design */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-blue-100 rounded-lg">
-                            <Package size={22} className="text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-blue-600 font-medium">{t('retailer.totalItemsReceived')}</p>
-                            <p className="text-2xl font-bold text-blue-800">{totalItemsReceived.toLocaleString()}</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-green-200 bg-gradient-to-br from-green-50 to-white">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-green-100 rounded-lg">
-                            <ShoppingBag size={22} className="text-green-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-green-600 font-medium">{t('retailer.totalItemsSold')}</p>
-                            <p className="text-2xl font-bold text-green-800">{totalItemsSold.toLocaleString()}</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-emerald-100 rounded-lg">
-                            <DollarSign size={22} className="text-emerald-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-emerald-600 font-medium">{t('retailer.yourEarnings')}</p>
-                            <p className="text-2xl font-bold text-emerald-800">{formatCurrency(totalCommission)}</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-white">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-purple-100 rounded-lg">
-                            <BarChart3 size={22} className="text-purple-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-purple-600 font-medium">{t('retailer.avgEarningDay')}</p>
-                            <p className="text-2xl font-bold text-purple-800">{formatCurrency(avgEarningPerDay)}</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Additional Stats Row */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-                    <div className="bg-gray-50 p-3 rounded-lg border text-center">
-                      <p className="text-xs text-gray-500">{t('retailer.suppliedQty')}</p>
-                      <p className="text-lg font-semibold">{totalItemsReceived}</p>
-                    </div>
-                    <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
-                      <p className="text-xs text-red-500">{t('retailer.rejectedQty')}</p>
-                      <p className="text-lg font-semibold text-red-600">-{totalItemsRejected}</p>
-                    </div>
-                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
-                      <p className="text-xs text-blue-500">{t('retailer.netMrpValue')}</p>
-                      <p className="text-lg font-semibold text-blue-700">{formatCurrency(netMrpValue)}</p>
-                    </div>
-                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
-                      <p className="text-xs text-yellow-600">{t('retailer.payableByYou')}</p>
-                      <p className="text-lg font-semibold text-yellow-700">{formatCurrency(payableByRetailer)}</p>
-                    </div>
-                    <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
-                      <p className="text-xs text-green-500">{t('retailer.amountPaid')}</p>
-                      <p className="text-lg font-semibold text-green-600">{formatCurrency(summary.total_paid)}</p>
-                    </div>
-                  </div>
-                  
-                  {/* Invoice Summary Row */}
-                  {filteredInvoices.length > 0 && (
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-6">
-                      <h4 className="text-sm font-medium text-blue-800 mb-2">{t('retailer.invoiceSummary')} ({t('retailer.period')}: {formatDate(dashboardDateFrom)} - {formatDate(dashboardDateTo)})</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <p className="text-xs text-blue-500">{t('retailer.totalInvoiced')}</p>
-                          <p className="font-semibold text-blue-800">
-                            {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.total_mrp_value || 0), 0))}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-green-500">{t('retailer.yourCommission')}</p>
-                          <p className="font-semibold text-green-700">
-                            {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.commission_amount || 0), 0))}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-blue-500">Payable by You</p>
-                          <p className="font-semibold text-blue-800">
-                            {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + (inv.net_payable || 0), 0))}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Invoices Count</p>
-                          <p className="font-semibold">{filteredInvoices.length}</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                  {/* Items Received */}
+                  <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <Package size={20} className="text-blue-600" />
                         </div>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Recent Orders Table - Grouped by Date */}
-                  <Card>
-                    <CardHeader className="py-3 border-b">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Truck size={16} />
-                        {t('retailer.recentOrders')}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50 border-b">
-                            <tr>
-                              <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
-                              <th className="p-3 text-left font-medium text-gray-500">{t('retailer.date')}</th>
-                              <th className="p-3 text-center font-medium text-gray-500">{t('retailer.supplied')}</th>
-                              <th className="p-3 text-center font-medium text-red-500">{t('retailer.rejection')}</th>
-                              <th className="p-3 text-center font-medium text-gray-500">{t('retailer.netQty')}</th>
-                              <th className="p-3 text-right font-medium text-gray-500">{t('retailer.netAmt')}</th>
-                              <th className="p-3 text-right font-medium text-green-600">{t('retailer.commission')}</th>
-                              <th className="p-3 text-right font-medium text-gray-500">{t('retailer.payable')}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {sortedDates.slice(0, 10).map(date => {
-                              const dateDispatches = dispatchesByDate[date];
-                              const isExpanded = expandedOrderDates[date];
-                              
-                              // Get rejections for this date
-                              const dateRejections = filteredRejections.filter(r => {
-                                const rejDate = r.rejection_date?.split('T')[0];
-                                return rejDate === date;
-                              });
-                              const dateRejectedQty = dateRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
-                              const dateRejectionValue = dateRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
-                              
-                              // Aggregate for date
-                              const dateIndentQty = dateDispatches.reduce((sum, d) => 
-                                sum + (d.items?.reduce((s, i) => s + (i.indent_qty || i.supplied_qty || 0), 0) || 0), 0);
-                              const dateSuppliedQty = dateDispatches.reduce((sum, d) => 
-                                sum + (d.items?.reduce((s, i) => s + (i.supplied_qty || 0), 0) || 0), 0);
-                              
-                              // Calculate GROSS amount from dispatches
-                              const dateGrossAmt = dateDispatches.reduce((sum, d) => {
-                                if (d.total_mrp_value && d.total_mrp_value > 0) {
-                                  return sum + d.total_mrp_value;
-                                }
-                                return sum + (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
-                              }, 0);
-                              
-                              // NET amount = Gross - Rejections
-                              const dateNetAmt = dateGrossAmt - dateRejectionValue;
-                              
-                              // Commission on NET value
-                              const dateCommission = dateNetAmt * retailerCommPct / 100;
-                              
-                              // Payable = Net - Commission
-                              const datePayable = dateNetAmt - dateCommission;
-                              
-                              return (
-                                <React.Fragment key={date}>
-                                  {/* Date Row - Clickable */}
-                                  <tr 
-                                    className="border-b bg-gray-50 hover:bg-gray-100 cursor-pointer"
-                                    onClick={() => setExpandedOrderDates(prev => ({ ...prev, [date]: !prev[date] }))}
-                                  >
-                                    <td className="p-3 text-center">
-                                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                    </td>
-                                    <td className="p-3 font-semibold">{formatDate(date)}</td>
-                                    <td className="p-3 text-center">{dateSuppliedQty}</td>
-                                    <td className="p-3 text-center">
-                                      {dateRejectedQty > 0 ? (
-                                        <span className="text-red-600 font-medium">-{dateRejectedQty}</span>
-                                      ) : '-'}
-                                    </td>
-                                    <td className="p-3 text-center font-medium">{dateSuppliedQty - dateRejectedQty}</td>
-                                    <td className="p-3 text-right">{formatCurrency(dateNetAmt)}</td>
-                                    <td className="p-3 text-right text-green-600">{formatCurrency(dateCommission)}</td>
-                                    <td className="p-3 text-right font-semibold">{formatCurrency(datePayable)}</td>
-                                  </tr>
-                                  
-                                  {/* Expanded Product Details */}
-                                  {isExpanded && dateDispatches.map(dispatch => (
-                                    dispatch.items?.map((item, idx) => (
-                                      <tr key={`${dispatch.id}-${idx}`} className="border-b bg-white hover:bg-blue-50">
-                                        <td className="p-2 pl-8"></td>
-                                        <td className="p-2 pl-8">
-                                          <span className="text-sm text-gray-700">{getProductName(item)}</span>
-                                          {item.variant_name && (
-                                            <span className="text-xs text-gray-400 ml-1">({item.variant_name})</span>
-                                          )}
-                                        </td>
-                                        <td className="p-2 text-center text-gray-500">{item.indent_qty || item.supplied_qty || 0}</td>
-                                        <td className="p-2 text-center">{item.supplied_qty || 0}</td>
-                                        <td className="p-2 text-center">
-                                          {item.rejected_qty > 0 ? (
-                                            <span className="text-red-600">-{item.rejected_qty}</span>
-                                          ) : '-'}
-                                        </td>
-                                        <td className="p-2 text-right text-gray-600">{formatCurrency((item.supplied_qty || 0) * (item.mrp || 0))}</td>
-                                        <td className="p-2 text-right text-green-600 text-xs">
-                                          {formatCurrency(((item.supplied_qty - (item.rejected_qty || 0)) * (item.mrp || 0) * (dashboardData?.retailer?.commission_percentage || 0)) / 100)}
-                                        </td>
-                                        <td className="p-2 text-right text-gray-700">
-                                          {formatCurrency((item.supplied_qty - (item.rejected_qty || 0)) * (item.mrp || 0) * (1 - (dashboardData?.retailer?.commission_percentage || 0) / 100))}
-                                        </td>
-                                      </tr>
-                                    ))
-                                  ))}
-                                </React.Fragment>
-                              );
-                            })}
-                            {sortedDates.length === 0 && (
-                              <tr>
-                                <td colSpan={8} className="p-6 text-center text-gray-400">
-                                  No orders found in selected date range
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
+                      <p className="text-xs text-blue-600 font-medium mb-1">{t('retailer.itemsReceived') || 'Items Received'}</p>
+                      <p className="text-2xl font-bold text-blue-800">{totalItemsReceived.toLocaleString()}</p>
                     </CardContent>
                   </Card>
-                </>
+
+                  {/* Rejection */}
+                  <Card className="border-red-200 bg-gradient-to-br from-red-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-red-100 rounded-lg">
+                          <AlertTriangle size={20} className="text-red-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-red-600 font-medium mb-1">{t('retailer.rejection') || 'Rejection'}</p>
+                      <p className="text-2xl font-bold text-red-700">-{totalItemsRejected.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Items Sold */}
+                  <Card className="border-green-200 bg-gradient-to-br from-green-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-green-100 rounded-lg">
+                          <ShoppingBag size={20} className="text-green-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-green-600 font-medium mb-1">{t('retailer.itemsSold') || 'Items Sold'}</p>
+                      <p className="text-2xl font-bold text-green-800">{totalItemsSold.toLocaleString()}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Total MRP Value */}
+                  <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-purple-100 rounded-lg">
+                          <IndianRupee size={20} className="text-purple-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-purple-600 font-medium mb-1">{t('retailer.totalMrpValue') || 'Total MRP Value'}</p>
+                      <p className="text-xl font-bold text-purple-800">{formatCurrency(netMrpValue)}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Payable by You */}
+                  <Card className="border-amber-200 bg-gradient-to-br from-amber-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-amber-100 rounded-lg">
+                          <Wallet size={20} className="text-amber-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-amber-600 font-medium mb-1">{t('retailer.payableByYou') || 'Payable by You'}</p>
+                      <p className="text-xl font-bold text-amber-700">{formatCurrency(payableByRetailer)}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Paid Amount */}
+                  <Card className="border-teal-200 bg-gradient-to-br from-teal-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-teal-100 rounded-lg">
+                          <CreditCard size={20} className="text-teal-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-teal-600 font-medium mb-1">{t('retailer.paidAmount') || 'Paid Amount'}</p>
+                      <p className="text-xl font-bold text-teal-700">{formatCurrency(summary.total_paid)}</p>
+                    </CardContent>
+                  </Card>
+                </div>
               );
             })()}
           </>
@@ -1529,6 +1379,77 @@ export default function RetailerDashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* ==================== MY ACCOUNT TAB ==================== */}
+        {activeTab === 'account' && (
+          <Card>
+            <CardHeader className="border-b py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <User size={16} />
+                {t('retailer.myAccount') || 'My Account'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="space-y-6">
+                {/* Profile Info */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-4">{t('retailer.profileInfo') || 'Profile Information'}</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500">{t('retailer.companyName') || 'Company Name'}</p>
+                      <p className="font-semibold">{dashboardData?.retailer?.company_name || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">{t('retailer.ownerName') || 'Owner Name'}</p>
+                      <p className="font-semibold">{dashboardData?.retailer?.name || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">{t('retailer.email') || 'Email'}</p>
+                      <p className="font-semibold">{dashboardData?.retailer?.email || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">{t('retailer.phone') || 'Phone'}</p>
+                      <p className="font-semibold">{dashboardData?.retailer?.contact || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">{t('retailer.address') || 'Address'}</p>
+                      <p className="font-semibold">{dashboardData?.retailer?.address || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">{t('retailer.commissionRate') || 'Commission Rate'}</p>
+                      <p className="font-semibold text-green-600">{dashboardData?.retailer?.commission_percentage || 0}%</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Summary Stats */}
+                <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
+                  <h4 className="text-sm font-semibold text-emerald-700 mb-4">{t('retailer.accountSummary') || 'Account Summary'}</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-emerald-600">{summary.total_indents || 0}</p>
+                      <p className="text-gray-600">{t('retailer.totalIndents') || 'Total Indents'}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-blue-600">{summary.total_dispatches || dispatches.length}</p>
+                      <p className="text-gray-600">{t('retailer.totalDispatches') || 'Dispatches'}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-purple-600">{invoices.length}</p>
+                      <p className="text-gray-600">{t('retailer.totalInvoices') || 'Invoices'}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-red-600">{rejections.length}</p>
+                      <p className="text-gray-600">{t('retailer.totalRejections') || 'Rejections'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        </div>
+        {/* End of min-h-screen */}
 
         {/* ==================== RECORD CLOSING MODAL ==================== */}
         {showRecordClosingModal && (

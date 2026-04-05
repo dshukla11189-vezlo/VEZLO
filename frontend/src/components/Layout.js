@@ -4,7 +4,7 @@ import Sidebar from './Sidebar';
 import LanguageSwitcher from './LanguageSwitcher';
 import { Menu } from 'lucide-react';
 
-export default function Layout({ children, title }) {
+export default function Layout({ children, title, hideTitle, hideSidebar }) {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -12,8 +12,8 @@ export default function Layout({ children, title }) {
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
-      // Always open sidebar on desktop
-      if (window.innerWidth >= 768) {
+      // Always open sidebar on desktop (unless hidden)
+      if (window.innerWidth >= 768 && !hideSidebar) {
         setSidebarOpen(true);
       }
     };
@@ -21,14 +21,16 @@ export default function Layout({ children, title }) {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  }, [hideSidebar]);
 
   return (
-    <div className="dashboard-layout">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isMobile={isMobile} />
+    <div className={`dashboard-layout ${hideSidebar ? 'sidebar-hidden' : ''}`}>
+      {!hideSidebar && (
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isMobile={isMobile} />
+      )}
       
       {/* Mobile Header */}
-      {isMobile && (
+      {isMobile && !hideSidebar && (
         <div className="mobile-header flex items-center justify-between px-3 py-2">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -45,7 +47,7 @@ export default function Layout({ children, title }) {
         </div>
       )}
       
-      <div className="main-content">
+      <div className={`main-content ${hideSidebar ? 'w-full ml-0' : ''}`}>
         {/* Desktop Header with Language Switcher */}
         {!isMobile && (
           <div className="flex justify-end items-center p-3 border-b border-gray-200 bg-white shadow-sm" data-testid="desktop-header">
@@ -53,7 +55,7 @@ export default function Layout({ children, title }) {
           </div>
         )}
         <div className="p-4 md:p-6 lg:p-8">
-          {title && (
+          {title && !hideTitle && (
             <div className="mb-4 md:mb-8">
               <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-[#14532D]" data-testid="page-title">{title}</h1>
             </div>

@@ -54,6 +54,11 @@
   width: 100%;
 }
 
+/* When sidebar is hidden */
+.dashboard-layout.sidebar-hidden .main-content {
+  margin-left: 0;
+}
+
 .mobile-header {
   display: none;
   position: fixed;

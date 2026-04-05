@@ -590,6 +590,13 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Added "RATE Δ" column to Saved GRN Records table
   - [x] Rate changes calculated during upload are now persisted when GRN is saved
   - [x] Note: Existing GRNs show "-" as they were saved before this update
+- [x] **Retailer Portal Redesign** (Apr 05, 2026):
+  - [x] Removed "Retailer Portal" title and sidebar
+  - [x] Added hamburger menu with: Home, My Orders, Invoices, Closing, Inventory, My Account
+  - [x] Big "Your Earnings" card with date picker at top
+  - [x] 6 metric boxes: Items Received, Rejection, Items Sold, Total MRP Value, Payable by You, Paid Amount
+  - [x] New "My Account" tab with Profile Information and Account Summary
+  - [x] Layout component updated with `hideTitle` and `hideSidebar` props
 
 ---
 

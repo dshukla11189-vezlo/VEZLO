@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -38,6 +39,7 @@ const exportToCSV = (data, filename, columns) => {
 };
 
 export default function RetailerOrders() {
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState('indents');
   const [retailers, setRetailers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -225,6 +227,55 @@ export default function RetailerOrders() {
       console.error('Failed to load payments:', error);
     }
   }, [selectedRetailer]);
+
+  // Build a map of products for quick lookup (by id and name)
+  const productMap = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => {
+      if (p.id) map.set(p.id, p);
+      if (p.name) map.set(p.name, p);
+    });
+    return map;
+  }, [products]);
+  
+  // Helper to get translated product name based on current language
+  const getProductName = useCallback((item) => {
+    if (!item) return '';
+    
+    const isHindi = i18n.language === 'hi';
+    
+    // If it's a full product object with name_hi already
+    if (item.name_hi && isHindi) {
+      return item.name_hi;
+    }
+    
+    // Try to find the product in our lookup map
+    let product = null;
+    
+    // First try by product_id
+    if (item.product_id) {
+      product = productMap.get(item.product_id);
+    }
+    
+    // Then try by name match
+    if (!product) {
+      const itemName = item.product_name || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    // If we found a matching product, return translated name
+    if (product) {
+      if (isHindi && product.name_hi) {
+        return product.name_hi;
+      }
+      return product.name;
+    }
+    
+    // Fallback to stored product_name
+    return item.product_name || item.name || '';
+  }, [productMap, i18n.language]);
 
   useEffect(() => {
     const loadAll = async () => {
@@ -1655,7 +1706,7 @@ export default function RetailerOrders() {
                                 <tbody>
                                   {indent.items?.map((item, idx) => (
                                     <tr key={idx}>
-                                      <td className="p-2">{item.product_name}</td>
+                                      <td className="p-2">{getProductName(item)}</td>
                                       <td className="p-2">{item.variant_name || '-'}</td>
                                       <td className="p-2 text-right">{item.quantity}</td>
                                     </tr>
@@ -1774,7 +1825,7 @@ export default function RetailerOrders() {
                                   <tbody>
                                     {dispatch.items?.map((item, idx) => (
                                       <tr key={idx} className="border-t">
-                                        <td className="p-2 font-medium">{item.product_name}</td>
+                                        <td className="p-2 font-medium">{getProductName(item)}</td>
                                         <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
                                         <td className="p-2 text-center">{item.indent_qty || '-'}</td>
                                         <td className="p-2 text-center font-semibold">{item.supplied_qty}</td>
@@ -1909,7 +1960,7 @@ export default function RetailerOrders() {
                                     const amount = billableQty * rate;
                                     return (
                                       <tr key={idx}>
-                                        <td className="p-2">{item.product_name}</td>
+                                        <td className="p-2">{getProductName(item)}</td>
                                         <td className="p-2">{item.variant_name || '-'}</td>
                                         <td className="p-2 text-center">{suppliedQty}</td>
                                         <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>
@@ -2085,7 +2136,7 @@ export default function RetailerOrders() {
                               <tr key={rejection.id || idx} className="border-b bg-white hover:bg-gray-50">
                                 <td className="p-2 pl-8"></td>
                                 <td className="p-2 pl-8">
-                                  <span className="text-sm text-gray-700">{rejection.product_name}</span>
+                                  <span className="text-sm text-gray-700">{getProductName(rejection)}</span>
                                   {rejection.variant_name && (
                                     <span className="text-xs text-gray-400 ml-1">({rejection.variant_name})</span>
                                   )}
@@ -2473,7 +2524,7 @@ export default function RetailerOrders() {
                       <tbody>
                         {dispatchForm.items.map((item, index) => (
                           <tr key={index} className="border-t">
-                            <td className="p-2">{item.product_name} {item.variant_name && `(${item.variant_name})`}</td>
+                            <td className="p-2">{getProductName(item)} {item.variant_name && `(${item.variant_name})`}</td>
                             <td className="p-2 text-center text-gray-500">{item.indent_qty}</td>
                             <td className="p-2 text-center">
                               <Input
@@ -2616,7 +2667,7 @@ export default function RetailerOrders() {
                               </td>
                               <td className="p-2 text-xs text-gray-600">{formatDate(item.dispatch_date)}</td>
                               <td className="p-2">
-                                <div className="font-medium">{item.product_name}</div>
+                                <div className="font-medium">{getProductName(item)}</div>
                                 {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                               </td>
                               <td className="p-2 text-center">{item.supplied_qty}</td>
@@ -2735,7 +2786,7 @@ export default function RetailerOrders() {
                         {editInvoiceForm.items.map((item, idx) => (
                           <tr key={idx} className="border-t">
                             <td className="p-2">
-                              <div className="font-medium">{item.product_name}</div>
+                              <div className="font-medium">{getProductName(item)}</div>
                               {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                             </td>
                             <td className="p-2">
@@ -2871,7 +2922,7 @@ export default function RetailerOrders() {
                                   />
                                 </td>
                                 <td className="p-2">
-                                  <div className="font-medium">{item.product_name}</div>
+                                  <div className="font-medium">{getProductName(item)}</div>
                                   {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                                 </td>
                                 <td className="p-2 text-center text-gray-600">{item.supplied_qty}</td>

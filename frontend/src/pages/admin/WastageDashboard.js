@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -34,11 +34,61 @@ const exportToCSV = (data, filename, columns) => {
 };
 
 export default function WastageDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [dashboardData, setDashboardData] = useState(null);
   const [yesterdayWastage, setYesterdayWastage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState(7);
+  const [products, setProducts] = useState([]);
+  
+  // Build a map of products for quick lookup (by id and name)
+  const productMap = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => {
+      if (p.id) map.set(p.id, p);
+      if (p.name) map.set(p.name, p);
+    });
+    return map;
+  }, [products]);
+  
+  // Helper to get translated product name based on current language
+  const getProductName = useCallback((item) => {
+    if (!item) return '';
+    
+    const isHindi = i18n.language === 'hi';
+    
+    // If it's a full product object with name_hi already
+    if (item.name_hi && isHindi) {
+      return item.name_hi;
+    }
+    
+    // Try to find the product in our lookup map
+    let product = null;
+    
+    // First try by product_id
+    if (item.product_id) {
+      product = productMap.get(item.product_id);
+    }
+    
+    // Then try by name match
+    if (!product) {
+      const itemName = item.product_name || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    // If we found a matching product, return translated name
+    if (product) {
+      if (isHindi && product.name_hi) {
+        return product.name_hi;
+      }
+      return product.name;
+    }
+    
+    // Fallback to stored product_name
+    return item.product_name || item.name || '';
+  }, [productMap, i18n.language]);
   
   // Top products period selector
   const [topProductsPeriod, setTopProductsPeriod] = useState(7);
@@ -61,9 +111,12 @@ export default function WastageDashboard() {
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const url = `/api/stock-status/wastage-dashboard?from_date=${dateFrom}&to_date=${dateTo}`;
-      const response = await api.get(url);
-      setDashboardData(response.data);
+      const [wastageRes, productsRes] = await Promise.all([
+        api.get(`/api/stock-status/wastage-dashboard?from_date=${dateFrom}&to_date=${dateTo}`),
+        api.get('/api/products')
+      ]);
+      setDashboardData(wastageRes.data);
+      setProducts(productsRes.data);
     } catch (error) {
       console.error('Load wastage dashboard error:', error);
       toast.error('Failed to load wastage data');
@@ -286,7 +339,7 @@ export default function WastageDashboard() {
                 <tbody>
                   {yesterdayWastage.products.map((product, idx) => (
                     <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                      <td className="p-2 font-medium">{product.product_name}</td>
+                      <td className="p-2 font-medium">{getProductName(product)}</td>
                       <td className="p-2 text-right">{product.opening_qty?.toFixed(1)}</td>
                       <td className="p-2 text-right text-green-600">+{product.purchase_qty?.toFixed(1)}</td>
                       <td className="p-2 text-right text-blue-600">-{product.dispatch_qty?.toFixed(1)}</td>
@@ -513,7 +566,7 @@ export default function WastageDashboard() {
                         </div>
                         <div className="flex-1">
                           <div className="flex justify-between items-center mb-1">
-                            <span className="font-medium text-sm">{product.product_name}</span>
+                            <span className="font-medium text-sm">{getProductName(product)}</span>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-gray-500">₹{product.total_wastage_value?.toFixed(0)}</span>
                               <span className={`text-sm font-semibold px-2 py-0.5 rounded ${getWastageColor(product.wastage_percent)}`}>
@@ -576,7 +629,7 @@ export default function WastageDashboard() {
                     <div>
                       <p className="font-medium text-orange-700">Focus Product</p>
                       <p className="text-sm text-orange-600 mt-1">
-                        <strong>{topProducts[0]?.product_name}</strong> has the highest wastage at {topProducts[0]?.total_wastage_kg.toFixed(2)} Kg.
+                        <strong>{getProductName(topProducts[0])}</strong> has the highest wastage at {topProducts[0]?.total_wastage_kg.toFixed(2)} Kg.
                         Consider adjusting procurement or improving storage.
                       </p>
                     </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -39,7 +39,7 @@ import AutocompleteInput from '../../components/AutocompleteInput';
  */
 
 export default function QuickCommerce() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   
   // ============================================================================
   // SECTION: STATE DECLARATIONS
@@ -54,6 +54,55 @@ export default function QuickCommerce() {
   const [products, setProducts] = useState([]);
   const [packagingVariants, setPackagingVariants] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Build a map of products for quick lookup (by id and name)
+  const productMap = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => {
+      if (p.id) map.set(p.id, p);
+      if (p.name) map.set(p.name, p);
+    });
+    return map;
+  }, [products]);
+  
+  // Helper to get translated product name based on current language
+  const getProductName = useCallback((item) => {
+    if (!item) return '';
+    
+    const isHindi = i18n.language === 'hi';
+    
+    // If it's a full product object with name_hi already
+    if (item.name_hi && isHindi) {
+      return item.name_hi;
+    }
+    
+    // Try to find the product in our lookup map
+    let product = null;
+    
+    // First try by product_id
+    if (item.product_id) {
+      product = productMap.get(item.product_id);
+    }
+    
+    // Then try by name match
+    if (!product) {
+      const itemName = item.product_name || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    // If we found a matching product, return translated name
+    if (product) {
+      if (isHindi && product.name_hi) {
+        return product.name_hi;
+      }
+      return product.name;
+    }
+    
+    // Fallback to stored product_name
+    return item.product_name || item.name || '';
+  }, [productMap, i18n.language]);
 
   // GRN states (Ninjacart)
   const [grnDispatchItems, setGrnDispatchItems] = useState([]);  // Ninjacart dispatches for GRN table
@@ -2449,7 +2498,7 @@ Email: ${companyEmail}`;
                           )}
                           <td>
                             <div>
-                              <span className="font-medium">{item.product_name}</span>
+                              <span className="font-medium">{getProductName(item)}</span>
                               {item.packaging_name && (
                                 <span className="text-gray-500 text-xs ml-1">({item.packaging_name})</span>
                               )}
@@ -2624,7 +2673,7 @@ Email: ${companyEmail}`;
                           const autoCrates = lotSize > 0 ? Math.ceil(suppliedQty / lotSize) : 0;
                           return (
                             <tr key={idx}>
-                              <td className="font-medium">{item.product_name}</td>
+                              <td className="font-medium">{getProductName(item)}</td>
                               <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                               <td className="text-right">{item.required_qty}</td>
                               <td className="text-right text-blue-600">{dispatched}</td>
@@ -2893,7 +2942,7 @@ Email: ${companyEmail}`;
                               const itemRemaining = item.required_qty - dispatched;
                               return (
                                 <div key={idx} className="bg-white border rounded px-2 py-1 flex items-center gap-2">
-                                  <span className="font-medium">{item.product_name}</span>
+                                  <span className="font-medium">{getProductName(item)}</span>
                                   {item.packaging_name && <span className="text-gray-500">({item.packaging_name})</span>}
                                   <span className={`font-semibold ${itemRemaining > 0 ? 'text-orange-600' : 'text-green-600'}`}>
                                     {dispatched}/{item.required_qty}
@@ -2926,7 +2975,7 @@ Email: ${companyEmail}`;
                                     const itemRemaining = item.required_qty - dispatched;
                                     return (
                                       <tr key={idx}>
-                                        <td className="font-medium">{item.product_name}</td>
+                                        <td className="font-medium">{getProductName(item)}</td>
                                         <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                                         <td className="text-right">{item.required_qty}</td>
                                         <td className="text-right text-blue-600 font-semibold">{dispatched}</td>
@@ -2981,7 +3030,7 @@ Email: ${companyEmail}`;
                                       <div className="text-sm text-gray-700">
                                         {dispatch.items?.map((item, idx) => (
                                           <span key={idx} className="inline-block mr-4">
-                                            {item.product_name}: <span className="font-semibold">{item.supplied_qty}</span>
+                                            {getProductName(item)}: <span className="font-semibold">{item.supplied_qty}</span>
                                           </span>
                                         ))}
                                       </div>
@@ -3333,7 +3382,7 @@ Email: ${companyEmail}`;
                       <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto pr-1">
                         {grnUploadResult.rate_changes.map((rc, idx) => (
                           <div key={idx} className={`px-2 py-1 rounded text-xs ${rc.change > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            <span className="font-medium">{rc.product_name}</span>
+                            <span className="font-medium">{getProductName(rc)}</span>
                             <span className="ml-1">
                               {rc.change > 0 ? '↑' : '↓'} ₹{Math.abs(rc.change).toFixed(2)} ({rc.change_percent > 0 ? '+' : ''}{rc.change_percent}%)
                             </span>
@@ -3429,7 +3478,7 @@ Email: ${companyEmail}`;
                           {(grnLossSummary?.items || []).slice(0, 20).map((item, idx) => (
                             <tr key={idx} className="border-b hover:bg-red-25">
                               <td className="p-2">{item.date}</td>
-                              <td className="p-2">{item.product_name}</td>
+                              <td className="p-2">{getProductName(item)}</td>
                               <td className="p-2 text-gray-500">{item.packaging_name}</td>
                               <td className="p-2 text-right">{item.supplied_qty}</td>
                               <td className="p-2 text-right">{item.grn_qty}</td>
@@ -3536,7 +3585,7 @@ Email: ${companyEmail}`;
                             <tr key={idx} className={isEditing ? 'bg-yellow-50' : ''}>
                               <td className="whitespace-nowrap text-gray-600">{item.dispatch_date?.slice(5) || '-'}</td>
                               <td>
-                                <div className="font-medium text-[#14532D]">{item.product_name}</div>
+                                <div className="font-medium text-[#14532D]">{getProductName(item)}</div>
                                 <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
                               </td>
                               <td className="text-right">{item.supplied_qty}</td>
@@ -3704,7 +3753,7 @@ Email: ${companyEmail}`;
                                     return (
                                       <tr key={idx}>
                                         <td>
-                                          <div className="font-medium text-[#14532D]">{item.product_name}</div>
+                                          <div className="font-medium text-[#14532D]">{getProductName(item)}</div>
                                           <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
                                         </td>
                                         <td className="text-right">{item.supplied_qty}</td>
@@ -3873,7 +3922,7 @@ Email: ${companyEmail}`;
                                         return (
                                           <tr key={idx} className={isEditingThis ? 'bg-yellow-50' : ''}>
                                             <td>
-                                              <div className="font-medium text-[#14532D]">{item.product_name}</div>
+                                              <div className="font-medium text-[#14532D]">{getProductName(item)}</div>
                                               <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
                                             </td>
                                             <td className="text-right">{item.supplied_qty}</td>
@@ -4290,7 +4339,7 @@ Email: ${companyEmail}`;
                                 className="w-4 h-4 cursor-pointer"
                               />
                             </td>
-                            <td className="font-medium">{item.product_name}</td>
+                            <td className="font-medium">{getProductName(item)}</td>
                             <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                             <td className="text-right">{item.supplied_qty}</td>
                             <td className="text-sm text-gray-500">{item.dispatch_time || '-'}</td>
@@ -4334,7 +4383,7 @@ Email: ${companyEmail}`;
                     {invoiceForm.items.map((item, idx) => (
                       <tr key={idx}>
                         <td>{idx + 1}</td>
-                        <td className="font-medium">{item.product_name}</td>
+                        <td className="font-medium">{getProductName(item)}</td>
                         <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                         <td className="text-right">{item.indent_qty || '-'}</td>
                         <td className="text-right">

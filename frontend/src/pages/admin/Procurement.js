@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -49,14 +49,6 @@ const UNIT_TYPES = [
 export default function Procurement() {
   const { t, i18n } = useTranslation();
   
-  // Helper to get translated product name based on current language
-  const getProductName = (product) => {
-    if (i18n.language === 'hi' && product.name_hi) {
-      return product.name_hi;
-    }
-    return product.name;
-  };
-  
   const [procurements, setProcurements] = useState([]);
   const [filteredProcurements, setFilteredProcurements] = useState([]);
   const [farmers, setFarmers] = useState([]);
@@ -69,6 +61,55 @@ export default function Procurement() {
   const [openTemplate, setOpenTemplate] = useState(false);
   const [selectedProcurement, setSelectedProcurement] = useState(null);
   const [editMode, setEditMode] = useState(false);
+
+  // Build a map of products for quick lookup (by id and name)
+  const productMap = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => {
+      if (p.id) map.set(p.id, p);
+      if (p.name) map.set(p.name, p);
+    });
+    return map;
+  }, [products]);
+  
+  // Helper to get translated product name based on current language
+  const getProductName = useCallback((item) => {
+    if (!item) return '';
+    
+    const isHindi = i18n.language === 'hi';
+    
+    // If it's a full product object with name_hi already
+    if (item.name_hi && isHindi) {
+      return item.name_hi;
+    }
+    
+    // Try to find the product in our lookup map
+    let product = null;
+    
+    // First try by product_id
+    if (item.product_id) {
+      product = productMap.get(item.product_id);
+    }
+    
+    // Then try by name match
+    if (!product) {
+      const itemName = item.product_name || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    // If we found a matching product, return translated name
+    if (product) {
+      if (isHindi && product.name_hi) {
+        return product.name_hi;
+      }
+      return product.name;
+    }
+    
+    // Fallback to stored product_name
+    return item.product_name || item.name || '';
+  }, [productMap, i18n.language]);
   
   // Filters - default to today's date
   const today = new Date().toISOString().split('T')[0];
@@ -1130,7 +1171,7 @@ export default function Procurement() {
                                 />
                               </td>
                               <td className="p-2 text-sm">{proc.farmer_name}</td>
-                              <td className="p-2 font-medium">{p.product_name}</td>
+                              <td className="p-2 font-medium">{getProductName(p)}</td>
                               <td className="p-2">
                                 <Input
                                   type="number"
@@ -1730,7 +1771,7 @@ export default function Procurement() {
                           <div className="space-y-1">
                             {proc.products?.map((p, i) => (
                               <div key={i} className="text-xs">
-                                {p.product_name}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
+                                {getProductName(p)}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
                               </div>
                             ))}
                           </div>
@@ -2043,7 +2084,7 @@ export default function Procurement() {
                         <div className="mt-1 space-y-1 max-h-[100px] overflow-y-auto pr-1">
                           {template.products.map((p, i) => (
                             <p key={i} className="text-xs text-gray-600">
-                              • {p.product_name}: {p.quantity} {p.unit}
+                              • {getProductName(p)}: {p.quantity} {p.unit}
                             </p>
                           ))}
                         </div>

@@ -295,6 +295,14 @@ async def create_user(input: RegisterRequest, current_user: dict = Depends(get_c
     
     user_dict = input.model_dump()
     user_dict["password"] = hash_password(user_dict.pop("password"))
+    
+    # Generate referral code for retailers
+    if user_dict.get("role") == "retailer":
+        import random
+        import string
+        referral_code = "MRO-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        user_dict["referral_code"] = referral_code
+    
     user = User(**user_dict)
     
     doc = user.model_dump()
@@ -6144,6 +6152,212 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
         logger.error(f"Error in auto-sync: {e}")
         raise HTTPException(status_code=500, detail=f"Auto-sync failed: {str(e)}")
 
+
+# ==================== AUTO INDENT GENERATION ====================
+
+async def generate_auto_indents_for_tomorrow():
+    """
+    Auto-generate retailer indents for the next day based on sales history.
+    Runs at 11 PM daily.
+    
+    Logic:
+    1. Calculate tomorrow's day of week (e.g., Monday)
+    2. For each retailer, find items sold on the last 7 occurrences of that day
+    3. Calculate average and increase by 10%
+    4. Create auto-generated indent
+    """
+    try:
+        logger.info("Starting auto-indent generation for tomorrow...")
+        
+        # Get tomorrow's date
+        now = datetime.now(timezone.utc)
+        tomorrow = now + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime('%Y-%m-%d')
+        tomorrow_weekday = tomorrow.weekday()  # 0=Monday, 6=Sunday
+        
+        # Get all retailers
+        retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
+        logger.info(f"Found {len(retailers)} retailers to process")
+        
+        # Get all products for reference
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        product_map = {p["id"]: p for p in products}
+        
+        auto_indents_created = 0
+        
+        for retailer in retailers:
+            retailer_id = retailer["id"]
+            retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
+            
+            try:
+                # Check if indent already exists for tomorrow
+                existing_indent = await db.retailer_indents.find_one({
+                    "retailer_id": retailer_id,
+                    "indent_date": {"$regex": f"^{tomorrow_str}"}
+                })
+                
+                if existing_indent:
+                    logger.info(f"Indent already exists for {retailer_name} on {tomorrow_str}, skipping")
+                    continue
+                
+                # Find the last 7 occurrences of the same weekday
+                target_dates = []
+                check_date = tomorrow - timedelta(days=7)
+                
+                while len(target_dates) < 7 and check_date > now - timedelta(days=90):
+                    if check_date.weekday() == tomorrow_weekday:
+                        target_dates.append(check_date.strftime('%Y-%m-%d'))
+                    check_date -= timedelta(days=1)
+                
+                if not target_dates:
+                    logger.info(f"No historical data for {retailer_name}, skipping")
+                    continue
+                
+                logger.info(f"Analyzing {len(target_dates)} {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][tomorrow_weekday]}s for {retailer_name}")
+                
+                # Get dispatches for those dates
+                date_regex_patterns = [f"^{d}" for d in target_dates]
+                
+                dispatches = await db.retailer_dispatches.find({
+                    "retailer_id": retailer_id,
+                    "$or": [{"dispatch_date": {"$regex": pattern}} for pattern in date_regex_patterns]
+                }, {"_id": 0}).to_list(500)
+                
+                if not dispatches:
+                    logger.info(f"No dispatch history for {retailer_name} on target weekdays, skipping")
+                    continue
+                
+                # Get closing inventory data
+                closing_records = await db.retailer_closing_inventory.find({
+                    "retailer_id": retailer_id,
+                    "closing_date": {"$in": target_dates}
+                }, {"_id": 0}).to_list(100)
+                
+                closing_map = {}
+                for record in closing_records:
+                    closing_map[record["closing_date"]] = {
+                        item["product_id"]: item["closing_qty"]
+                        for item in record.get("items", [])
+                        if item.get("closing_qty") is not None
+                    }
+                
+                # Calculate items received per product per date
+                received_per_date = {}
+                for dispatch in dispatches:
+                    dispatch_date = dispatch["dispatch_date"][:10]
+                    if dispatch_date not in received_per_date:
+                        received_per_date[dispatch_date] = {}
+                    
+                    for item in dispatch.get("items", []):
+                        product_id = item.get("product_id")
+                        qty = item.get("supplied_qty", 0)
+                        if product_id:
+                            received_per_date[dispatch_date][product_id] = \
+                                received_per_date[dispatch_date].get(product_id, 0) + qty
+                
+                # Calculate items sold per product
+                product_sales = {}
+                sales_count = {}
+                
+                for date_str, received_items in received_per_date.items():
+                    prev_date = (datetime.strptime(date_str, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+                    prev_closing = closing_map.get(prev_date, {})
+                    current_closing = closing_map.get(date_str, {})
+                    
+                    for product_id, received_qty in received_items.items():
+                        opening_qty = prev_closing.get(product_id, 0)
+                        closing_qty = current_closing.get(product_id)
+                        
+                        if closing_qty is not None:
+                            items_sold = opening_qty + received_qty - closing_qty
+                        else:
+                            items_sold = received_qty * 0.8
+                        
+                        if items_sold > 0:
+                            product_sales[product_id] = product_sales.get(product_id, 0) + items_sold
+                            sales_count[product_id] = sales_count.get(product_id, 0) + 1
+                
+                if not product_sales:
+                    logger.info(f"No sales data for {retailer_name}, skipping")
+                    continue
+                
+                # Calculate average and add 10%
+                indent_items = []
+                for product_id, total_sales in product_sales.items():
+                    avg_sales = total_sales / sales_count[product_id]
+                    recommended_qty = round(avg_sales * 1.1)
+                    
+                    if recommended_qty > 0 and product_id in product_map:
+                        product = product_map[product_id]
+                        indent_items.append({
+                            "product_id": product_id,
+                            "product_name": product.get("name", "Unknown"),
+                            "variant_id": None,
+                            "variant_name": None,
+                            "quantity": recommended_qty,
+                            "status": "pending"
+                        })
+                
+                if not indent_items:
+                    logger.info(f"No items to indent for {retailer_name}, skipping")
+                    continue
+                
+                # Create the auto-generated indent
+                indent_doc = {
+                    "id": str(uuid.uuid4()),
+                    "retailer_id": retailer_id,
+                    "retailer_name": retailer_name,
+                    "indent_date": tomorrow.isoformat(),
+                    "items": indent_items,
+                    "status": "pending",
+                    "created_by": "system",
+                    "created_by_role": "system",
+                    "remarks": f"Auto-generated based on last {len(target_dates)} {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][tomorrow_weekday]}s sales",
+                    "is_auto_generated": True,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                await db.retailer_indents.insert_one(indent_doc)
+                auto_indents_created += 1
+                logger.info(f"Created auto-indent for {retailer_name} with {len(indent_items)} items")
+                
+            except Exception as e:
+                logger.error(f"Error processing retailer {retailer_name}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        logger.info(f"Auto-indent generation completed. Created {auto_indents_created} indents.")
+        return {"indents_created": auto_indents_created}
+        
+    except Exception as e:
+        logger.error(f"Auto-indent generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
+
+def generate_auto_indents_wrapper():
+    """Wrapper to run async auto-indent generation from scheduler"""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(generate_auto_indents_for_tomorrow())
+    finally:
+        loop.close()
+
+
+@api_router.post("/admin/generate-auto-indents")
+async def trigger_auto_indent_generation(current_user: dict = Depends(get_current_user)):
+    """Manually trigger auto-indent generation for testing"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can trigger auto-indent generation")
+    
+    result = await generate_auto_indents_for_tomorrow()
+    return result
+
+
 # Include router
 app.include_router(api_router)
 
@@ -6194,6 +6408,17 @@ async def startup_event():
             misfire_grace_time=3600  # Allow 1 hour grace period
         )
         logger.info("Gmail GRN sync scheduled for 6:00 AM IST daily")
+        
+        # Add Auto-Indent generation job at 11 PM IST (17:30 UTC)
+        # IST is UTC+5:30, so 11:00 PM IST = 17:30 UTC
+        backup_scheduler.add_job(
+            generate_auto_indents_wrapper,
+            CronTrigger(hour=17, minute=30),  # 11:00 PM IST
+            id='auto_indent_generation',
+            replace_existing=True,
+            misfire_grace_time=3600  # Allow 1 hour grace period
+        )
+        logger.info("Auto-indent generation scheduled for 11:00 PM IST daily")
         
         # Check if we missed the 6 AM sync today and run it now
         await check_and_run_missed_gmail_sync()
@@ -6318,6 +6543,8 @@ async def scheduled_gmail_sync():
         logger.info("Scheduled Gmail GRN sync completed")
     except Exception as e:
         logger.error(f"Gmail sync scheduler error: {e}")
+
+
 
 
 # ==================== RETAILER INVENTORY ENDPOINTS ====================

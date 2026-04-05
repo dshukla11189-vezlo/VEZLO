@@ -1606,7 +1606,14 @@ export default function RetailerOrders() {
                             {expandedIndents[indent.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </td>
                           <td className="p-3">{formatDate(indent.indent_date)}</td>
-                          <td className="p-3 font-medium">{getRetailerNameById(indent.retailer_id) || indent.retailer_name}</td>
+                          <td className="p-3 font-medium">
+                            {getRetailerNameById(indent.retailer_id) || indent.retailer_name}
+                            {indent.is_auto_generated && (
+                              <span className="ml-2 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
+                                Auto Generated
+                              </span>
+                            )}
+                          </td>
                           <td className="p-3 text-center">{indent.items?.length || 0}</td>
                           <td className="p-3 text-center">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${

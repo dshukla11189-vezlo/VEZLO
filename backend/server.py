@@ -4218,6 +4218,150 @@ async def recalculate_stock_dispatches(
         "updates": updates
     }
 
+
+@api_router.post("/stock-status/fix-all-historical-dispatches")
+async def fix_all_historical_dispatches(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fix dispatch calculations for ALL historical dates.
+    This recalculates dispatches for every date in daily_stock_status,
+    properly combining aliased products (e.g., Spinach → Palak).
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix historical dispatches")
+    
+    # Get all unique dates from daily_stock_status
+    all_dates = await db.daily_stock_status.distinct("date")
+    all_dates = sorted(all_dates)  # Sort chronologically
+    
+    if not all_dates:
+        return {"message": "No stock status records found", "dates_fixed": 0, "total_updates": 0}
+    
+    # Get packaging weights from QC packaging table
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {}
+    for p in packaging_variants:
+        name = p['name']
+        name_lower = name.lower().strip()
+        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight > 0:
+            packaging_map[name_lower] = weight
+            if 'packet' in name_lower:
+                packaging_map[name_lower.replace('packet', '').strip()] = weight
+            number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+            if number_match:
+                packaging_map[number_match.group(1)] = weight
+    
+    # Get all products to build cost_alias mapping
+    products = await db.products.find({}, {"_id": 0}).to_list(1000)
+    cost_alias_id_map = {}
+    for product in products:
+        alias_id = product.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[product["id"]] = alias_id
+    
+    # Get ALL dispatches (we'll filter by date in memory)
+    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
+    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    
+    # Build dispatch data by date and product
+    dispatches_by_date = {}
+    for d in all_qc_dispatches + all_retailer_dispatches:
+        dispatch_date = d.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date_str = str(dispatch_date)[:10]
+        
+        if dispatch_date_str not in dispatches_by_date:
+            dispatches_by_date[dispatch_date_str] = {}
+        
+        for item in d.get("items", []):
+            product_id = item.get("product_id")
+            # Map to aliased product if applicable (e.g., Spinach → Palak)
+            target_product_id = cost_alias_id_map.get(product_id, product_id)
+            
+            supplied_qty = item.get("supplied_qty", 0)
+            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+            
+            # Get weight from packaging map
+            weight_gm = packaging_map.get(packaging_name)
+            if not weight_gm:
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            if not weight_gm:
+                weight_gm = 1000  # Default 1kg
+            
+            qty_kg = (supplied_qty * weight_gm) / 1000
+            
+            if target_product_id not in dispatches_by_date[dispatch_date_str]:
+                dispatches_by_date[dispatch_date_str][target_product_id] = {"qty": 0, "value": 0}
+            dispatches_by_date[dispatch_date_str][target_product_id]["qty"] += qty_kg
+            dispatches_by_date[dispatch_date_str][target_product_id]["value"] += supplied_qty * (item.get("rate") or 0)
+    
+    # Process each date
+    total_updated = 0
+    dates_fixed = 0
+    summary = []
+    
+    for date in all_dates:
+        stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)
+        date_dispatches = dispatches_by_date.get(date, {})
+        date_updates = 0
+        
+        for entry in stock_entries:
+            product_id = entry.get("product_id")
+            old_dispatch = entry.get("dispatch_qty", 0)
+            
+            # Get new dispatch value
+            dispatch_data = date_dispatches.get(product_id, {"qty": 0, "value": 0})
+            new_dispatch = round(dispatch_data["qty"], 2)
+            
+            # Only update if there's a change
+            if abs(new_dispatch - old_dispatch) > 0.001:
+                update_data = {
+                    "dispatch_qty": new_dispatch,
+                    "dispatch_value": round(dispatch_data["value"], 2)
+                }
+                
+                # If closed, recalculate wastage
+                if entry.get("status") == "closed" and entry.get("closing_qty") is not None:
+                    opening_qty = entry.get("opening_qty", 0)
+                    purchase_qty = entry.get("purchase_qty", 0)
+                    closing_qty = entry.get("closing_qty", 0)
+                    avg_price = entry.get("avg_price", 0)
+                    
+                    total_available = opening_qty + purchase_qty - new_dispatch
+                    wastage_qty = max(0, total_available - closing_qty)
+                    wastage_value = wastage_qty * avg_price
+                    total_input = opening_qty + purchase_qty
+                    wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
+                    
+                    update_data.update({
+                        "wastage_qty": round(wastage_qty, 2),
+                        "wastage_value": round(wastage_value, 2),
+                        "wastage_percent": round(wastage_percent, 2)
+                    })
+                
+                await db.daily_stock_status.update_one(
+                    {"date": date, "product_id": product_id},
+                    {"$set": update_data}
+                )
+                date_updates += 1
+                total_updated += 1
+        
+        if date_updates > 0:
+            dates_fixed += 1
+            summary.append(f"{date}: {date_updates} products updated")
+    
+    return {
+        "message": f"Fixed dispatches for {dates_fixed} dates, {total_updated} total product entries updated",
+        "dates_fixed": dates_fixed,
+        "total_updates": total_updated,
+        "summary": summary[-10:] if len(summary) > 10 else summary  # Return last 10 dates for brevity
+    }
+
+
 @api_router.get("/stock-status/history")
 async def get_stock_status_history(
     from_date: Optional[str] = None,

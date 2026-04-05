@@ -639,6 +639,19 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Improved visual design with ranked badges (1-gold, 2-silver, 3-bronze)
   - [x] Shows wastage %, value, and days of data
 
+### Hindi Product Names Translation (COMPLETED - Apr 2026)
+- [x] **Product names display in Hindi when language is switched** (Apr 05, 2026):
+  - [x] Added `name_hi` field to all 47 products in database
+  - [x] Script `/app/backend/populate_hindi_names.py` populates Hindi translations
+  - [x] `getProductName()` helper function added to all major pages:
+    - Retailer Dashboard (My Orders, Inventory, Closing Stock)
+    - Admin RetailerOrders page
+    - Admin QuickCommerce page
+    - Admin Procurement page
+    - Admin WastageDashboard page
+  - [x] Helper checks `i18n.language === 'hi'` and returns `name_hi` if available
+  - [x] Sample translations: Coriander→धनिया, Spinach→पालक, Mint→पुदीना, Fenugreek→मेथी
+
 ---
 
 ## Key API Endpoints

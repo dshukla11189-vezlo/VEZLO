@@ -168,6 +168,13 @@ export default function RetailerOrders() {
   const [autoIndentRetailerId, setAutoIndentRetailerId] = useState('');
   const [autoIndentLoading, setAutoIndentLoading] = useState(false);
 
+  // Daily Requirement state
+  const [dailyReqDate, setDailyReqDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dailyReqData, setDailyReqData] = useState([]);
+  const [dailyReqLoading, setDailyReqLoading] = useState(false);
+  const [dailyReqError, setDailyReqError] = useState('');
+  const [dailyReqRetailer, setDailyReqRetailer] = useState('');
+
   // Load base data
   const loadBaseData = useCallback(async () => {
     try {
@@ -258,14 +265,15 @@ export default function RetailerOrders() {
     // Try to find the product in our lookup map
     let product = null;
     
-    // First try by product_id
-    if (item.product_id) {
-      product = productMap.get(item.product_id);
+    // First try by product_id (supports both snake_case and camelCase)
+    const productId = item.product_id || item.productId;
+    if (productId) {
+      product = productMap.get(productId);
     }
     
-    // Then try by name match
+    // Then try by name match (supports both snake_case and camelCase)
     if (!product) {
-      const itemName = item.product_name || item.name;
+      const itemName = item.product_name || item.productName || item.name;
       if (itemName) {
         product = productMap.get(itemName);
       }
@@ -279,8 +287,8 @@ export default function RetailerOrders() {
       return product.name;
     }
     
-    // Fallback to stored product_name
-    return item.product_name || item.name || '';
+    // Fallback to stored product_name (supports both formats)
+    return item.product_name || item.productName || item.name || '';
   }, [productMap, i18n.language]);
 
   useEffect(() => {
@@ -696,6 +704,167 @@ export default function RetailerOrders() {
     } finally {
       setAutoIndentLoading(false);
     }
+  };
+
+  // ==================== DAILY REQUIREMENT HANDLERS ====================
+  const calculateDailyRequirement = useCallback(async () => {
+    if (!dailyReqDate) {
+      setDailyReqError('Please select a date');
+      return;
+    }
+    
+    setDailyReqLoading(true);
+    setDailyReqError('');
+    setDailyReqData([]);
+    
+    try {
+      // Fetch indents for the selected date
+      let url = `/api/retailer-indents?date=${dailyReqDate}`;
+      if (dailyReqRetailer) {
+        url += `&retailer_id=${dailyReqRetailer}`;
+      }
+      const response = await api.get(url);
+      const dateIndents = response.data;
+      
+      if (!dateIndents || dateIndents.length === 0) {
+        setDailyReqError('Sorry, there is no Indent for this date. Select Another date.');
+        return;
+      }
+      
+      // Aggregate all items from all indents
+      const productMap = new Map();
+      
+      for (const indent of dateIndents) {
+        for (const item of (indent.items || [])) {
+          const key = `${item.product_id}-${item.variant_id || 'default'}`;
+          
+          // Get variant info to calculate kg
+          const variant = packagings.find(p => p.id === item.variant_id);
+          const variantWeight = variant?.weight_gm || variant?.weight || 0; // weight in grams
+          const variantUnit = variant?.unit || 'pcs';
+          
+          // Calculate kg required
+          let kgRequired = 0;
+          const qty = item.quantity || 0;
+          
+          if (variantWeight > 0) {
+            // If we have weight in grams, convert to kg
+            kgRequired = (qty * variantWeight) / 1000;
+          } else if (variantUnit === 'kg') {
+            kgRequired = qty;
+          } else {
+            // For items without weight info, use quantity as-is (assume 1 unit = 1 kg for now)
+            kgRequired = qty;
+          }
+          
+          if (productMap.has(key)) {
+            const existing = productMap.get(key);
+            existing.indentQty += qty;
+            existing.kgRequired += kgRequired;
+          } else {
+            productMap.set(key, {
+              productId: item.product_id,
+              productName: item.product_name,
+              variantId: item.variant_id,
+              variantName: item.variant_name || variant?.name || '-',
+              indentQty: qty,
+              kgRequired: kgRequired,
+              ratePerKg: '',
+              amountPaid: '',
+              remarks: ''
+            });
+          }
+        }
+      }
+      
+      // Convert to array and sort by product name
+      const requirementData = Array.from(productMap.values())
+        .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
+      
+      setDailyReqData(requirementData);
+      
+    } catch (error) {
+      console.error('Failed to calculate daily requirement:', error);
+      setDailyReqError('Failed to fetch indents. Please try again.');
+    } finally {
+      setDailyReqLoading(false);
+    }
+  }, [dailyReqDate, dailyReqRetailer, packagings]);
+
+  // Print daily requirement
+  const printDailyRequirement = () => {
+    const printContent = document.getElementById('daily-requirement-print');
+    if (!printContent) return;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Daily Purchase Requirement - ${dailyReqDate}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { text-align: center; margin-bottom: 5px; }
+            h2 { text-align: center; color: #666; margin-top: 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+            th { background-color: #f0f0f0; font-weight: bold; }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
+            .footer { margin-top: 30px; text-align: right; font-size: 12px; color: #666; }
+            @media print { 
+              body { padding: 0; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Daily Purchase Requirement</h1>
+          <h2>Date: ${new Date(dailyReqDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>
+          ${dailyReqRetailer ? `<p style="text-align:center;">Retailer: ${retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || 'All'}</p>` : '<p style="text-align:center;">All Retailers</p>'}
+          <table>
+            <thead>
+              <tr>
+                <th style="width:5%">#</th>
+                <th style="width:25%">Product Name</th>
+                <th style="width:15%">Packaging</th>
+                <th style="width:10%" class="text-center">Indent Qty</th>
+                <th style="width:10%" class="text-right">Kg Required</th>
+                <th style="width:10%" class="text-right">Rate/Kg</th>
+                <th style="width:10%" class="text-right">Amount</th>
+                <th style="width:15%">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dailyReqData.map((item, idx) => `
+                <tr>
+                  <td class="text-center">${idx + 1}</td>
+                  <td>${getProductName(item)}</td>
+                  <td>${item.variantName || '-'}</td>
+                  <td class="text-center">${item.indentQty}</td>
+                  <td class="text-right">${item.kgRequired.toFixed(2)}</td>
+                  <td class="text-right"></td>
+                  <td class="text-right"></td>
+                  <td></td>
+                </tr>
+              `).join('')}
+              <tr style="font-weight:bold; background-color:#f9f9f9;">
+                <td colspan="3">TOTAL</td>
+                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + item.indentQty, 0)}</td>
+                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + item.kgRequired, 0).toFixed(2)} Kg</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="footer">
+            Generated on: ${new Date().toLocaleString('en-IN')} | Mr Organix
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   // ==================== DISPATCH HANDLERS ====================
@@ -1500,6 +1669,7 @@ export default function RetailerOrders() {
   };
 
   const tabs = [
+    { id: 'dailyRequirement', label: 'Daily Requirement', icon: ShoppingCart, count: null },
     { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
     { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
     { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
@@ -1641,6 +1811,161 @@ export default function RetailerOrders() {
             })}
           </div>
         </div>
+
+        {/* ==================== DAILY REQUIREMENT TAB ==================== */}
+        {activeTab === 'dailyRequirement' && (
+          <Card>
+            <CardHeader className="py-3 border-b">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ShoppingCart size={16} className="text-green-600" />
+                    Daily Purchase Requirement
+                  </CardTitle>
+                  <p className="text-xs text-gray-500 mt-1">Select date to find its purchase requirement</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={dailyReqRetailer}
+                    onChange={(e) => setDailyReqRetailer(e.target.value)}
+                    className="h-9 px-3 rounded-md border border-gray-200 text-sm"
+                  >
+                    <option value="">All Retailers</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+                    ))}
+                  </select>
+                  <Input
+                    type="date"
+                    value={dailyReqDate}
+                    onChange={(e) => setDailyReqDate(e.target.value)}
+                    className="h-9 w-40"
+                  />
+                  <Button 
+                    onClick={calculateDailyRequirement}
+                    disabled={dailyReqLoading}
+                    className="bg-[#14532D] h-9"
+                  >
+                    {dailyReqLoading ? (
+                      <span className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Loading...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Search size={14} />
+                        Calculate
+                      </span>
+                    )}
+                  </Button>
+                  {dailyReqData.length > 0 && (
+                    <Button variant="outline" onClick={printDailyRequirement} className="h-9">
+                      <Download size={14} className="mr-1" />
+                      Print
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4" id="daily-requirement-print">
+              {dailyReqError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-center">
+                  <AlertTriangle size={24} className="mx-auto mb-2" />
+                  <p>{dailyReqError}</p>
+                </div>
+              )}
+              
+              {!dailyReqError && dailyReqData.length === 0 && !dailyReqLoading && (
+                <div className="text-center py-12 text-gray-500">
+                  <ShoppingCart size={48} className="mx-auto mb-4 opacity-30" />
+                  <p>Select a date and click "Calculate" to view purchase requirements</p>
+                </div>
+              )}
+              
+              {dailyReqData.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="p-3 text-left w-8">#</th>
+                        <th className="p-3 text-left">Product Name</th>
+                        <th className="p-3 text-left">Packaging/Variant</th>
+                        <th className="p-3 text-center">Indent Qty</th>
+                        <th className="p-3 text-right">Kg Required</th>
+                        <th className="p-3 text-right w-24">Rate/Kg (₹)</th>
+                        <th className="p-3 text-right w-24">Amount (₹)</th>
+                        <th className="p-3 text-left w-32">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyReqData.map((item, idx) => (
+                        <tr key={`${item.productId}-${item.variantId}`} className="border-b hover:bg-gray-50">
+                          <td className="p-3 text-gray-500">{idx + 1}</td>
+                          <td className="p-3 font-medium">{getProductName(item)}</td>
+                          <td className="p-3 text-gray-600">{item.variantName || '-'}</td>
+                          <td className="p-3 text-center font-semibold">{item.indentQty}</td>
+                          <td className="p-3 text-right font-semibold text-green-700">{item.kgRequired.toFixed(2)}</td>
+                          <td className="p-3">
+                            <Input
+                              type="number"
+                              placeholder="Rate"
+                              value={item.ratePerKg}
+                              onChange={(e) => {
+                                const newData = [...dailyReqData];
+                                newData[idx].ratePerKg = e.target.value;
+                                newData[idx].amountPaid = e.target.value ? (parseFloat(e.target.value) * item.kgRequired).toFixed(2) : '';
+                                setDailyReqData(newData);
+                              }}
+                              className="h-8 w-20 text-right text-sm"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Input
+                              type="number"
+                              placeholder="Amount"
+                              value={item.amountPaid}
+                              onChange={(e) => {
+                                const newData = [...dailyReqData];
+                                newData[idx].amountPaid = e.target.value;
+                                setDailyReqData(newData);
+                              }}
+                              className="h-8 w-20 text-right text-sm"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Input
+                              type="text"
+                              placeholder="Remarks"
+                              value={item.remarks}
+                              onChange={(e) => {
+                                const newData = [...dailyReqData];
+                                newData[idx].remarks = e.target.value;
+                                setDailyReqData(newData);
+                              }}
+                              className="h-8 text-sm"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-100 font-semibold">
+                        <td colSpan={3} className="p-3 text-right">TOTAL</td>
+                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.indentQty, 0)}</td>
+                        <td className="p-3 text-right text-green-700">{dailyReqData.reduce((sum, item) => sum + item.kgRequired, 0).toFixed(2)} Kg</td>
+                        <td className="p-3"></td>
+                        <td className="p-3 text-right">
+                          ₹{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0).toFixed(2)}
+                        </td>
+                        <td className="p-3"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* ==================== INDENTS TAB ==================== */}
         {activeTab === 'indents' && (

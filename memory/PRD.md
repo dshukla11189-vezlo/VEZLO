@@ -1,4 +1,4 @@
-# FreshFlow - Product Requirements Document
+# Mr Organix - Product Requirements Document
 
 ## Original Problem Statement
 Build an end-to-end system for a fruits and vegetables retail and quick commerce business that manages:
@@ -760,4 +760,15 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [x] Updated new user creation to generate 5-digit codes
 - [x] Added `POST /api/admin/reset-all-referral-codes` endpoint to reset existing codes
 - [x] "REFERRAL CODE" column added to Admin User Management table
+
+
+### Stock Status Data Fix (COMPLETED - Apr 06, 2026)
+- [x] Fixed corrupted `purchase_qty` values from Excel backup imports
+- [x] Root cause: Excel backup had bloated/incorrect values baked in
+- [x] Solution: Created `/app/backend/scripts/fix_stock_status_purchase_qty.py`
+- [x] Script recalculates `purchase_qty` from raw `procurements` collection
+- [x] Fixed 20 records across 12 dates
+- [x] Examples fixed: Fresh Mint Leaves (2257.5 → 157.5 Kg), Coriander (906 → 302 Kg)
+- [x] Fixed `TypeError` in `/stock-status/today` endpoint (opening_price None handling)
+
 

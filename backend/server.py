@@ -3952,8 +3952,8 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             
             # For open entries, always update purchase and dispatch values (real-time sync)
             if status.get("status") == "open":
-                opening_qty = status.get("opening_qty", 0)
-                opening_price = status.get("opening_price", 0)
+                opening_qty = status.get("opening_qty", 0) or 0
+                opening_price = status.get("opening_price", 0) or 0
                 
                 # Calculate weighted average price
                 total_qty = opening_qty + purchase_data["qty"]

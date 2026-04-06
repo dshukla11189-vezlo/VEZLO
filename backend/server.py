@@ -7928,61 +7928,95 @@ async def get_retailer_closing_summary(
     date: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get closing inventory summary - returns items with packaging variants"""
-    # Get closing inventory for this date (now includes variant info)
+    """Get full inventory summary including opening, received, rejection, and closing"""
+    
+    # Parse the date
+    try:
+        from datetime import timedelta
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        prev_date = target_date - timedelta(days=1)
+        prev_date_str = prev_date.strftime("%Y-%m-%d")
+    except:
+        prev_date_str = None
+    
+    # Get closing inventory for this date
     closing_items = await db.retailer_closing_inventory.find(
         {"retailer_id": retailer_id, "closing_date": date},
         {"_id": 0}
     ).to_list(500)
     
-    # Build result with recorded items including variant
+    # Get previous day's closing (for opening qty)
+    prev_closing = {}
+    if prev_date_str:
+        prev_items = await db.retailer_closing_inventory.find(
+            {"retailer_id": retailer_id, "closing_date": prev_date_str},
+            {"_id": 0}
+        ).to_list(500)
+        for item in prev_items:
+            key = f"{item.get('product_id')}_{item.get('variant_id') or 'default'}"
+            prev_closing[key] = item.get("closing_qty", 0)
+    
+    # Get dispatches for this date (received qty)
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": retailer_id
+    }, {"_id": 0}).to_list(500)
+    
+    received_qty = {}
+    for d in dispatches:
+        dispatch_date = str(d.get('dispatch_date', ''))[:10]
+        if dispatch_date != date:
+            continue
+        for item in d.get('items', []):
+            product_id = item.get('product_id')
+            variant_id = item.get('variant_id') or item.get('packaging_id')
+            key = f"{product_id}_{variant_id or 'default'}"
+            if key not in received_qty:
+                received_qty[key] = {
+                    'qty': 0,
+                    'product_name': item.get('product_name'),
+                    'variant_id': variant_id,
+                    'variant_name': item.get('variant_name') or item.get('packaging_name') or 'Kg'
+                }
+            received_qty[key]['qty'] += item.get('supplied_qty', 0) or 0
+    
+    # Get rejections for this date
+    rejections = await db.retailer_rejections.find({
+        "retailer_id": retailer_id,
+        "rejection_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(500)
+    
+    rejection_qty = {}
+    for r in rejections:
+        product_id = r.get('product_id')
+        key = f"{product_id}_default"  # Rejections may not have variants
+        rejection_qty[key] = rejection_qty.get(key, 0) + (r.get('quantity', 0) or 0)
+    
+    # Build comprehensive result
     result = []
+    seen_keys = set()
+    
+    # First add all closing items with full data
     for item in closing_items:
+        product_id = item.get('product_id')
+        variant_id = item.get('variant_id')
+        key = f"{product_id}_{variant_id or 'default'}"
+        seen_keys.add(key)
+        
+        opening = prev_closing.get(key, 0)
+        recv = received_qty.get(key, {}).get('qty', 0)
+        rej = rejection_qty.get(f"{product_id}_default", 0)  # Apply rejection at product level
+        
         result.append({
-            "id": item.get("id"),  # Include ID for edit/delete
-            "product_id": item.get("product_id"),
+            "id": item.get("id"),
+            "product_id": product_id,
             "product_name": item.get("product_name"),
-            "variant_id": item.get("variant_id"),
+            "variant_id": variant_id,
             "variant_name": item.get("variant_name", "Kg"),
+            "opening_qty": opening,
+            "received_qty": recv,
+            "rejection_qty": rej if key.endswith('_default') or not seen_keys else 0,
             "closing_qty": item.get("closing_qty")
         })
-    
-    # Also get product variants for this retailer to include items not yet recorded
-    try:
-        # Get dispatch-based variants
-        dispatches = await db.retailer_dispatches.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(500)
-        product_variants = {}
-        
-        for d in dispatches:
-            for item in d.get('items', []):
-                product_id = item.get('product_id')
-                variant_id = item.get('variant_id') or item.get('packaging_id')
-                variant_name = item.get('variant_name') or item.get('packaging_name') or 'Kg'
-                
-                if not product_id:
-                    continue
-                
-                key = f"{product_id}_{variant_id or 'default'}"
-                if key not in product_variants:
-                    product = await db.products.find_one({"id": product_id}, {"_id": 0, "name_hi": 1})
-                    product_variants[key] = {
-                        'product_id': product_id,
-                        'product_name': item.get('product_name'),
-                        'product_name_hi': product.get('name_hi') if product else None,
-                        'variant_id': variant_id,
-                        'variant_name': variant_name
-                    }
-        
-        # Add variants that weren't in closing items
-        recorded_keys = {f"{item.get('product_id')}_{item.get('variant_id') or 'default'}" for item in result}
-        for key, variant in product_variants.items():
-            if key not in recorded_keys:
-                result.append({
-                    **variant,
-                    "closing_qty": None  # Not recorded
-                })
-    except Exception as e:
-        print(f"Error getting product variants: {e}")
     
     return {
         "closing_date": date,

@@ -2813,17 +2813,20 @@ export default function RetailerOrders() {
           </Card>
         )}
 
-        {/* ==================== CLOSING INVENTORY TAB (Admin Management) ==================== */}
+        {/* ==================== CLOSING INVENTORY TAB (Admin - Full Inventory View) ==================== */}
         {activeTab === 'closingInventory' && (
           <Card>
             <CardHeader className="py-3">
-              <CardTitle className="text-sm">Manage Retailer Closing Inventory</CardTitle>
-              <p className="text-xs text-gray-500 mt-1">Admin access to view, edit, and delete historical closing records</p>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <ClipboardList size={18} className="text-green-600" />
+                Retailer Daily Inventory (Admin View)
+              </CardTitle>
+              <p className="text-xs text-gray-500 mt-1">View and manage retailer inventory for any date</p>
             </CardHeader>
             <CardContent>
               {/* Filters */}
-              <div className="flex gap-4 mb-4">
-                <div className="flex-1">
+              <div className="flex flex-wrap gap-4 mb-4">
+                <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Select Retailer</label>
                   <select
                     value={closingInventoryRetailer}
@@ -2845,9 +2848,19 @@ export default function RetailerOrders() {
                     className="h-9"
                   />
                 </div>
+                <div className="flex items-end">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={loadClosingInventory}
+                    className="h-9"
+                  >
+                    <Search size={14} className="mr-1" /> Load
+                  </Button>
+                </div>
               </div>
 
-              {/* Data Table */}
+              {/* Full Inventory Table */}
               {closingInventoryRetailer && closingInventoryDate ? (
                 closingInventoryData.length > 0 ? (
                   <div className="overflow-x-auto border rounded-lg">
@@ -2855,83 +2868,138 @@ export default function RetailerOrders() {
                       <thead className="bg-gray-100">
                         <tr>
                           <th className="p-3 text-left font-medium text-gray-600">Product</th>
-                          <th className="p-3 text-left font-medium text-gray-600">Variant</th>
-                          <th className="p-3 text-center font-medium text-gray-600">Closing Qty</th>
+                          <th className="p-3 text-left font-medium text-gray-500">Variant</th>
+                          <th className="p-3 text-center font-medium text-blue-600">Opening</th>
+                          <th className="p-3 text-center font-medium text-green-600">Received</th>
+                          <th className="p-3 text-center font-medium text-red-600">Rejection</th>
+                          <th className="p-3 text-center font-medium text-purple-600">Items Sold</th>
+                          <th className="p-3 text-center font-medium text-amber-600">Closing</th>
                           <th className="p-3 text-center font-medium text-gray-600">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {closingInventoryData.filter(item => item.closing_qty !== null && item.closing_qty !== undefined).map(item => (
-                          <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
-                            <td className="p-3 font-medium">{item.product_name}</td>
-                            <td className="p-3 text-gray-600">{item.variant_name || 'Kg'}</td>
-                            <td className="p-3 text-center">
-                              {editingClosingItem === item.id ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    step="0.1"
-                                    value={editingClosingQty}
-                                    onChange={(e) => setEditingClosingQty(e.target.value)}
-                                    className="w-20 h-8 text-center"
-                                    autoFocus
-                                  />
-                                  <Button 
-                                    size="sm" 
-                                    variant="ghost"
-                                    onClick={() => updateClosingItem(item.id, editingClosingQty)}
-                                    className="h-8 w-8 p-0 text-green-600 hover:bg-green-50"
-                                  >
-                                    <Check size={16} />
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="ghost"
-                                    onClick={() => { setEditingClosingItem(null); setEditingClosingQty(''); }}
-                                    className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100"
-                                  >
-                                    <X size={16} />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-lg font-semibold text-blue-600">{item.closing_qty}</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-center">
-                              {editingClosingItem !== item.id && (
-                                <div className="flex items-center justify-center gap-1">
-                                  <Button 
-                                    size="sm" 
-                                    variant="ghost"
-                                    onClick={() => { setEditingClosingItem(item.id); setEditingClosingQty(item.closing_qty?.toString() || ''); }}
-                                    className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
-                                    title="Edit"
-                                  >
-                                    <Pencil size={14} />
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="ghost"
-                                    onClick={() => adminDeleteClosingItem(item.id, item.product_name)}
-                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
-                                    title="Delete"
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {closingInventoryData
+                          .filter(item => item.closing_qty !== null && item.closing_qty !== undefined)
+                          .map(item => {
+                            // Calculate items sold (Opening + Received - Rejection - Closing)
+                            const openingQty = item.opening_qty || 0;
+                            const receivedQty = item.received_qty || 0;
+                            const rejectionQty = item.rejection_qty || 0;
+                            const closingQty = item.closing_qty || 0;
+                            const itemsSold = openingQty + receivedQty - rejectionQty - closingQty;
+                            
+                            return (
+                              <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
+                                <td className="p-3 font-medium">{item.product_name}</td>
+                                <td className="p-3 text-gray-500 text-xs">{item.variant_name || 'Kg'}</td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${openingQty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                                    {openingQty}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${receivedQty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
+                                    {receivedQty > 0 ? `+${receivedQty}` : '0'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${rejectionQty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                                    {rejectionQty > 0 ? `-${rejectionQty}` : '0'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${itemsSold !== 0 ? 'text-purple-600' : 'text-gray-300'}`}>
+                                    {itemsSold}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  {editingClosingItem === item.id ? (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        value={editingClosingQty}
+                                        onChange={(e) => setEditingClosingQty(e.target.value)}
+                                        className="w-16 h-7 text-center text-sm"
+                                        autoFocus
+                                      />
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        onClick={() => updateClosingItem(item.id, editingClosingQty)}
+                                        className="h-7 w-7 p-0 text-green-600 hover:bg-green-50"
+                                      >
+                                        <Check size={14} />
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        onClick={() => { setEditingClosingItem(null); setEditingClosingQty(''); }}
+                                        className="h-7 w-7 p-0 text-gray-600 hover:bg-gray-100"
+                                      >
+                                        <X size={14} />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-lg font-semibold text-amber-600">{closingQty}</span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-center">
+                                  {editingClosingItem !== item.id && (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        onClick={() => { setEditingClosingItem(item.id); setEditingClosingQty(item.closing_qty?.toString() || ''); }}
+                                        className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                                        title="Edit Closing Qty"
+                                      >
+                                        <Pencil size={12} />
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        onClick={() => adminDeleteClosingItem(item.id, item.product_name)}
+                                        className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={12} />
+                                      </Button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                       </tbody>
-                      <tfoot className="bg-gray-100 font-semibold">
+                      <tfoot className="bg-gray-100 font-semibold text-sm">
                         <tr>
-                          <td colSpan={2} className="p-3 text-right">Total Items:</td>
+                          <td colSpan={2} className="p-3 text-right">Totals:</td>
                           <td className="p-3 text-center text-blue-600">
-                            {closingInventoryData.filter(item => item.closing_qty !== null && item.closing_qty !== undefined).length}
+                            {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.opening_qty || 0), 0)}
                           </td>
-                          <td></td>
+                          <td className="p-3 text-center text-green-600">
+                            +{closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.received_qty || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-red-600">
+                            -{closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.rejection_qty || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-purple-600">
+                            {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => {
+                              const open = i.opening_qty || 0;
+                              const recv = i.received_qty || 0;
+                              const rej = i.rejection_qty || 0;
+                              const close = i.closing_qty || 0;
+                              return sum + (open + recv - rej - close);
+                            }, 0)}
+                          </td>
+                          <td className="p-3 text-center text-amber-600">
+                            {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.closing_qty || 0), 0)}
+                          </td>
+                          <td className="p-3 text-center text-gray-500 text-xs">
+                            {closingInventoryData.filter(i => i.closing_qty != null).length} items
+                          </td>
                         </tr>
                       </tfoot>
                     </table>
@@ -2945,7 +3013,7 @@ export default function RetailerOrders() {
               ) : (
                 <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
                   <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
-                  <p>Select a retailer and date to view closing inventory</p>
+                  <p>Select a retailer and date to view inventory</p>
                 </div>
               )}
             </CardContent>

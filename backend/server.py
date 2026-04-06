@@ -434,6 +434,16 @@ async def create_product(input: ProductCreate, current_user: dict = Depends(get_
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
+    # Check for duplicate product name (case-insensitive)
+    existing = await db.products.find_one({
+        "name": {"$regex": f"^{input.name}$", "$options": "i"}
+    })
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Product '{input.name}' already exists. Please use a different name or update the existing product."
+        )
+    
     product = Product(**input.model_dump())
     doc = product.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
@@ -444,6 +454,66 @@ async def create_product(input: ProductCreate, current_user: dict = Depends(get_
     
     await db.products.insert_one(doc)
     return product
+
+
+@api_router.get("/products/duplicates")
+async def get_duplicate_products(current_user: dict = Depends(get_current_user)):
+    """Get list of duplicate products by name"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view duplicates")
+    
+    # Find duplicates using aggregation
+    pipeline = [
+        {"$group": {
+            "_id": {"$toLower": "$name"},
+            "count": {"$sum": 1},
+            "products": {"$push": {"id": "$id", "name": "$name", "category": "$category", "created_at": "$created_at"}}
+        }},
+        {"$match": {"count": {"$gt": 1}}},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    duplicates = await db.products.aggregate(pipeline).to_list(100)
+    return duplicates
+
+
+@api_router.delete("/products/duplicates/cleanup")
+async def cleanup_duplicate_products(current_user: dict = Depends(get_current_user)):
+    """Remove duplicate products, keeping the oldest one"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can cleanup duplicates")
+    
+    # Find duplicates
+    pipeline = [
+        {"$group": {
+            "_id": {"$toLower": "$name"},
+            "count": {"$sum": 1},
+            "products": {"$push": {"id": "$id", "name": "$name", "created_at": "$created_at"}}
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    
+    duplicates = await db.products.aggregate(pipeline).to_list(100)
+    
+    deleted_count = 0
+    deleted_products = []
+    
+    for dup in duplicates:
+        products = dup["products"]
+        # Sort by created_at to keep the oldest
+        products.sort(key=lambda x: x.get("created_at", ""))
+        
+        # Keep first (oldest), delete the rest
+        for product in products[1:]:
+            await db.products.delete_one({"id": product["id"]})
+            deleted_count += 1
+            deleted_products.append(product["name"])
+    
+    return {
+        "message": f"Deleted {deleted_count} duplicate products",
+        "deleted_count": deleted_count,
+        "deleted_products": deleted_products
+    }
 
 @api_router.put("/products/{product_id}", response_model=Product)
 async def update_product(product_id: str, input: ProductUpdate, current_user: dict = Depends(get_current_user)):
@@ -7677,6 +7747,90 @@ async def save_all_retailer_inventory(
 
 # ============== SIMPLIFIED CLOSING INVENTORY SYSTEM ==============
 
+@app.get("/api/retailer/product-variants/{retailer_id}")
+async def get_retailer_product_variants(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get product variants that this retailer has received in dispatches.
+    Returns products grouped with their packaging variants.
+    """
+    # Get retailer dispatches from last 30 days
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": retailer_id
+    }, {"_id": 0}).to_list(500)
+    
+    # Build product -> variants mapping from dispatch items
+    product_variants = {}
+    
+    for d in dispatches:
+        for item in d.get('items', []):
+            product_id = item.get('product_id')
+            product_name = item.get('product_name')
+            packaging_id = item.get('packaging_id')
+            packaging_name = item.get('packaging_name') or 'Kg'
+            
+            if not product_id:
+                continue
+            
+            if product_id not in product_variants:
+                # Get product info for Hindi name
+                product = await db.products.find_one({"id": product_id}, {"_id": 0, "name_hi": 1, "unit": 1})
+                product_variants[product_id] = {
+                    'product_id': product_id,
+                    'product_name': product_name,
+                    'product_name_hi': product.get('name_hi') if product else None,
+                    'unit': product.get('unit', 'Kg') if product else 'Kg',
+                    'variants': {}
+                }
+            
+            # Track variant by packaging_id or name
+            variant_key = packaging_id or packaging_name
+            if variant_key not in product_variants[product_id]['variants']:
+                product_variants[product_id]['variants'][variant_key] = {
+                    'packaging_id': packaging_id,
+                    'packaging_name': packaging_name,
+                    'received_count': 0,
+                    'total_qty': 0
+                }
+            product_variants[product_id]['variants'][variant_key]['received_count'] += 1
+            product_variants[product_id]['variants'][variant_key]['total_qty'] += item.get('supplied_qty', 0)
+    
+    # Convert to list format for frontend
+    result = []
+    for pid, pdata in sorted(product_variants.items(), key=lambda x: x[1]['product_name']):
+        variants = list(pdata['variants'].values())
+        # If no specific packaging variants (all 'Kg'), keep as single item
+        if len(variants) == 1 and variants[0]['packaging_name'] == 'Kg':
+            result.append({
+                'product_id': pdata['product_id'],
+                'product_name': pdata['product_name'],
+                'product_name_hi': pdata['product_name_hi'],
+                'packaging_id': None,
+                'packaging_name': 'Kg',
+                'unit': pdata['unit'],
+                'has_variants': False
+            })
+        else:
+            # Multiple variants - add each as separate item
+            for v in variants:
+                result.append({
+                    'product_id': pdata['product_id'],
+                    'product_name': pdata['product_name'],
+                    'product_name_hi': pdata['product_name_hi'],
+                    'packaging_id': v['packaging_id'],
+                    'packaging_name': v['packaging_name'],
+                    'unit': 'Pcs' if v['packaging_name'] != 'Kg' else 'Kg',
+                    'has_variants': True
+                })
+    
+    return result
+
+
 @app.get("/api/retailer-closing-inventory/{retailer_id}")
 async def get_retailer_closing_inventory(
     retailer_id: str,
@@ -7717,7 +7871,8 @@ async def record_retailer_closing_inventory(
     Expects: {
         "retailer_id": str,
         "closing_date": str (YYYY-MM-DD),
-        "items": [{"product_id": str, "product_name": str, "closing_qty": number or null}, ...]
+        "items": [{"product_id": str, "product_name": str, "packaging_id": str (optional), 
+                   "packaging_name": str (optional), "closing_qty": number or null}, ...]
     }
     """
     retailer_id = data.get("retailer_id")
@@ -7751,6 +7906,8 @@ async def record_retailer_closing_inventory(
                 "closing_date": closing_date,
                 "product_id": item.get("product_id"),
                 "product_name": item.get("product_name"),
+                "packaging_id": item.get("packaging_id"),
+                "packaging_name": item.get("packaging_name") or "Kg",
                 "closing_qty": closing_qty_num,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "created_by": current_user.get("user_id")
@@ -7769,28 +7926,60 @@ async def get_retailer_closing_summary(
     date: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get closing inventory summary - all products with their closing qty for a specific date"""
-    # Get all products
-    all_products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "unit": 1}).to_list(500)
-    
-    # Get closing inventory for this date
+    """Get closing inventory summary - returns items with packaging variants"""
+    # Get closing inventory for this date (now includes packaging info)
     closing_items = await db.retailer_closing_inventory.find(
         {"retailer_id": retailer_id, "closing_date": date},
         {"_id": 0}
     ).to_list(500)
     
-    # Map closing qty by product_id
-    closing_map = {item["product_id"]: item.get("closing_qty") for item in closing_items}
-    
-    # Build result with all products
+    # Build result with recorded items including packaging
     result = []
-    for product in all_products:
+    for item in closing_items:
         result.append({
-            "product_id": product["id"],
-            "product_name": product["name"],
-            "unit": product.get("unit", "Kg"),
-            "closing_qty": closing_map.get(product["id"])  # Will be None if not recorded
+            "product_id": item.get("product_id"),
+            "product_name": item.get("product_name"),
+            "packaging_id": item.get("packaging_id"),
+            "packaging_name": item.get("packaging_name", "Kg"),
+            "closing_qty": item.get("closing_qty")
         })
+    
+    # Also get product variants for this retailer to include items not yet recorded
+    try:
+        # Get dispatch-based variants
+        dispatches = await db.retailer_dispatches.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(500)
+        product_variants = {}
+        
+        for d in dispatches:
+            for item in d.get('items', []):
+                product_id = item.get('product_id')
+                packaging_id = item.get('packaging_id')
+                packaging_name = item.get('packaging_name') or 'Kg'
+                
+                if not product_id:
+                    continue
+                
+                key = f"{product_id}_{packaging_id or 'default'}"
+                if key not in product_variants:
+                    product = await db.products.find_one({"id": product_id}, {"_id": 0, "name_hi": 1})
+                    product_variants[key] = {
+                        'product_id': product_id,
+                        'product_name': item.get('product_name'),
+                        'product_name_hi': product.get('name_hi') if product else None,
+                        'packaging_id': packaging_id,
+                        'packaging_name': packaging_name
+                    }
+        
+        # Add variants that weren't in closing items
+        recorded_keys = {f"{item.get('product_id')}_{item.get('packaging_id') or 'default'}" for item in result}
+        for key, variant in product_variants.items():
+            if key not in recorded_keys:
+                result.append({
+                    **variant,
+                    "closing_qty": None  # Not recorded
+                })
+    except Exception as e:
+        print(f"Error getting product variants: {e}")
     
     return {
         "closing_date": date,

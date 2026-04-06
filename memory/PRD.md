@@ -779,4 +779,26 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [x] These buttons allow fixing corrupted data in production after Excel backup imports
 
 
+### Variant-Based Inventory System (IN PROGRESS - Apr 06, 2026)
+- [x] Added `GET /api/retailer/product-variants/{retailer_id}` endpoint
+  - Returns product variants based on retailer's dispatch history
+  - Shows packaging names (200gm Packet, 250gm, Kg, etc.)
+- [x] Updated "Record Closing" modal to show products with their packaging variants
+- [x] Updated closing inventory API to store packaging_id and packaging_name
+- [x] Updated Daily Inventory view to track by product+variant combination
+- [x] Updated closing inventory summary API to include packaging info
+- [ ] Note: Variants will appear once retailer dispatches include specific packagings
+
+### Duplicate Products Prevention (COMPLETED - Apr 06, 2026)
+- [x] Added duplicate check on product creation (case-insensitive name match)
+- [x] Added `GET /api/products/duplicates` endpoint to view duplicates
+- [x] Added `DELETE /api/products/duplicates/cleanup` endpoint to remove duplicates
+- [x] Cleaned up 1 duplicate "Ginger" product from database
+
+### Procurement Date Edit Fix (COMPLETED - Apr 06, 2026)
+- [x] Fixed procurement update endpoint to allow changing the `date` field
+- [x] Procurement edit now properly updates the date in the database
+
+
+
 

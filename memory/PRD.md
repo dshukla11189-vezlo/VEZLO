@@ -719,20 +719,21 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 ### Backend Route Modularization
 The monolithic `server.py` (7600+ lines) is being refactored into modular route files:
 
-**Created Route Modules** (`/app/backend/routes/`):
-- [x] `auth.py` - Authentication & user management routes
-- [x] `products.py` - Products & QC packaging routes  
-- [x] `farmers.py` - Farmer CRUD routes
-- [x] `procurement.py` - Procurement & templates routes
-- [x] `qc_orders.py` - QC orders, customers, indents routes
-- [ ] `qc_dispatches.py` - QC dispatches & GRN routes (TODO)
-- [ ] `qc_invoices.py` - QC invoice routes (TODO)
-- [ ] `stock_status.py` - Stock status routes (TODO)
-- [ ] `retailer.py` - Retailer portal routes (TODO)
-- [ ] `expenses.py` - Variable & fixed expense routes (TODO)
+**Created Route Modules** (`/app/backend/routes/`) - **11 modules, 2,482 lines**:
+- [x] `auth.py` (144 lines) - Authentication & user management routes
+- [x] `products.py` (196 lines) - Products & QC packaging routes  
+- [x] `farmers.py` (61 lines) - Farmer CRUD routes
+- [x] `procurement.py` (250 lines) - Procurement & templates routes
+- [x] `qc_orders.py` (269 lines) - QC orders, customers, indents routes
+- [x] `qc_dispatches.py` (188 lines) - QC dispatches routes
+- [x] `qc_invoices.py` (129 lines) - QC invoice routes
+- [x] `retailer_orders.py` (298 lines) - Retailer orders, rejections, wastage, payments, invoices
+- [x] `retailer_indents.py` (324 lines) - Retailer indents & dispatches routes
+- [x] `expenses.py` (280 lines) - Variable & fixed expense routes
+- [x] `admin.py` (293 lines) - Admin utilities, auto-indent, Hindi names, referral codes
+- [ ] `stock_status.py` - Stock status routes (TODO - Complex, ~1000 lines)
 - [ ] `reports.py` - Dashboard & P&L reports (TODO)
-- [ ] `admin.py` - Admin utilities & auto-indent (TODO)
-- [ ] `gmail.py` - Gmail OAuth & GRN sync (TODO)
+- [ ] `gmail.py` - Gmail OAuth & GRN sync (TODO - ~800 lines)
 - [ ] `backup.py` - Backup management routes (TODO)
 
 **Shared Dependencies** (`/app/backend/dependencies.py`):

@@ -709,5 +709,54 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - `daily_stock_status`: {date, product_id, product_name, opening_qty, avg_price, purchase_qty, dispatch_qty, closing_qty, wastage_qty, wastage_percent, status}
 
 ## Test Credentials
-- Admin: admin@freshflow.com / admin123
-- Retailer: retailer@test.com / retailer123
+- Admin: admin@mrorganix.com / admin123
+- Retailer: tamannamart08@gmail.com / admin123
+
+---
+
+## Codebase Refactoring (IN PROGRESS - Apr 2026)
+
+### Backend Route Modularization
+The monolithic `server.py` (7600+ lines) is being refactored into modular route files:
+
+**Created Route Modules** (`/app/backend/routes/`):
+- [x] `auth.py` - Authentication & user management routes
+- [x] `products.py` - Products & QC packaging routes  
+- [x] `farmers.py` - Farmer CRUD routes
+- [x] `procurement.py` - Procurement & templates routes
+- [x] `qc_orders.py` - QC orders, customers, indents routes
+- [ ] `qc_dispatches.py` - QC dispatches & GRN routes (TODO)
+- [ ] `qc_invoices.py` - QC invoice routes (TODO)
+- [ ] `stock_status.py` - Stock status routes (TODO)
+- [ ] `retailer.py` - Retailer portal routes (TODO)
+- [ ] `expenses.py` - Variable & fixed expense routes (TODO)
+- [ ] `reports.py` - Dashboard & P&L reports (TODO)
+- [ ] `admin.py` - Admin utilities & auto-indent (TODO)
+- [ ] `gmail.py` - Gmail OAuth & GRN sync (TODO)
+- [ ] `backup.py` - Backup management routes (TODO)
+
+**Shared Dependencies** (`/app/backend/dependencies.py`):
+- [x] Database connection (MongoDB)
+- [x] Authentication helpers (hash_password, verify_password, create_token)
+- [x] get_current_user dependency
+- [x] Hindi product translations dictionary
+- [x] Referral code generator
+
+### Frontend Hook Modularization
+**Created Hooks** (`/app/frontend/src/hooks/`):
+- [x] `useQCData.js` - QC data fetching & state management hook
+- [x] `useProductTranslation.js` - Product name translation hook
+
+### Files Pending Refactoring (by size)
+1. **server.py** (7695 lines) - Split into route modules above
+2. **QuickCommerce.js** (5061 lines) - Well-organized sections, extract to hooks
+3. **RetailerOrders.js** (3782 lines) - Needs component splitting
+4. **Procurement.js** (2502 lines) - Needs component splitting  
+5. **Dashboard.js** (1327 lines) - Manageable, lower priority
+
+### Referral Code Format Update (COMPLETED - Apr 06, 2026)
+- [x] Changed from "MRO-XXXXXXXX" (11 chars) to 5-digit numeric code
+- [x] Updated new user creation to generate 5-digit codes
+- [x] Added `POST /api/admin/reset-all-referral-codes` endpoint to reset existing codes
+- [x] "REFERRAL CODE" column added to Admin User Management table
+

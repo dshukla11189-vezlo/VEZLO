@@ -3,7 +3,9 @@ import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Link2, Unlink, RefreshCw } from 'lucide-react';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Link2, Unlink, RefreshCw, CloudDownload, Server } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function BackupPage() {
@@ -16,10 +18,17 @@ export default function BackupPage() {
   const [gmailStatus, setGmailStatus] = useState(null);
   const [gmailLoading, setGmailLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
+  
+  // Production sync state
+  const [prodSyncLoading, setProdSyncLoading] = useState(false);
+  const [prodMongoUrl, setProdMongoUrl] = useState('');
+  const [prodDbName, setProdDbName] = useState('test_database');
+  const [syncStatus, setSyncStatus] = useState(null);
 
   useEffect(() => {
     loadStatus();
     loadGmailStatus();
+    loadSyncStatus();
     
     // Check URL params for Gmail OAuth callback
     const params = new URLSearchParams(window.location.search);
@@ -32,6 +41,42 @@ export default function BackupPage() {
       window.history.replaceState({}, '', '/admin/backup');
     }
   }, []);
+
+  const loadSyncStatus = async () => {
+    try {
+      const response = await api.get('/api/sync-status');
+      setSyncStatus(response.data);
+    } catch (error) {
+      console.error('Failed to load sync status:', error);
+    }
+  };
+
+  const syncFromProduction = async () => {
+    if (!prodMongoUrl) {
+      toast.error('Please enter the production MongoDB URL');
+      return;
+    }
+    
+    setProdSyncLoading(true);
+    try {
+      const response = await api.post('/api/sync-from-production', {
+        production_mongo_url: prodMongoUrl,
+        production_db_name: prodDbName,
+        reset_passwords: true,
+        default_password: 'admin123'
+      });
+      
+      if (response.data.success) {
+        toast.success(`Synced ${response.data.total_records} records from production!`);
+        loadSyncStatus();
+      }
+    } catch (error) {
+      console.error('Failed to sync from production:', error);
+      toast.error(error.response?.data?.detail || 'Failed to sync from production');
+    } finally {
+      setProdSyncLoading(false);
+    }
+  };
 
   const loadGmailStatus = async () => {
     try {
@@ -359,6 +404,103 @@ export default function BackupPage() {
                 <p className="font-medium text-gray-700">Data Parsed</p>
                 <p className="text-gray-500">CSV Attachments / Email Body</p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sync from Production Card */}
+        <Card className="border-purple-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-purple-700">
+              <CloudDownload className="h-5 w-5" />
+              Sync from Production
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Pull latest data from production database to this preview/test environment. 
+              This replaces all existing data in the synced collections.
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="prodMongoUrl">Production MongoDB URL</Label>
+                <Input
+                  id="prodMongoUrl"
+                  type="password"
+                  placeholder="mongodb+srv://user:pass@cluster..."
+                  value={prodMongoUrl}
+                  onChange={(e) => setProdMongoUrl(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-gray-500">Your production MongoDB connection string</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="prodDbName">Database Name</Label>
+                <Input
+                  id="prodDbName"
+                  type="text"
+                  placeholder="test_database"
+                  value={prodDbName}
+                  onChange={(e) => setProdDbName(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-gray-500">Usually "test_database"</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <Button 
+                onClick={syncFromProduction}
+                disabled={prodSyncLoading || !prodMongoUrl}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                {prodSyncLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CloudDownload className="h-4 w-4 mr-2" />
+                )}
+                Sync from Production
+              </Button>
+              
+              <Button 
+                onClick={loadSyncStatus}
+                variant="outline"
+                size="sm"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Refresh Status
+              </Button>
+            </div>
+            
+            {syncStatus && (
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Server className="h-4 w-4 text-purple-600" />
+                  <span className="font-medium text-purple-800">Current Database: {syncStatus.database}</span>
+                </div>
+                <p className="text-sm text-purple-700 mb-2">Total Records: {syncStatus.total_records?.toLocaleString()}</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  {syncStatus.collections && Object.entries(syncStatus.collections).slice(0, 8).map(([coll, count]) => (
+                    <div key={coll} className="flex justify-between bg-white p-2 rounded">
+                      <span className="text-gray-600">{coll}:</span>
+                      <span className="font-medium">{count}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-purple-500 mt-2">
+                  Last checked: {new Date(syncStatus.last_checked).toLocaleString()}
+                </p>
+              </div>
+            )}
+            
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm">
+              <p className="font-medium text-amber-800">Note:</p>
+              <ul className="list-disc list-inside text-amber-700 mt-1 space-y-1">
+                <li>All user passwords will be reset to "admin123" after sync</li>
+                <li>This will replace ALL data in synced collections</li>
+                <li>Make sure to backup current data before syncing if needed</li>
+              </ul>
             </div>
           </CardContent>
         </Card>

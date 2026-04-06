@@ -6369,6 +6369,188 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
         "deleted": deleted_counts
     }
 
+
+# Pydantic model for sync request
+class SyncFromProductionRequest(BaseModel):
+    production_mongo_url: str = Field(..., description="MongoDB connection URL for production database")
+    production_db_name: str = Field(default="test_database", description="Production database name")
+    collections: Optional[List[str]] = Field(default=None, description="Specific collections to sync (None = all)")
+    reset_passwords: bool = Field(default=True, description="Reset all user passwords to default")
+    default_password: str = Field(default="admin123", description="Default password for users after sync")
+
+
+@api_router.post("/sync-from-production")
+async def sync_from_production(
+    request: SyncFromProductionRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Sync data from production database to this preview/test environment.
+    This pulls all data from the production MongoDB and imports it here.
+    
+    IMPORTANT: This will REPLACE all existing data in the synced collections.
+    """
+    import ast
+    import json as json_lib
+    
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can sync from production")
+    
+    try:
+        # Connect to production database
+        prod_client = AsyncIOMotorClient(request.production_mongo_url)
+        prod_db = prod_client[request.production_db_name]
+        
+        # Test connection
+        await prod_db.command('ping')
+        
+        # Collections to sync
+        all_collections = [
+            "users", "products", "farmers", "procurements", "qc_packaging",
+            "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
+            "qc_daily_requirements",
+            "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+            "retailer_grn", "retailer_rejections", "retailer_payments",
+            "retailer_closing_inventory",
+            "daily_stock_status", "variable_expenses", "fixed_expenses"
+        ]
+        
+        collections_to_sync = request.collections if request.collections else all_collections
+        
+        # Helper function to parse JSON fields
+        def safe_parse_json(value):
+            if not value or not isinstance(value, str):
+                return value
+            try:
+                return json_lib.loads(value)
+            except:
+                pass
+            try:
+                return ast.literal_eval(value)
+            except:
+                pass
+            return value
+        
+        # JSON fields per collection
+        json_fields_map = {
+            'procurements': ['products'],
+            'qc_indents': ['items'],
+            'qc_dispatches': ['items', 'packaging_items'],
+            'qc_invoices': ['items'],
+            'qc_grns': ['items'],
+            'qc_daily_requirements': ['items'],
+            'retailer_indents': ['items'],
+            'retailer_dispatches': ['items'],
+            'retailer_invoices': ['items'],
+            'retailer_grn': ['items'],
+            'retailer_rejections': ['items'],
+            'retailer_closing_inventory': ['items'],
+        }
+        
+        sync_results = {}
+        total_synced = 0
+        
+        for coll_name in collections_to_sync:
+            try:
+                # Get all documents from production
+                cursor = prod_db[coll_name].find({})
+                docs = await cursor.to_list(length=50000)
+                
+                if not docs:
+                    sync_results[coll_name] = {"status": "empty", "count": 0}
+                    continue
+                
+                # Remove _id fields to avoid conflicts
+                for doc in docs:
+                    if '_id' in doc:
+                        del doc['_id']
+                    
+                    # Parse JSON fields if needed
+                    if coll_name in json_fields_map:
+                        for field in json_fields_map[coll_name]:
+                            if field in doc and isinstance(doc[field], str):
+                                doc[field] = safe_parse_json(doc[field])
+                
+                # Clear existing data in this collection
+                await db[coll_name].delete_many({})
+                
+                # Insert production data
+                result = await db[coll_name].insert_many(docs)
+                
+                sync_results[coll_name] = {
+                    "status": "success",
+                    "count": len(result.inserted_ids)
+                }
+                total_synced += len(result.inserted_ids)
+                
+            except Exception as e:
+                sync_results[coll_name] = {
+                    "status": "error",
+                    "error": str(e)
+                }
+        
+        # Reset passwords if requested
+        if request.reset_passwords and "users" in collections_to_sync:
+            hashed_password = bcrypt.hashpw(
+                request.default_password.encode('utf-8'), 
+                bcrypt.gensalt()
+            ).decode('utf-8')
+            
+            await db.users.update_many(
+                {},
+                {"$set": {"password": hashed_password}}
+            )
+            sync_results["password_reset"] = {
+                "status": "success",
+                "message": f"All user passwords reset to: {request.default_password}"
+            }
+        
+        # Close production connection
+        prod_client.close()
+        
+        return {
+            "success": True,
+            "message": f"Successfully synced {total_synced} records from production",
+            "total_records": total_synced,
+            "collections": sync_results
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to sync from production: {str(e)}"
+        )
+
+
+@api_router.get("/sync-status")
+async def get_sync_status(current_user: dict = Depends(get_current_user)):
+    """Get current database record counts for sync verification"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view sync status")
+    
+    collections = [
+        "users", "products", "farmers", "procurements", "qc_packaging",
+        "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
+        "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+        "retailer_grn", "retailer_rejections", "retailer_payments",
+        "daily_stock_status", "variable_expenses", "fixed_expenses"
+    ]
+    
+    counts = {}
+    total = 0
+    for coll in collections:
+        count = await db[coll].count_documents({})
+        counts[coll] = count
+        total += count
+    
+    return {
+        "database": DB_NAME,
+        "total_records": total,
+        "collections": counts,
+        "last_checked": datetime.now(timezone.utc).isoformat()
+    }
+
+
 # ============================================================================
 # SECTION: GMAIL INTEGRATION ROUTES - Ninjacart GRN Email Automation
 # ============================================================================

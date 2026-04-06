@@ -2062,7 +2062,7 @@ export default function RetailerDashboard() {
                               )}
                             </td>
                             <td className="p-3 text-center">
-                              {editingItemId !== item.id && (
+                              {editingItemId !== item.id && closingHistoryDate === new Date().toISOString().split('T')[0] && (
                                 <div className="flex items-center justify-center gap-1">
                                   <Button 
                                     size="sm" 
@@ -2083,6 +2083,9 @@ export default function RetailerDashboard() {
                                     <Trash2 size={14} />
                                   </Button>
                                 </div>
+                              )}
+                              {closingHistoryDate !== new Date().toISOString().split('T')[0] && (
+                                <span className="text-xs text-gray-400">View only</span>
                               )}
                             </td>
                           </tr>

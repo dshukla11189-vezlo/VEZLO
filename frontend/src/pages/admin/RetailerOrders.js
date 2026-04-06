@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil
 } from 'lucide-react';
 
 // Export utility function
@@ -158,6 +158,13 @@ export default function RetailerOrders() {
   });
   const [rejectionLossDateTo, setRejectionLossDateTo] = useState(new Date().toISOString().split('T')[0]);
   
+  // Closing Inventory Management (Admin)
+  const [closingInventoryData, setClosingInventoryData] = useState([]);
+  const [closingInventoryDate, setClosingInventoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [closingInventoryRetailer, setClosingInventoryRetailer] = useState('');
+  const [editingClosingItem, setEditingClosingItem] = useState(null);
+  const [editingClosingQty, setEditingClosingQty] = useState('');
+  
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
@@ -242,6 +249,48 @@ export default function RetailerOrders() {
       console.error('Failed to load payments:', error);
     }
   }, [selectedRetailer]);
+
+  // Load closing inventory for admin management
+  const loadClosingInventory = useCallback(async () => {
+    if (!closingInventoryRetailer || !closingInventoryDate) {
+      setClosingInventoryData([]);
+      return;
+    }
+    try {
+      const res = await api.get(`/api/retailer-closing-inventory/summary/${closingInventoryRetailer}?date=${closingInventoryDate}`);
+      setClosingInventoryData(res.data.items || []);
+    } catch (error) {
+      console.error('Failed to load closing inventory:', error);
+      setClosingInventoryData([]);
+    }
+  }, [closingInventoryRetailer, closingInventoryDate]);
+
+  // Admin: Update closing inventory item
+  const updateClosingItem = async (itemId, newQty) => {
+    try {
+      await api.put(`/api/retailer-closing-inventory/item/${itemId}`, {
+        closing_qty: parseFloat(newQty)
+      });
+      toast.success('Item updated successfully');
+      setEditingClosingItem(null);
+      setEditingClosingQty('');
+      loadClosingInventory();
+    } catch (error) {
+      toast.error('Failed to update item');
+    }
+  };
+
+  // Admin: Delete closing inventory item
+  const adminDeleteClosingItem = async (itemId, productName) => {
+    if (!window.confirm(`Delete closing entry for "${productName}"?`)) return;
+    try {
+      await api.delete(`/api/retailer-closing-inventory/item/${itemId}`);
+      toast.success('Item deleted');
+      loadClosingInventory();
+    } catch (error) {
+      toast.error('Failed to delete item');
+    }
+  };
 
   // Build a map of products for quick lookup (by id and name)
   const productMap = useMemo(() => {
@@ -349,6 +398,13 @@ export default function RetailerOrders() {
     
     setFilteredRejections(filtered);
   }, [rejections, rejectionDateFilter, rejectionRetailerFilter, rejectionProductFilter]);
+
+  // Load closing inventory when retailer or date changes
+  useEffect(() => {
+    if (closingInventoryRetailer && closingInventoryDate) {
+      loadClosingInventory();
+    }
+  }, [closingInventoryRetailer, closingInventoryDate, loadClosingInventory]);
 
   // Calculate dashboard stats whenever data changes
   useEffect(() => {
@@ -1791,7 +1847,8 @@ export default function RetailerOrders() {
     { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
     { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
     { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
-    { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length }
+    { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length },
+    { id: 'closingInventory', label: 'Closing Inventory', icon: ClipboardList, count: null }
   ];
 
   // Calculate totals for selected dispatches (for invoice modal)
@@ -2752,6 +2809,145 @@ export default function RetailerOrders() {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== CLOSING INVENTORY TAB (Admin Management) ==================== */}
+        {activeTab === 'closingInventory' && (
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Manage Retailer Closing Inventory</CardTitle>
+              <p className="text-xs text-gray-500 mt-1">Admin access to view, edit, and delete historical closing records</p>
+            </CardHeader>
+            <CardContent>
+              {/* Filters */}
+              <div className="flex gap-4 mb-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Select Retailer</label>
+                  <select
+                    value={closingInventoryRetailer}
+                    onChange={(e) => setClosingInventoryRetailer(e.target.value)}
+                    className="w-full h-9 border rounded px-3 text-sm"
+                  >
+                    <option value="">-- Select Retailer --</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+                  <Input
+                    type="date"
+                    value={closingInventoryDate}
+                    onChange={(e) => setClosingInventoryDate(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              {/* Data Table */}
+              {closingInventoryRetailer && closingInventoryDate ? (
+                closingInventoryData.length > 0 ? (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="p-3 text-left font-medium text-gray-600">Product</th>
+                          <th className="p-3 text-left font-medium text-gray-600">Variant</th>
+                          <th className="p-3 text-center font-medium text-gray-600">Closing Qty</th>
+                          <th className="p-3 text-center font-medium text-gray-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {closingInventoryData.filter(item => item.closing_qty !== null && item.closing_qty !== undefined).map(item => (
+                          <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
+                            <td className="p-3 font-medium">{item.product_name}</td>
+                            <td className="p-3 text-gray-600">{item.variant_name || 'Kg'}</td>
+                            <td className="p-3 text-center">
+                              {editingClosingItem === item.id ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    value={editingClosingQty}
+                                    onChange={(e) => setEditingClosingQty(e.target.value)}
+                                    className="w-20 h-8 text-center"
+                                    autoFocus
+                                  />
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => updateClosingItem(item.id, editingClosingQty)}
+                                    className="h-8 w-8 p-0 text-green-600 hover:bg-green-50"
+                                  >
+                                    <Check size={16} />
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => { setEditingClosingItem(null); setEditingClosingQty(''); }}
+                                    className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100"
+                                  >
+                                    <X size={16} />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-lg font-semibold text-blue-600">{item.closing_qty}</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {editingClosingItem !== item.id && (
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => { setEditingClosingItem(item.id); setEditingClosingQty(item.closing_qty?.toString() || ''); }}
+                                    className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
+                                    title="Edit"
+                                  >
+                                    <Pencil size={14} />
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => adminDeleteClosingItem(item.id, item.product_name)}
+                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                                    title="Delete"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-100 font-semibold">
+                        <tr>
+                          <td colSpan={2} className="p-3 text-right">Total Items:</td>
+                          <td className="p-3 text-center text-blue-600">
+                            {closingInventoryData.filter(item => item.closing_qty !== null && item.closing_qty !== undefined).length}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
+                    <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
+                    <p>No closing inventory recorded for this date</p>
+                  </div>
+                )
+              ) : (
+                <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
+                  <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
+                  <p>Select a retailer and date to view closing inventory</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

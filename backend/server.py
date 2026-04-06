@@ -7939,6 +7939,7 @@ async def get_retailer_closing_summary(
     result = []
     for item in closing_items:
         result.append({
+            "id": item.get("id"),  # Include ID for edit/delete
             "product_id": item.get("product_id"),
             "product_name": item.get("product_name"),
             "variant_id": item.get("variant_id"),
@@ -8019,6 +8020,35 @@ async def delete_closing_inventory_item(
     
     return {"message": "Item deleted successfully"}
 
+
+@app.put("/api/retailer-closing-inventory/item/{item_id}")
+async def update_closing_inventory_item(
+    item_id: str,
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a single closing inventory item"""
+    closing_qty = data.get("closing_qty")
+    
+    if closing_qty is None:
+        raise HTTPException(status_code=400, detail="closing_qty is required")
+    
+    try:
+        closing_qty_num = float(closing_qty)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid closing_qty value")
+    
+    result = await db.retailer_closing_inventory.find_one_and_update(
+        {"id": item_id},
+        {"$set": {"closing_qty": closing_qty_num}},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    return {"message": "Item updated successfully", "item": result}
 
 
 

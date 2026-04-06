@@ -10,7 +10,7 @@ import {
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
-  ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check,
+  ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check, Edit2,
   Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon, LogOut
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -59,6 +59,8 @@ export default function RetailerDashboard() {
   const [closingSearchTerm, setClosingSearchTerm] = useState(''); // Search filter for closing products
   const [showPendingConfirmation, setShowPendingConfirmation] = useState(false); // Confirmation dialog for pending items
   const [editingClosingDate, setEditingClosingDate] = useState(null); // For edit mode
+  const [editingItemId, setEditingItemId] = useState(null); // ID of item being edited inline
+  const [editingItemQty, setEditingItemQty] = useState(''); // Temp value for inline edit
   
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
@@ -666,20 +668,83 @@ export default function RetailerDashboard() {
     }
   };
 
-  // Open Record Closing modal - populate with products & their variants from dispatch history
+  // Open Record Closing modal - show only variants with opening qty OR in today's dispatch
   const openRecordClosingModal = async () => {
     if (!dashboardData?.retailer?.id) {
       toast.error('Retailer ID not found');
       return;
     }
     
+    const today = new Date().toISOString().split('T')[0];
+    const prevDate = new Date();
+    prevDate.setDate(prevDate.getDate() - 1);
+    const prevDateStr = prevDate.toISOString().split('T')[0];
+    
     try {
-      // Get product variants from dispatch history
-      const response = await api.get(`/api/retailer/product-variants/${dashboardData.retailer.id}`);
-      const variants = response.data || [];
+      // Get previous day closing (for opening qty)
+      let openingVariants = {};
+      try {
+        const prevRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${prevDateStr}`);
+        (prevRes.data.items || []).forEach(item => {
+          if (item.closing_qty !== null && item.closing_qty !== undefined && item.closing_qty > 0) {
+            const key = `${item.product_id}_${item.variant_id || 'default'}`;
+            openingVariants[key] = {
+              product_id: item.product_id,
+              product_name: item.product_name,
+              product_name_hi: item.product_name_hi,
+              variant_id: item.variant_id,
+              variant_name: item.variant_name || 'Kg',
+              opening_qty: item.closing_qty,
+              source: 'opening'
+            };
+          }
+        });
+      } catch (e) {
+        console.log('No previous closing data');
+      }
       
-      if (variants.length === 0) {
-        // Fallback to all products if no dispatch history
+      // Get today's dispatches
+      let todayDispatchVariants = {};
+      const todayDispatches = dispatches.filter(d => {
+        const dispDate = d.dispatch_date?.split('T')[0];
+        return dispDate === today;
+      });
+      
+      todayDispatches.forEach(d => {
+        (d.items || []).forEach(item => {
+          const variantId = item.variant_id || item.packaging_id;
+          const variantName = item.variant_name || item.packaging_name || 'Kg';
+          const key = `${item.product_id}_${variantId || 'default'}`;
+          
+          if (!todayDispatchVariants[key]) {
+            const product = products.find(p => p.id === item.product_id);
+            todayDispatchVariants[key] = {
+              product_id: item.product_id,
+              product_name: item.product_name,
+              product_name_hi: product?.name_hi,
+              variant_id: variantId,
+              variant_name: variantName,
+              dispatch_qty: 0,
+              source: 'dispatch'
+            };
+          }
+          todayDispatchVariants[key].dispatch_qty += item.supplied_qty || 0;
+        });
+      });
+      
+      // Merge: combine opening and dispatch variants
+      const allRelevantVariants = { ...openingVariants };
+      Object.entries(todayDispatchVariants).forEach(([key, data]) => {
+        if (allRelevantVariants[key]) {
+          allRelevantVariants[key].dispatch_qty = data.dispatch_qty;
+          allRelevantVariants[key].source = 'both';
+        } else {
+          allRelevantVariants[key] = data;
+        }
+      });
+      
+      // If no variants found from opening or dispatch, fallback to products with Kg
+      if (Object.keys(allRelevantVariants).length === 0) {
         const allProducts = products.map(p => ({
           product_id: p.id,
           product_name: p.name,
@@ -688,25 +753,38 @@ export default function RetailerDashboard() {
           variant_name: 'Kg',
           unit: p.unit || 'Kg',
           closing_qty: '',
-          has_variants: false
+          has_variants: false,
+          opening_qty: 0,
+          dispatch_qty: 0
         }));
         setClosingItems(allProducts);
       } else {
-        // Use variants from dispatch history
-        const items = variants.map(v => ({
+        // Convert to list and sort
+        const items = Object.values(allRelevantVariants).map(v => ({
           product_id: v.product_id,
           product_name: v.product_name,
           product_name_hi: v.product_name_hi,
           variant_id: v.variant_id,
           variant_name: v.variant_name || 'Kg',
-          unit: v.unit || 'Pcs',
+          unit: v.variant_name && v.variant_name !== 'Kg' ? 'Pcs' : 'Kg',
           closing_qty: '',
-          has_variants: v.has_variants
+          has_variants: v.variant_name && v.variant_name !== 'Kg',
+          opening_qty: v.opening_qty || 0,
+          dispatch_qty: v.dispatch_qty || 0,
+          source: v.source
         }));
+        
+        // Sort by product name, then variant name
+        items.sort((a, b) => {
+          const nameCompare = (a.product_name || '').localeCompare(b.product_name || '');
+          if (nameCompare !== 0) return nameCompare;
+          return (a.variant_name || '').localeCompare(b.variant_name || '');
+        });
+        
         setClosingItems(items);
       }
       
-      setClosingDate(new Date().toISOString().split('T')[0]);
+      setClosingDate(today);
       setEditingClosingDate(null);
       setClosingSearchTerm('');
       setShowRecordClosingModal(true);
@@ -862,6 +940,45 @@ export default function RetailerDashboard() {
       await loadClosingHistory(closingHistoryDate);
     } catch (error) {
       toast.error('Failed to delete closing inventory');
+    }
+  };
+
+  // Start editing a single closing item inline
+  const startEditingItem = (item) => {
+    setEditingItemId(item.id);
+    setEditingItemQty(item.closing_qty?.toString() || '');
+  };
+
+  // Save the edited closing item
+  const saveEditingItem = async () => {
+    if (!editingItemId) return;
+    
+    try {
+      await api.put(`/api/retailer-closing-inventory/item/${editingItemId}`, {
+        closing_qty: parseFloat(editingItemQty)
+      });
+      toast.success('Item updated successfully');
+      setEditingItemId(null);
+      setEditingItemQty('');
+      await loadClosingHistory(closingHistoryDate);
+    } catch (error) {
+      toast.error('Failed to update item');
+    }
+  };
+
+  // Delete a single closing item
+  const deleteClosingItem = async (itemId, productName) => {
+    if (!window.confirm(`Delete closing entry for "${productName}"?`)) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/api/retailer-closing-inventory/item/${itemId}`);
+      toast.success('Item deleted successfully');
+      await loadClosingHistory(closingHistoryDate);
+      await loadRecordedDates();
+    } catch (error) {
+      toast.error('Failed to delete item');
     }
   };
 
@@ -1899,19 +2016,74 @@ export default function RetailerDashboard() {
                         <tr>
                           <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
                           <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty') || 'Closing Qty'}</th>
+                          <th className="p-3 text-center font-medium text-gray-600">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {closingHistory.map(item => (
-                          <tr key={item.product_id} className="border-b hover:bg-gray-50">
+                          <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
                             <td className="p-3">
                               <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                              <div className="text-xs text-gray-400">{item.unit}</div>
+                              <div className="text-xs text-gray-400">{item.variant_name || item.unit || 'Kg'}</div>
                             </td>
                             <td className="p-3 text-center">
-                              <span className="text-lg font-semibold text-blue-600">
-                                {item.closing_qty}
-                              </span>
+                              {editingItemId === item.id ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    value={editingItemQty}
+                                    onChange={(e) => setEditingItemQty(e.target.value)}
+                                    className="w-20 h-8 text-center"
+                                    autoFocus
+                                  />
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={saveEditingItem}
+                                    className="h-8 w-8 p-0 text-green-600 hover:bg-green-50"
+                                  >
+                                    <Check size={16} />
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => { setEditingItemId(null); setEditingItemQty(''); }}
+                                    className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100"
+                                  >
+                                    <X size={16} />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-lg font-semibold text-blue-600">
+                                  {item.closing_qty}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {editingItemId !== item.id && (
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => startEditingItem(item)}
+                                    className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
+                                    title="Edit"
+                                  >
+                                    <Edit2 size={14} />
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost"
+                                    onClick={() => deleteClosingItem(item.id, item.product_name)}
+                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                                    title="Delete"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -1920,6 +2092,7 @@ export default function RetailerDashboard() {
                         <tr>
                           <td className="p-3 text-right">Total Items:</td>
                           <td className="p-3 text-center text-blue-600">{closingHistory.length}</td>
+                          <td></td>
                         </tr>
                       </tfoot>
                     </table>
@@ -2071,7 +2244,14 @@ export default function RetailerDashboard() {
                         <div className="font-medium text-gray-800">{getProductName(item)}</div>
                         <div className="text-xs text-gray-400">
                           {item.variant_name || item.unit || 'Kg'}
-                          {item.has_variants && <span className="ml-1 text-blue-500">(Variant)</span>}
+                        </div>
+                        <div className="flex gap-3 mt-1 text-xs">
+                          {item.opening_qty > 0 && (
+                            <span className="text-blue-600">Open: {item.opening_qty}</span>
+                          )}
+                          {item.dispatch_qty > 0 && (
+                            <span className="text-green-600">+Recv: {item.dispatch_qty}</span>
+                          )}
                         </div>
                       </div>
                       <div className="ml-3">

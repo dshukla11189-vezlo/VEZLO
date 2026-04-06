@@ -352,11 +352,12 @@ async def create_user(input: RegisterRequest, current_user: dict = Depends(get_c
     user_dict = input.model_dump()
     user_dict["password"] = hash_password(user_dict.pop("password"))
     
-    # Generate referral code for retailers
+    # Generate 5-digit referral code for retailers
     if user_dict.get("role") == "retailer":
-        import random
-        import string
-        referral_code = "MRO-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        referral_code = ''.join(random.choices(string.digits, k=5))
+        # Ensure uniqueness
+        while await db.users.find_one({"referral_code": referral_code}):
+            referral_code = ''.join(random.choices(string.digits, k=5))
         user_dict["referral_code"] = referral_code
     
     user = User(**user_dict)
@@ -6825,6 +6826,48 @@ async def populate_retailer_referral_codes(current_user: dict = Depends(get_curr
         }
     except Exception as e:
         print(f"Error populating referral codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/admin/reset-all-referral-codes")
+async def reset_all_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
+    """Reset ALL retailer referral codes to 5-digit format"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can reset referral codes")
+    
+    try:
+        # Find ALL retailers
+        retailers = await db.users.find({"role": "retailer"}).to_list(1000)
+        
+        updated_count = 0
+        used_codes = set()
+        
+        for retailer in retailers:
+            # Generate unique 5-digit referral code
+            referral_code = ''.join(random.choices(string.digits, k=5))
+            
+            # Make sure it's unique (check both DB and already-assigned in this batch)
+            while referral_code in used_codes or await db.users.find_one({"referral_code": referral_code, "id": {"$ne": retailer["id"]}}):
+                referral_code = ''.join(random.choices(string.digits, k=5))
+            
+            used_codes.add(referral_code)
+            
+            result = await db.users.update_one(
+                {"id": retailer["id"]},
+                {"$set": {"referral_code": referral_code}}
+            )
+            
+            if result.modified_count > 0:
+                updated_count += 1
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_retailers": len(retailers),
+            "message": f"Reset referral codes for {updated_count} retailers to 5-digit format"
+        }
+    except Exception as e:
+        print(f"Error resetting referral codes: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

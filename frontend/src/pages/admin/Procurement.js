@@ -267,11 +267,22 @@ export default function Procurement() {
   };
 
   const handleAddProductRow = () => {
-    setProcurementForm({
-      ...procurementForm,
+    // Create a fresh new empty row - use spread to avoid reference issues
+    const newEmptyRow = { 
+      product_id: '', 
+      product_name: '', 
+      quantity: '', 
+      unit: 'Kg', 
+      unit_size: '', 
+      rate: '', 
+      total: 0 
+    };
+    
+    setProcurementForm(prev => ({
+      ...prev,
       // Add new product at the TOP (beginning of array)
-      products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: '', total: 0 }, ...procurementForm.products]
-    });
+      products: [newEmptyRow, ...prev.products]
+    }));
   };
 
   // Add selected yesterday items to the manual form
@@ -291,32 +302,48 @@ export default function Procurement() {
     
     const firstItem = selectedItems[0];
     
-    // Convert selected items to procurement form products
-    const newProducts = selectedItems.map(item => ({
-      product_id: item.product_id,
-      product_name: item.product_name,
-      quantity: parseFloat(item.quantity) || 0,
-      unit: item.unit || 'Kg',
-      unit_size: item.unit_size || '',
-      rate: parseFloat(item.rate) || 0,
-      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)
-    }));
+    // Convert selected items to procurement form products - create fresh objects
+    const newProducts = selectedItems.map(item => {
+      const qty = parseFloat(item.quantity) || 0;
+      const rate = parseFloat(item.rate) || 0;
+      return {
+        product_id: item.product_id || '',
+        product_name: item.product_name || '',
+        quantity: qty,
+        unit: item.unit || 'Kg',
+        unit_size: item.unit_size || '',
+        rate: rate,
+        total: qty * rate
+      };
+    });
     
     // Filter out empty rows from existing products
-    const existingValidProducts = procurementForm.products.filter(p => p.product_id);
+    const existingValidProducts = procurementForm.products
+      .filter(p => p.product_id)
+      .map(p => ({
+        product_id: p.product_id || '',
+        product_name: p.product_name || '',
+        quantity: parseFloat(p.quantity) || 0,
+        unit: p.unit || 'Kg',
+        unit_size: p.unit_size || '',
+        rate: parseFloat(p.rate) || 0,
+        total: p.total || 0
+      }));
     
-    // Combine: existing valid products + new products from yesterday
+    // Combine: new products from yesterday + existing valid products
     const combinedProducts = [...newProducts, ...existingValidProducts];
     
     // If no products after combining, add empty row
-    const finalProducts = combinedProducts.length > 0 ? combinedProducts : [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: '', total: 0 }];
+    const finalProducts = combinedProducts.length > 0 
+      ? combinedProducts 
+      : [{ product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }];
     
     const grandTotal = finalProducts.reduce((sum, p) => sum + (p.total || 0), 0);
     
     setProcurementForm({
       ...procurementForm,
-      farmer_id: firstItem.farmer_id,
-      farmer_name: firstItem.farmer_name,
+      farmer_id: firstItem.farmer_id || '',
+      farmer_name: firstItem.farmer_name || '',
       products: finalProducts,
       total_amount: grandTotal,
       pending_amount: grandTotal - (procurementForm.paid_amount || 0)
@@ -1502,6 +1529,7 @@ export default function Procurement() {
                                 items={farmers}
                                 displayKey="name"
                                 secondaryKey="contact"
+                                value={procurementForm.farmer_name || ''}
                                 onSelect={handleFarmerSelect}
                                 testId="procurement-farmer-autocomplete"
                                 storageKey="recent_farmers"
@@ -1515,16 +1543,34 @@ export default function Procurement() {
                           </td>
                           {/* Product */}
                           <td className="p-2 relative">
-                            <AutocompleteInput
-                              placeholder={t('procurement.productName')}
-                              items={products}
-                              displayKey="name"
-                              secondaryKey="category"
-                              onSelect={(p) => handleProductSelect(index, p)}
-                              testId={`product-autocomplete-${index}`}
-                              storageKey="recent_products"
-                              compact={true}
-                            />
+                            {product.product_id ? (
+                              // Show product name as text if already selected (from yesterday's items)
+                              <div className="flex items-center gap-1">
+                                <span className="text-sm font-medium truncate flex-1">{product.product_name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newProducts = [...procurementForm.products];
+                                    newProducts[index] = { ...newProducts[index], product_id: '', product_name: '' };
+                                    setProcurementForm({ ...procurementForm, products: newProducts });
+                                  }}
+                                  className="text-gray-400 hover:text-red-500 text-xs"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <AutocompleteInput
+                                placeholder={t('procurement.productName')}
+                                items={products}
+                                displayKey="name"
+                                secondaryKey="category"
+                                onSelect={(p) => handleProductSelect(index, p)}
+                                testId={`product-autocomplete-${index}`}
+                                storageKey="recent_products"
+                                compact={true}
+                              />
+                            )}
                           </td>
                         {/* Qty */}
                         <td className="p-2">

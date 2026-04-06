@@ -432,6 +432,17 @@ export default function QuickCommerce() {
     }
   };
 
+  // Load latest bunch weights from previous saved requirements
+  const loadLatestBunchWeights = async () => {
+    try {
+      const response = await api.get('/api/qc-latest-bunch-weights');
+      return response.data || [];
+    } catch (error) {
+      console.error('Failed to load bunch weights:', error);
+      return [];
+    }
+  };
+
   // Calculate QC Daily Requirement
   const calculateQcDailyRequirement = async () => {
     if (!qcDailyReqDate) {
@@ -462,9 +473,11 @@ export default function QuickCommerce() {
         return;
       }
 
-      // Load wastage averages - always fetch fresh and use returned data directly
-      // (state update is async so we can't rely on wastageAverages immediately)
-      const currentWastageAverages = await loadWastageAverages();
+      // Load wastage averages and bunch weights in parallel
+      const [currentWastageAverages, bunchWeights] = await Promise.all([
+        loadWastageAverages(),
+        loadLatestBunchWeights()
+      ]);
 
       // Aggregate all items from all indents
       const productMap = new Map();
@@ -501,12 +514,21 @@ export default function QuickCommerce() {
             packagingWeight = extractWeightFromName(item.product_unit);
           }
           
-          // Get wastage average for this product+packaging from the directly loaded data
+          // Get wastage percentage for this product+packaging from the 30-day data
           const wastageInfo = currentWastageAverages.find(w => 
             w.product_id === item.product_id && 
             (w.packaging_id === item.packaging_id || w.packaging_name === item.packaging_name)
           );
-          const avgWastage = wastageInfo?.avg_wastage_qty || 0;
+          const wastagePercent = wastageInfo?.wastage_percentage || 0;
+          
+          // Get bunch weight from previous saved requirement
+          const bunchWeightInfo = bunchWeights.find(b => 
+            b.product_id === item.product_id && 
+            (b.packaging_id === item.packaging_id || b.packaging_name === item.packaging_name)
+          );
+          // Default bunch weight: use packaging weight if available, else 250g
+          const defaultBunchWeight = packagingWeight > 0 ? packagingWeight / 1000 : 0.25;
+          const weightPerBunch = bunchWeightInfo?.weight_per_bunch || defaultBunchWeight;
 
           const qty = item.required_qty || 0;
 
@@ -522,9 +544,9 @@ export default function QuickCommerce() {
               packagingName: item.packaging_name || packaging?.name || '-',
               packagingWeight: packagingWeight,
               qtyRequired: qty,
-              estimatedWastage: avgWastage,
+              wastagePercent: wastagePercent,
               actualQtyKg: 0,  // Will be calculated
-              weightPerBunch: 0.25,  // Default 250g per bunch (more realistic)
+              weightPerBunch: weightPerBunch,
               noOfBunches: 0,  // Will be calculated
               rate: '',
               amount: '',
@@ -536,24 +558,28 @@ export default function QuickCommerce() {
 
       // Convert to array and calculate derived fields
       const requirementData = Array.from(productMap.values()).map(item => {
-        // Actual Qty (Kg) = Qty Required * weight per unit / 1000 (NOT including wastage)
+        // Actual Qty (Kg) = Qty Required * weight per unit / 1000
         const qtyRequired = parseFloat(item.qtyRequired) || 0;
         const packWeight = parseFloat(item.packagingWeight) || 0;
         
-        // Calculate actual kg - if packaging weight exists, use formula; otherwise assume qty is already in kg
+        // Calculate actual kg (net usable qty needed)
         let actualQtyKg;
         if (packWeight > 0) {
           actualQtyKg = (qtyRequired * packWeight) / 1000;
         } else {
-          // If no packaging weight, assume the unit is already kg or use qty as-is
           actualQtyKg = qtyRequired;
         }
         
-        // Est Wastage is already in Kg from the 30-day average
-        const estWastageKg = parseFloat(item.estimatedWastage) || 0;
+        // Wastage % - use percentage to calculate gross qty needed
+        // Formula: Total Qty = Actual Kg / (1 - wastage%)
+        // If wastage is 30%, we need to buy more so that after 30% loss, we have enough
+        const wastagePercent = parseFloat(item.wastagePercent) || 0;
+        const wastageFraction = wastagePercent / 100;
         
-        // Total Qty Required = Actual Kg + Est Wastage Kg
-        const totalQtyRequired = actualQtyKg + estWastageKg;
+        // Total Qty Required = Actual Kg / (1 - wastage fraction)
+        // If wastage is 100% or more, cap it to avoid division by zero
+        const effectiveWastageFraction = Math.min(wastageFraction, 0.99);
+        const totalQtyRequired = actualQtyKg / (1 - effectiveWastageFraction);
         
         // No of bunches = Total Qty Required Kg / Weight per bunch
         const weightPerBunch = parseFloat(item.weightPerBunch) || 0.25;
@@ -582,45 +608,62 @@ export default function QuickCommerce() {
     const newData = [...qcDailyReqData];
     newData[idx][field] = value;
 
-    // Recalculate derived fields based on what changed
-    if (field === 'qtyRequired' || field === 'estimatedWastage' || field === 'packagingWeight') {
-      const qtyRequired = parseFloat(newData[idx].qtyRequired) || 0;
-      const packWeight = parseFloat(newData[idx].packagingWeight) || 0;
-      const estWastageKg = parseFloat(newData[idx].estimatedWastage) || 0;
+    // Helper to recalculate totalQtyRequired using wastage percentage
+    const recalculateTotals = (item) => {
+      const qtyRequired = parseFloat(item.qtyRequired) || 0;
+      const packWeight = parseFloat(item.packagingWeight) || 0;
       
-      // Actual Kg = Qty Required * weight / 1000 (NOT including wastage)
+      // Actual Kg = Qty Required * weight / 1000
       const actualQtyKg = packWeight > 0 ? (qtyRequired * packWeight) / 1000 : qtyRequired;
-      newData[idx].actualQtyKg = parseFloat(actualQtyKg.toFixed(2));
+      item.actualQtyKg = parseFloat(actualQtyKg.toFixed(2));
       
-      // Total Qty Required = Actual Kg + Est Wastage Kg
-      newData[idx].totalQtyRequired = parseFloat((actualQtyKg + estWastageKg).toFixed(2));
+      // Total Qty = Actual Kg / (1 - wastage%)
+      const wastagePercent = parseFloat(item.wastagePercent) || 0;
+      const wastageFraction = Math.min(wastagePercent / 100, 0.99);
+      const totalQtyRequired = actualQtyKg / (1 - wastageFraction);
+      item.totalQtyRequired = parseFloat(totalQtyRequired.toFixed(2));
       
-      // Recalculate bunches based on total qty
-      const weightPerBunch = parseFloat(newData[idx].weightPerBunch) || 0.1;
-      newData[idx].noOfBunches = weightPerBunch > 0 ? Math.ceil(newData[idx].totalQtyRequired / weightPerBunch) : 0;
+      // Recalculate bunches
+      const weightPerBunch = parseFloat(item.weightPerBunch) || 0.25;
+      item.noOfBunches = weightPerBunch > 0 ? Math.ceil(totalQtyRequired / weightPerBunch) : 0;
+    };
+
+    // Recalculate derived fields based on what changed
+    if (field === 'qtyRequired' || field === 'wastagePercent' || field === 'packagingWeight') {
+      recalculateTotals(newData[idx]);
     }
 
-    if (field === 'actualQtyKg' || field === 'weightPerBunch') {
-      const actualKg = parseFloat(newData[idx].actualQtyKg) || 0;
-      const estWastageKg = parseFloat(newData[idx].estimatedWastage) || 0;
-      newData[idx].totalQtyRequired = parseFloat((actualKg + estWastageKg).toFixed(2));
+    if (field === 'actualQtyKg') {
+      // If actualQtyKg is manually edited, recalculate totalQtyRequired
+      const actualQtyKg = parseFloat(value) || 0;
+      const wastagePercent = parseFloat(newData[idx].wastagePercent) || 0;
+      const wastageFraction = Math.min(wastagePercent / 100, 0.99);
+      const totalQtyRequired = actualQtyKg / (1 - wastageFraction);
+      newData[idx].totalQtyRequired = parseFloat(totalQtyRequired.toFixed(2));
       
-      const weightPerBunch = parseFloat(newData[idx].weightPerBunch) || 0.1;
-      newData[idx].noOfBunches = weightPerBunch > 0 ? Math.ceil(newData[idx].totalQtyRequired / weightPerBunch) : 0;
+      const weightPerBunch = parseFloat(newData[idx].weightPerBunch) || 0.25;
+      newData[idx].noOfBunches = weightPerBunch > 0 ? Math.ceil(totalQtyRequired / weightPerBunch) : 0;
     }
 
-    // Bidirectional rate/amount
+    if (field === 'weightPerBunch') {
+      // Recalculate bunches when bunch weight changes
+      const totalQtyRequired = parseFloat(newData[idx].totalQtyRequired) || 0;
+      const weightPerBunch = parseFloat(value) || 0.25;
+      newData[idx].noOfBunches = weightPerBunch > 0 ? Math.ceil(totalQtyRequired / weightPerBunch) : 0;
+    }
+
+    // Bidirectional rate/amount - use totalQtyRequired for amount calculation
     if (field === 'rate') {
       const rate = parseFloat(value) || 0;
-      const kg = parseFloat(newData[idx].actualQtyKg) || 0;
-      newData[idx].amount = (rate * kg).toFixed(2);
+      const totalKg = parseFloat(newData[idx].totalQtyRequired) || 0;
+      newData[idx].amount = (rate * totalKg).toFixed(2);
     }
 
     if (field === 'amount') {
       const amount = parseFloat(value) || 0;
-      const kg = parseFloat(newData[idx].actualQtyKg) || 0;
-      if (kg > 0) {
-        newData[idx].rate = (amount / kg).toFixed(2);
+      const totalKg = parseFloat(newData[idx].totalQtyRequired) || 0;
+      if (totalKg > 0) {
+        newData[idx].rate = (amount / totalKg).toFixed(2);
       }
     }
 
@@ -655,8 +698,9 @@ export default function QuickCommerce() {
           packaging_id: item.packagingId || null,
           packaging_name: item.packagingName || '',
           qty_required: parseFloat(item.qtyRequired) || 0,
-          estimated_wastage: parseFloat(item.estimatedWastage) || 0,
+          wastage_percent: parseFloat(item.wastagePercent) || 0,
           actual_qty_kg: parseFloat(item.actualQtyKg) || 0,
+          total_qty_required: parseFloat(item.totalQtyRequired) || 0,
           weight_per_bunch: parseFloat(item.weightPerBunch) || 0,
           no_of_bunches: parseInt(item.noOfBunches) || 0,
           rate: parseFloat(item.rate) || 0,
@@ -665,6 +709,7 @@ export default function QuickCommerce() {
         })),
         total_qty_required: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.qtyRequired) || 0), 0),
         total_actual_qty: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.actualQtyKg) || 0), 0),
+        total_purchase_qty: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalQtyRequired) || 0), 0),
         total_bunches: qcDailyReqData.reduce((sum, item) => sum + (parseInt(item.noOfBunches) || 0), 0),
         total_amount: qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0)
       };
@@ -715,7 +760,7 @@ export default function QuickCommerce() {
                 <th>Packaging</th>
                 <th class="text-center">Qty Req</th>
                 <th class="text-right">Actual Kg</th>
-                <th class="text-center">Est Wastage (Kg)</th>
+                <th class="text-center">Wastage %</th>
                 <th class="text-right" style="background:#e6f3ff;font-weight:bold;">Total Qty (Kg)</th>
                 <th class="text-center">Wt/Bunch</th>
                 <th class="text-center">Bunches</th>
@@ -732,8 +777,8 @@ export default function QuickCommerce() {
                   <td>${item.packagingName || '-'}</td>
                   <td class="text-center">${item.qtyRequired}</td>
                   <td class="text-right">${item.actualQtyKg}</td>
-                  <td class="text-center">${item.estimatedWastage || 0}</td>
-                  <td class="text-right" style="background:#e6f3ff;font-weight:bold;">${item.totalQtyRequired || (parseFloat(item.actualQtyKg || 0) + parseFloat(item.estimatedWastage || 0)).toFixed(2)}</td>
+                  <td class="text-center">${(item.wastagePercent || 0).toFixed(1)}%</td>
+                  <td class="text-right" style="background:#e6f3ff;font-weight:bold;">${item.totalQtyRequired?.toFixed(2) || item.actualQtyKg}</td>
                   <td class="text-center">${item.weightPerBunch || '-'}</td>
                   <td class="text-center">${item.noOfBunches}</td>
                   <td class="text-right">${item.rate || ''}</td>
@@ -745,8 +790,8 @@ export default function QuickCommerce() {
                 <td colspan="3">TOTAL</td>
                 <td class="text-center">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.qtyRequired) || 0), 0)}</td>
                 <td class="text-right">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.actualQtyKg) || 0), 0).toFixed(2)} Kg</td>
-                <td class="text-center">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.estimatedWastage) || 0), 0).toFixed(2)} Kg</td>
-                <td class="text-right" style="background:#e6f3ff;">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalQtyRequired) || parseFloat(item.actualQtyKg || 0) + parseFloat(item.estimatedWastage || 0)), 0).toFixed(2)} Kg</td>
+                <td class="text-center">-</td>
+                <td class="text-right" style="background:#e6f3ff;">${qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalQtyRequired) || 0), 0).toFixed(2)} Kg</td>
                 <td></td>
                 <td class="text-center">${qcDailyReqData.reduce((sum, item) => sum + (parseInt(item.noOfBunches) || 0), 0)}</td>
                 <td></td>
@@ -2560,7 +2605,7 @@ Email: ${companyEmail}`;
                 <div className="text-center py-12 text-gray-500">
                   <Package size={48} className="mx-auto mb-4 opacity-30" />
                   <p>Select a date and click "Calculate" to view purchase requirements</p>
-                  <p className="text-xs mt-2">Calculation: Actual Kg (from indent) + Est Wastage (30-day avg) = Total Qty Required</p>
+                  <p className="text-xs mt-2">Formula: Total Qty = Actual Kg ÷ (1 - Wastage%)</p>
                 </div>
               )}
 
@@ -2574,7 +2619,7 @@ Email: ${companyEmail}`;
                         <th className="p-2 text-left">Packaging</th>
                         <th className="p-2 text-center w-20">Qty Req</th>
                         <th className="p-2 text-center w-24">Actual Kg</th>
-                        <th className="p-2 text-center w-24">Est Wastage (Kg)</th>
+                        <th className="p-2 text-center w-20">Wastage %</th>
                         <th className="p-2 text-center w-24 bg-blue-50 font-bold">Total Qty (Kg)</th>
                         <th className="p-2 text-center w-20">Wt/Bunch</th>
                         <th className="p-2 text-center w-20">Bunches</th>
@@ -2612,13 +2657,13 @@ Email: ${companyEmail}`;
                             <Input
                               type="number"
                               step="0.1"
-                              value={item.estimatedWastage}
-                              onChange={(e) => updateQcReqField(idx, 'estimatedWastage', e.target.value)}
-                              className="h-7 w-16 text-center text-xs text-amber-600"
+                              value={item.wastagePercent || 0}
+                              onChange={(e) => updateQcReqField(idx, 'wastagePercent', e.target.value)}
+                              className="h-7 w-14 text-center text-xs text-amber-600"
                             />
                           </td>
                           <td className="p-2 text-center font-bold text-blue-700 bg-blue-50">
-                            {item.totalQtyRequired?.toFixed(2) || (parseFloat(item.actualQtyKg || 0) + parseFloat(item.estimatedWastage || 0)).toFixed(2)}
+                            {item.totalQtyRequired?.toFixed(2) || item.actualQtyKg?.toFixed(2)}
                           </td>
                           <td className="p-2">
                             <Input
@@ -2675,8 +2720,8 @@ Email: ${companyEmail}`;
                         <td colSpan={3} className="p-2 text-right">TOTAL</td>
                         <td className="p-2 text-center">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.qtyRequired) || 0), 0)}</td>
                         <td className="p-2 text-center text-green-700">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.actualQtyKg) || 0), 0).toFixed(2)} Kg</td>
-                        <td className="p-2 text-center text-amber-600">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.estimatedWastage) || 0), 0).toFixed(2)} Kg</td>
-                        <td className="p-2 text-center text-blue-700 bg-blue-50 font-bold">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalQtyRequired) || parseFloat(item.actualQtyKg || 0) + parseFloat(item.estimatedWastage || 0)), 0).toFixed(2)} Kg</td>
+                        <td className="p-2 text-center text-amber-600">-</td>
+                        <td className="p-2 text-center text-blue-700 bg-blue-50 font-bold">{qcDailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalQtyRequired) || 0), 0).toFixed(2)} Kg</td>
                         <td className="p-2"></td>
                         <td className="p-2 text-center text-blue-700">{qcDailyReqData.reduce((sum, item) => sum + (parseInt(item.noOfBunches) || 0), 0)}</td>
                         <td className="p-2"></td>

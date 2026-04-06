@@ -8321,6 +8321,43 @@ async def get_retail_wastage_averages(
     return result
 
 
+@app.get("/api/qc-latest-bunch-weights")
+async def get_qc_latest_bunch_weights(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get the latest bunch weights per product from the most recent saved QC daily requirements.
+    This is used to pre-populate bunch weights when calculating new daily requirements.
+    """
+    # Get the most recent saved QC daily requirement
+    recent_requirements = await db.qc_daily_requirements.find(
+        {},
+        {"_id": 0}
+    ).sort("requirement_date", -1).limit(10).to_list(10)
+    
+    # Build a map of product+packaging -> bunch weight from most recent data
+    bunch_weights = {}
+    
+    for req in recent_requirements:
+        for item in req.get("items", []):
+            product_id = item.get("product_id", "")
+            packaging_id = item.get("packaging_id", "")
+            key = f"{product_id}_{packaging_id}"
+            
+            # Only use if we don't have a weight for this combo yet (most recent takes precedence)
+            if key not in bunch_weights and item.get("weight_per_bunch"):
+                bunch_weights[key] = {
+                    "product_id": product_id,
+                    "product_name": item.get("product_name", ""),
+                    "packaging_id": packaging_id,
+                    "packaging_name": item.get("packaging_name", ""),
+                    "weight_per_bunch": item.get("weight_per_bunch"),
+                    "source_date": req.get("requirement_date")
+                }
+    
+    return list(bunch_weights.values())
+
+
 @app.post("/api/qc-daily-requirement")
 async def save_qc_daily_requirement(
     data: dict,

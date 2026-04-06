@@ -4560,6 +4560,9 @@ async def fix_all_purchase_quantities(
     try:
         # Step 1: Get all unique dates from daily_stock_status
         all_dates = await db.daily_stock_status.distinct("date")
+        # Filter out None/empty dates and sort
+        all_dates = [d for d in all_dates if d]
+        all_dates = sorted(all_dates, key=lambda x: str(x) if x else "")
         
         # Step 2: Get all procurements
         all_procurements = await db.procurements.find({}).to_list(10000)
@@ -4568,88 +4571,102 @@ async def fix_all_purchase_quantities(
         purchases_by_date_product = {}
         
         for proc in all_procurements:
-            proc_date = extract_date_string(proc.get('date'))
-            if not proc_date:
-                continue
-            
-            if proc_date not in purchases_by_date_product:
-                purchases_by_date_product[proc_date] = {}
-            
-            products = parse_products(proc.get('products', []))
-            
-            for item in products:
-                product_id = item.get('product_id', '')
-                if not product_id:
+            try:
+                proc_date = extract_date_string(proc.get('date'))
+                if not proc_date:
                     continue
                 
-                qty_kg = calculate_qty_kg(item)
-                try:
-                    total_value = float(item.get('total', 0) or 0)
-                except (ValueError, TypeError):
-                    total_value = 0
+                if proc_date not in purchases_by_date_product:
+                    purchases_by_date_product[proc_date] = {}
                 
-                if product_id not in purchases_by_date_product[proc_date]:
-                    purchases_by_date_product[proc_date][product_id] = {
-                        'qty_kg': 0,
-                        'total_value': 0
-                    }
+                products = parse_products(proc.get('products', []))
                 
-                purchases_by_date_product[proc_date][product_id]['qty_kg'] += qty_kg
-                purchases_by_date_product[proc_date][product_id]['total_value'] += total_value
+                for item in products:
+                    if not item or not isinstance(item, dict):
+                        continue
+                    product_id = item.get('product_id', '')
+                    if not product_id:
+                        continue
+                    
+                    qty_kg = calculate_qty_kg(item)
+                    try:
+                        total_value = float(item.get('total', 0) or 0)
+                    except (ValueError, TypeError):
+                        total_value = 0
+                    
+                    if product_id not in purchases_by_date_product[proc_date]:
+                        purchases_by_date_product[proc_date][product_id] = {
+                            'qty_kg': 0,
+                            'total_value': 0
+                        }
+                    
+                    purchases_by_date_product[proc_date][product_id]['qty_kg'] += qty_kg
+                    purchases_by_date_product[proc_date][product_id]['total_value'] += total_value
+            except Exception as proc_error:
+                print(f"Error processing procurement {proc.get('id')}: {proc_error}")
+                continue
         
         # Step 3: Fix each daily_stock_status record
         total_fixed = 0
         total_unchanged = 0
         fixes_summary = []
         
-        for date in sorted(all_dates):
-            stock_entries = await db.daily_stock_status.find({"date": date}).to_list(500)
-            date_purchases = purchases_by_date_product.get(date, {})
-            date_fixes = []
+        for date in all_dates:
+            try:
+                stock_entries = await db.daily_stock_status.find({"date": date}).to_list(500)
+                date_purchases = purchases_by_date_product.get(str(date), {})
+                date_fixes = []
+                
+                for entry in stock_entries:
+                    try:
+                        product_id = entry.get('product_id')
+                        product_name = entry.get('product_name')
+                        try:
+                            current_purchase_qty = float(entry.get('purchase_qty', 0) or 0)
+                        except (ValueError, TypeError):
+                            current_purchase_qty = 0
+                        
+                        # Calculate correct purchase_qty from procurements
+                        product_purchase = date_purchases.get(product_id, {'qty_kg': 0, 'total_value': 0})
+                        correct_purchase_qty = round(product_purchase['qty_kg'], 2)
+                        correct_purchase_value = round(product_purchase['total_value'], 2)
+                        
+                        # Check if update needed
+                        diff = abs(current_purchase_qty - correct_purchase_qty)
+                        
+                        if diff > 0.01:  # Significant difference
+                            # Calculate new avg_price
+                            avg_price = 0
+                            if correct_purchase_qty > 0:
+                                avg_price = round(correct_purchase_value / correct_purchase_qty, 2)
+                            
+                            # Update record
+                            await db.daily_stock_status.update_one(
+                                {"id": entry['id']},
+                                {"$set": {
+                                    "purchase_qty": correct_purchase_qty,
+                                    "purchase_value": correct_purchase_value,
+                                    "avg_price": avg_price
+                                }}
+                            )
+                            
+                            date_fixes.append({
+                                "product": product_name,
+                                "old": current_purchase_qty,
+                                "new": correct_purchase_qty
+                            })
+                            total_fixed += 1
+                        else:
+                            total_unchanged += 1
+                    except Exception as entry_error:
+                        print(f"Error processing entry {entry.get('id')}: {entry_error}")
+                        continue
             
-            for entry in stock_entries:
-                product_id = entry.get('product_id')
-                product_name = entry.get('product_name')
-                try:
-                    current_purchase_qty = float(entry.get('purchase_qty', 0) or 0)
-                except (ValueError, TypeError):
-                    current_purchase_qty = 0
-                
-                # Calculate correct purchase_qty from procurements
-                product_purchase = date_purchases.get(product_id, {'qty_kg': 0, 'total_value': 0})
-                correct_purchase_qty = round(product_purchase['qty_kg'], 2)
-                correct_purchase_value = round(product_purchase['total_value'], 2)
-                
-                # Check if update needed
-                diff = abs(current_purchase_qty - correct_purchase_qty)
-                
-                if diff > 0.01:  # Significant difference
-                    # Calculate new avg_price
-                    avg_price = 0
-                    if correct_purchase_qty > 0:
-                        avg_price = round(correct_purchase_value / correct_purchase_qty, 2)
-                    
-                    # Update record
-                    await db.daily_stock_status.update_one(
-                        {"id": entry['id']},
-                        {"$set": {
-                            "purchase_qty": correct_purchase_qty,
-                            "purchase_value": correct_purchase_value,
-                            "avg_price": avg_price
-                        }}
-                    )
-                    
-                    date_fixes.append({
-                        "product": product_name,
-                        "old": current_purchase_qty,
-                        "new": correct_purchase_qty
-                    })
-                    total_fixed += 1
-                else:
-                    total_unchanged += 1
-        
-            if date_fixes:
-                fixes_summary.append({"date": date, "fixes": date_fixes[:5]})  # Limit to 5 per date
+                if date_fixes:
+                    fixes_summary.append({"date": str(date), "fixes": date_fixes[:5]})  # Limit to 5 per date
+            except Exception as date_error:
+                print(f"Error processing date {date}: {date_error}")
+                continue
         
         return {
             "message": f"Fixed {total_fixed} records, {total_unchanged} unchanged",

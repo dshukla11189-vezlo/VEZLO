@@ -337,7 +337,9 @@ export default function WastageDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {yesterdayWastage.products.map((product, idx) => (
+                  {[...yesterdayWastage.products]
+                    .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0))
+                    .map((product, idx) => (
                     <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                       <td className="p-2 font-medium">{getProductName(product)}</td>
                       <td className="p-2 text-right">{product.opening_qty?.toFixed(1)}</td>

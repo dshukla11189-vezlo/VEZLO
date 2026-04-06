@@ -125,7 +125,7 @@ export default function Procurement() {
     date: new Date().toISOString().split('T')[0],
     farmer_id: '',
     farmer_name: '',
-    products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }],
+    products: [{ product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
     total_amount: 0,
     paid_amount: 0,
     pending_amount: 0,
@@ -270,8 +270,62 @@ export default function Procurement() {
     setProcurementForm({
       ...procurementForm,
       // Add new product at the TOP (beginning of array)
-      products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }, ...procurementForm.products]
+      products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: '', total: 0 }, ...procurementForm.products]
     });
+  };
+
+  // Add selected yesterday items to the manual form
+  const addYesterdayItemsToForm = () => {
+    const selectedItems = yesterdayItems.filter(i => i.selected);
+    if (selectedItems.length === 0) {
+      toast.error('Please select at least one item from previous day');
+      return;
+    }
+    
+    // If we have different farmers in selected items, use the first one or ask user
+    const uniqueFarmers = [...new Set(selectedItems.map(i => i.farmer_id))];
+    if (uniqueFarmers.length > 1) {
+      toast.error('Please select items from only one farmer, or save separately');
+      return;
+    }
+    
+    const firstItem = selectedItems[0];
+    
+    // Convert selected items to procurement form products
+    const newProducts = selectedItems.map(item => ({
+      product_id: item.product_id,
+      product_name: item.product_name,
+      quantity: parseFloat(item.quantity) || 0,
+      unit: item.unit || 'Kg',
+      unit_size: item.unit_size || '',
+      rate: parseFloat(item.rate) || 0,
+      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)
+    }));
+    
+    // Filter out empty rows from existing products
+    const existingValidProducts = procurementForm.products.filter(p => p.product_id);
+    
+    // Combine: existing valid products + new products from yesterday
+    const combinedProducts = [...newProducts, ...existingValidProducts];
+    
+    // If no products after combining, add empty row
+    const finalProducts = combinedProducts.length > 0 ? combinedProducts : [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: '', total: 0 }];
+    
+    const grandTotal = finalProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+    
+    setProcurementForm({
+      ...procurementForm,
+      farmer_id: firstItem.farmer_id,
+      farmer_name: firstItem.farmer_name,
+      products: finalProducts,
+      total_amount: grandTotal,
+      pending_amount: grandTotal - (procurementForm.paid_amount || 0)
+    });
+    
+    // Clear yesterday items selection
+    setYesterdayItems(yesterdayItems.map(i => ({ ...i, selected: false })));
+    
+    toast.success(`Added ${selectedItems.length} item(s) to the form. You can add more items or save.`);
   };
 
   const handleRemoveProductRow = (index) => {
@@ -297,7 +351,8 @@ export default function Procurement() {
           product_id: value,
           product_name: selectedProduct.name,
           unit: selectedProduct.unit || 'Kg',
-          rate: selectedProduct.price_per_kg || 0
+          // Only set rate if not already set by user
+          rate: newProducts[index].rate || selectedProduct.price_per_kg || ''
         };
       }
     } else if (field === 'unit') {
@@ -306,16 +361,24 @@ export default function Procurement() {
       if (value !== 'Bunch') {
         newProducts[index].unit_size = '';
       }
+    } else if (field === 'quantity') {
+      // Handle empty string for quantity
+      newProducts[index][field] = value === '' ? '' : (parseFloat(value) || 0);
+    } else if (field === 'rate') {
+      // Handle empty string for rate - keep as string to preserve user input
+      newProducts[index][field] = value === '' ? '' : (parseFloat(value) || 0);
     } else {
-      newProducts[index][field] = field === 'quantity' || field === 'rate' ? parseFloat(value) || 0 : value;
+      newProducts[index][field] = value;
     }
     
-    // Calculate row total
-    newProducts[index].total = newProducts[index].quantity * newProducts[index].rate;
+    // Calculate row total (handle empty values)
+    const qty = parseFloat(newProducts[index].quantity) || 0;
+    const rate = parseFloat(newProducts[index].rate) || 0;
+    newProducts[index].total = qty * rate;
     
     // Calculate grand total and pending amount
-    const grandTotal = newProducts.reduce((sum, p) => sum + p.total, 0);
-    const pendingAmount = grandTotal - procurementForm.paid_amount;
+    const grandTotal = newProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+    const pendingAmount = grandTotal - (procurementForm.paid_amount || 0);
     
     setProcurementForm({
       ...procurementForm,
@@ -348,20 +411,25 @@ export default function Procurement() {
 
   const handleProductSelect = (index, product) => {
     const newProducts = [...procurementForm.products];
+    const existingRate = newProducts[index].rate;
+    
     newProducts[index] = {
       ...newProducts[index],
       product_id: product.id,
       product_name: product.name,
       unit: product.unit || 'Kg',
-      rate: product.price_per_kg || 0
+      // Only set rate from product if user hasn't entered one
+      rate: existingRate !== '' && existingRate !== 0 ? existingRate : (product.price_per_kg || '')
     };
     
     // Calculate row total
-    newProducts[index].total = newProducts[index].quantity * newProducts[index].rate;
+    const qty = parseFloat(newProducts[index].quantity) || 0;
+    const rate = parseFloat(newProducts[index].rate) || 0;
+    newProducts[index].total = qty * rate;
     
     // Calculate grand total
-    const grandTotal = newProducts.reduce((sum, p) => sum + p.total, 0);
-    const pendingAmount = grandTotal - procurementForm.paid_amount;
+    const grandTotal = newProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+    const pendingAmount = grandTotal - (procurementForm.paid_amount || 0);
     
     setProcurementForm({
       ...procurementForm,
@@ -436,7 +504,7 @@ export default function Procurement() {
         date: new Date().toISOString().split('T')[0],
         farmer_id: '',
         farmer_name: '',
-        products: [{ product_id: '', product_name: '', quantity: 0, unit: 'Kg', unit_size: '', rate: 0, total: 0 }],
+        products: [{ product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
         total_amount: 0,
         paid_amount: 0,
         pending_amount: 0,
@@ -1296,67 +1364,78 @@ export default function Procurement() {
                         Total: ₹{yesterdayItems.filter(i => i.selected).reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
                       </span>
                     </div>
-                    <Button
-                      type="button"
-                      className="bg-amber-600 hover:bg-amber-700"
-                      onClick={async () => {
-                        const selectedItems = yesterdayItems.filter(i => i.selected);
-                        if (selectedItems.length === 0) {
-                          toast.error('Please select at least one item');
-                          return;
-                        }
-                        
-                        // Group by farmer for separate procurements
-                        const byFarmer = {};
-                        selectedItems.forEach(item => {
-                          if (!byFarmer[item.farmer_id]) {
-                            byFarmer[item.farmer_id] = {
-                              farmer_id: item.farmer_id,
-                              farmer_name: item.farmer_name,
-                              products: []
-                            };
-                          }
-                          byFarmer[item.farmer_id].products.push({
-                            product_id: item.product_id,
-                            product_name: item.product_name,
-                            quantity: item.quantity,
-                            unit: item.unit,
-                            unit_size: item.unit_size,
-                            rate: item.rate,
-                            total: item.total
-                          });
-                        });
-                        
-                        // Create procurements for each farmer using the selected reference date
-                        try {
-                          for (const farmerId of Object.keys(byFarmer)) {
-                            const farmerData = byFarmer[farmerId];
-                            const totalAmount = farmerData.products.reduce((sum, p) => sum + (p.total || 0), 0);
-                            
-                            await api.post('/api/procurement', {
-                              date: new Date(referenceDateForPurchase).toISOString(),
-                              farmer_id: farmerData.farmer_id,
-                              farmer_name: farmerData.farmer_name,
-                              products: farmerData.products,
-                              total_amount: totalAmount,
-                              paid_amount: 0,
-                              pending_amount: totalAmount,
-                              payment_status: 'pending',
-                              status: 'completed'
-                            });
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-amber-500 text-amber-700 hover:bg-amber-50"
+                        onClick={addYesterdayItemsToForm}
+                      >
+                        <Plus size={14} className="mr-1" />
+                        Add to Form Below
+                      </Button>
+                      <Button
+                        type="button"
+                        className="bg-amber-600 hover:bg-amber-700"
+                        onClick={async () => {
+                          const selectedItems = yesterdayItems.filter(i => i.selected);
+                          if (selectedItems.length === 0) {
+                            toast.error('Please select at least one item');
+                            return;
                           }
                           
-                          toast.success(`Created ${Object.keys(byFarmer).length} purchase(s) with ${selectedItems.length} items`);
-                          setOpenProcurement(false);
-                          setYesterdayItems([]);
-                          loadData();
-                        } catch (error) {
-                          toast.error(error.response?.data?.detail || 'Failed to save purchases');
-                        }
-                      }}
-                    >
-                      Save Selected ({yesterdayItems.filter(i => i.selected).length} items)
-                    </Button>
+                          // Group by farmer for separate procurements
+                          const byFarmer = {};
+                          selectedItems.forEach(item => {
+                            if (!byFarmer[item.farmer_id]) {
+                              byFarmer[item.farmer_id] = {
+                                farmer_id: item.farmer_id,
+                                farmer_name: item.farmer_name,
+                                products: []
+                              };
+                            }
+                            byFarmer[item.farmer_id].products.push({
+                              product_id: item.product_id,
+                              product_name: item.product_name,
+                              quantity: parseFloat(item.quantity) || 0,
+                              unit: item.unit,
+                              unit_size: item.unit_size,
+                              rate: parseFloat(item.rate) || 0,
+                              total: (parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)
+                            });
+                          });
+                          
+                          // Create procurements for each farmer using the selected reference date
+                          try {
+                            for (const farmerId of Object.keys(byFarmer)) {
+                              const farmerData = byFarmer[farmerId];
+                              const totalAmount = farmerData.products.reduce((sum, p) => sum + (p.total || 0), 0);
+                              
+                              await api.post('/api/procurement', {
+                                date: new Date(referenceDateForPurchase).toISOString(),
+                                farmer_id: farmerData.farmer_id,
+                                farmer_name: farmerData.farmer_name,
+                                products: farmerData.products,
+                                total_amount: totalAmount,
+                                paid_amount: 0,
+                                pending_amount: totalAmount,
+                                payment_status: 'pending',
+                                status: 'completed'
+                              });
+                            }
+                            
+                            toast.success(`Created ${Object.keys(byFarmer).length} purchase(s) with ${selectedItems.length} items`);
+                            setOpenProcurement(false);
+                            setYesterdayItems([]);
+                            loadData();
+                          } catch (error) {
+                            toast.error(error.response?.data?.detail || 'Failed to save purchases');
+                          }
+                        }}
+                      >
+                        Quick Save ({yesterdayItems.filter(i => i.selected).length})
+                      </Button>
+                    </div>
                   </div>
                 )}
                   </>

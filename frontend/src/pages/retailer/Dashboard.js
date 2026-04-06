@@ -453,17 +453,17 @@ export default function RetailerDashboard() {
       prevDate.setDate(prevDate.getDate() - 1);
       const prevDateStr = prevDate.toISOString().split('T')[0];
       
-      // Load previous day closing (for opening qty) - now includes packaging
+      // Load previous day closing (for opening qty) - now includes variant
       let prevClosingMap = {};
       try {
         const prevRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${prevDateStr}`);
         (prevRes.data.items || []).forEach(item => {
           if (item.closing_qty !== null && item.closing_qty !== undefined) {
-            const key = `${item.product_id}_${item.packaging_id || 'default'}`;
+            const key = `${item.product_id}_${item.variant_id || 'default'}`;
             prevClosingMap[key] = {
               closing_qty: item.closing_qty,
               product_name: item.product_name,
-              packaging_name: item.packaging_name
+              variant_name: item.variant_name
             };
           }
         });
@@ -476,36 +476,38 @@ export default function RetailerDashboard() {
       try {
         const curRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}`);
         (curRes.data.items || []).forEach(item => {
-          const key = `${item.product_id}_${item.packaging_id || 'default'}`;
+          const key = `${item.product_id}_${item.variant_id || 'default'}`;
           currentClosingMap[key] = {
             closing_qty: item.closing_qty,
             product_name: item.product_name,
             product_name_hi: item.product_name_hi,
-            packaging_id: item.packaging_id,
-            packaging_name: item.packaging_name || 'Kg'
+            variant_id: item.variant_id,
+            variant_name: item.variant_name || 'Kg'
           };
         });
       } catch (e) {
         // No current closing data
       }
       
-      // Filter dispatches for this date to get received items (with packaging)
+      // Filter dispatches for this date to get received items (with variant)
       const dateDispatches = dispatches.filter(d => {
         const dispDate = d.dispatch_date?.split('T')[0];
         return dispDate === date;
       });
       
-      // Calculate received qty per product+packaging
+      // Calculate received qty per product+variant
       const receivedMap = {};
       dateDispatches.forEach(d => {
         (d.items || []).forEach(item => {
-          const key = `${item.product_id}_${item.packaging_id || 'default'}`;
+          const variantId = item.variant_id || item.packaging_id;
+          const variantName = item.variant_name || item.packaging_name || 'Kg';
+          const key = `${item.product_id}_${variantId || 'default'}`;
           if (!receivedMap[key]) {
             receivedMap[key] = {
               qty: 0,
               product_name: item.product_name,
-              packaging_id: item.packaging_id,
-              packaging_name: item.packaging_name || 'Kg'
+              variant_id: variantId,
+              variant_name: variantName
             };
           }
           receivedMap[key].qty += item.supplied_qty || 0;
@@ -518,7 +520,7 @@ export default function RetailerDashboard() {
         return rejDate === date;
       });
       
-      // Calculate rejection qty per product (rejections might not have packaging)
+      // Calculate rejection qty per product (rejections might not have variant)
       const rejectionMap = {};
       dateRejections.forEach(r => {
         const productId = r.product_id;
@@ -531,16 +533,16 @@ export default function RetailerDashboard() {
       
       // Add items from received dispatches
       Object.entries(receivedMap).forEach(([key, data]) => {
-        const [productId, packagingId] = key.split('_');
+        const [productId, variantId] = key.split('_');
         if (!inventoryMap[key]) {
           const product = products.find(p => p.id === productId);
           inventoryMap[key] = {
             product_id: productId,
             product_name: data.product_name || product?.name,
             product_name_hi: product?.name_hi,
-            packaging_id: data.packaging_id,
-            packaging_name: data.packaging_name || 'Kg',
-            unit: data.packaging_name || 'Kg',
+            variant_id: data.variant_id,
+            variant_name: data.variant_name || 'Kg',
+            unit: data.variant_name || 'Kg',
             opening_qty: 0,
             received_qty: 0,
             rejection_qty: 0,
@@ -553,16 +555,16 @@ export default function RetailerDashboard() {
       
       // Add items from previous closing (opening qty)
       Object.entries(prevClosingMap).forEach(([key, data]) => {
-        const [productId, packagingId] = key.split('_');
+        const [productId, variantId] = key.split('_');
         if (!inventoryMap[key]) {
           const product = products.find(p => p.id === productId);
           inventoryMap[key] = {
             product_id: productId,
             product_name: data.product_name || product?.name,
             product_name_hi: product?.name_hi,
-            packaging_id: packagingId === 'default' ? null : packagingId,
-            packaging_name: data.packaging_name || 'Kg',
-            unit: data.packaging_name || 'Kg',
+            variant_id: variantId === 'default' ? null : variantId,
+            variant_name: data.variant_name || 'Kg',
+            unit: data.variant_name || 'Kg',
             opening_qty: 0,
             received_qty: 0,
             rejection_qty: 0,
@@ -575,16 +577,16 @@ export default function RetailerDashboard() {
       
       // Add items from current closing
       Object.entries(currentClosingMap).forEach(([key, data]) => {
-        const [productId, packagingId] = key.split('_');
+        const [productId, variantId] = key.split('_');
         if (!inventoryMap[key]) {
           const product = products.find(p => p.id === productId);
           inventoryMap[key] = {
             product_id: productId,
             product_name: data.product_name || product?.name,
             product_name_hi: data.product_name_hi || product?.name_hi,
-            packaging_id: data.packaging_id,
-            packaging_name: data.packaging_name || 'Kg',
-            unit: data.packaging_name || 'Kg',
+            variant_id: data.variant_id,
+            variant_name: data.variant_name || 'Kg',
+            unit: data.variant_name || 'Kg',
             opening_qty: 0,
             received_qty: 0,
             rejection_qty: 0,
@@ -682,8 +684,8 @@ export default function RetailerDashboard() {
           product_id: p.id,
           product_name: p.name,
           product_name_hi: p.name_hi,
-          packaging_id: null,
-          packaging_name: 'Kg',
+          variant_id: null,
+          variant_name: 'Kg',
           unit: p.unit || 'Kg',
           closing_qty: '',
           has_variants: false
@@ -695,9 +697,9 @@ export default function RetailerDashboard() {
           product_id: v.product_id,
           product_name: v.product_name,
           product_name_hi: v.product_name_hi,
-          packaging_id: v.packaging_id,
-          packaging_name: v.packaging_name || 'Kg',
-          unit: v.unit || 'Kg',
+          variant_id: v.variant_id,
+          variant_name: v.variant_name || 'Kg',
+          unit: v.unit || 'Pcs',
           closing_qty: '',
           has_variants: v.has_variants
         }));
@@ -715,8 +717,8 @@ export default function RetailerDashboard() {
         product_id: p.id,
         product_name: p.name,
         product_name_hi: p.name_hi,
-        packaging_id: null,
-        packaging_name: 'Kg',
+        variant_id: null,
+        variant_name: 'Kg',
         unit: p.unit || 'Kg',
         closing_qty: '',
         has_variants: false
@@ -730,9 +732,9 @@ export default function RetailerDashboard() {
   };
 
   // Update closing qty for a product+variant combination
-  const updateClosingQty = (productId, packagingId, value) => {
+  const updateClosingQty = (productId, variantId, value) => {
     setClosingItems(prev => prev.map(item => 
-      (item.product_id === productId && item.packaging_id === packagingId)
+      (item.product_id === productId && item.variant_id === variantId)
         ? { ...item, closing_qty: value }
         : item
     ));
@@ -762,15 +764,15 @@ export default function RetailerDashboard() {
         ? closingItems.map(item => ({
             product_id: item.product_id,
             product_name: item.product_name,
-            packaging_id: item.packaging_id,
-            packaging_name: item.packaging_name || 'Kg',
+            variant_id: item.variant_id,
+            variant_name: item.variant_name || 'Kg',
             closing_qty: item.closing_qty === '' || item.closing_qty === null ? 0 : parseFloat(item.closing_qty)
           }))
         : closingItems.map(item => ({
             product_id: item.product_id,
             product_name: item.product_name,
-            packaging_id: item.packaging_id,
-            packaging_name: item.packaging_name || 'Kg',
+            variant_id: item.variant_id,
+            variant_name: item.variant_name || 'Kg',
             closing_qty: item.closing_qty === '' ? null : parseFloat(item.closing_qty)
           }));
 
@@ -807,8 +809,8 @@ export default function RetailerDashboard() {
     const searchLower = closingSearchTerm.toLowerCase();
     const productName = getProductName(item).toLowerCase();
     const englishName = (item.product_name || '').toLowerCase();
-    const packagingName = (item.packaging_name || '').toLowerCase();
-    return productName.includes(searchLower) || englishName.includes(searchLower) || packagingName.includes(searchLower);
+    const variantName = (item.variant_name || '').toLowerCase();
+    return productName.includes(searchLower) || englishName.includes(searchLower) || variantName.includes(searchLower);
   });
   
   // Get pending items count
@@ -1739,10 +1741,10 @@ export default function RetailerDashboard() {
                         }
                         
                         return activeItems.map(item => (
-                          <tr key={`${item.product_id}-${item.packaging_id || 'default'}`} className="border-b hover:bg-gray-50">
+                          <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
                             <td className="p-3">
                               <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                              <div className="text-xs text-gray-400">{item.packaging_name || item.unit || 'Kg'}</div>
+                              <div className="text-xs text-gray-400">{item.variant_name || item.unit || 'Kg'}</div>
                             </td>
                             <td className="p-3 text-center">
                               <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
@@ -2060,7 +2062,7 @@ export default function RetailerDashboard() {
                 <div className="space-y-3">
                   {filteredClosingItems.map((item, index) => (
                     <div 
-                      key={`${item.product_id}-${item.packaging_id || 'default'}`} 
+                      key={`${item.product_id}-${item.variant_id || 'default'}`} 
                       className={`flex items-center justify-between p-3 rounded-lg border ${
                         item.closing_qty !== '' && item.closing_qty !== null ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'
                       }`}
@@ -2068,7 +2070,7 @@ export default function RetailerDashboard() {
                       <div className="flex-1">
                         <div className="font-medium text-gray-800">{getProductName(item)}</div>
                         <div className="text-xs text-gray-400">
-                          {item.packaging_name || item.unit || 'Kg'}
+                          {item.variant_name || item.unit || 'Kg'}
                           {item.has_variants && <span className="ml-1 text-blue-500">(Variant)</span>}
                         </div>
                       </div>
@@ -2079,7 +2081,7 @@ export default function RetailerDashboard() {
                           step="0.1"
                           placeholder={t('common.qty')}
                           value={item.closing_qty}
-                          onChange={(e) => updateClosingQty(item.product_id, item.packaging_id, e.target.value)}
+                          onChange={(e) => updateClosingQty(item.product_id, item.variant_id, e.target.value)}
                           className="w-24 h-9 text-center font-medium"
                         />
                       </div>
@@ -2158,9 +2160,9 @@ export default function RetailerDashboard() {
                     {closingItems
                       .filter(item => item.closing_qty === '' || item.closing_qty === null)
                       .map(item => (
-                        <li key={`${item.product_id}-${item.packaging_id || 'default'}`} className="flex items-center gap-1">
+                        <li key={`${item.product_id}-${item.variant_id || 'default'}`} className="flex items-center gap-1">
                           <span className="w-1.5 h-1.5 bg-orange-400 rounded-full"></span>
-                          {getProductName(item)} {item.packaging_name && item.packaging_name !== 'Kg' && <span className="text-orange-500">({item.packaging_name})</span>}
+                          {getProductName(item)} {item.variant_name && item.variant_name !== 'Kg' && <span className="text-orange-500">({item.variant_name})</span>}
                         </li>
                       ))}
                   </ul>

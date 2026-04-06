@@ -7765,14 +7765,16 @@ async def get_retailer_product_variants(
     }, {"_id": 0}).to_list(500)
     
     # Build product -> variants mapping from dispatch items
+    # Note: Field names are variant_id and variant_name (not packaging_id/packaging_name)
     product_variants = {}
     
     for d in dispatches:
         for item in d.get('items', []):
             product_id = item.get('product_id')
             product_name = item.get('product_name')
-            packaging_id = item.get('packaging_id')
-            packaging_name = item.get('packaging_name') or 'Kg'
+            # Use variant_id/variant_name fields from retailer dispatch
+            variant_id = item.get('variant_id') or item.get('packaging_id')
+            variant_name = item.get('variant_name') or item.get('packaging_name') or 'Kg'
             
             if not product_id:
                 continue
@@ -7788,12 +7790,12 @@ async def get_retailer_product_variants(
                     'variants': {}
                 }
             
-            # Track variant by packaging_id or name
-            variant_key = packaging_id or packaging_name
+            # Track variant by variant_id or name
+            variant_key = variant_id or variant_name
             if variant_key not in product_variants[product_id]['variants']:
                 product_variants[product_id]['variants'][variant_key] = {
-                    'packaging_id': packaging_id,
-                    'packaging_name': packaging_name,
+                    'variant_id': variant_id,
+                    'variant_name': variant_name,
                     'received_count': 0,
                     'total_qty': 0
                 }
@@ -7804,14 +7806,14 @@ async def get_retailer_product_variants(
     result = []
     for pid, pdata in sorted(product_variants.items(), key=lambda x: x[1]['product_name']):
         variants = list(pdata['variants'].values())
-        # If no specific packaging variants (all 'Kg'), keep as single item
-        if len(variants) == 1 and variants[0]['packaging_name'] == 'Kg':
+        # If no specific variants (all 'Kg'), keep as single item
+        if len(variants) == 1 and variants[0]['variant_name'] == 'Kg':
             result.append({
                 'product_id': pdata['product_id'],
                 'product_name': pdata['product_name'],
                 'product_name_hi': pdata['product_name_hi'],
-                'packaging_id': None,
-                'packaging_name': 'Kg',
+                'variant_id': None,
+                'variant_name': 'Kg',
                 'unit': pdata['unit'],
                 'has_variants': False
             })
@@ -7822,9 +7824,9 @@ async def get_retailer_product_variants(
                     'product_id': pdata['product_id'],
                     'product_name': pdata['product_name'],
                     'product_name_hi': pdata['product_name_hi'],
-                    'packaging_id': v['packaging_id'],
-                    'packaging_name': v['packaging_name'],
-                    'unit': 'Pcs' if v['packaging_name'] != 'Kg' else 'Kg',
+                    'variant_id': v['variant_id'],
+                    'variant_name': v['variant_name'],
+                    'unit': 'Pcs',  # Variants are typically counted in pieces
                     'has_variants': True
                 })
     
@@ -7871,8 +7873,8 @@ async def record_retailer_closing_inventory(
     Expects: {
         "retailer_id": str,
         "closing_date": str (YYYY-MM-DD),
-        "items": [{"product_id": str, "product_name": str, "packaging_id": str (optional), 
-                   "packaging_name": str (optional), "closing_qty": number or null}, ...]
+        "items": [{"product_id": str, "product_name": str, "variant_id": str (optional), 
+                   "variant_name": str (optional), "closing_qty": number or null}, ...]
     }
     """
     retailer_id = data.get("retailer_id")
@@ -7906,8 +7908,8 @@ async def record_retailer_closing_inventory(
                 "closing_date": closing_date,
                 "product_id": item.get("product_id"),
                 "product_name": item.get("product_name"),
-                "packaging_id": item.get("packaging_id"),
-                "packaging_name": item.get("packaging_name") or "Kg",
+                "variant_id": item.get("variant_id"),
+                "variant_name": item.get("variant_name") or "Kg",
                 "closing_qty": closing_qty_num,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "created_by": current_user.get("user_id")
@@ -7927,20 +7929,20 @@ async def get_retailer_closing_summary(
     current_user: dict = Depends(get_current_user)
 ):
     """Get closing inventory summary - returns items with packaging variants"""
-    # Get closing inventory for this date (now includes packaging info)
+    # Get closing inventory for this date (now includes variant info)
     closing_items = await db.retailer_closing_inventory.find(
         {"retailer_id": retailer_id, "closing_date": date},
         {"_id": 0}
     ).to_list(500)
     
-    # Build result with recorded items including packaging
+    # Build result with recorded items including variant
     result = []
     for item in closing_items:
         result.append({
             "product_id": item.get("product_id"),
             "product_name": item.get("product_name"),
-            "packaging_id": item.get("packaging_id"),
-            "packaging_name": item.get("packaging_name", "Kg"),
+            "variant_id": item.get("variant_id"),
+            "variant_name": item.get("variant_name", "Kg"),
             "closing_qty": item.get("closing_qty")
         })
     
@@ -7953,25 +7955,25 @@ async def get_retailer_closing_summary(
         for d in dispatches:
             for item in d.get('items', []):
                 product_id = item.get('product_id')
-                packaging_id = item.get('packaging_id')
-                packaging_name = item.get('packaging_name') or 'Kg'
+                variant_id = item.get('variant_id') or item.get('packaging_id')
+                variant_name = item.get('variant_name') or item.get('packaging_name') or 'Kg'
                 
                 if not product_id:
                     continue
                 
-                key = f"{product_id}_{packaging_id or 'default'}"
+                key = f"{product_id}_{variant_id or 'default'}"
                 if key not in product_variants:
                     product = await db.products.find_one({"id": product_id}, {"_id": 0, "name_hi": 1})
                     product_variants[key] = {
                         'product_id': product_id,
                         'product_name': item.get('product_name'),
                         'product_name_hi': product.get('name_hi') if product else None,
-                        'packaging_id': packaging_id,
-                        'packaging_name': packaging_name
+                        'variant_id': variant_id,
+                        'variant_name': variant_name
                     }
         
         # Add variants that weren't in closing items
-        recorded_keys = {f"{item.get('product_id')}_{item.get('packaging_id') or 'default'}" for item in result}
+        recorded_keys = {f"{item.get('product_id')}_{item.get('variant_id') or 'default'}" for item in result}
         for key, variant in product_variants.items():
             if key not in recorded_keys:
                 result.append({

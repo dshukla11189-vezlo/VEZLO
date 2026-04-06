@@ -109,6 +109,7 @@ export default function QuickCommerce() {
   const [grnPendingDates, setGrnPendingDates] = useState([]);    // Dates with pending GRN
   const [grnMatchedItems, setGrnMatchedItems] = useState([]);    // Matched items from CSV upload
   const [uploadingGrn, setUploadingGrn] = useState(false);
+  const [fixingGrnIds, setFixingGrnIds] = useState(false);       // For Fix GRN IDs button
   const [grnUploadResult, setGrnUploadResult] = useState(null);
   const [editingGrnItem, setEditingGrnItem] = useState(null);    // For inline GRN editing
   const [expandedPendingDates, setExpandedPendingDates] = useState({});  // For collapsible pending GRN by date
@@ -1859,6 +1860,29 @@ Email: ${companyEmail}`;
   // ============================================================================
   // SECTION: GRN HANDLERS - Ninjacart CSV/Excel Upload
   // ============================================================================
+  
+  // Fix mismatched GRN IDs (for corrupted backup data)
+  const fixMismatchedGrnIds = async () => {
+    if (!window.confirm('This will attempt to fix mismatched dispatch/product/packaging IDs in GRN records. Use this if GRN items show as pending but should be matched. Continue?')) {
+      return;
+    }
+    
+    setFixingGrnIds(true);
+    try {
+      const response = await api.post('/api/qc-grns/fix-mismatched-ids');
+      const data = response.data;
+      
+      toast.success(data.message);
+      
+      // Reload all data including GRN
+      loadAllData();
+    } catch (error) {
+      console.error('Fix GRN IDs error:', error);
+      toast.error('Failed to fix GRN IDs');
+    } finally {
+      setFixingGrnIds(false);
+    }
+  };
   
   const handleGrnCsvUpload = async (event) => {
     const file = event.target.files?.[0];
@@ -3891,9 +3915,26 @@ Email: ${companyEmail}`;
                       ))}
                     </div>
                   </div>
-                  <span className="text-sm text-amber-700 font-medium">
-                    {grnDispatchItems.length} items pending
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={fixMismatchedGrnIds}
+                      disabled={fixingGrnIds}
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                      title="Fix mismatched dispatch/product/packaging IDs from corrupted backup"
+                    >
+                      {fixingGrnIds ? (
+                        <Loader2 size={14} className="mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw size={14} className="mr-1" />
+                      )}
+                      {fixingGrnIds ? 'Fixing...' : 'Fix GRN IDs'}
+                    </Button>
+                    <span className="text-sm text-amber-700 font-medium">
+                      {grnDispatchItems.length} items pending
+                    </span>
+                  </div>
                 </div>
               )}
               

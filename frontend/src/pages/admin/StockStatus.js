@@ -63,6 +63,7 @@ export default function StockStatus() {
   // Sync packaging weights state
   const [syncingWeights, setSyncingWeights] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
+  const [fixingPurchases, setFixingPurchases] = useState(false);
   
   // Auto-refresh interval (30 seconds)
   const AUTO_REFRESH_INTERVAL = 30000;
@@ -190,6 +191,33 @@ export default function StockStatus() {
       toast.error('Failed to fix historical dispatches');
     } finally {
       setRecalculating(false);
+    }
+  };
+
+  // ==================== FIX ALL PURCHASE QUANTITIES ====================
+  const fixAllPurchaseQuantities = async () => {
+    if (!window.confirm('This will recalculate ALL purchase quantities from raw procurement data. Use this if values from Excel backup are incorrect. Continue?')) {
+      return;
+    }
+    
+    setFixingPurchases(true);
+    try {
+      const response = await api.post('/api/stock-status/fix-all-purchase-quantities');
+      const data = response.data;
+      
+      toast.success(`${data.message}`);
+      
+      if (data.summary && data.summary.length > 0) {
+        console.log('Purchase fix summary:', data.summary);
+      }
+      
+      // Reload stock status
+      loadStockStatus();
+    } catch (error) {
+      console.error('Fix purchase quantities error:', error);
+      toast.error('Failed to fix purchase quantities');
+    } finally {
+      setFixingPurchases(false);
     }
   };
 
@@ -412,6 +440,17 @@ export default function StockStatus() {
             >
               <RefreshCw size={14} className={`mr-1 ${recalculating ? 'animate-spin' : ''}`} />
               {recalculating ? 'Fixing All...' : 'Fix All Historical'}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={fixAllPurchaseQuantities} 
+              disabled={fixingPurchases}
+              className="text-red-600 border-red-300 hover:bg-red-50"
+              title="Fix purchase quantities from raw procurement data (use if Excel backup values are wrong)"
+            >
+              <TrendingUp size={14} className={`mr-1 ${fixingPurchases ? 'animate-spin' : ''}`} />
+              {fixingPurchases ? 'Fixing...' : 'Fix Purchases'}
             </Button>
             <Button onClick={handleOpenClosingDialog} className="bg-[#14532D] hover:bg-[#166534]" data-testid="enter-closing-btn">
               <Clock size={16} className="mr-2" /> Enter Closing

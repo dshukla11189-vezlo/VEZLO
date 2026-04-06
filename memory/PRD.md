@@ -771,4 +771,12 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [x] Examples fixed: Fresh Mint Leaves (2257.5 → 157.5 Kg), Coriander (906 → 302 Kg)
 - [x] Fixed `TypeError` in `/stock-status/today` endpoint (opening_price None handling)
 
+### Admin Fix Buttons for Production (COMPLETED - Apr 06, 2026)
+- [x] Added `POST /api/stock-status/fix-all-purchase-quantities` endpoint
+- [x] Added **"Fix Purchases"** button (red) in Stock Status page header
+- [x] Added `POST /api/qc-grns/fix-mismatched-ids` endpoint
+- [x] Added **"Fix GRN IDs"** button (red) in Quick Commerce > GRN tab pending banner
+- [x] These buttons allow fixing corrupted data in production after Excel backup imports
+
+
 

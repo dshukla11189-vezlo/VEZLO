@@ -2286,105 +2286,128 @@ async def fix_mismatched_grn_ids(current_user: dict = Depends(get_current_user))
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can fix GRN matching")
     
-    # Get all dispatches
-    all_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
-    
-    # Build lookup by date -> product_name -> dispatch items
-    dispatch_lookup = {}
-    for dispatch in all_dispatches:
-        dispatch_date = str(dispatch.get('dispatch_date', ''))[:10]
-        dispatch_id = dispatch.get('id')
+    try:
+        def extract_date_str(date_val):
+            """Extract date string from various formats."""
+            if date_val is None:
+                return ""
+            if isinstance(date_val, datetime):
+                return date_val.strftime('%Y-%m-%d')
+            date_str = str(date_val)
+            if 'T' in date_str:
+                return date_str[:10]
+            return date_str[:10] if len(date_str) >= 10 else date_str
         
-        if dispatch_date not in dispatch_lookup:
-            dispatch_lookup[dispatch_date] = {}
+        # Get all dispatches
+        all_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
         
-        for item in dispatch.get('items', []):
-            product_name = item.get('product_name', '').lower().strip()
-            packaging_name = (item.get('packaging_name', '') or '').lower().strip()
+        # Build lookup by date -> product_name -> dispatch items
+        dispatch_lookup = {}
+        for dispatch in all_dispatches:
+            dispatch_date = extract_date_str(dispatch.get('dispatch_date'))
+            dispatch_id = dispatch.get('id')
             
-            key = f"{product_name}_{packaging_name}"
-            if key not in dispatch_lookup[dispatch_date]:
-                dispatch_lookup[dispatch_date][key] = []
+            if not dispatch_date or not dispatch_id:
+                continue
             
-            dispatch_lookup[dispatch_date][key].append({
-                'dispatch_id': dispatch_id,
-                'product_id': item.get('product_id'),
-                'packaging_id': item.get('packaging_id'),
-                'supplied_qty': item.get('supplied_qty', 0)
-            })
-    
-    # Get all GRNs and fix mismatched items
-    all_grns = await db.qc_grns.find({}).to_list(1000)
-    
-    total_fixed = 0
-    fixed_details = []
-    
-    for grn in all_grns:
-        grn_id = grn.get('id')
-        items_updated = False
-        updated_items = []
-        
-        for item in grn.get('items', []):
-            item_dispatch_date = str(item.get('dispatch_date', ''))[:10]
-            product_name = item.get('product_name', '').lower().strip()
-            packaging_name = (item.get('packaging_name', '') or '').lower().strip()
+            if dispatch_date not in dispatch_lookup:
+                dispatch_lookup[dispatch_date] = {}
             
-            key = f"{product_name}_{packaging_name}"
-            
-            # Try to find matching dispatch item
-            date_items = dispatch_lookup.get(item_dispatch_date, {})
-            matching_dispatches = date_items.get(key, [])
-            
-            if matching_dispatches:
-                # Find best match by supplied_qty
-                item_grn_qty = item.get('grn_qty', 0) or item.get('supplied_qty', 0)
-                best_match = None
-                min_diff = float('inf')
+            for item in dispatch.get('items', []):
+                product_name = (item.get('product_name', '') or '').lower().strip()
+                packaging_name = (item.get('packaging_name', '') or '').lower().strip()
                 
-                for match in matching_dispatches:
-                    diff = abs(match['supplied_qty'] - item_grn_qty)
-                    if diff < min_diff:
-                        min_diff = diff
-                        best_match = match
+                key = f"{product_name}_{packaging_name}"
+                if key not in dispatch_lookup[dispatch_date]:
+                    dispatch_lookup[dispatch_date][key] = []
                 
-                if best_match:
-                    old_dispatch_id = item.get('dispatch_id')
-                    old_product_id = item.get('product_id')
-                    old_packaging_id = item.get('packaging_id')
+                dispatch_lookup[dispatch_date][key].append({
+                    'dispatch_id': dispatch_id,
+                    'product_id': item.get('product_id'),
+                    'packaging_id': item.get('packaging_id'),
+                    'supplied_qty': item.get('supplied_qty', 0) or 0
+                })
+        
+        # Get all GRNs and fix mismatched items
+        all_grns = await db.qc_grns.find({}).to_list(1000)
+        
+        total_fixed = 0
+        fixed_details = []
+        
+        for grn in all_grns:
+            grn_id = grn.get('id')
+            if not grn_id:
+                continue
+                
+            items_updated = False
+            updated_items = []
+            
+            for item in grn.get('items', []):
+                item_dispatch_date = extract_date_str(item.get('dispatch_date'))
+                product_name = (item.get('product_name', '') or '').lower().strip()
+                packaging_name = (item.get('packaging_name', '') or '').lower().strip()
+                
+                key = f"{product_name}_{packaging_name}"
+                
+                # Try to find matching dispatch item
+                date_items = dispatch_lookup.get(item_dispatch_date, {})
+                matching_dispatches = date_items.get(key, [])
+                
+                if matching_dispatches:
+                    # Find best match by supplied_qty
+                    item_grn_qty = item.get('grn_qty', 0) or item.get('supplied_qty', 0) or 0
+                    best_match = None
+                    min_diff = float('inf')
                     
-                    # Check if any ID is different
-                    if (old_dispatch_id != best_match['dispatch_id'] or
-                        old_product_id != best_match['product_id'] or
-                        old_packaging_id != best_match['packaging_id']):
+                    for match in matching_dispatches:
+                        diff = abs((match.get('supplied_qty') or 0) - item_grn_qty)
+                        if diff < min_diff:
+                            min_diff = diff
+                            best_match = match
+                    
+                    if best_match:
+                        old_dispatch_id = item.get('dispatch_id')
+                        old_product_id = item.get('product_id')
+                        old_packaging_id = item.get('packaging_id')
                         
-                        # Update item with correct IDs
-                        item['dispatch_id'] = best_match['dispatch_id']
-                        item['product_id'] = best_match['product_id']
-                        item['packaging_id'] = best_match['packaging_id']
-                        items_updated = True
-                        total_fixed += 1
-                        
-                        fixed_details.append({
-                            'grn_id': grn_id[:20],
-                            'product': item.get('product_name'),
-                            'old_dispatch_id': old_dispatch_id[:20] if old_dispatch_id else None,
-                            'new_dispatch_id': best_match['dispatch_id'][:20]
-                        })
+                        # Check if any ID is different
+                        if (old_dispatch_id != best_match['dispatch_id'] or
+                            old_product_id != best_match['product_id'] or
+                            old_packaging_id != best_match['packaging_id']):
+                            
+                            # Update item with correct IDs
+                            item['dispatch_id'] = best_match['dispatch_id']
+                            item['product_id'] = best_match['product_id']
+                            item['packaging_id'] = best_match['packaging_id']
+                            items_updated = True
+                            total_fixed += 1
+                            
+                            fixed_details.append({
+                                'grn_id': grn_id[:20] if grn_id else None,
+                                'product': item.get('product_name'),
+                                'old_dispatch_id': old_dispatch_id[:20] if old_dispatch_id else None,
+                                'new_dispatch_id': best_match['dispatch_id'][:20] if best_match['dispatch_id'] else None
+                            })
+                
+                updated_items.append(item)
             
-            updated_items.append(item)
+            # Update GRN if any items changed
+            if items_updated:
+                await db.qc_grns.update_one(
+                    {"id": grn_id},
+                    {"$set": {"items": updated_items}}
+                )
         
-        # Update GRN if any items changed
-        if items_updated:
-            await db.qc_grns.update_one(
-                {"id": grn_id},
-                {"$set": {"items": updated_items}}
-            )
-    
-    return {
-        "message": f"Fixed {total_fixed} GRN item IDs",
-        "total_fixed": total_fixed,
-        "details": fixed_details[:20]  # Return first 20 fixes
-    }
+        return {
+            "message": f"Fixed {total_fixed} GRN item IDs",
+            "total_fixed": total_fixed,
+            "details": fixed_details[:20]  # Return first 20 fixes
+        }
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error in fix_mismatched_grn_ids: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Error fixing GRN IDs: {str(e)}")
 
 
 @api_router.get("/qc-grns/loss-summary")
@@ -4504,7 +4527,10 @@ async def fix_all_purchase_quantities(
     
     def calculate_qty_kg(item):
         """Convert quantity to Kg based on unit type."""
-        qty = float(item.get('quantity', 0) or 0)
+        try:
+            qty = float(item.get('quantity', 0) or 0)
+        except (ValueError, TypeError):
+            qty = 0
         unit = item.get('unit', 'Kg')
         unit_size = item.get('unit_size', '')
         
@@ -4516,97 +4542,126 @@ async def fix_all_purchase_quantities(
                 pass
         return qty
     
-    # Step 1: Get all unique dates from daily_stock_status
-    all_dates = await db.daily_stock_status.distinct("date")
+    def extract_date_string(date_val):
+        """Extract YYYY-MM-DD string from various date formats."""
+        if date_val is None:
+            return None
+        if isinstance(date_val, datetime):
+            return date_val.strftime('%Y-%m-%d')
+        date_str = str(date_val)
+        # Handle ISO format with timezone: "2026-04-05T00:00:00+00:00"
+        if 'T' in date_str:
+            return date_str[:10]
+        # Handle simple date: "2026-04-05"
+        if len(date_str) >= 10:
+            return date_str[:10]
+        return date_str
     
-    # Step 2: Get all procurements
-    all_procurements = await db.procurements.find({}).to_list(10000)
-    
-    # Build lookup: date -> product_id -> {qty_kg, total_value}
-    purchases_by_date_product = {}
-    
-    for proc in all_procurements:
-        proc_date = str(proc.get('date', ''))[:10]  # Extract YYYY-MM-DD
+    try:
+        # Step 1: Get all unique dates from daily_stock_status
+        all_dates = await db.daily_stock_status.distinct("date")
         
-        if proc_date not in purchases_by_date_product:
-            purchases_by_date_product[proc_date] = {}
+        # Step 2: Get all procurements
+        all_procurements = await db.procurements.find({}).to_list(10000)
         
-        products = parse_products(proc.get('products', []))
+        # Build lookup: date -> product_id -> {qty_kg, total_value}
+        purchases_by_date_product = {}
         
-        for item in products:
-            product_id = item.get('product_id', '')
-            if not product_id:
+        for proc in all_procurements:
+            proc_date = extract_date_string(proc.get('date'))
+            if not proc_date:
                 continue
             
-            qty_kg = calculate_qty_kg(item)
-            total_value = float(item.get('total', 0) or 0)
+            if proc_date not in purchases_by_date_product:
+                purchases_by_date_product[proc_date] = {}
             
-            if product_id not in purchases_by_date_product[proc_date]:
-                purchases_by_date_product[proc_date][product_id] = {
-                    'qty_kg': 0,
-                    'total_value': 0
-                }
+            products = parse_products(proc.get('products', []))
             
-            purchases_by_date_product[proc_date][product_id]['qty_kg'] += qty_kg
-            purchases_by_date_product[proc_date][product_id]['total_value'] += total_value
-    
-    # Step 3: Fix each daily_stock_status record
-    total_fixed = 0
-    total_unchanged = 0
-    fixes_summary = []
-    
-    for date in sorted(all_dates):
-        stock_entries = await db.daily_stock_status.find({"date": date}).to_list(500)
-        date_purchases = purchases_by_date_product.get(date, {})
-        date_fixes = []
-        
-        for entry in stock_entries:
-            product_id = entry.get('product_id')
-            product_name = entry.get('product_name')
-            current_purchase_qty = entry.get('purchase_qty', 0) or 0
-            
-            # Calculate correct purchase_qty from procurements
-            product_purchase = date_purchases.get(product_id, {'qty_kg': 0, 'total_value': 0})
-            correct_purchase_qty = round(product_purchase['qty_kg'], 2)
-            correct_purchase_value = round(product_purchase['total_value'], 2)
-            
-            # Check if update needed
-            diff = abs(current_purchase_qty - correct_purchase_qty)
-            
-            if diff > 0.01:  # Significant difference
-                # Calculate new avg_price
-                avg_price = 0
-                if correct_purchase_qty > 0:
-                    avg_price = round(correct_purchase_value / correct_purchase_qty, 2)
+            for item in products:
+                product_id = item.get('product_id', '')
+                if not product_id:
+                    continue
                 
-                # Update record
-                await db.daily_stock_status.update_one(
-                    {"id": entry['id']},
-                    {"$set": {
-                        "purchase_qty": correct_purchase_qty,
-                        "purchase_value": correct_purchase_value,
-                        "avg_price": avg_price
-                    }}
-                )
+                qty_kg = calculate_qty_kg(item)
+                try:
+                    total_value = float(item.get('total', 0) or 0)
+                except (ValueError, TypeError):
+                    total_value = 0
                 
-                date_fixes.append({
-                    "product": product_name,
-                    "old": current_purchase_qty,
-                    "new": correct_purchase_qty
-                })
-                total_fixed += 1
-            else:
-                total_unchanged += 1
+                if product_id not in purchases_by_date_product[proc_date]:
+                    purchases_by_date_product[proc_date][product_id] = {
+                        'qty_kg': 0,
+                        'total_value': 0
+                    }
+                
+                purchases_by_date_product[proc_date][product_id]['qty_kg'] += qty_kg
+                purchases_by_date_product[proc_date][product_id]['total_value'] += total_value
         
-        if date_fixes:
-            fixes_summary.append({"date": date, "fixes": date_fixes[:5]})  # Limit to 5 per date
-    
-    return {
-        "message": f"Fixed {total_fixed} records, {total_unchanged} unchanged",
-        "total_fixed": total_fixed,
-        "total_unchanged": total_unchanged,
-        "summary": fixes_summary[-5:]  # Return last 5 dates
-    }
+        # Step 3: Fix each daily_stock_status record
+        total_fixed = 0
+        total_unchanged = 0
+        fixes_summary = []
+        
+        for date in sorted(all_dates):
+            stock_entries = await db.daily_stock_status.find({"date": date}).to_list(500)
+            date_purchases = purchases_by_date_product.get(date, {})
+            date_fixes = []
+            
+            for entry in stock_entries:
+                product_id = entry.get('product_id')
+                product_name = entry.get('product_name')
+                try:
+                    current_purchase_qty = float(entry.get('purchase_qty', 0) or 0)
+                except (ValueError, TypeError):
+                    current_purchase_qty = 0
+                
+                # Calculate correct purchase_qty from procurements
+                product_purchase = date_purchases.get(product_id, {'qty_kg': 0, 'total_value': 0})
+                correct_purchase_qty = round(product_purchase['qty_kg'], 2)
+                correct_purchase_value = round(product_purchase['total_value'], 2)
+                
+                # Check if update needed
+                diff = abs(current_purchase_qty - correct_purchase_qty)
+                
+                if diff > 0.01:  # Significant difference
+                    # Calculate new avg_price
+                    avg_price = 0
+                    if correct_purchase_qty > 0:
+                        avg_price = round(correct_purchase_value / correct_purchase_qty, 2)
+                    
+                    # Update record
+                    await db.daily_stock_status.update_one(
+                        {"id": entry['id']},
+                        {"$set": {
+                            "purchase_qty": correct_purchase_qty,
+                            "purchase_value": correct_purchase_value,
+                            "avg_price": avg_price
+                        }}
+                    )
+                    
+                    date_fixes.append({
+                        "product": product_name,
+                        "old": current_purchase_qty,
+                        "new": correct_purchase_qty
+                    })
+                    total_fixed += 1
+                else:
+                    total_unchanged += 1
+        
+            if date_fixes:
+                fixes_summary.append({"date": date, "fixes": date_fixes[:5]})  # Limit to 5 per date
+        
+        return {
+            "message": f"Fixed {total_fixed} records, {total_unchanged} unchanged",
+            "total_fixed": total_fixed,
+            "total_unchanged": total_unchanged,
+            "summary": fixes_summary[-5:]  # Return last 5 dates
+        }
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error in fix_all_purchase_quantities: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Error fixing purchase quantities: {str(e)}")
 
 
 @api_router.get("/stock-status/history")

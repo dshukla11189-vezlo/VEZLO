@@ -21,8 +21,9 @@ export default function BackupPage() {
   
   // Production sync state
   const [prodSyncLoading, setProdSyncLoading] = useState(false);
-  const [prodMongoUrl, setProdMongoUrl] = useState('');
-  const [prodDbName, setProdDbName] = useState('test_database');
+  const [prodUrl, setProdUrl] = useState('https://harvest-hub-384.emergent.host');
+  const [prodEmail, setProdEmail] = useState('admin@freshflow.com');
+  const [prodPassword, setProdPassword] = useState('admin123');
   const [syncStatus, setSyncStatus] = useState(null);
 
   useEffect(() => {
@@ -52,16 +53,17 @@ export default function BackupPage() {
   };
 
   const syncFromProduction = async () => {
-    if (!prodMongoUrl) {
-      toast.error('Please enter the production MongoDB URL');
+    if (!prodUrl) {
+      toast.error('Please enter the production URL');
       return;
     }
     
     setProdSyncLoading(true);
     try {
       const response = await api.post('/api/sync-from-production', {
-        production_mongo_url: prodMongoUrl,
-        production_db_name: prodDbName,
+        production_url: prodUrl,
+        admin_email: prodEmail,
+        admin_password: prodPassword,
         reset_passwords: true,
         default_password: 'admin123'
       });
@@ -418,41 +420,50 @@ export default function BackupPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-gray-600">
-              Pull latest data from production database to this preview/test environment. 
-              This replaces all existing data in the synced collections.
+              Pull latest data from production app to this preview/test environment. 
+              Downloads backup from production and imports it here.
             </p>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="prodMongoUrl">Production MongoDB URL</Label>
+                <Label htmlFor="prodUrl">Production URL</Label>
                 <Input
-                  id="prodMongoUrl"
-                  type="password"
-                  placeholder="mongodb+srv://user:pass@cluster..."
-                  value={prodMongoUrl}
-                  onChange={(e) => setProdMongoUrl(e.target.value)}
+                  id="prodUrl"
+                  type="text"
+                  placeholder="https://your-app.emergent.host"
+                  value={prodUrl}
+                  onChange={(e) => setProdUrl(e.target.value)}
                   className="font-mono text-sm"
                 />
-                <p className="text-xs text-gray-500">Your production MongoDB connection string</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="prodDbName">Database Name</Label>
+                <Label htmlFor="prodEmail">Admin Email</Label>
                 <Input
-                  id="prodDbName"
-                  type="text"
-                  placeholder="test_database"
-                  value={prodDbName}
-                  onChange={(e) => setProdDbName(e.target.value)}
-                  className="font-mono text-sm"
+                  id="prodEmail"
+                  type="email"
+                  placeholder="admin@example.com"
+                  value={prodEmail}
+                  onChange={(e) => setProdEmail(e.target.value)}
+                  className="text-sm"
                 />
-                <p className="text-xs text-gray-500">Usually "test_database"</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="prodPassword">Admin Password</Label>
+                <Input
+                  id="prodPassword"
+                  type="password"
+                  placeholder="password"
+                  value={prodPassword}
+                  onChange={(e) => setProdPassword(e.target.value)}
+                  className="text-sm"
+                />
               </div>
             </div>
             
             <div className="flex items-center gap-4">
               <Button 
                 onClick={syncFromProduction}
-                disabled={prodSyncLoading || !prodMongoUrl}
+                disabled={prodSyncLoading || !prodUrl}
                 className="bg-purple-600 hover:bg-purple-700"
               >
                 {prodSyncLoading ? (
@@ -460,7 +471,7 @@ export default function BackupPage() {
                 ) : (
                   <CloudDownload className="h-4 w-4 mr-2" />
                 )}
-                Sync from Production
+                {prodSyncLoading ? 'Syncing...' : 'Sync from Production'}
               </Button>
               
               <Button 
@@ -494,13 +505,14 @@ export default function BackupPage() {
               </div>
             )}
             
-            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm">
-              <p className="font-medium text-amber-800">Note:</p>
-              <ul className="list-disc list-inside text-amber-700 mt-1 space-y-1">
-                <li>All user passwords will be reset to "admin123" after sync</li>
-                <li>This will replace ALL data in synced collections</li>
-                <li>Make sure to backup current data before syncing if needed</li>
-              </ul>
+            <div className="bg-green-50 border border-green-200 p-3 rounded-lg text-sm">
+              <p className="font-medium text-green-800">How it works:</p>
+              <ol className="list-decimal list-inside text-green-700 mt-1 space-y-1">
+                <li>Logs into your Production app</li>
+                <li>Downloads the backup Excel file</li>
+                <li>Imports all data into Preview</li>
+                <li>Resets passwords to "admin123"</li>
+              </ol>
             </div>
           </CardContent>
         </Card>

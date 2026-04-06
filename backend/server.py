@@ -6372,9 +6372,9 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
 
 # Pydantic model for sync request
 class SyncFromProductionRequest(BaseModel):
-    production_mongo_url: str = Field(..., description="MongoDB connection URL for production database")
-    production_db_name: str = Field(default="test_database", description="Production database name")
-    collections: Optional[List[str]] = Field(default=None, description="Specific collections to sync (None = all)")
+    production_url: str = Field(default="https://harvest-hub-384.emergent.host", description="Production app URL")
+    admin_email: str = Field(default="admin@freshflow.com", description="Admin email for production")
+    admin_password: str = Field(default="admin123", description="Admin password for production")
     reset_passwords: bool = Field(default=True, description="Reset all user passwords to default")
     default_password: str = Field(default="admin123", description="Default password for users after sync")
 
@@ -6385,157 +6385,191 @@ async def sync_from_production(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Sync data from production database to this preview/test environment.
-    This pulls all data from the production MongoDB and imports it here.
+    Sync data from production app to this preview/test environment.
+    Downloads backup Excel from production and imports it here.
     
     IMPORTANT: This will REPLACE all existing data in the synced collections.
     """
     import ast
     import json as json_lib
+    import httpx
+    import openpyxl
+    from io import BytesIO
     
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can sync from production")
     
     try:
-        # Connect to production database with extended timeout
-        # serverSelectionTimeoutMS: Time to wait for server selection
-        # connectTimeoutMS: Time to wait for initial connection
-        prod_client = AsyncIOMotorClient(
-            request.production_mongo_url,
-            serverSelectionTimeoutMS=30000,  # 30 seconds
-            connectTimeoutMS=30000,
-            socketTimeoutMS=60000
-        )
-        prod_db = prod_client[request.production_db_name]
+        production_url = request.production_url.rstrip('/')
         
-        # Test connection with timeout
-        try:
-            await asyncio.wait_for(prod_db.command('ping'), timeout=30.0)
-        except asyncio.TimeoutError:
-            raise HTTPException(
-                status_code=500, 
-                detail="Connection timeout. Please check: 1) MongoDB URL is correct, 2) IP 34.16.56.64 is whitelisted in MongoDB Atlas Network Access"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Step 1: Login to production
+            login_response = await client.post(
+                f"{production_url}/api/auth/login",
+                json={
+                    "email": request.admin_email,
+                    "password": request.admin_password
+                }
             )
-        except Exception as conn_err:
-            error_msg = str(conn_err)
-            if "No replica set members found" in error_msg or "server selection" in error_msg.lower():
+            
+            if login_response.status_code != 200:
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Failed to login to production: {login_response.text}"
+                )
+            
+            token = login_response.json().get("token")
+            if not token:
+                raise HTTPException(status_code=401, detail="No token received from production login")
+            
+            # Step 2: Download backup Excel
+            backup_response = await client.get(
+                f"{production_url}/api/backup/download",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=120.0
+            )
+            
+            if backup_response.status_code != 200:
                 raise HTTPException(
                     status_code=500,
-                    detail="Cannot connect to MongoDB Atlas. Please whitelist IP address 34.16.56.64 in MongoDB Atlas → Network Access → Add IP Address"
+                    detail=f"Failed to download backup from production: {backup_response.status_code}"
                 )
-            raise HTTPException(status_code=500, detail=f"Connection failed: {error_msg}")
-        
-        # Collections to sync
-        all_collections = [
-            "users", "products", "farmers", "procurements", "qc_packaging",
-            "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
-            "qc_daily_requirements",
-            "retailer_indents", "retailer_dispatches", "retailer_invoices", 
-            "retailer_grn", "retailer_rejections", "retailer_payments",
-            "retailer_closing_inventory",
-            "daily_stock_status", "variable_expenses", "fixed_expenses"
-        ]
-        
-        collections_to_sync = request.collections if request.collections else all_collections
-        
-        # Helper function to parse JSON fields
-        def safe_parse_json(value):
-            if not value or not isinstance(value, str):
+            
+            # Step 3: Parse Excel and import data
+            excel_data = BytesIO(backup_response.content)
+            wb = openpyxl.load_workbook(excel_data)
+            
+            # Helper function to parse JSON fields
+            def safe_parse_json(value):
+                if not value or not isinstance(value, str):
+                    return value
+                try:
+                    return json_lib.loads(value)
+                except:
+                    pass
+                try:
+                    return ast.literal_eval(value)
+                except:
+                    pass
                 return value
-            try:
-                return json_lib.loads(value)
-            except:
-                pass
-            try:
-                return ast.literal_eval(value)
-            except:
-                pass
-            return value
-        
-        # JSON fields per collection
-        json_fields_map = {
-            'procurements': ['products'],
-            'qc_indents': ['items'],
-            'qc_dispatches': ['items', 'packaging_items'],
-            'qc_invoices': ['items'],
-            'qc_grns': ['items'],
-            'qc_daily_requirements': ['items'],
-            'retailer_indents': ['items'],
-            'retailer_dispatches': ['items'],
-            'retailer_invoices': ['items'],
-            'retailer_grn': ['items'],
-            'retailer_rejections': ['items'],
-            'retailer_closing_inventory': ['items'],
-        }
-        
-        sync_results = {}
-        total_synced = 0
-        
-        for coll_name in collections_to_sync:
-            try:
-                # Get all documents from production
-                cursor = prod_db[coll_name].find({})
-                docs = await cursor.to_list(length=50000)
-                
-                if not docs:
-                    sync_results[coll_name] = {"status": "empty", "count": 0}
+            
+            # Map sheet names to collection names
+            sheet_to_collection = {
+                'users': 'users',
+                'products': 'products',
+                'farmers': 'farmers',
+                'procurements': 'procurements',
+                'qc_packaging': 'qc_packaging',
+                'qc_customers': 'qc_customers',
+                'qc_indents': 'qc_indents',
+                'qc_dispatches': 'qc_dispatches',
+                'qc_invoices': 'qc_invoices',
+                'qc_grns': 'qc_grns',
+                'qc_daily_requirements': 'qc_daily_requirements',
+                'retailer_indents': 'retailer_indents',
+                'retailer_dispatches': 'retailer_dispatches',
+                'retailer_invoices': 'retailer_invoices',
+                'retailer_grn': 'retailer_grn',
+                'retailer_rejections': 'retailer_rejections',
+                'retailer_payments': 'retailer_payments',
+                'retailer_closing_inventory': 'retailer_closing_inventory',
+                'daily_stock_status': 'daily_stock_status',
+                'variable_expenses': 'variable_expenses',
+                'fixed_expenses': 'fixed_expenses',
+            }
+            
+            # JSON fields per collection
+            json_fields_map = {
+                'procurements': ['products'],
+                'qc_indents': ['items'],
+                'qc_dispatches': ['items', 'packaging_items'],
+                'qc_invoices': ['items'],
+                'qc_grns': ['items'],
+                'qc_daily_requirements': ['items'],
+                'retailer_indents': ['items'],
+                'retailer_dispatches': ['items'],
+                'retailer_invoices': ['items'],
+                'retailer_grn': ['items'],
+                'retailer_rejections': ['items'],
+                'retailer_closing_inventory': ['items'],
+            }
+            
+            sync_results = {}
+            total_synced = 0
+            
+            for sheet_name, collection_name in sheet_to_collection.items():
+                if sheet_name not in wb.sheetnames:
+                    sync_results[collection_name] = {"status": "not_found", "count": 0}
                     continue
                 
-                # Remove _id fields to avoid conflicts
-                for doc in docs:
-                    if '_id' in doc:
-                        del doc['_id']
-                    
-                    # Parse JSON fields if needed
-                    if coll_name in json_fields_map:
-                        for field in json_fields_map[coll_name]:
-                            if field in doc and isinstance(doc[field], str):
-                                doc[field] = safe_parse_json(doc[field])
+                ws = wb[sheet_name]
+                rows = list(ws.iter_rows(values_only=True))
                 
-                # Clear existing data in this collection
-                await db[coll_name].delete_many({})
+                if len(rows) <= 1:
+                    sync_results[collection_name] = {"status": "empty", "count": 0}
+                    continue
                 
-                # Insert production data
-                result = await db[coll_name].insert_many(docs)
+                # Get headers from first row
+                headers = [str(h).lower().strip() if h else f'col_{i}' for i, h in enumerate(rows[0])]
                 
-                sync_results[coll_name] = {
-                    "status": "success",
-                    "count": len(result.inserted_ids)
-                }
-                total_synced += len(result.inserted_ids)
+                # Convert rows to documents
+                documents = []
+                for row in rows[1:]:  # Skip header row
+                    doc = {}
+                    for i, value in enumerate(row):
+                        if i < len(headers):
+                            key = headers[i]
+                            if key == '_id':
+                                continue  # Skip _id field
+                            if value is not None:
+                                # Parse JSON fields
+                                if collection_name in json_fields_map and key in json_fields_map[collection_name]:
+                                    doc[key] = safe_parse_json(value)
+                                else:
+                                    doc[key] = value
+                    if doc:
+                        documents.append(doc)
                 
-            except Exception as e:
-                sync_results[coll_name] = {
-                    "status": "error",
-                    "error": str(e)
-                }
-        
-        # Reset passwords if requested
-        if request.reset_passwords and "users" in collections_to_sync:
-            hashed_password = bcrypt.hashpw(
-                request.default_password.encode('utf-8'), 
-                bcrypt.gensalt()
-            ).decode('utf-8')
+                if documents:
+                    # Clear existing data and insert new
+                    await db[collection_name].delete_many({})
+                    result = await db[collection_name].insert_many(documents)
+                    sync_results[collection_name] = {
+                        "status": "success",
+                        "count": len(result.inserted_ids)
+                    }
+                    total_synced += len(result.inserted_ids)
+                else:
+                    sync_results[collection_name] = {"status": "no_data", "count": 0}
             
-            await db.users.update_many(
-                {},
-                {"$set": {"password": hashed_password}}
-            )
-            sync_results["password_reset"] = {
-                "status": "success",
-                "message": f"All user passwords reset to: {request.default_password}"
+            # Reset passwords if requested
+            if request.reset_passwords:
+                hashed_password = bcrypt.hashpw(
+                    request.default_password.encode('utf-8'), 
+                    bcrypt.gensalt()
+                ).decode('utf-8')
+                
+                await db.users.update_many(
+                    {},
+                    {"$set": {"password": hashed_password}}
+                )
+                sync_results["password_reset"] = {
+                    "status": "success",
+                    "message": f"All user passwords reset to: {request.default_password}"
+                }
+            
+            return {
+                "success": True,
+                "message": f"Successfully synced {total_synced} records from production",
+                "total_records": total_synced,
+                "production_url": production_url,
+                "collections": sync_results
             }
         
-        # Close production connection
-        prod_client.close()
-        
-        return {
-            "success": True,
-            "message": f"Successfully synced {total_synced} records from production",
-            "total_records": total_synced,
-            "collections": sync_results
-        }
-        
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Connection to production timed out")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, 

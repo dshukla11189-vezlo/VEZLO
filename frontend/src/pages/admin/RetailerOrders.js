@@ -183,6 +183,7 @@ export default function RetailerOrders() {
   const [dailyReqRetailer, setDailyReqRetailer] = useState('');
   const [dailyReqSaving, setDailyReqSaving] = useState(false);
   const [dailyReqSaved, setDailyReqSaved] = useState(false);
+  const [retailWastageAverages, setRetailWastageAverages] = useState([]);
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -764,6 +765,19 @@ export default function RetailerOrders() {
     }
   };
 
+  // Load retail wastage averages - returns data directly for immediate use
+  const loadRetailWastageAverages = useCallback(async () => {
+    try {
+      const response = await api.get('/api/retail-wastage-averages');
+      const data = response.data || [];
+      setRetailWastageAverages(data);
+      return data;
+    } catch (error) {
+      console.error('Failed to load retail wastage averages:', error);
+      return [];
+    }
+  }, []);
+
   // ==================== DAILY REQUIREMENT HANDLERS ====================
   const calculateDailyRequirement = useCallback(async () => {
     if (!dailyReqDate) {
@@ -777,6 +791,9 @@ export default function RetailerOrders() {
     setDailyReqSaved(false);
     
     try {
+      // Load wastage averages - fetch fresh and use returned data directly
+      const currentWastageAverages = await loadRetailWastageAverages();
+      
       // Fetch indents for the selected date
       let url = `/api/retailer-indents?date=${dailyReqDate}`;
       if (dailyReqRetailer) {
@@ -842,6 +859,12 @@ export default function RetailerOrders() {
             kgRequired = qty;
           }
           
+          // Get wastage average for this product from 30-day data
+          const wastageInfo = currentWastageAverages.find(w => 
+            w.product_id === item.product_id || w.product_name === item.product_name
+          );
+          const avgWastageKg = wastageInfo?.avg_wastage_kg || 0;
+          
           if (productMap.has(key)) {
             const existing = productMap.get(key);
             existing.indentQty += qty;
@@ -854,6 +877,8 @@ export default function RetailerOrders() {
               variantName: item.variant_name || variant?.name || '-',
               indentQty: qty,
               kgRequired: parseFloat(kgRequired.toFixed(2)),
+              estWastageKg: avgWastageKg,
+              totalKgRequired: 0, // Will be calculated
               ratePerKg: '',
               amountPaid: '',
               remarks: ''
@@ -862,11 +887,12 @@ export default function RetailerOrders() {
         }
       }
       
-      // Convert to array, sort by product name, and round kgRequired
+      // Convert to array, calculate total kg, sort by product name
       const requirementData = Array.from(productMap.values())
         .map(item => ({
           ...item,
-          kgRequired: parseFloat(item.kgRequired.toFixed(2))
+          kgRequired: parseFloat(item.kgRequired.toFixed(2)),
+          totalKgRequired: parseFloat((item.kgRequired + item.estWastageKg).toFixed(2))
         }))
         .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
       
@@ -878,7 +904,7 @@ export default function RetailerOrders() {
     } finally {
       setDailyReqLoading(false);
     }
-  }, [dailyReqDate, dailyReqRetailer, packagings]);
+  }, [dailyReqDate, dailyReqRetailer, packagings, loadRetailWastageAverages]);
 
   // Print daily requirement
   const printDailyRequirement = () => {
@@ -969,6 +995,8 @@ export default function RetailerOrders() {
     const newData = [...dailyReqData];
     const kg = parseFloat(value) || 0;
     newData[idx].kgRequired = kg;
+    // Recalculate total kg
+    newData[idx].totalKgRequired = parseFloat((kg + (newData[idx].estWastageKg || 0)).toFixed(2));
     // Recalculate amount if rate is set
     if (newData[idx].ratePerKg) {
       newData[idx].amountPaid = (kg * parseFloat(newData[idx].ratePerKg)).toFixed(2);
@@ -2083,6 +2111,7 @@ export default function RetailerOrders() {
               
               {dailyReqData.length > 0 && (
                 <div className="overflow-x-auto">
+                  <p className="text-xs text-gray-500 mb-2">Calculate requirement from indents + estimated wastage (30-day avg)</p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">
@@ -2091,6 +2120,8 @@ export default function RetailerOrders() {
                         <th className="p-3 text-left">Packaging/Variant</th>
                         <th className="p-3 text-center">Indent Qty</th>
                         <th className="p-3 text-center w-24">Kg Required</th>
+                        <th className="p-3 text-center w-24">Est Wastage (Kg)</th>
+                        <th className="p-3 text-center w-24">Total Kg</th>
                         <th className="p-3 text-right w-24">Rate/Kg (₹)</th>
                         <th className="p-3 text-right w-24">Amount (₹)</th>
                         <th className="p-3 text-left w-32">Remarks</th>
@@ -2113,6 +2144,26 @@ export default function RetailerOrders() {
                               onChange={(e) => updateKgRequired(idx, e.target.value)}
                               className="h-8 w-20 text-center text-sm font-semibold text-green-700"
                             />
+                          </td>
+                          <td className="p-3">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="Est Wastage"
+                              value={item.estWastageKg || 0}
+                              onChange={(e) => {
+                                const newData = [...dailyReqData];
+                                const newWastage = parseFloat(e.target.value) || 0;
+                                newData[idx].estWastageKg = newWastage;
+                                newData[idx].totalKgRequired = parseFloat((newData[idx].kgRequired + newWastage).toFixed(2));
+                                setDailyReqData(newData);
+                                setDailyReqSaved(false);
+                              }}
+                              className="h-8 w-20 text-center text-sm text-amber-600"
+                            />
+                          </td>
+                          <td className="p-3 text-center font-bold text-blue-700">
+                            {item.totalKgRequired?.toFixed(2) || item.kgRequired?.toFixed(2)}
                           </td>
                           <td className="p-3">
                             <Input
@@ -2166,6 +2217,8 @@ export default function RetailerOrders() {
                         <td colSpan={3} className="p-3 text-right">TOTAL</td>
                         <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.indentQty, 0)}</td>
                         <td className="p-3 text-center text-green-700">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
+                        <td className="p-3 text-center text-amber-600">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.estWastageKg) || 0), 0).toFixed(2)} Kg</td>
+                        <td className="p-3 text-center text-blue-700 font-bold">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalKgRequired) || parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
                         <td className="p-3"></td>
                         <td className="p-3 text-right">
                           ₹{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0).toFixed(2)}

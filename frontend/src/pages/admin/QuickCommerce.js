@@ -419,13 +419,16 @@ export default function QuickCommerce() {
   // SECTION: QC DAILY REQUIREMENT FUNCTIONS
   // ============================================================================
 
-  // Load wastage averages
+  // Load wastage averages - returns the data directly for immediate use
   const loadWastageAverages = async () => {
     try {
       const response = await api.get('/api/qc-wastage-averages');
-      setWastageAverages(response.data || []);
+      const data = response.data || [];
+      setWastageAverages(data);
+      return data; // Return data for immediate use (state update is async)
     } catch (error) {
       console.error('Failed to load wastage averages:', error);
+      return [];
     }
   };
 
@@ -459,10 +462,9 @@ export default function QuickCommerce() {
         return;
       }
 
-      // Load wastage averages if not loaded
-      if (wastageAverages.length === 0) {
-        await loadWastageAverages();
-      }
+      // Load wastage averages - always fetch fresh and use returned data directly
+      // (state update is async so we can't rely on wastageAverages immediately)
+      const currentWastageAverages = await loadWastageAverages();
 
       // Aggregate all items from all indents
       const productMap = new Map();
@@ -499,8 +501,8 @@ export default function QuickCommerce() {
             packagingWeight = extractWeightFromName(item.product_unit);
           }
           
-          // Get wastage average for this product+packaging
-          const wastageInfo = wastageAverages.find(w => 
+          // Get wastage average for this product+packaging from the directly loaded data
+          const wastageInfo = currentWastageAverages.find(w => 
             w.product_id === item.product_id && 
             (w.packaging_id === item.packaging_id || w.packaging_name === item.packaging_name)
           );

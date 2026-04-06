@@ -8240,6 +8240,87 @@ async def get_qc_wastage_averages(
     return result
 
 
+@app.get("/api/retail-wastage-averages")
+async def get_retail_wastage_averages(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate 30-day average wastage per product from stock status data.
+    Uses the daily_stock_status collection to get wastage by product.
+    """
+    from datetime import datetime, timedelta, timezone
+    
+    # Get date 30 days ago
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    
+    # Get all stock status records from last 30 days
+    stock_records = await db.daily_stock_status.find(
+        {"date": {"$gte": thirty_days_ago}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    # Aggregate wastage by product
+    wastage_by_product = {}  # {product_id: {total_wastage: 0, total_input: 0, count: 0, ...}}
+    
+    for record in stock_records:
+        product_id = record.get("product_id", "")
+        product_name = record.get("product_name", "")
+        
+        # Skip if no product info
+        if not product_id and not product_name:
+            continue
+        
+        # Calculate wastage: opening + purchase - dispatch - closing
+        opening_qty = float(record.get("opening_qty") or 0)
+        purchase_qty = float(record.get("purchase_qty") or 0)
+        dispatch_qty = float(record.get("dispatch_qty") or 0)
+        closing_qty = float(record.get("closing_qty") or 0)
+        
+        total_input = opening_qty + purchase_qty
+        expected_closing = total_input - dispatch_qty
+        wastage_qty = max(0, expected_closing - closing_qty)  # Only count positive wastage
+        
+        # Use product_id or name as key
+        key = product_id or product_name
+        
+        if key not in wastage_by_product:
+            wastage_by_product[key] = {
+                "product_id": product_id,
+                "product_name": product_name,
+                "total_wastage": 0,
+                "total_input": 0,
+                "count": 0
+            }
+        
+        wastage_by_product[key]["total_wastage"] += wastage_qty
+        wastage_by_product[key]["total_input"] += total_input
+        wastage_by_product[key]["count"] += 1
+    
+    # Calculate averages
+    result = []
+    for key, data in wastage_by_product.items():
+        if data["count"] == 0:
+            continue
+            
+        avg_wastage_kg = data["total_wastage"] / data["count"]
+        wastage_pct = (data["total_wastage"] / data["total_input"] * 100) if data["total_input"] > 0 else 0
+        
+        result.append({
+            "product_id": data["product_id"],
+            "product_name": data["product_name"],
+            "avg_wastage_kg": round(avg_wastage_kg, 2),
+            "total_wastage_kg": round(data["total_wastage"], 2),
+            "total_input_kg": round(data["total_input"], 2),
+            "wastage_percentage": round(wastage_pct, 2),
+            "data_points": data["count"]
+        })
+    
+    # Sort by wastage percentage descending
+    result.sort(key=lambda x: x["wastage_percentage"], reverse=True)
+    
+    return result
+
+
 @app.post("/api/qc-daily-requirement")
 async def save_qc_daily_requirement(
     data: dict,

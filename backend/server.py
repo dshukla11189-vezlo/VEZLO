@@ -6799,12 +6799,12 @@ async def populate_retailer_referral_codes(current_user: dict = Depends(get_curr
         updated_count = 0
         
         for retailer in retailers:
-            # Generate unique referral code
-            referral_code = "MRO-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            # Generate unique 5-digit referral code
+            referral_code = ''.join(random.choices(string.digits, k=5))
             
             # Make sure it's unique
             while await db.users.find_one({"referral_code": referral_code}):
-                referral_code = "MRO-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+                referral_code = ''.join(random.choices(string.digits, k=5))
             
             result = await db.users.update_one(
                 {"id": retailer["id"]},

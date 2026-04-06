@@ -220,19 +220,20 @@ export default function UserManagement() {
                     <th className="p-3 text-left font-medium text-gray-500">CONTACT</th>
                     <th className="p-3 text-left font-medium text-gray-500">COMPANY</th>
                     <th className="p-3 text-center font-medium text-gray-500">COMMISSION</th>
+                    <th className="p-3 text-center font-medium text-gray-500">REFERRAL</th>
                     <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-gray-400">
+                      <td colSpan={8} className="p-8 text-center text-gray-400">
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-gray-400">
+                      <td colSpan={8} className="p-8 text-center text-gray-400">
                         No users found
                       </td>
                     </tr>
@@ -265,6 +266,15 @@ export default function UserManagement() {
                               <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium">
                                 {user.commission_percentage || 0}%
                               </span>
+                            ) : '-'}
+                          </td>
+                          <td className="p-3 text-center">
+                            {user.role === 'retailer' && user.referral_code ? (
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-mono font-bold">
+                                {user.referral_code}
+                              </span>
+                            ) : user.role === 'retailer' ? (
+                              <span className="text-gray-400 text-xs">Not set</span>
                             ) : '-'}
                           </td>
                           <td className="p-3">

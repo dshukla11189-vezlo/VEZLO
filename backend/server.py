@@ -6397,12 +6397,33 @@ async def sync_from_production(
         raise HTTPException(status_code=403, detail="Only admin can sync from production")
     
     try:
-        # Connect to production database
-        prod_client = AsyncIOMotorClient(request.production_mongo_url)
+        # Connect to production database with extended timeout
+        # serverSelectionTimeoutMS: Time to wait for server selection
+        # connectTimeoutMS: Time to wait for initial connection
+        prod_client = AsyncIOMotorClient(
+            request.production_mongo_url,
+            serverSelectionTimeoutMS=30000,  # 30 seconds
+            connectTimeoutMS=30000,
+            socketTimeoutMS=60000
+        )
         prod_db = prod_client[request.production_db_name]
         
-        # Test connection
-        await prod_db.command('ping')
+        # Test connection with timeout
+        try:
+            await asyncio.wait_for(prod_db.command('ping'), timeout=30.0)
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=500, 
+                detail="Connection timeout. Please check: 1) MongoDB URL is correct, 2) IP 34.16.56.64 is whitelisted in MongoDB Atlas Network Access"
+            )
+        except Exception as conn_err:
+            error_msg = str(conn_err)
+            if "No replica set members found" in error_msg or "server selection" in error_msg.lower():
+                raise HTTPException(
+                    status_code=500,
+                    detail="Cannot connect to MongoDB Atlas. Please whitelist IP address 34.16.56.64 in MongoDB Atlas → Network Access → Add IP Address"
+                )
+            raise HTTPException(status_code=500, detail=f"Connection failed: {error_msg}")
         
         # Collections to sync
         all_collections = [

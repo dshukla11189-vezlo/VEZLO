@@ -4765,6 +4765,7 @@ async def delete_stock_status(status_id: str, current_user: dict = Depends(get_c
     
     return {"message": "Stock status deleted"}
 
+
 # ============================================================================
 # SECTION: VARIABLE EXPENSES ROUTES (Lines ~3104-3210)
 # ============================================================================

@@ -132,7 +132,8 @@ export default function Procurement() {
       unit: 'Kg', 
       unit_size: '', 
       rate: '', 
-      total: 0 
+      total: 0,
+      paid: ''
     }],
     total_amount: 0,
     paid_amount: 0,
@@ -285,7 +286,8 @@ export default function Procurement() {
       unit: 'Kg', 
       unit_size: '', 
       rate: '', 
-      total: 0 
+      total: 0,
+      paid: ''
     };
     
     setProcurementForm(prev => ({
@@ -316,7 +318,8 @@ export default function Procurement() {
         unit: item.unit || 'Kg',
         unit_size: item.unit_size || '',
         rate: rate,
-        total: qty * rate
+        total: qty * rate,
+        paid: ''
       };
     });
     
@@ -332,7 +335,8 @@ export default function Procurement() {
         unit: p.unit || 'Kg',
         unit_size: p.unit_size || '',
         rate: parseFloat(p.rate) || 0,
-        total: p.total || 0
+        total: p.total || 0,
+        paid: p.paid || ''
       }));
     
     // Combine: new products from yesterday + existing valid products
@@ -341,15 +345,17 @@ export default function Procurement() {
     // If no products after combining, add empty row
     const finalProducts = combinedProducts.length > 0 
       ? combinedProducts 
-      : [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }];
+      : [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0, paid: '' }];
     
     const grandTotal = finalProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+    const totalPaid = finalProducts.reduce((sum, p) => sum + (parseFloat(p.paid) || 0), 0);
     
     setProcurementForm({
       ...procurementForm,
       products: finalProducts,
       total_amount: grandTotal,
-      pending_amount: grandTotal - (procurementForm.paid_amount || 0)
+      paid_amount: totalPaid,
+      pending_amount: grandTotal - totalPaid
     });
     
     // Clear yesterday items selection
@@ -519,7 +525,8 @@ export default function Procurement() {
           unit: product.unit,
           unit_size: product.unit_size,
           rate: parseFloat(product.rate) || 0,
-          total: product.total || 0
+          total: product.total || 0,
+          paid: parseFloat(product.paid) || 0
         });
       });
       
@@ -540,6 +547,7 @@ export default function Procurement() {
             unit_size: p.unit_size,
             rate: parseFloat(p.rate) || 0,
             total: p.total || 0,
+            paid: parseFloat(p.paid) || 0,
             farmer_id: p.farmer_id,
             farmer_name: p.farmer_name
           })),
@@ -558,12 +566,7 @@ export default function Procurement() {
         for (const farmerId of farmerIds) {
           const farmerData = byFarmer[farmerId];
           const farmerTotal = farmerData.products.reduce((sum, p) => sum + (p.total || 0), 0);
-          
-          // Distribute paid amount proportionally if multiple farmers
-          const paidRatio = farmerTotal / procurementForm.total_amount;
-          const farmerPaid = farmerIds.length > 1 
-            ? Math.round(procurementForm.paid_amount * paidRatio * 100) / 100
-            : procurementForm.paid_amount;
+          const farmerPaid = farmerData.products.reduce((sum, p) => sum + (p.paid || 0), 0);
           const farmerPending = farmerTotal - farmerPaid;
           
           const payload = {
@@ -606,7 +609,7 @@ export default function Procurement() {
       setSelectedProcurement(null);
       setProcurementForm({
         date: new Date().toISOString().split('T')[0],
-        products: [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
+        products: [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0, paid: '' }],
         total_amount: 0,
         paid_amount: 0,
         pending_amount: 0,
@@ -698,7 +701,7 @@ export default function Procurement() {
     setEditMode(true);
     setSelectedProcurement(procurement);
     
-    // Map products to include farmer info per product
+    // Map products to include farmer info and paid per product
     const productsWithFarmer = (procurement.products || []).map(p => ({
       farmer_id: p.farmer_id || procurement.farmer_id || '',
       farmer_name: p.farmer_name || procurement.farmer_name || '',
@@ -708,15 +711,19 @@ export default function Procurement() {
       unit: p.unit || 'Kg',
       unit_size: p.unit_size || '',
       rate: p.rate || 0,
-      total: p.total || 0
+      total: p.total || 0,
+      paid: p.paid || ''
     }));
+    
+    const totalPaid = productsWithFarmer.reduce((sum, p) => sum + (parseFloat(p.paid) || 0), 0);
+    const grandTotal = productsWithFarmer.reduce((sum, p) => sum + (p.total || 0), 0);
     
     setProcurementForm({
       date: procurement.date.split('T')[0],
-      products: productsWithFarmer.length > 0 ? productsWithFarmer : [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
-      total_amount: procurement.total_amount,
-      paid_amount: procurement.paid_amount || 0,
-      pending_amount: procurement.pending_amount || 0,
+      products: productsWithFarmer.length > 0 ? productsWithFarmer : [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0, paid: '' }],
+      total_amount: grandTotal,
+      paid_amount: totalPaid || procurement.paid_amount || 0,
+      pending_amount: grandTotal - (totalPaid || procurement.paid_amount || 0),
       payment_status: procurement.payment_status || 'pending',
       remark: procurement.remark || ''
     });
@@ -1588,17 +1595,18 @@ export default function Procurement() {
 
               {/* Single-row table matching Yesterday's Purchases layout */}
               <div className="bg-white rounded border">
-                <div style={{ minWidth: '850px' }}>
+                <div style={{ minWidth: '900px' }}>
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="p-2 text-left font-medium text-gray-600" style={{ width: '140px' }}>{t('procurement.farmer')}</th>
-                        <th className="p-2 text-left font-medium text-gray-600" style={{ width: '160px' }}>{t('procurement.productName')}</th>
-                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('common.qty')}</th>
-                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>Unit</th>
-                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>Size</th>
-                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('retailer.rate')}</th>
-                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '80px' }}>{t('common.total')}</th>
+                        <th className="p-2 text-left font-medium text-gray-600" style={{ width: '150px' }}>{t('procurement.productName')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '60px' }}>{t('common.qty')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>Unit</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '60px' }}>Size</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '60px' }}>{t('retailer.rate')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('common.total')}</th>
+                        <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>{t('procurement.paid')}</th>
                         <th className="p-2 text-center" style={{ width: '40px' }}></th>
                       </tr>
                     </thead>
@@ -1726,7 +1734,35 @@ export default function Procurement() {
                         </td>
                         {/* Total */}
                         <td className="p-2 text-center font-semibold text-green-700">
-                          ₹{product.total.toFixed(0)}
+                          ₹{(product.total || 0).toFixed(0)}
+                        </td>
+                        {/* Paid - editable for ALL rows */}
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="0"
+                            className="h-7 text-xs text-center w-16"
+                            data-testid={`paid-amount-input-${index}`}
+                            value={product.paid || ''}
+                            onChange={(e) => {
+                              const newProducts = [...procurementForm.products];
+                              const paidValue = e.target.value === '' ? '' : (parseFloat(e.target.value) || 0);
+                              newProducts[index] = { ...newProducts[index], paid: paidValue };
+                              
+                              // Calculate total paid amount
+                              const totalPaid = newProducts.reduce((sum, p) => sum + (parseFloat(p.paid) || 0), 0);
+                              const grandTotal = newProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+                              
+                              setProcurementForm({
+                                ...procurementForm,
+                                products: newProducts,
+                                paid_amount: totalPaid,
+                                pending_amount: grandTotal - totalPaid,
+                                payment_status: totalPaid === 0 ? 'pending' : totalPaid >= grandTotal ? 'paid' : 'partial'
+                              });
+                            }}
+                          />
                         </td>
                         {/* Delete */}
                         <td className="p-2 text-center">
@@ -1774,17 +1810,11 @@ export default function Procurement() {
                       ₹{procurementForm.total_amount.toFixed(0)}
                     </span>
                   </div>
-                  <div className="text-sm flex items-center gap-2">
+                  <div className="text-sm">
                     <span className="text-gray-600">{t('procurement.paidAmount')}:</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0"
-                      className="h-8 w-24 text-sm text-center"
-                      data-testid="paid-amount-input"
-                      value={procurementForm.paid_amount || ''}
-                      onChange={(e) => handlePaidAmountChange(e.target.value)}
-                    />
+                    <span className="ml-2 font-semibold text-green-700">
+                      ₹{(procurementForm.paid_amount || 0).toFixed(0)}
+                    </span>
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-600">{t('procurement.pendingAmount')}:</span>

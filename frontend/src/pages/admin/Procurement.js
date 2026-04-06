@@ -120,12 +120,20 @@ export default function Procurement() {
     productName: ''
   });
 
-  // Procurement form
+  // Procurement form - farmer info is now stored per product
   const [procurementForm, setProcurementForm] = useState({
     date: new Date().toISOString().split('T')[0],
-    farmer_id: '',
-    farmer_name: '',
-    products: [{ product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
+    products: [{ 
+      farmer_id: '', 
+      farmer_name: '', 
+      product_id: '', 
+      product_name: '', 
+      quantity: '', 
+      unit: 'Kg', 
+      unit_size: '', 
+      rate: '', 
+      total: 0 
+    }],
     total_amount: 0,
     paid_amount: 0,
     pending_amount: 0,
@@ -267,8 +275,10 @@ export default function Procurement() {
   };
 
   const handleAddProductRow = () => {
-    // Create a fresh new empty row - use spread to avoid reference issues
+    // Create a fresh new empty row with farmer info per product
     const newEmptyRow = { 
+      farmer_id: '', 
+      farmer_name: '', 
       product_id: '', 
       product_name: '', 
       quantity: '', 
@@ -293,20 +303,13 @@ export default function Procurement() {
       return;
     }
     
-    // If we have different farmers in selected items, use the first one or ask user
-    const uniqueFarmers = [...new Set(selectedItems.map(i => i.farmer_id))];
-    if (uniqueFarmers.length > 1) {
-      toast.error('Please select items from only one farmer, or save separately');
-      return;
-    }
-    
-    const firstItem = selectedItems[0];
-    
-    // Convert selected items to procurement form products - create fresh objects
+    // Convert selected items to procurement form products - each product has its own farmer
     const newProducts = selectedItems.map(item => {
       const qty = parseFloat(item.quantity) || 0;
       const rate = parseFloat(item.rate) || 0;
       return {
+        farmer_id: item.farmer_id || '',
+        farmer_name: item.farmer_name || '',
         product_id: item.product_id || '',
         product_name: item.product_name || '',
         quantity: qty,
@@ -321,6 +324,8 @@ export default function Procurement() {
     const existingValidProducts = procurementForm.products
       .filter(p => p.product_id)
       .map(p => ({
+        farmer_id: p.farmer_id || '',
+        farmer_name: p.farmer_name || '',
         product_id: p.product_id || '',
         product_name: p.product_name || '',
         quantity: parseFloat(p.quantity) || 0,
@@ -336,14 +341,12 @@ export default function Procurement() {
     // If no products after combining, add empty row
     const finalProducts = combinedProducts.length > 0 
       ? combinedProducts 
-      : [{ product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }];
+      : [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }];
     
     const grandTotal = finalProducts.reduce((sum, p) => sum + (p.total || 0), 0);
     
     setProcurementForm({
       ...procurementForm,
-      farmer_id: firstItem.farmer_id || '',
-      farmer_name: firstItem.farmer_name || '',
       products: finalProducts,
       total_amount: grandTotal,
       pending_amount: grandTotal - (procurementForm.paid_amount || 0)
@@ -428,11 +431,17 @@ export default function Procurement() {
     });
   };
 
-  const handleFarmerSelect = (farmer) => {
-    setProcurementForm({
-      ...procurementForm,
+  const handleFarmerSelect = (index, farmer) => {
+    const newProducts = [...procurementForm.products];
+    newProducts[index] = {
+      ...newProducts[index],
       farmer_id: farmer.id,
       farmer_name: farmer.name
+    };
+    
+    setProcurementForm({
+      ...procurementForm,
+      products: newProducts
     });
   };
 
@@ -469,59 +478,127 @@ export default function Procurement() {
   const handleSubmitProcurement = async (e) => {
     e.preventDefault();
     
-    if (!procurementForm.farmer_id) {
-      toast.error('Please select a farmer');
-      return;
-    }
+    // Filter valid products
+    const validProducts = procurementForm.products.filter(p => p.product_id);
     
-    if (procurementForm.products.length === 0 || !procurementForm.products[0].product_id) {
+    if (validProducts.length === 0) {
       toast.error('Please add at least one product');
       return;
     }
     
+    // Check all products have farmers
+    const productsWithoutFarmer = validProducts.filter(p => !p.farmer_id);
+    if (productsWithoutFarmer.length > 0) {
+      toast.error('Please select a farmer for all products');
+      return;
+    }
+    
     // Validate bunches have unit_size
-    const invalidBunches = procurementForm.products.filter(p => p.unit === 'Bunch' && !p.unit_size);
+    const invalidBunches = validProducts.filter(p => p.unit === 'Bunch' && !p.unit_size);
     if (invalidBunches.length > 0) {
       toast.error('Please specify bunch size for all bunch items');
       return;
     }
     
     try {
-      const payload = {
-        date: new Date(procurementForm.date).toISOString(),
-        farmer_id: procurementForm.farmer_id,
-        farmer_name: procurementForm.farmer_name,
-        products: procurementForm.products.filter(p => p.product_id),
-        total_amount: procurementForm.total_amount,
-        paid_amount: procurementForm.paid_amount,
-        pending_amount: procurementForm.pending_amount,
-        payment_status: procurementForm.payment_status,
-        status: 'completed',
-        remark: procurementForm.remark || ''
-      };
+      // Group products by farmer
+      const byFarmer = {};
+      validProducts.forEach(product => {
+        const farmerId = product.farmer_id;
+        if (!byFarmer[farmerId]) {
+          byFarmer[farmerId] = {
+            farmer_id: product.farmer_id,
+            farmer_name: product.farmer_name,
+            products: []
+          };
+        }
+        byFarmer[farmerId].products.push({
+          product_id: product.product_id,
+          product_name: product.product_name,
+          quantity: parseFloat(product.quantity) || 0,
+          unit: product.unit,
+          unit_size: product.unit_size,
+          rate: parseFloat(product.rate) || 0,
+          total: product.total || 0
+        });
+      });
+      
+      const farmerIds = Object.keys(byFarmer);
       
       if (editMode && selectedProcurement?.id) {
-        // Update existing procurement
+        // For edit mode, use the first (or only) farmer - keep simple for edits
+        const firstFarmer = byFarmer[farmerIds[0]];
+        const payload = {
+          date: new Date(procurementForm.date).toISOString(),
+          farmer_id: firstFarmer.farmer_id,
+          farmer_name: firstFarmer.farmer_name,
+          products: validProducts.map(p => ({
+            product_id: p.product_id,
+            product_name: p.product_name,
+            quantity: parseFloat(p.quantity) || 0,
+            unit: p.unit,
+            unit_size: p.unit_size,
+            rate: parseFloat(p.rate) || 0,
+            total: p.total || 0,
+            farmer_id: p.farmer_id,
+            farmer_name: p.farmer_name
+          })),
+          total_amount: procurementForm.total_amount,
+          paid_amount: procurementForm.paid_amount,
+          pending_amount: procurementForm.pending_amount,
+          payment_status: procurementForm.payment_status,
+          status: 'completed',
+          remark: procurementForm.remark || ''
+        };
+        
         await api.put(`/api/procurement/${selectedProcurement.id}`, payload);
         toast.success('Procurement updated successfully!');
       } else {
-        // Create new procurement
-        await api.post('/api/procurement', payload);
-        
-        // If payment was made, record it
-        if (procurementForm.paid_amount > 0) {
-          await api.post('/api/payments', {
-            date: new Date().toISOString(),
-            party_type: 'farmer',
-            party_id: procurementForm.farmer_id,
-            party_name: procurementForm.farmer_name,
-            amount: procurementForm.paid_amount,
-            payment_mode: 'cash',
-            reference: `Procurement payment - ${new Date().toLocaleDateString()}`
-          });
+        // For new procurements, create separate entries for each farmer
+        for (const farmerId of farmerIds) {
+          const farmerData = byFarmer[farmerId];
+          const farmerTotal = farmerData.products.reduce((sum, p) => sum + (p.total || 0), 0);
+          
+          // Distribute paid amount proportionally if multiple farmers
+          const paidRatio = farmerTotal / procurementForm.total_amount;
+          const farmerPaid = farmerIds.length > 1 
+            ? Math.round(procurementForm.paid_amount * paidRatio * 100) / 100
+            : procurementForm.paid_amount;
+          const farmerPending = farmerTotal - farmerPaid;
+          
+          const payload = {
+            date: new Date(procurementForm.date).toISOString(),
+            farmer_id: farmerData.farmer_id,
+            farmer_name: farmerData.farmer_name,
+            products: farmerData.products,
+            total_amount: farmerTotal,
+            paid_amount: farmerPaid,
+            pending_amount: farmerPending,
+            payment_status: farmerPaid === 0 ? 'pending' : farmerPaid >= farmerTotal ? 'paid' : 'partial',
+            status: 'completed',
+            remark: procurementForm.remark || ''
+          };
+          
+          await api.post('/api/procurement', payload);
+          
+          // Record payment if made
+          if (farmerPaid > 0) {
+            await api.post('/api/payments', {
+              date: new Date().toISOString(),
+              party_type: 'farmer',
+              party_id: farmerData.farmer_id,
+              party_name: farmerData.farmer_name,
+              amount: farmerPaid,
+              payment_mode: 'cash',
+              reference: `Procurement payment - ${new Date().toLocaleDateString()}`
+            });
+          }
         }
         
-        toast.success('Procurement recorded successfully! Inventory updated.');
+        const message = farmerIds.length > 1 
+          ? `Created ${farmerIds.length} procurements for different farmers. Inventory updated.`
+          : 'Procurement recorded successfully! Inventory updated.';
+        toast.success(message);
       }
       
       setOpenProcurement(false);
@@ -529,9 +606,7 @@ export default function Procurement() {
       setSelectedProcurement(null);
       setProcurementForm({
         date: new Date().toISOString().split('T')[0],
-        farmer_id: '',
-        farmer_name: '',
-        products: [{ product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
+        products: [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
         total_amount: 0,
         paid_amount: 0,
         pending_amount: 0,
@@ -622,11 +697,23 @@ export default function Procurement() {
   const handleEdit = (procurement) => {
     setEditMode(true);
     setSelectedProcurement(procurement);
+    
+    // Map products to include farmer info per product
+    const productsWithFarmer = (procurement.products || []).map(p => ({
+      farmer_id: p.farmer_id || procurement.farmer_id || '',
+      farmer_name: p.farmer_name || procurement.farmer_name || '',
+      product_id: p.product_id || '',
+      product_name: p.product_name || '',
+      quantity: p.quantity || 0,
+      unit: p.unit || 'Kg',
+      unit_size: p.unit_size || '',
+      rate: p.rate || 0,
+      total: p.total || 0
+    }));
+    
     setProcurementForm({
       date: procurement.date.split('T')[0],
-      farmer_id: procurement.farmer_id,
-      farmer_name: procurement.farmer_name,
-      products: procurement.products,
+      products: productsWithFarmer.length > 0 ? productsWithFarmer : [{ farmer_id: '', farmer_name: '', product_id: '', product_name: '', quantity: '', unit: 'Kg', unit_size: '', rate: '', total: 0 }],
       total_amount: procurement.total_amount,
       paid_amount: procurement.paid_amount || 0,
       pending_amount: procurement.pending_amount || 0,
@@ -1521,24 +1608,35 @@ export default function Procurement() {
                     <tbody>
                       {procurementForm.products.map((product, index) => (
                         <tr key={index} className="border-t hover:bg-gray-50">
-                          {/* Farmer - only show on first row */}
+                          {/* Farmer - show autocomplete for all rows */}
                           <td className="p-2 relative">
-                            {index === 0 ? (
+                            {product.farmer_id ? (
+                              // Show farmer name as text if already selected
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs font-medium truncate flex-1">{product.farmer_name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newProducts = [...procurementForm.products];
+                                    newProducts[index] = { ...newProducts[index], farmer_id: '', farmer_name: '' };
+                                    setProcurementForm({ ...procurementForm, products: newProducts });
+                                  }}
+                                  className="text-gray-400 hover:text-red-500 text-xs"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
                               <AutocompleteInput
                                 placeholder={t('procurement.selectFarmer')}
                                 items={farmers}
                                 displayKey="name"
                                 secondaryKey="contact"
-                                value={procurementForm.farmer_name || ''}
-                                onSelect={handleFarmerSelect}
-                                testId="procurement-farmer-autocomplete"
+                                onSelect={(f) => handleFarmerSelect(index, f)}
+                                testId={`procurement-farmer-autocomplete-${index}`}
                                 storageKey="recent_farmers"
                                 compact={true}
                               />
-                            ) : (
-                              <span className="text-xs text-gray-400 italic">
-                                {procurementForm.farmer_name || '—'}
-                              </span>
                             )}
                           </td>
                           {/* Product */}

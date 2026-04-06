@@ -801,7 +801,14 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
-    # Only update payment-related fields
+    # Get existing procurement first
+    existing = await db.procurements.find_one({"id": procurement_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Procurement not found")
+    
+    old_date = existing.get("date")
+    
+    # Allow updating payment-related fields and date
     update_fields = {}
     if "paid_amount" in input:
         update_fields["paid_amount"] = input["paid_amount"]
@@ -809,6 +816,13 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
         update_fields["pending_amount"] = input["pending_amount"]
     if "payment_status" in input:
         update_fields["payment_status"] = input["payment_status"]
+    if "date" in input:
+        # Convert date string to ISO format if needed
+        new_date = input["date"]
+        if isinstance(new_date, str) and len(new_date) == 10:
+            # Simple date like "2026-04-05", add time component
+            new_date = f"{new_date}T00:00:00+00:00"
+        update_fields["date"] = new_date
     
     if not update_fields:
         raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -822,6 +836,45 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
     
     if not result:
         raise HTTPException(status_code=404, detail="Procurement not found")
+    
+    # If date changed, update stock status for both old and new dates
+    if "date" in update_fields and old_date != update_fields["date"]:
+        old_date_str = str(old_date)[:10] if old_date else None
+        new_date_str = str(update_fields["date"])[:10]
+        
+        # Update stock status for products on both dates
+        for item in existing.get("products", []):
+            product_id = item.get("product_id")
+            if not product_id:
+                continue
+            
+            qty = float(item.get("quantity", 0) or 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            
+            # Convert to Kg
+            qty_kg = qty
+            if unit == "Bunch" and unit_size:
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000
+                except:
+                    pass
+            
+            total_value = float(item.get("total", 0) or 0)
+            
+            # Subtract from old date's stock status
+            if old_date_str:
+                await db.daily_stock_status.update_one(
+                    {"date": old_date_str, "product_id": product_id},
+                    {"$inc": {"purchase_qty": -qty_kg, "purchase_value": -total_value}}
+                )
+            
+            # Add to new date's stock status
+            await db.daily_stock_status.update_one(
+                {"date": new_date_str, "product_id": product_id},
+                {"$inc": {"purchase_qty": qty_kg, "purchase_value": total_value}},
+                upsert=False  # Only update if exists
+            )
     
     return {"message": "Procurement updated successfully", "procurement": result}
 

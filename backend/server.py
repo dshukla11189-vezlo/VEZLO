@@ -462,7 +462,7 @@ async def create_unit(input: dict, current_user: dict = Depends(get_current_user
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.units.insert_one(unit_doc)
-    del unit_doc["_id"] if "_id" in unit_doc else None
+    unit_doc.pop("_id", None)
     return unit_doc
 
 @api_router.put("/units/{unit_id}")

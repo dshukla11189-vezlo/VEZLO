@@ -429,6 +429,117 @@ async def get_products(current_user: dict = Depends(get_current_user)):
     products = await db.products.find({}, {"_id": 0}).to_list(1000)
     return [Product(**p) for p in products]
 
+# ==================== UNITS MANAGEMENT ====================
+@api_router.get("/units")
+async def get_units(current_user: dict = Depends(get_current_user)):
+    """Get all units in the system"""
+    units = await db.units.find({}, {"_id": 0}).sort("name", 1).to_list(100)
+    return units
+
+@api_router.post("/units")
+async def create_unit(input: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new unit"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    name = input.get("name", "").strip()
+    symbol = input.get("symbol", "").strip()
+    description = input.get("description", "").strip()
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="Unit name is required")
+    
+    # Check for duplicate
+    existing = await db.units.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Unit '{name}' already exists")
+    
+    unit_doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "symbol": symbol or name,
+        "description": description,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.units.insert_one(unit_doc)
+    del unit_doc["_id"] if "_id" in unit_doc else None
+    return unit_doc
+
+@api_router.put("/units/{unit_id}")
+async def update_unit(unit_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing unit"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    unit = await db.units.find_one({"id": unit_id})
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    
+    update_data = {}
+    if "name" in input:
+        update_data["name"] = input["name"].strip()
+    if "symbol" in input:
+        update_data["symbol"] = input["symbol"].strip()
+    if "description" in input:
+        update_data["description"] = input["description"].strip()
+    
+    if update_data:
+        await db.units.update_one({"id": unit_id}, {"$set": update_data})
+    
+    updated = await db.units.find_one({"id": unit_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/units/{unit_id}")
+async def delete_unit(unit_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a unit (only if not in use)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete units")
+    
+    unit = await db.units.find_one({"id": unit_id}, {"_id": 0})
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    
+    # Check if unit is in use by any product
+    products_using = await db.products.count_documents({"unit": unit["name"]})
+    if products_using > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete unit '{unit['name']}'. It is used by {products_using} product(s)."
+        )
+    
+    await db.units.delete_one({"id": unit_id})
+    return {"message": f"Unit '{unit['name']}' deleted successfully"}
+
+@api_router.post("/units/seed-defaults")
+async def seed_default_units(current_user: dict = Depends(get_current_user)):
+    """Seed default units if none exist"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can seed units")
+    
+    existing_count = await db.units.count_documents({})
+    if existing_count > 0:
+        return {"message": f"Units already exist ({existing_count} units). Skipping seed."}
+    
+    default_units = [
+        {"name": "Kg", "symbol": "Kg", "description": "Kilogram - standard weight unit"},
+        {"name": "Gram", "symbol": "g", "description": "Gram - small weight unit"},
+        {"name": "Piece", "symbol": "Pc", "description": "Individual piece/item"},
+        {"name": "Pieces", "symbol": "Pcs", "description": "Multiple pieces/items"},
+        {"name": "Bunch", "symbol": "Bunch", "description": "Bundle of items tied together"},
+        {"name": "Packet", "symbol": "Pkt", "description": "Packaged unit"},
+        {"name": "Box", "symbol": "Box", "description": "Box container"},
+        {"name": "Crate", "symbol": "Crate", "description": "Crate container"},
+        {"name": "Dozen", "symbol": "Dz", "description": "12 pieces"},
+        {"name": "Litre", "symbol": "L", "description": "Liquid volume unit"},
+    ]
+    
+    for unit in default_units:
+        unit["id"] = str(uuid.uuid4())
+        unit["created_at"] = datetime.now(timezone.utc).isoformat()
+        await db.units.insert_one(unit)
+    
+    return {"message": f"Seeded {len(default_units)} default units"}
+
 @api_router.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED)
 async def create_product(input: ProductCreate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:

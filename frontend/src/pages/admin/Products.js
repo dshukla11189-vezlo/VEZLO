@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
@@ -6,14 +6,25 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler } from 'lucide-react';
 
 export default function Products() {
+  // Sub-tab state
+  const [activeSubTab, setActiveSubTab] = useState('products'); // 'products' or 'units'
+  
+  // Products state
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Units state
+  const [units, setUnits] = useState([]);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [showUnitDialog, setShowUnitDialog] = useState(false);
+  const [editUnit, setEditUnit] = useState(null);
+  const [unitForm, setUnitForm] = useState({ name: '', symbol: '', description: '' });
   
   // Delete with replacement state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -33,11 +44,8 @@ export default function Products() {
     cost_alias_product_id: ''  // For P&L: use this product's purchase cost
   });
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
-
-  const loadProducts = async () => {
+  // Load products
+  const loadProducts = useCallback(async () => {
     try {
       const response = await api.get('/api/products');
       setProducts(response.data);
@@ -46,7 +54,40 @@ export default function Products() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Load units
+  const loadUnits = useCallback(async () => {
+    setUnitsLoading(true);
+    try {
+      const response = await api.get('/api/units');
+      setUnits(response.data);
+    } catch (error) {
+      console.error('Failed to load units:', error);
+      // If no units exist, seed defaults
+      if (error.response?.status === 404 || (Array.isArray(error.response?.data) && error.response.data.length === 0)) {
+        await seedDefaultUnits();
+      }
+    } finally {
+      setUnitsLoading(false);
+    }
+  }, []);
+
+  // Seed default units
+  const seedDefaultUnits = async () => {
+    try {
+      await api.post('/api/units/seed-defaults');
+      await loadUnits();
+      toast.success('Default units created');
+    } catch (error) {
+      console.error('Failed to seed units:', error);
+    }
   };
+
+  useEffect(() => {
+    loadProducts();
+    loadUnits();
+  }, [loadProducts, loadUnits]);
 
   // Sort products alphabetically and filter by search query
   const filteredProducts = useMemo(() => {
@@ -166,8 +207,96 @@ export default function Products() {
     }
   };
 
+  // ==================== UNIT HANDLERS ====================
+  const openUnitDialog = (unit = null) => {
+    if (unit) {
+      setEditUnit(unit);
+      setUnitForm({ name: unit.name, symbol: unit.symbol, description: unit.description || '' });
+    } else {
+      setEditUnit(null);
+      setUnitForm({ name: '', symbol: '', description: '' });
+    }
+    setShowUnitDialog(true);
+  };
+
+  const handleUnitSubmit = async (e) => {
+    e.preventDefault();
+    if (!unitForm.name.trim()) {
+      toast.error('Unit name is required');
+      return;
+    }
+    
+    try {
+      if (editUnit) {
+        await api.put(`/api/units/${editUnit.id}`, unitForm);
+        toast.success('Unit updated successfully');
+      } else {
+        await api.post('/api/units', unitForm);
+        toast.success('Unit created successfully');
+      }
+      setShowUnitDialog(false);
+      setEditUnit(null);
+      setUnitForm({ name: '', symbol: '', description: '' });
+      loadUnits();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save unit');
+    }
+  };
+
+  const handleDeleteUnit = async (unit) => {
+    if (!window.confirm(`Are you sure you want to delete "${unit.name}"?`)) return;
+    
+    try {
+      await api.delete(`/api/units/${unit.id}`);
+      toast.success(`Unit "${unit.name}" deleted`);
+      loadUnits();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete unit');
+    }
+  };
+
+  // Get count of products using each unit
+  const getProductCountByUnit = (unitName) => {
+    return products.filter(p => p.unit === unitName).length;
+  };
+
   return (
-    <Layout title="Products">
+    <Layout title="Products & Units">
+      {/* Sub-tabs */}
+      <div className="flex border-b mb-6">
+        <button
+          onClick={() => setActiveSubTab('products')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeSubTab === 'products'
+              ? 'border-green-600 text-green-700 bg-green-50'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Package size={16} />
+          Products
+          <span className="ml-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+            {products.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('units')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeSubTab === 'units'
+              ? 'border-blue-600 text-blue-700 bg-blue-50'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Ruler size={16} />
+          Units
+          <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+            {units.length}
+          </span>
+        </button>
+      </div>
+
+      {/* ==================== PRODUCTS TAB ==================== */}
+      {activeSubTab === 'products' && (
+        <>
       <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
         {/* Search Input */}
         <div className="relative w-full sm:w-80">
@@ -225,14 +354,19 @@ export default function Products() {
                 </div>
                 <div>
                   <Label htmlFor="unit">Unit</Label>
-                  <Input
+                  <select
                     id="unit"
                     data-testid="product-unit-input"
-                    placeholder="Kg, Bunch, Packet"
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
                     required
-                  />
+                  >
+                    <option value="">Select Unit</option>
+                    {units.map(u => (
+                      <option key={u.id} value={u.name}>{u.name} ({u.symbol})</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
@@ -516,6 +650,160 @@ export default function Products() {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+        </>
+      )}
+
+      {/* ==================== UNITS TAB ==================== */}
+      {activeSubTab === 'units' && (
+        <div>
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <p className="text-sm text-gray-600">
+                Manage the units of measurement used across products.
+                {units.length === 0 && (
+                  <Button 
+                    variant="link" 
+                    className="text-blue-600 p-0 h-auto ml-2"
+                    onClick={seedDefaultUnits}
+                  >
+                    Click to add default units
+                  </Button>
+                )}
+              </p>
+            </div>
+            <Button 
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => openUnitDialog()}
+            >
+              <Plus size={16} className="mr-2" />
+              Add Unit
+            </Button>
+          </div>
+
+          <div className="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>NAME</th>
+                  <th>SYMBOL</th>
+                  <th>DESCRIPTION</th>
+                  <th className="text-center">PRODUCTS USING</th>
+                  <th className="text-center">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unitsLoading ? (
+                  <tr><td colSpan={5} className="p-8 text-center text-gray-400">Loading units...</td></tr>
+                ) : units.length === 0 ? (
+                  <tr><td colSpan={5} className="p-8 text-center text-gray-400">
+                    No units found. Add your first unit or seed defaults.
+                  </td></tr>
+                ) : units.map(unit => {
+                  const productCount = getProductCountByUnit(unit.name);
+                  return (
+                    <tr key={unit.id}>
+                      <td className="font-medium">{unit.name}</td>
+                      <td>
+                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                          {unit.symbol}
+                        </span>
+                      </td>
+                      <td className="text-gray-500 text-sm">{unit.description || '-'}</td>
+                      <td className="text-center">
+                        {productCount > 0 ? (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                            {productCount} products
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">Not used</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex items-center justify-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openUnitDialog(unit)}
+                          >
+                            <Edit size={16} className="text-blue-600" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteUnit(unit)}
+                            disabled={productCount > 0}
+                            title={productCount > 0 ? `Cannot delete: used by ${productCount} products` : 'Delete unit'}
+                          >
+                            <Trash size={16} className={productCount > 0 ? 'text-gray-300' : 'text-red-600'} />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Unit Dialog */}
+          {showUnitDialog && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                <div className="p-4 border-b bg-blue-50">
+                  <h3 className="text-lg font-semibold text-blue-800 flex items-center gap-2">
+                    <Ruler size={20} />
+                    {editUnit ? 'Edit Unit' : 'Add New Unit'}
+                  </h3>
+                </div>
+                <form onSubmit={handleUnitSubmit} className="p-4 space-y-4">
+                  <div>
+                    <Label htmlFor="unit-name">Unit Name *</Label>
+                    <Input
+                      id="unit-name"
+                      value={unitForm.name}
+                      onChange={(e) => setUnitForm({ ...unitForm, name: e.target.value })}
+                      placeholder="e.g., Kilogram, Piece, Bunch"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="unit-symbol">Symbol / Abbreviation *</Label>
+                    <Input
+                      id="unit-symbol"
+                      value={unitForm.symbol}
+                      onChange={(e) => setUnitForm({ ...unitForm, symbol: e.target.value })}
+                      placeholder="e.g., Kg, Pc, Bunch"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="unit-description">Description</Label>
+                    <Input
+                      id="unit-description"
+                      value={unitForm.description}
+                      onChange={(e) => setUnitForm({ ...unitForm, description: e.target.value })}
+                      placeholder="Optional description"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => { setShowUnitDialog(false); setEditUnit(null); }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700">
+                      {editUnit ? 'Update Unit' : 'Create Unit'}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Layout>

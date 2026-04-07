@@ -909,6 +909,23 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Row 1: Total Sales, COGS, Wastage Loss, Gross Profit (4 cards)
   - Row 2: Variable Exp, Net Profit, Daily Avg Profit (3 cards)
 
-
+### P&L Math Discrepancy Fix (COMPLETED - Apr 07, 2026)
+- [x] **Main Net Profit now equals QC Net Profit + Retail Net Profit**:
+  - Root cause: GRN Loss was being deducted from QC Net Profit but NOT from Main Net Profit
+  - Fix: `net_profit_actual = gross_profit_actual - total_grn_loss - total_variable - total_fixed`
+- [x] **GRN Loss allocated proportionally to QC customers**:
+  - Each QC customer's `grn_loss_share = total_grn_loss × (customer_sales / total_qc_sales)`
+  - Customer P&L modal shows "GRN LOSS" field for QC customers
+- [x] **Rejection Loss allocated proportionally to Retail customers**:
+  - Each Retail customer's `rejection_share = total_rejection × (customer_sales / total_retail_sales)`
+  - Customer P&L modal shows "REJECTION" field for Retail customers
+- [x] **Customer Daily Avg calculation fixed**:
+  - Now uses period days (7 days) instead of active days
+  - Ensures customer Daily Avgs sum up to match dashboard Daily Avg
+- [x] **Verified math** (Apr 1-7, 2026 data):
+  - Main Net Profit: ₹46,207.49 = QC ₹44,415.94 + Retail ₹1,791.55 ✅
+  - Main Daily Avg: ₹6,601 = QC ₹6,345 + Retail ₹256 ✅
+  - Ninjacart GRN Loss Share: ₹4,590.74
+  - Tamanna Mart Rejection Share: ₹0 (no rejection data)
 
 

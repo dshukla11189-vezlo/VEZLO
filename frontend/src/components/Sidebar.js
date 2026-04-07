@@ -26,9 +26,9 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     { path: '/admin/backup', icon: Database, labelKey: 'app.backup' },
   ];
 
-  // Staff access: Products, Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Invoices
+  // Staff access: Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Invoices
+  // NOTE: Products tab removed from staff - admin only
   const staffLinks = [
-    { path: '/admin/products', icon: Leaf, labelKey: 'app.products' },
     { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
     { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
     { path: '/admin/quick-commerce', icon: ShoppingCart, labelKey: 'app.quickCommerce' },

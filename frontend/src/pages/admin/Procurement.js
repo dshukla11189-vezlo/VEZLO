@@ -46,6 +46,9 @@ const UNIT_TYPES = [
   { value: 'Pack', label: 'Pack' }
 ];
 
+// Default fallback units (used until API data loads)
+const DEFAULT_UNITS = UNIT_TYPES;
+
 export default function Procurement() {
   const { t, i18n } = useTranslation();
   
@@ -61,6 +64,17 @@ export default function Procurement() {
   const [openTemplate, setOpenTemplate] = useState(false);
   const [selectedProcurement, setSelectedProcurement] = useState(null);
   const [editMode, setEditMode] = useState(false);
+  
+  // Units state - fetched from API
+  const [units, setUnits] = useState([]);
+  
+  // Computed unit options for dropdowns
+  const unitOptions = useMemo(() => {
+    if (units.length > 0) {
+      return units.map(u => ({ value: u.name, label: `${u.name} (${u.symbol})` }));
+    }
+    return DEFAULT_UNITS;
+  }, [units]);
 
   // Build a map of products for quick lookup (by id and name)
   const productMap = useMemo(() => {
@@ -189,15 +203,17 @@ export default function Procurement() {
 
   const loadData = async () => {
     try {
-      const [procRes, farmRes, prodRes] = await Promise.all([
+      const [procRes, farmRes, prodRes, unitsRes] = await Promise.all([
         api.get('/api/procurement'),
         api.get('/api/farmers'),
-        api.get('/api/products')
+        api.get('/api/products'),
+        api.get('/api/units')
       ]);
       setProcurements(procRes.data);
       setFilteredProcurements(procRes.data);
       setFarmers(farmRes.data);
       setProducts(prodRes.data);
+      setUnits(unitsRes.data || []);
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
@@ -1697,7 +1713,7 @@ export default function Procurement() {
                               <SelectValue placeholder="Unit" />
                             </SelectTrigger>
                             <SelectContent>
-                              {UNIT_TYPES.map((u) => (
+                              {unitOptions.map((u) => (
                                 <SelectItem key={u.value} value={u.value}>
                                   {u.value}
                                 </SelectItem>

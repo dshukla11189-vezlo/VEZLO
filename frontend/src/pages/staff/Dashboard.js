@@ -77,12 +77,12 @@ export default function StaffDashboard() {
         <CardContent className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Welcome to Mr Organix</h3>
           <p className="text-gray-600 mb-4">
-            As a warehouse staff member, you can manage products, record procurement, and update wastage records.
+            As a warehouse staff member, you can manage stock status, record procurement, and update wastage records.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-              <p className="text-sm font-medium text-green-900">Products</p>
-              <p className="text-xs text-green-700 mt-1">Add & update product inventory</p>
+              <p className="text-sm font-medium text-green-900">Stock Status</p>
+              <p className="text-xs text-green-700 mt-1">View & manage daily stock</p>
             </div>
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-sm font-medium text-blue-900">Procurement</p>

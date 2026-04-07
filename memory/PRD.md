@@ -928,4 +928,19 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Ninjacart GRN Loss Share: ₹4,590.74
   - Tamanna Mart Rejection Share: ₹0 (no rejection data)
 
+### QC Dispatch Line Item Edit/Delete (COMPLETED - Apr 07, 2026)
+- [x] **Backend API endpoints**:
+  - `GET /api/qc-dispatches/{dispatch_id}/invoice-status` - Check if dispatch is invoiced
+  - `PUT /api/qc-dispatches/{dispatch_id}/items/{item_index}` - Update item quantity
+  - `DELETE /api/qc-dispatches/{dispatch_id}/items-by-index/{item_index}` - Delete item by index
+- [x] **Invoice protection**: Edit/Delete blocked if dispatch is part of an invoice
+  - Error message: "Cannot edit: Dispatch is part of invoice {number}. Delete the invoice first."
+- [x] **Frontend UI - Dispatch Log table**:
+  - Columns: PRODUCT | PACKAGING | QTY | ACTIONS
+  - Edit button (pencil icon) - Opens inline edit mode
+  - Delete button (trash icon) - Removes individual line item
+  - Keyboard shortcuts: Enter to save, Escape to cancel
+  - Invoice status badge shows when dispatch is invoiced
+- [x] **Tested and verified** - 100% success rate (10/10 tests passed)
+
 

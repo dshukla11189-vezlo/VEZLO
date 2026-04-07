@@ -886,6 +886,20 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Retailer Portal → Closing History table
   - Admin Portal → Closing Inventory tab
 - [x] **Edit/Delete controls** working correctly for same-day records only
+
+### Admin Closing Inventory Edit Enhancement (COMPLETED - Apr 07, 2026)
+- [x] **Variant name editing**: Admin can now edit both closing qty AND variant name
+- [x] **Searchable dropdown**: Variant field shows searchable list populated from packaging variants
+- [x] **Backend updated**: PUT endpoint now accepts `variant_name` in addition to `closing_qty`
+
+### Packaging Moved to Products Tab (COMPLETED - Apr 07, 2026)
+- [x] **Products page now has 3 sub-tabs**: Products | Units | Packaging
+- [x] **Packaging management**:
+  - View all packaging variants sorted alphabetically
+  - Add new packaging (name + weight in gm)
+  - Edit existing packaging
+  - Delete packaging
+- [x] **Removed from Quick Commerce** - Packaging section moved from QC tab to Products tab
 - [x] **Daily Avg Profit** added to dashboards:
   - Main Dashboard: Shows "Daily Avg Profit = Net Profit / Days" with day count
   - QC Dashboard: Shows "DAILY AVG" for Quick Commerce

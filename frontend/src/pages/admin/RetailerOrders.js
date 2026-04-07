@@ -181,6 +181,8 @@ export default function RetailerOrders() {
   const [closingInventoryRetailer, setClosingInventoryRetailer] = useState('');
   const [editingClosingItem, setEditingClosingItem] = useState(null);
   const [editingClosingQty, setEditingClosingQty] = useState('');
+  const [editingClosingVariant, setEditingClosingVariant] = useState('');
+  const [variantSearchTerm, setVariantSearchTerm] = useState('');
   
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
@@ -323,14 +325,20 @@ export default function RetailerOrders() {
   }, [closingInventoryRetailer, closingInventoryDate]);
 
   // Admin: Update closing inventory item
-  const updateClosingItem = async (itemId, newQty) => {
+  const updateClosingItem = async (itemId, newQty, newVariantName = null) => {
     try {
-      await api.put(`/api/retailer-closing-inventory/item/${itemId}`, {
+      const updateData = {
         closing_qty: parseFloat(newQty)
-      });
+      };
+      if (newVariantName) {
+        updateData.variant_name = newVariantName;
+      }
+      await api.put(`/api/retailer-closing-inventory/item/${itemId}`, updateData);
       toast.success('Item updated successfully');
       setEditingClosingItem(null);
       setEditingClosingQty('');
+      setEditingClosingVariant('');
+      setVariantSearchTerm('');
       loadClosingInventory();
     } catch (error) {
       toast.error('Failed to update item');
@@ -3103,7 +3111,43 @@ export default function RetailerOrders() {
                             return (
                               <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
                                 <td className="p-3 font-medium">{item.product_name}</td>
-                                <td className="p-3 text-gray-500 text-xs">{item.variant_name || 'Kg'}</td>
+                                <td className="p-3 text-gray-500 text-xs">
+                                  {editingClosingItem === item.id ? (
+                                    <div className="relative">
+                                      <Input
+                                        type="text"
+                                        value={variantSearchTerm}
+                                        onChange={(e) => setVariantSearchTerm(e.target.value)}
+                                        placeholder="Search variant..."
+                                        className="w-32 h-7 text-xs"
+                                      />
+                                      {variantSearchTerm && (
+                                        <div className="absolute z-10 w-48 max-h-40 overflow-y-auto bg-white border rounded shadow-lg mt-1">
+                                          {packagings
+                                            .filter(p => p.name.toLowerCase().includes(variantSearchTerm.toLowerCase()))
+                                            .slice(0, 10)
+                                            .map(p => (
+                                              <div
+                                                key={p.id}
+                                                onClick={() => {
+                                                  setEditingClosingVariant(p.name);
+                                                  setVariantSearchTerm(p.name);
+                                                }}
+                                                className="px-2 py-1 text-xs hover:bg-blue-50 cursor-pointer"
+                                              >
+                                                {p.name}
+                                              </div>
+                                            ))}
+                                          {packagings.filter(p => p.name.toLowerCase().includes(variantSearchTerm.toLowerCase())).length === 0 && (
+                                            <div className="px-2 py-1 text-xs text-gray-400">No matches</div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    item.variant_name || 'Kg'
+                                  )}
+                                </td>
                                 <td className="p-3 text-center">
                                   <span className={`font-semibold ${openingQty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
                                     {openingQty}
@@ -3139,7 +3183,7 @@ export default function RetailerOrders() {
                                       <Button 
                                         size="sm" 
                                         variant="ghost"
-                                        onClick={() => updateClosingItem(item.id, editingClosingQty)}
+                                        onClick={() => updateClosingItem(item.id, editingClosingQty, editingClosingVariant || null)}
                                         className="h-7 w-7 p-0 text-green-600 hover:bg-green-50"
                                       >
                                         <Check size={14} />
@@ -3147,7 +3191,7 @@ export default function RetailerOrders() {
                                       <Button 
                                         size="sm" 
                                         variant="ghost"
-                                        onClick={() => { setEditingClosingItem(null); setEditingClosingQty(''); }}
+                                        onClick={() => { setEditingClosingItem(null); setEditingClosingQty(''); setEditingClosingVariant(''); setVariantSearchTerm(''); }}
                                         className="h-7 w-7 p-0 text-gray-600 hover:bg-gray-100"
                                       >
                                         <X size={14} />
@@ -3163,9 +3207,14 @@ export default function RetailerOrders() {
                                       <Button 
                                         size="sm" 
                                         variant="ghost"
-                                        onClick={() => { setEditingClosingItem(item.id); setEditingClosingQty(item.closing_qty?.toString() || ''); }}
+                                        onClick={() => { 
+                                          setEditingClosingItem(item.id); 
+                                          setEditingClosingQty(item.closing_qty?.toString() || ''); 
+                                          setEditingClosingVariant(item.variant_name || 'Kg');
+                                          setVariantSearchTerm(item.variant_name || 'Kg');
+                                        }}
                                         className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
-                                        title="Edit Closing Qty"
+                                        title="Edit Closing Qty & Variant"
                                       >
                                         <Pencil size={12} />
                                       </Button>

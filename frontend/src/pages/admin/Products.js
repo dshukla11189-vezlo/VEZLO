@@ -6,11 +6,11 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box } from 'lucide-react';
 
 export default function Products() {
   // Sub-tab state
-  const [activeSubTab, setActiveSubTab] = useState('products'); // 'products' or 'units'
+  const [activeSubTab, setActiveSubTab] = useState('products'); // 'products', 'units', or 'packaging'
   
   // Products state
   const [products, setProducts] = useState([]);
@@ -25,6 +25,13 @@ export default function Products() {
   const [showUnitDialog, setShowUnitDialog] = useState(false);
   const [editUnit, setEditUnit] = useState(null);
   const [unitForm, setUnitForm] = useState({ name: '', symbol: '', description: '' });
+  
+  // Packaging state
+  const [packagingVariants, setPackagingVariants] = useState([]);
+  const [packagingLoading, setPackagingLoading] = useState(false);
+  const [showPackagingDialog, setShowPackagingDialog] = useState(false);
+  const [editingPackaging, setEditingPackaging] = useState(null);
+  const [packagingForm, setPackagingForm] = useState({ name: '', weight_gm: '' });
   
   // Delete with replacement state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -84,10 +91,72 @@ export default function Products() {
     }
   };
 
+  // Load packaging variants
+  const loadPackaging = useCallback(async () => {
+    setPackagingLoading(true);
+    try {
+      const response = await api.get('/api/qc-packaging');
+      setPackagingVariants(response.data);
+    } catch (error) {
+      console.error('Failed to load packaging:', error);
+    } finally {
+      setPackagingLoading(false);
+    }
+  }, []);
+
+  // Packaging handlers
+  const handleSubmitPackaging = async (e) => {
+    e.preventDefault();
+    if (!packagingForm.name || !packagingForm.weight_gm) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+    try {
+      if (editingPackaging) {
+        await api.put(`/api/qc-packaging/${editingPackaging.id}`, {
+          name: packagingForm.name,
+          weight_gm: parseFloat(packagingForm.weight_gm)
+        });
+        toast.success('Packaging updated successfully');
+      } else {
+        await api.post(`/api/qc-packaging?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}`);
+        toast.success('Packaging added successfully');
+      }
+      resetPackagingForm();
+      loadPackaging();
+    } catch (error) {
+      toast.error('Failed to save packaging');
+    }
+  };
+
+  const handleEditPackaging = (pkg) => {
+    setEditingPackaging(pkg);
+    setPackagingForm({ name: pkg.name, weight_gm: pkg.weight_gm?.toString() || '' });
+    setShowPackagingDialog(true);
+  };
+
+  const handleDeletePackaging = async (packagingId) => {
+    if (!window.confirm('Are you sure you want to delete this packaging?')) return;
+    try {
+      await api.delete(`/api/qc-packaging/${packagingId}`);
+      toast.success('Packaging deleted successfully');
+      loadPackaging();
+    } catch (error) {
+      toast.error('Failed to delete packaging');
+    }
+  };
+
+  const resetPackagingForm = () => {
+    setPackagingForm({ name: '', weight_gm: '' });
+    setEditingPackaging(null);
+    setShowPackagingDialog(false);
+  };
+
   useEffect(() => {
     loadProducts();
     loadUnits();
-  }, [loadProducts, loadUnits]);
+    loadPackaging();
+  }, [loadProducts, loadUnits, loadPackaging]);
 
   // Sort products alphabetically and filter by search query
   const filteredProducts = useMemo(() => {
@@ -290,6 +359,20 @@ export default function Products() {
           Units
           <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
             {units.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('packaging')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeSubTab === 'packaging'
+              ? 'border-purple-600 text-purple-700 bg-purple-50'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Box size={16} />
+          Packaging
+          <span className="ml-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+            {packagingVariants.length}
           </span>
         </button>
       </div>
@@ -802,6 +885,120 @@ export default function Products() {
                   </div>
                 </form>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================== PACKAGING TAB ==================== */}
+      {activeSubTab === 'packaging' && (
+        <div className="bg-white rounded-lg border shadow-sm p-6">
+          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Packaging / Variants</h2>
+              <p className="text-sm text-gray-500">Manage packaging options used in dispatches and inventory.</p>
+            </div>
+            <Dialog open={showPackagingDialog} onOpenChange={(val) => { setShowPackagingDialog(val); if (!val) resetPackagingForm(); }}>
+              <DialogTrigger asChild>
+                <Button className="bg-purple-600 hover:bg-purple-700">
+                  <Plus size={16} className="mr-2" />
+                  Add Packaging
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editingPackaging ? 'Edit Packaging' : 'Add New Packaging'}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmitPackaging} className="space-y-4 mt-4">
+                  <div>
+                    <Label htmlFor="pkg-name">Packaging Name *</Label>
+                    <Input
+                      id="pkg-name"
+                      value={packagingForm.name}
+                      onChange={(e) => setPackagingForm({ ...packagingForm, name: e.target.value })}
+                      placeholder="e.g., 250 gm, 500 ml, Pack (2 Pcs)"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="pkg-weight">Weight (gm) *</Label>
+                    <Input
+                      id="pkg-weight"
+                      type="number"
+                      value={packagingForm.weight_gm}
+                      onChange={(e) => setPackagingForm({ ...packagingForm, weight_gm: e.target.value })}
+                      placeholder="Weight in grams"
+                      required
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <Button type="button" variant="outline" className="flex-1" onClick={resetPackagingForm}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" className="flex-1 bg-purple-600 hover:bg-purple-700">
+                      {editingPackaging ? 'Update' : 'Create'}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Packaging Table */}
+          {packagingLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading packaging...</div>
+          ) : packagingVariants.length === 0 ? (
+            <div className="text-center py-12 text-gray-500 border rounded-lg bg-gray-50">
+              <Box size={48} className="mx-auto mb-4 text-gray-300" />
+              <p className="font-medium">No packaging variants found</p>
+              <p className="text-sm">Add your first packaging variant to get started.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-100 border-b">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Name</th>
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">Weight (gm)</th>
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {packagingVariants
+                    .slice()
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                    .map(pkg => (
+                      <tr key={pkg.id} className="border-b hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-800">{pkg.name}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                            {pkg.weight_gm} gm
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditPackaging(pkg)}
+                              className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
+                            >
+                              <Edit size={14} />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeletePackaging(pkg.id)}
+                              className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                            >
+                              <Trash size={14} />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

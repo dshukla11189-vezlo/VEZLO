@@ -8831,8 +8831,9 @@ async def update_closing_inventory_item(
     data: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update a single closing inventory item"""
+    """Update a single closing inventory item (closing_qty and/or variant_name)"""
     closing_qty = data.get("closing_qty")
+    variant_name = data.get("variant_name")
     
     if closing_qty is None:
         raise HTTPException(status_code=400, detail="closing_qty is required")
@@ -8842,9 +8843,13 @@ async def update_closing_inventory_item(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid closing_qty value")
     
+    update_data = {"closing_qty": closing_qty_num}
+    if variant_name:
+        update_data["variant_name"] = variant_name
+    
     result = await db.retailer_closing_inventory.find_one_and_update(
         {"id": item_id},
-        {"$set": {"closing_qty": closing_qty_num}},
+        {"$set": update_data},
         return_document=True,
         projection={"_id": 0}
     )

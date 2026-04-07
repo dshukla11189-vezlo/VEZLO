@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
@@ -91,6 +91,96 @@ export default function AdminDashboard() {
       [key]: !prev[key]
     }));
   };
+
+  // Customer detail modal state
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerDetailDateFrom, setCustomerDetailDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [customerDetailDateTo, setCustomerDetailDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [customerDetailData, setCustomerDetailData] = useState(null);
+  const [loadingCustomerDetail, setLoadingCustomerDetail] = useState(false);
+
+  // Load customer detail data
+  const loadCustomerDetail = useCallback(async (customerName) => {
+    if (!customerName) return;
+    setLoadingCustomerDetail(true);
+    try {
+      const response = await api.get(`/api/reports/pnl?from_date=${customerDetailDateFrom}&to_date=${customerDetailDateTo}`);
+      const dailyPnl = response.data?.daily_pnl || [];
+      
+      // Filter daily data for the selected customer
+      const customerDailyData = dailyPnl.map(day => {
+        const customerItems = (day.line_items || []).filter(item => 
+          item.customer?.toLowerCase() === customerName.toLowerCase()
+        );
+        
+        if (customerItems.length === 0) return null;
+        
+        const sales = customerItems.reduce((sum, item) => sum + (item.sales || 0), 0);
+        const qty = customerItems.reduce((sum, item) => sum + (item.qty || 0), 0);
+        const purchase = customerItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
+        const wastage = customerItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
+        const commission = customerItems.reduce((sum, item) => sum + (item.commission || 0), 0);
+        const grossProfit = sales - purchase - wastage - commission;
+        const grossMargin = sales > 0 ? (grossProfit / sales * 100) : 0;
+        const profitPerUnit = qty > 0 ? (grossProfit / qty) : 0;
+        
+        return {
+          date: day.date,
+          sales,
+          qty,
+          purchase,
+          wastage,
+          commission,
+          grossProfit,
+          grossMargin,
+          profitPerUnit,
+          items: customerItems
+        };
+      }).filter(Boolean);
+      
+      // Calculate totals
+      const totals = customerDailyData.reduce((acc, day) => ({
+        sales: acc.sales + day.sales,
+        qty: acc.qty + day.qty,
+        purchase: acc.purchase + day.purchase,
+        wastage: acc.wastage + day.wastage,
+        commission: acc.commission + day.commission,
+        grossProfit: acc.grossProfit + day.grossProfit
+      }), { sales: 0, qty: 0, purchase: 0, wastage: 0, commission: 0, grossProfit: 0 });
+      
+      totals.grossMargin = totals.sales > 0 ? (totals.grossProfit / totals.sales * 100) : 0;
+      totals.profitPerUnit = totals.qty > 0 ? (totals.grossProfit / totals.qty) : 0;
+      
+      setCustomerDetailData({
+        daily: customerDailyData,
+        totals
+      });
+    } catch (error) {
+      console.error('Failed to load customer detail:', error);
+      toast.error('Failed to load customer details');
+    } finally {
+      setLoadingCustomerDetail(false);
+    }
+  }, [customerDetailDateFrom, customerDetailDateTo]);
+
+  // Open customer detail modal
+  const openCustomerDetail = (customerName) => {
+    setSelectedCustomer(customerName);
+    setCustomerDetailDateFrom(dateFrom);
+    setCustomerDetailDateTo(dateTo);
+    loadCustomerDetail(customerName);
+  };
+
+  // Reload customer detail when dates change
+  useEffect(() => {
+    if (selectedCustomer) {
+      loadCustomerDetail(selectedCustomer);
+    }
+  }, [selectedCustomer, loadCustomerDetail]);
 
   const loadPnlData = useCallback(async () => {
     setLoading(true);
@@ -1095,6 +1185,7 @@ export default function AdminDashboard() {
             <Card>
               <CardHeader className="py-3">
                 <CardTitle className="text-sm">Top Customers</CardTitle>
+                <p className="text-[10px] text-gray-500 mt-1">Click customer name for detailed breakdown</p>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="max-h-[350px] overflow-y-auto">
@@ -1105,7 +1196,12 @@ export default function AdminDashboard() {
                           {idx + 1}
                         </span>
                         <div>
-                          <p className="font-medium text-sm">{c.customer}</p>
+                          <p 
+                            className="font-medium text-sm text-blue-600 hover:text-blue-800 cursor-pointer hover:underline"
+                            onClick={() => openCustomerDetail(c.customer)}
+                          >
+                            {c.customer}
+                          </p>
                           <p className="text-[10px] text-gray-500">{c.invoices} invoices</p>
                         </div>
                       </div>
@@ -1330,6 +1426,173 @@ export default function AdminDashboard() {
           </div>
         )}
       </div>
+
+      {/* Customer Detail Modal */}
+      {selectedCustomer && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-blue-50 to-white">
+              <div>
+                <h3 className="text-lg font-semibold text-blue-800 flex items-center gap-2">
+                  <Users size={20} />
+                  Customer P&L: {selectedCustomer}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">Date-wise breakdown of sales, purchases, and profit</p>
+              </div>
+              <button 
+                onClick={() => { setSelectedCustomer(null); setCustomerDetailData(null); }} 
+                className="p-2 hover:bg-gray-100 rounded-full"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            {/* Date Filters */}
+            <div className="flex items-center gap-4 p-4 bg-gray-50 border-b">
+              <div className="flex items-center gap-2">
+                <Calendar size={16} className="text-gray-500" />
+                <span className="text-sm text-gray-600">From:</span>
+                <Input
+                  type="date"
+                  value={customerDetailDateFrom}
+                  onChange={(e) => setCustomerDetailDateFrom(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">To:</span>
+                <Input
+                  type="date"
+                  value={customerDetailDateTo}
+                  onChange={(e) => setCustomerDetailDateTo(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => loadCustomerDetail(selectedCustomer)}
+                disabled={loadingCustomerDetail}
+              >
+                <RefreshCw size={14} className={`mr-1 ${loadingCustomerDetail ? 'animate-spin' : ''}`} /> 
+                {loadingCustomerDetail ? 'Loading...' : 'Apply'}
+              </Button>
+            </div>
+            
+            {/* Totals Summary */}
+            {customerDetailData?.totals && (
+              <div className="grid grid-cols-4 md:grid-cols-8 gap-2 p-4 bg-blue-50 border-b">
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">SALES</p>
+                  <p className="text-sm font-bold text-green-600">₹{customerDetailData.totals.sales.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">QTY</p>
+                  <p className="text-sm font-bold">{customerDetailData.totals.qty.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">PURCHASE</p>
+                  <p className="text-sm font-bold text-orange-600">₹{customerDetailData.totals.purchase.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">WASTAGE</p>
+                  <p className="text-sm font-bold text-red-600">₹{customerDetailData.totals.wastage.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">COMMISSION</p>
+                  <p className="text-sm font-bold text-amber-600">₹{customerDetailData.totals.commission.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">GROSS P/L</p>
+                  <p className={`text-sm font-bold ${customerDetailData.totals.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    ₹{customerDetailData.totals.grossProfit.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">GM %</p>
+                  <p className={`text-sm font-bold ${customerDetailData.totals.grossMargin >= 20 ? 'text-green-700' : customerDetailData.totals.grossMargin >= 0 ? 'text-amber-600' : 'text-red-700'}`}>
+                    {customerDetailData.totals.grossMargin.toFixed(1)}%
+                  </p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">₹/UNIT</p>
+                  <p className={`text-sm font-bold ${customerDetailData.totals.profitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    ₹{customerDetailData.totals.profitPerUnit.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {/* Daily Breakdown Table */}
+            <div className="flex-1 overflow-auto p-4">
+              {loadingCustomerDetail ? (
+                <div className="flex items-center justify-center h-48">
+                  <RefreshCw size={24} className="animate-spin text-blue-500" />
+                  <span className="ml-2 text-gray-500">Loading customer data...</span>
+                </div>
+              ) : customerDetailData?.daily?.length > 0 ? (
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left font-medium text-gray-600">DATE</th>
+                      <th className="p-2 text-right font-medium text-green-600">SALES</th>
+                      <th className="p-2 text-right font-medium text-gray-600">QTY</th>
+                      <th className="p-2 text-right font-medium text-orange-600">PURCHASE</th>
+                      <th className="p-2 text-right font-medium text-red-600">WASTAGE</th>
+                      <th className="p-2 text-right font-medium text-amber-600">COMMISSION</th>
+                      <th className="p-2 text-right font-medium text-gray-600">GROSS P/L</th>
+                      <th className="p-2 text-right font-medium text-gray-600">GM %</th>
+                      <th className="p-2 text-right font-medium text-gray-600">₹/UNIT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customerDetailData.daily.map((day, idx) => (
+                      <tr key={idx} className="border-b hover:bg-blue-50">
+                        <td className="p-2 font-medium">
+                          {new Date(day.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                        </td>
+                        <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
+                        <td className="p-2 text-right">{day.qty.toLocaleString()}</td>
+                        <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
+                        <td className="p-2 text-right text-red-600">{day.wastage > 0 ? `₹${day.wastage.toLocaleString()}` : '-'}</td>
+                        <td className="p-2 text-right text-amber-600">{day.commission > 0 ? `₹${day.commission.toLocaleString()}` : '-'}</td>
+                        <td className={`p-2 text-right font-semibold ${day.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          ₹{day.grossProfit.toLocaleString()}
+                        </td>
+                        <td className="p-2 text-right">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                            day.grossMargin >= 30 ? 'bg-green-100 text-green-700' : 
+                            day.grossMargin >= 15 ? 'bg-blue-100 text-blue-700' :
+                            day.grossMargin >= 0 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {day.grossMargin.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className={`p-2 text-right ${day.profitPerUnit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          ₹{day.profitPerUnit.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="flex items-center justify-center h-48 text-gray-400">
+                  No data found for this customer in the selected date range
+                </div>
+              )}
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="p-3 border-t bg-gray-50 text-center">
+              <Button variant="outline" onClick={() => { setSelectedCustomer(null); setCustomerDetailData(null); }}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

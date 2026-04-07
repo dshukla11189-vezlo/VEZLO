@@ -141,6 +141,14 @@ export default function AdminDashboard() {
     try {
       const response = await api.get(`/api/reports/pnl?from_date=${customerDetailDateFrom}&to_date=${customerDetailDateTo}`);
       const dailyPnl = response.data?.daily_pnl || [];
+      const customerPnlList = response.data?.customer_pnl || [];
+      
+      // Find this customer's data from the customer_pnl list to get GRN loss share and type
+      const customerPnlEntry = customerPnlList.find(c => 
+        c.customer?.toLowerCase() === customerName.toLowerCase()
+      );
+      const customerType = customerPnlEntry?.type || 'QC';
+      const grnLossShare = customerPnlEntry?.grn_loss_share || 0;
       
       // Filter daily data for the selected customer
       const customerDailyData = dailyPnl.map(day => {
@@ -189,10 +197,21 @@ export default function AdminDashboard() {
       
       totals.grossMargin = totals.sales > 0 ? (totals.grossProfit / totals.sales * 100) : 0;
       totals.profitPerUnit = totals.qty > 0 ? (totals.grossProfit / totals.qty) : 0;
+      totals.customerType = customerType;
+      totals.grnLossShare = grnLossShare;
+      // For QC customers, Net Profit = Gross Profit - GRN Loss Share
+      // For Retail, Net Profit = Gross Profit (commission already deducted)
+      totals.netProfit = customerType === 'QC' ? totals.grossProfit - grnLossShare : totals.grossProfit;
+      
+      // Calculate period days for Daily Avg (use total calendar days, not active days)
+      // This ensures customer Daily Avgs sum up to match dashboard Daily Avg
+      const periodDays = calculateDaysBetween(customerDetailDateFrom, customerDetailDateTo);
       
       setCustomerDetailData({
         daily: customerDailyData,
-        totals
+        totals,
+        daysCount: customerDailyData.length,  // Active days for display
+        periodDays: periodDays  // Total period days for Daily Avg calculation
       });
     } catch (error) {
       console.error('Failed to load customer detail:', error);
@@ -1552,7 +1571,7 @@ export default function AdminDashboard() {
             
             {/* Totals Summary */}
             {customerDetailData?.totals && (
-              <div className="grid grid-cols-4 md:grid-cols-8 gap-2 p-4 bg-blue-50 border-b">
+              <div className="grid grid-cols-4 md:grid-cols-9 gap-2 p-4 bg-blue-50 border-b">
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">SALES</p>
                   <p className="text-sm font-bold text-green-600">₹{customerDetailData.totals.sales.toLocaleString()}</p>
@@ -1570,8 +1589,12 @@ export default function AdminDashboard() {
                   <p className="text-sm font-bold text-red-600">₹{customerDetailData.totals.wastage.toLocaleString()}</p>
                 </div>
                 <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">COMMISSION</p>
-                  <p className="text-sm font-bold text-amber-600">₹{customerDetailData.totals.commission.toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-500 font-medium">{customerDetailData.totals.customerType === 'QC' ? 'GRN LOSS' : 'COMMISSION'}</p>
+                  <p className="text-sm font-bold text-amber-600">
+                    ₹{customerDetailData.totals.customerType === 'QC' 
+                      ? customerDetailData.totals.grnLossShare.toLocaleString() 
+                      : customerDetailData.totals.commission.toLocaleString()}
+                  </p>
                 </div>
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">GROSS P/L</p>
@@ -1593,8 +1616,8 @@ export default function AdminDashboard() {
                 </div>
                 <div className="text-center p-2 bg-indigo-50 rounded shadow-sm">
                   <p className="text-[10px] text-indigo-600 font-medium">DAILY AVG</p>
-                  <p className={`text-sm font-bold ${(customerDetailData.totals.grossProfit / (customerDetailData.daily?.length || 1)) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
-                    ₹{(customerDetailData.totals.grossProfit / (customerDetailData.daily?.length || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  <p className={`text-sm font-bold ${(customerDetailData.totals.netProfit / (customerDetailData.periodDays || 1)) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                    ₹{(customerDetailData.totals.netProfit / (customerDetailData.periodDays || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </p>
                 </div>
               </div>

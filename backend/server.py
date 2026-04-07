@@ -4213,14 +4213,15 @@ async def get_pnl_report(
             "line_items": detailed_line_items  # NEW: Customer→Product breakdown
         })
     
-    # Customer P&L
-    customer_pnl = []
+    # Customer P&L - calculate GRN loss later after we have total_grn_loss
+    customer_pnl_data = []
     for customer, data in sorted(sales_by_customer.items(), key=lambda x: x[1]["amount"], reverse=True):
-        customer_pnl.append({
+        customer_pnl_data.append({
             "customer": customer,
             "sales_amount": round(data["amount"], 2),
             "sales_qty": round(data["qty"], 2),
-            "invoices": data["invoices"]
+            "invoices": data["invoices"],
+            "type": data.get("type", "QC")  # Include customer type
         })
     
     # Product P&L with additional metrics
@@ -4332,6 +4333,19 @@ async def get_pnl_report(
     # Net Profit = Gross Profit - GRN Loss - Variable Expenses - Fixed Expenses
     net_profit_actual = gross_profit_actual - total_grn_loss - total_variable - total_fixed
     net_margin_actual = (net_profit_actual / total_sales * 100) if total_sales > 0 else 0
+    
+    # Now allocate GRN loss proportionally to QC customers based on their sales contribution
+    # This ensures customer-level P&L aligns with QC-level P&L
+    customer_pnl = []
+    for cust_data in customer_pnl_data:
+        customer_entry = cust_data.copy()
+        if cust_data["type"] == "QC" and total_qc_sales > 0:
+            # Allocate GRN loss proportionally based on this customer's sales share of QC
+            customer_qc_share = cust_data["sales_amount"] / total_qc_sales
+            customer_entry["grn_loss_share"] = round(total_grn_loss * customer_qc_share, 2)
+        else:
+            customer_entry["grn_loss_share"] = 0
+        customer_pnl.append(customer_entry)
     
     return {
         "period": {"from": from_date, "to": to_date},

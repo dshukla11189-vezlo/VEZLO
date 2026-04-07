@@ -125,6 +125,20 @@ export default function RetailerOrders() {
   });
   const [paymentContext, setPaymentContext] = useState(null); // Store dispatch details for selected date/retailer
   
+  // Invoice Payment Modal state
+  const [showInvoicePaymentModal, setShowInvoicePaymentModal] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
+  const [invoicePaymentForm, setInvoicePaymentForm] = useState({
+    amount: '',
+    payment_mode: 'cash',
+    reference_number: '',
+    remarks: '',
+    payment_date: new Date().toISOString().split('T')[0]
+  });
+  
+  // Invoice filter state
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all'); // all, pending, partial, paid
+  
   // Search states for autocomplete
   const [productSearch, setProductSearch] = useState('');
   const [variantSearch, setVariantSearch] = useState('');
@@ -1830,6 +1844,63 @@ export default function RetailerOrders() {
     setShowPaymentRetailerDropdown(false);
   };
 
+  // Open invoice payment modal
+  const openInvoicePaymentModal = (invoice) => {
+    setSelectedInvoiceForPayment(invoice);
+    const remainingAmount = (invoice.net_payable || 0) - (invoice.paid_amount || 0);
+    setInvoicePaymentForm({
+      amount: remainingAmount > 0 ? remainingAmount.toFixed(2) : '',
+      payment_mode: 'cash',
+      reference_number: '',
+      remarks: '',
+      payment_date: new Date().toISOString().split('T')[0]
+    });
+    setShowInvoicePaymentModal(true);
+  };
+
+  // Handle invoice payment submission
+  const handleInvoicePayment = async (e) => {
+    e.preventDefault();
+    if (!selectedInvoiceForPayment || !invoicePaymentForm.amount) {
+      toast.error('Please enter payment amount');
+      return;
+    }
+    
+    try {
+      await api.post(`/api/retailer-invoices/${selectedInvoiceForPayment.id}/payment`, {
+        amount: parseFloat(invoicePaymentForm.amount),
+        payment_mode: invoicePaymentForm.payment_mode,
+        reference_number: invoicePaymentForm.reference_number,
+        remarks: invoicePaymentForm.remarks,
+        payment_date: invoicePaymentForm.payment_date
+      });
+      toast.success('Payment recorded successfully');
+      setShowInvoicePaymentModal(false);
+      setSelectedInvoiceForPayment(null);
+      loadInvoices();
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to record payment');
+    }
+  };
+
+  // Get filtered invoices based on status filter
+  const filteredInvoices = useMemo(() => {
+    let filtered = invoices;
+    
+    // Filter by selected retailer
+    if (selectedRetailer) {
+      filtered = filtered.filter(inv => inv.retailer_id === selectedRetailer);
+    }
+    
+    // Filter by payment status
+    if (invoiceStatusFilter !== 'all') {
+      filtered = filtered.filter(inv => (inv.status || 'pending') === invoiceStatusFilter);
+    }
+    
+    return filtered;
+  }, [invoices, selectedRetailer, invoiceStatusFilter]);
+
   // Helper function to get retailer display name (company_name or name)
   const getRetailerDisplayName = (retailer) => {
     return retailer?.company_name || retailer?.name || '-';
@@ -1875,7 +1946,6 @@ export default function RetailerOrders() {
     { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
     { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
     { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
-    { id: 'payments', label: 'Payments', icon: DollarSign, count: payments.length },
     { id: 'closingInventory', label: 'Closing Inventory', icon: ClipboardList, count: null }
   ];
 
@@ -2495,25 +2565,59 @@ export default function RetailerOrders() {
         {/* ==================== INVOICES TAB ==================== */}
         {activeTab === 'invoices' && (
           <Card>
-            <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">Invoices</CardTitle>
-              <div className="flex gap-2 items-center">
-                <Button size="sm" variant="outline" onClick={exportInvoices} title="Export to Excel">
-                  <FileSpreadsheet size={14} className="mr-1" /> Export
-                </Button>
-                <select
-                  value={invoiceForm.retailer_id}
-                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
-                  className="h-8 px-2 rounded border text-sm"
-                >
-                  <option value="">Select Retailer</option>
-                  {retailers.map(r => (
-                    <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+            <CardHeader className="py-3 flex flex-col gap-3">
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Invoices</CardTitle>
+                <div className="flex gap-2 items-center">
+                  <Button size="sm" variant="outline" onClick={exportInvoices} title="Export to Excel">
+                    <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                  <select
+                    value={invoiceForm.retailer_id}
+                    onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
+                    className="h-8 px-2 rounded border text-sm"
+                  >
+                    <option value="">Select Retailer</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+                    ))}
+                  </select>
+                  <Button size="sm" className="bg-[#14532D]" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
+                    <Plus size={14} className="mr-1" /> Create Invoice
+                  </Button>
+                </div>
+              </div>
+              {/* Status Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Filter by Status:</span>
+                <div className="flex gap-1">
+                  {[
+                    { value: 'all', label: 'All', color: 'gray' },
+                    { value: 'pending', label: 'Pending', color: 'yellow' },
+                    { value: 'partial', label: 'Partial', color: 'blue' },
+                    { value: 'paid', label: 'Paid', color: 'green' }
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setInvoiceStatusFilter(opt.value)}
+                      className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                        invoiceStatusFilter === opt.value
+                          ? opt.color === 'yellow' ? 'bg-yellow-100 border-yellow-400 text-yellow-800'
+                          : opt.color === 'blue' ? 'bg-blue-100 border-blue-400 text-blue-800'
+                          : opt.color === 'green' ? 'bg-green-100 border-green-400 text-green-800'
+                          : 'bg-gray-100 border-gray-400 text-gray-800'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {opt.label}
+                      {opt.value !== 'all' && (
+                        <span className="ml-1">
+                          ({invoices.filter(inv => (inv.status || 'pending') === opt.value).length})
+                        </span>
+                      )}
+                    </button>
                   ))}
-                </select>
-                <Button size="sm" className="bg-[#14532D]" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
-                  <Plus size={14} className="mr-1" /> Create Invoice
-                </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -2526,118 +2630,165 @@ export default function RetailerOrders() {
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
-                      <th className="p-3 text-right font-medium text-gray-500">GROSS VALUE</th>
-                      <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
-                      <th className="p-3 text-right font-medium text-gray-500">NET VALUE</th>
-                      <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
                       <th className="p-3 text-right font-medium text-gray-500">RECEIVABLE</th>
+                      <th className="p-3 text-right font-medium text-green-600">PAID</th>
+                      <th className="p-3 text-right font-medium text-amber-600">PENDING</th>
+                      <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.length === 0 ? (
-                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">No invoices found</td></tr>
-                    ) : invoices.map(invoice => (
-                      <React.Fragment key={invoice.id}>
-                        <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleInvoiceExpand(invoice.id)}>
-                          <td className="p-3">
-                            {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </td>
-                          <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
-                          <td className="p-3">{formatDate(invoice.invoice_date)}</td>
-                          <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
-                          <td className="p-3 text-center">{invoice.items?.length || 0}</td>
-                          <td className="p-3 text-right">{formatCurrency(getInvoiceGrossValue(invoice))}</td>
-                          <td className="p-3 text-right text-red-600">
-                            {getInvoiceRejectionAmount(invoice) > 0 ? `-${formatCurrency(getInvoiceRejectionAmount(invoice))}` : '-'}
-                          </td>
-                          <td className="p-3 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
-                          <td className="p-3 text-right text-green-600">-{formatCurrency(invoice.commission_amount)} ({invoice.commission_percentage}%)</td>
-                          <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
-                          <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
-                            <div className="flex items-center justify-center gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
-                                <Download size={14} className="text-blue-600" />
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)}>
-                                <Edit size={14} className="text-amber-600" />
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
-                                <Trash2 size={14} className="text-red-600" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                        {expandedInvoices[invoice.id] && (
-                          <tr className="bg-green-50">
-                            <td colSpan={9} className="p-3">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="border-b">
-                                    <th className="p-2 text-left">Product</th>
-                                    <th className="p-2 text-left">Variant</th>
-                                    <th className="p-2 text-center">Supplied Qty</th>
-                                    <th className="p-2 text-center text-red-600">Rejection</th>
-                                    <th className="p-2 text-center text-green-700 font-semibold">Billable Qty</th>
-                                    <th className="p-2 text-right">Rate</th>
-                                    <th className="p-2 text-right">Amount</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {invoice.items?.map((item, idx) => {
-                                    const suppliedQty = item.supplied_qty || item.quantity || 0;
-                                    const rejectedQty = item.rejected_qty || 0;
-                                    const billableQty = suppliedQty - rejectedQty;
-                                    const rate = item.mrp || 0;
-                                    const amount = billableQty * rate;
-                                    return (
-                                      <tr key={idx}>
-                                        <td className="p-2">{getProductName(item)}</td>
-                                        <td className="p-2">{item.variant_name || '-'}</td>
-                                        <td className="p-2 text-center">{suppliedQty}</td>
-                                        <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>
-                                        <td className="p-2 text-center text-green-700 font-semibold">{billableQty}</td>
-                                        <td className="p-2 text-right">{formatCurrency(rate)}</td>
-                                        <td className="p-2 text-right">{formatCurrency(amount)}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                  {/* Subtotals row */}
-                                  <tr className="border-t bg-gray-50 font-medium">
-                                    <td colSpan={2} className="p-2 text-right">Subtotal:</td>
-                                    <td className="p-2 text-center">
-                                      {invoice.items?.reduce((sum, i) => sum + (i.supplied_qty || i.quantity || 0), 0)}
-                                    </td>
-                                    <td className="p-2 text-center text-red-600">
-                                      -{invoice.items?.reduce((sum, i) => sum + (i.rejected_qty || 0), 0)}
-                                    </td>
-                                    <td className="p-2 text-center text-green-700">
-                                      {invoice.items?.reduce((sum, i) => {
-                                        const supplied = i.supplied_qty || i.quantity || 0;
-                                        return sum + (supplied - (i.rejected_qty || 0));
-                                      }, 0)}
-                                    </td>
-                                    <td className="p-2"></td>
-                                    <td className="p-2 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
+                    {filteredInvoices.length === 0 ? (
+                      <tr><td colSpan={10} className="p-8 text-center text-gray-400">No invoices found</td></tr>
+                    ) : filteredInvoices.map(invoice => {
+                      const paidAmount = invoice.paid_amount || 0;
+                      const pendingAmount = (invoice.net_payable || 0) - paidAmount;
+                      const status = invoice.status || 'pending';
+                      
+                      return (
+                        <React.Fragment key={invoice.id}>
+                          <tr className={`border-b hover:bg-gray-50 cursor-pointer ${status === 'paid' ? 'bg-green-50/30' : ''}`} onClick={() => toggleInvoiceExpand(invoice.id)}>
+                            <td className="p-3">
+                              {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </td>
+                            <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
+                            <td className="p-3">{formatDate(invoice.invoice_date)}</td>
+                            <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
+                            <td className="p-3 text-center">{invoice.items?.length || 0}</td>
+                            <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
+                            <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(paidAmount)}</td>
+                            <td className="p-3 text-right text-amber-600 font-medium">
+                              {pendingAmount > 0 ? formatCurrency(pendingAmount) : '-'}
+                            </td>
+                            <td className="p-3 text-center">
+                              {status === 'paid' ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+                                  <Check size={12} className="mr-1" /> Paid
+                                </span>
+                              ) : status === 'partial' ? (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  <Clock size={12} className="mr-1" /> Partial
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  <Clock size={12} className="mr-1" /> Pending
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-1">
+                                {status !== 'paid' && (
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="text-green-600 border-green-300 hover:bg-green-50"
+                                    onClick={() => openInvoicePaymentModal(invoice)}
+                                  >
+                                    <IndianRupee size={14} className="mr-1" /> Pay
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
+                                  <Download size={14} className="text-blue-600" />
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)}>
+                                  <Edit size={14} className="text-amber-600" />
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
+                                  <Trash2 size={14} className="text-red-600" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
+                          {expandedInvoices[invoice.id] && (
+                            <tr className="bg-green-50">
+                              <td colSpan={10} className="p-3">
+                                {/* Invoice Details */}
+                                <div className="mb-3 p-3 bg-white rounded-lg border">
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                                    <div>
+                                      <span className="text-gray-500">Gross Value:</span>
+                                      <p className="font-medium">{formatCurrency(getInvoiceGrossValue(invoice))}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Rejection:</span>
+                                      <p className="font-medium text-red-600">-{formatCurrency(getInvoiceRejectionAmount(invoice))}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Net Value:</span>
+                                      <p className="font-medium">{formatCurrency(invoice.total_mrp_value)}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Commission ({invoice.commission_percentage}%):</span>
+                                      <p className="font-medium text-green-600">-{formatCurrency(invoice.commission_amount)}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="border-b">
+                                      <th className="p-2 text-left">Product</th>
+                                      <th className="p-2 text-left">Variant</th>
+                                      <th className="p-2 text-center">Supplied Qty</th>
+                                      <th className="p-2 text-center text-red-600">Rejection</th>
+                                      <th className="p-2 text-center text-green-700 font-semibold">Billable Qty</th>
+                                      <th className="p-2 text-right">Rate</th>
+                                      <th className="p-2 text-right">Amount</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {invoice.items?.map((item, idx) => {
+                                      const suppliedQty = item.supplied_qty || item.quantity || 0;
+                                      const rejectedQty = item.rejected_qty || 0;
+                                      const billableQty = suppliedQty - rejectedQty;
+                                      const rate = item.mrp || 0;
+                                      const amount = billableQty * rate;
+                                      return (
+                                        <tr key={idx}>
+                                          <td className="p-2">{getProductName(item)}</td>
+                                          <td className="p-2">{item.variant_name || '-'}</td>
+                                          <td className="p-2 text-center">{suppliedQty}</td>
+                                          <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>
+                                          <td className="p-2 text-center text-green-700 font-semibold">{billableQty}</td>
+                                          <td className="p-2 text-right">{formatCurrency(rate)}</td>
+                                          <td className="p-2 text-right">{formatCurrency(amount)}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                    {/* Subtotals row */}
+                                    <tr className="border-t bg-gray-50 font-medium">
+                                      <td colSpan={2} className="p-2 text-right">Subtotal:</td>
+                                      <td className="p-2 text-center">
+                                        {invoice.items?.reduce((sum, i) => sum + (i.supplied_qty || i.quantity || 0), 0)}
+                                      </td>
+                                      <td className="p-2 text-center text-red-600">
+                                        -{invoice.items?.reduce((sum, i) => sum + (i.rejected_qty || 0), 0)}
+                                      </td>
+                                      <td className="p-2 text-center text-green-700">
+                                        {invoice.items?.reduce((sum, i) => {
+                                          const supplied = i.supplied_qty || i.quantity || 0;
+                                          return sum + (supplied - (i.rejected_qty || 0));
+                                        }, 0)}
+                                      </td>
+                                      <td className="p-2"></td>
+                                      <td className="p-2 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
-                  {invoices.length > 0 && (
+                  {filteredInvoices.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
                         <td colSpan={5} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + getInvoiceGrossValue(i), 0))}</td>
-                        <td className="p-3 text-right text-red-600">-{formatCurrency(invoices.reduce((sum, i) => sum + getInvoiceRejectionAmount(i), 0))}</td>
-                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.total_mrp_value || 0), 0))}</td>
-                        <td className="p-3 text-right text-green-600">-{formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}</td>
-                        <td className="p-3 text-right">{formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>
-                        <td></td>
+                        <td className="p-3 text-right">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>
+                        <td className="p-3 text-right text-green-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.paid_amount || 0), 0))}</td>
+                        <td className="p-3 text-right text-amber-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + ((i.net_payable || 0) - (i.paid_amount || 0)), 0))}</td>
+                        <td colSpan={2}></td>
                       </tr>
                     </tfoot>
                   )}
@@ -2805,61 +2956,6 @@ export default function RetailerOrders() {
                       </tr>
                     </tfoot>
                   )}
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ==================== PAYMENTS TAB ==================== */}
-        {activeTab === 'payments' && (
-          <Card>
-            <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">Payments</CardTitle>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={exportPayments} title="Export to Excel">
-                  <FileSpreadsheet size={14} className="mr-1" /> Export
-                </Button>
-                <Button size="sm" className="bg-[#14532D]" onClick={() => setShowPaymentModal(true)}>
-                  <Plus size={14} className="mr-1" /> Record Payment
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                      <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
-                      <th className="p-3 text-right font-medium text-gray-500">AMOUNT</th>
-                      <th className="p-3 text-center font-medium text-gray-500">MODE</th>
-                      <th className="p-3 text-left font-medium text-gray-500">REFERENCE</th>
-                      <th className="p-3 text-left font-medium text-gray-500">REMARKS</th>
-                      <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payments.length === 0 ? (
-                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No payments found</td></tr>
-                    ) : payments.map(payment => (
-                      <tr key={payment.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">{formatDate(payment.payment_date)}</td>
-                        <td className="p-3 font-medium">{payment.retailer_name}</td>
-                        <td className="p-3 text-right font-semibold text-green-700">{formatCurrency(payment.amount)}</td>
-                        <td className="p-3 text-center">
-                          <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs uppercase">{payment.payment_mode}</span>
-                        </td>
-                        <td className="p-3">{payment.reference_number || '-'}</td>
-                        <td className="p-3 text-gray-500">{payment.remarks || '-'}</td>
-                        <td className="p-3 text-center">
-                          <Button size="sm" variant="ghost" onClick={() => handleDeletePayment(payment.id)}>
-                            <Trash2 size={14} className="text-red-600" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
                 </table>
               </div>
             </CardContent>
@@ -4003,6 +4099,115 @@ export default function RetailerOrders() {
                     Cancel
                   </Button>
                   <Button type="submit" className="flex-1 bg-[#14532D]">Record Payment</Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== INVOICE PAYMENT MODAL ==================== */}
+        {showInvoicePaymentModal && selectedInvoiceForPayment && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="flex items-center justify-between p-4 border-b bg-green-50">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <IndianRupee size={20} className="text-green-600" />
+                  Record Invoice Payment
+                </h3>
+                <button onClick={() => { setShowInvoicePaymentModal(false); setSelectedInvoiceForPayment(null); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleInvoicePayment} className="p-4 space-y-4">
+                {/* Invoice Summary */}
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Invoice:</span>
+                    <span className="font-semibold text-blue-600">{selectedInvoiceForPayment.invoice_number}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Retailer:</span>
+                    <span className="font-medium">{getRetailerNameById(selectedInvoiceForPayment.retailer_id) || selectedInvoiceForPayment.retailer_name}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 mt-2">
+                    <span className="text-gray-600">Total Receivable:</span>
+                    <span className="font-semibold">{formatCurrency(selectedInvoiceForPayment.net_payable)}</span>
+                  </div>
+                  <div className="flex justify-between text-green-600">
+                    <span>Already Paid:</span>
+                    <span className="font-medium">{formatCurrency(selectedInvoiceForPayment.paid_amount || 0)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 mt-2">
+                    <span className="text-amber-700 font-medium">Pending Amount:</span>
+                    <span className="text-amber-700 font-bold text-lg">
+                      {formatCurrency((selectedInvoiceForPayment.net_payable || 0) - (selectedInvoiceForPayment.paid_amount || 0))}
+                    </span>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date *</label>
+                  <Input
+                    type="date"
+                    value={invoicePaymentForm.payment_date}
+                    onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={invoicePaymentForm.amount}
+                    onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, amount: e.target.value }))}
+                    placeholder="Enter amount"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Mode *</label>
+                  <select
+                    value={invoicePaymentForm.payment_mode}
+                    onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, payment_mode: e.target.value }))}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200"
+                    required
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference Number</label>
+                  <Input
+                    value={invoicePaymentForm.reference_number}
+                    onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, reference_number: e.target.value }))}
+                    placeholder="UPI Ref / Cheque No / Transaction ID"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <Input
+                    value={invoicePaymentForm.remarks}
+                    onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => { setShowInvoicePaymentModal(false); setSelectedInvoiceForPayment(null); }} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700">
+                    <Check size={14} className="mr-1" /> Record Payment
+                  </Button>
                 </div>
               </form>
             </div>

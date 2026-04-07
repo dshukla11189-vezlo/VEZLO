@@ -6147,6 +6147,82 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
     await db.retailer_invoices.delete_one({"id": invoice_id})
     return {"message": "Invoice deleted successfully"}
 
+# Record payment against an invoice
+@api_router.post("/retailer-invoices/{invoice_id}/payment")
+async def record_invoice_payment(invoice_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Record payment against a retailer invoice"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can record payments")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    amount = input.get("amount", 0)
+    payment_mode = input.get("payment_mode", "cash")
+    reference_number = input.get("reference_number", "")
+    remarks = input.get("remarks", "")
+    payment_date = input.get("payment_date", datetime.now(timezone.utc).isoformat())
+    
+    # Calculate new paid amount and status
+    current_paid = invoice.get("paid_amount", 0)
+    new_paid = current_paid + amount
+    net_payable = invoice.get("net_payable", 0)
+    
+    # Determine payment status
+    if new_paid >= net_payable:
+        new_status = "paid"
+    elif new_paid > 0:
+        new_status = "partial"
+    else:
+        new_status = "pending"
+    
+    # Record the payment in retailer_payments collection
+    payment_id = str(uuid.uuid4())
+    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    payment_doc = {
+        "id": payment_id,
+        "retailer_id": invoice.get("retailer_id"),
+        "retailer_name": retailer.get("company_name", retailer.get("name", "")) if retailer else "",
+        "invoice_id": invoice_id,
+        "invoice_number": invoice.get("invoice_number"),
+        "payment_date": payment_date,
+        "amount": amount,
+        "payment_mode": payment_mode,
+        "reference_number": reference_number,
+        "remarks": remarks,
+        "recorded_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.retailer_payments.insert_one(payment_doc)
+    
+    # Update the invoice with new paid amount and status
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": {
+            "paid_amount": round(new_paid, 2),
+            "status": new_status
+        }}
+    )
+    
+    return {
+        "id": payment_id,
+        "invoice_id": invoice_id,
+        "paid_amount": round(new_paid, 2),
+        "status": new_status,
+        "message": "Payment recorded successfully"
+    }
+
+# Get payment history for an invoice
+@api_router.get("/retailer-invoices/{invoice_id}/payments")
+async def get_invoice_payments(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    """Get all payments for a specific invoice"""
+    payments = await db.retailer_payments.find(
+        {"invoice_id": invoice_id}, 
+        {"_id": 0}
+    ).sort("payment_date", -1).to_list(100)
+    return payments
+
 # Get uninvoiced dispatches for a retailer (for creating invoices)
 # Now returns items that haven't been invoiced yet (item-level filtering)
 @api_router.get("/retailer-dispatches/uninvoiced")

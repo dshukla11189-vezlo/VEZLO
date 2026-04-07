@@ -636,6 +636,24 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Removed orphaned standalone `activeTab === 'invoices'` code block
   - [x] Added i18n translations for new labels (en.json, hi.json)
 
+### Admin Invoice Payment Management (COMPLETED - Apr 2026)
+- [x] **Invoice Payment Recording** (Apr 07, 2026):
+  - [x] Added "Pay" button with rupee icon against each unpaid invoice in Admin Retailer Orders → Invoices tab
+  - [x] Invoice Payment Modal shows: Invoice number, Retailer name, Total Receivable, Already Paid, Pending Amount
+  - [x] Payment form fields: Payment Date, Amount (pre-filled with pending amount), Payment Mode (Cash/UPI/Bank Transfer/Cheque/Other), Reference Number, Remarks
+  - [x] Backend endpoint: POST `/api/retailer-invoices/{invoice_id}/payment` records payment and updates invoice status
+  - [x] Invoice status logic: pending → partial (if partial payment) → paid (if fully paid)
+  - [x] Payment history stored in `retailer_payments` collection with invoice_id reference
+- [x] **Status Filter in Invoices Tab**:
+  - [x] Filter buttons: All, Pending (count), Partial (count), Paid (count)
+  - [x] Real-time filtering of invoices based on payment status
+- [x] **Updated Invoice Table Columns**:
+  - [x] INVOICE #, DATE, RETAILER, ITEMS, RECEIVABLE, PAID, PENDING, STATUS, ACTIONS
+  - [x] Status badges: Paid (green), Partial (blue), Pending (yellow)
+  - [x] Pay button hidden for fully paid invoices
+  - [x] Total footer shows sum of Receivable, Paid, and Pending amounts
+- [x] **Removed standalone Payments Tab**: Payment recording is now consolidated within Invoices tab
+
 ### Wastage Dashboard Improvements (COMPLETED - Apr 2026)
 - [x] **Auto-update on date change** (Apr 05, 2026):
   - [x] Data refreshes automatically when date range is changed (no Apply button needed)

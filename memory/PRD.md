@@ -828,6 +828,23 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [x] Fixed procurement update endpoint to allow changing the `date` field
 - [x] Procurement edit now properly updates the date in the database
 
+### Units Management System (COMPLETED - Apr 07, 2026)
+- [x] **Products page redesigned with sub-tabs**: Products tab and Units tab
+- [x] **Units CRUD operations**:
+  - [x] GET /api/units - List all units sorted alphabetically
+  - [x] POST /api/units - Create new unit (name, symbol, description)
+  - [x] PUT /api/units/{id} - Update existing unit
+  - [x] DELETE /api/units/{id} - Delete unused unit (protected: cannot delete units in use)
+  - [x] POST /api/units/seed-defaults - Seed 10 default units (Kg, Gram, Piece, Pieces, Bunch, Packet, Box, Crate, Dozen, Litre)
+- [x] **Units tab UI features**:
+  - [x] Table showing Name, Symbol, Description, Products Using count, Actions (Edit/Delete)
+  - [x] Add Unit button with dialog form
+  - [x] "Click to add default units" link when no units exist
+  - [x] Delete disabled for units in use by products
+- [x] **Product form unit dropdown** now populated dynamically from units collection
+- [x] **Bug fix**: Fixed Python syntax error in server.py line 465 (`del unit_doc["_id"] if...` → `unit_doc.pop("_id", None)`)
+- [x] **Testing**: All 23 tests passed (13 backend + 10 frontend)
+
 
 
 

@@ -265,7 +265,10 @@
     "pending": "Pending",
     "paid": "Paid",
     "downloadPdf": "Download PDF",
-    "downloadExcel": "Download Excel"
+    "downloadExcel": "Download Excel",
+    "invoiced": "Invoiced",
+    "paymentCleared": "Payment Cleared",
+    "awaitingDispatch": "Awaiting Dispatch"
   },
   "invoice": {
     "title": "Invoices",

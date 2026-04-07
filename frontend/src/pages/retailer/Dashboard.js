@@ -1394,7 +1394,7 @@ export default function RetailerDashboard() {
                 }`}
               >
                 <ShoppingBag size={14} className="inline mr-1.5" />
-                Pending Orders
+                {t('retailer.pendingOrders') || 'Pending Orders'}
                 {indents.filter(i => i.status === 'pending' || i.status === 'partial').length > 0 && (
                   <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-xs rounded-full">
                     {indents.filter(i => i.status === 'pending' || i.status === 'partial').length}
@@ -1410,7 +1410,7 @@ export default function RetailerDashboard() {
                 }`}
               >
                 <Truck size={14} className="inline mr-1.5" />
-                Dispatched Orders
+                {t('retailer.dispatchedOrders') || 'Dispatched Orders'}
                 {dispatches.length > 0 && (
                   <span className="ml-2 px-1.5 py-0.5 bg-green-200 text-green-800 text-xs rounded-full">
                     {dispatches.length}
@@ -1426,7 +1426,7 @@ export default function RetailerDashboard() {
                 }`}
               >
                 <FileText size={14} className="inline mr-1.5" />
-                Invoiced
+                {t('retailer.invoiced') || 'Invoiced'}
                 {invoices.length > 0 && (
                   <span className="ml-2 px-1.5 py-0.5 bg-blue-200 text-blue-800 text-xs rounded-full">
                     {invoices.length}
@@ -1441,7 +1441,7 @@ export default function RetailerDashboard() {
                 <CardHeader className="py-3 border-b bg-yellow-50">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <ShoppingBag size={16} className="text-yellow-600" />
-                    Pending Orders (Indents Yet to be Dispatched)
+                    {t('retailer.pendingOrders') || 'Pending Orders'} ({t('retailer.indents') || 'Indents Yet to be Dispatched'})
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -1486,7 +1486,7 @@ export default function RetailerDashboard() {
                                 indent.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
                                 'bg-blue-100 text-blue-700'
                               }`}>
-                                {indent.status === 'pending' ? 'Awaiting Dispatch' : 'Partial'}
+                                {indent.status === 'pending' ? (t('retailer.awaitingDispatch') || 'Awaiting Dispatch') : 'Partial'}
                               </span>
                             </td>
                             <td className="p-3 text-gray-500 text-xs">{indent.remarks || '-'}</td>
@@ -1506,7 +1506,7 @@ export default function RetailerDashboard() {
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <Truck size={16} className="text-green-600" />
-                      Dispatched Orders (Received from Admin)
+                      {t('retailer.dispatchedOrders') || 'Dispatched Orders'} ({t('retailer.dispatched') || 'Received from Admin'})
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <Calendar size={16} className="text-gray-500" />
@@ -1618,7 +1618,7 @@ export default function RetailerDashboard() {
                 <CardHeader className="py-3 border-b bg-blue-50">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <FileText size={16} className="text-blue-600" />
-                    Invoiced (All Generated Invoices)
+                    {t('retailer.invoiced') || 'Invoiced'} ({t('retailer.invoices') || 'All Generated Invoices'})
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -1634,13 +1634,13 @@ export default function RetailerDashboard() {
                           <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
                           <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
                           <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
-                          <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                           <th className="p-3 text-center font-medium text-gray-500">PDF</th>
+                          <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                         </tr>
                       </thead>
                       <tbody>
                         {invoices.length === 0 ? (
-                          <tr><td colSpan={10} className="p-8 text-center text-gray-400">No invoices found</td></tr>
+                          <tr><td colSpan={11} className="p-8 text-center text-gray-400">No invoices found</td></tr>
                         ) : invoices.map(invoice => {
                           const grossValue = invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) * (i.mrp || 0)), 0) || 0;
                           const rejectionValue = invoice.items?.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0;
@@ -1666,26 +1666,26 @@ export default function RetailerDashboard() {
                                   {formatCurrency(commissionAmt)} ({invoice.commission_percentage || 0}%)
                                 </td>
                                 <td className="p-3 text-right font-bold">{formatCurrency(payableAmt)}</td>
-                                <td className="p-3 text-center">
-                                  {isPaid ? (
-                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                      <CheckCircle size={12} className="mr-1" /> Closed
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                      <Clock size={12} className="mr-1" /> Pending
-                                    </span>
-                                  )}
-                                </td>
                                 <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                                   <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
                                     <Download size={14} className="text-blue-600" />
                                   </Button>
                                 </td>
+                                <td className="p-3 text-center">
+                                  {isPaid ? (
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+                                      <CheckCircle size={12} className="mr-1" /> {t('retailer.paymentCleared') || 'Payment Cleared'}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                      <Clock size={12} className="mr-1" /> {t('retailer.pending') || 'Pending'}
+                                    </span>
+                                  )}
+                                </td>
                               </tr>
                               {expandedInvoices[invoice.id] && (
                                 <tr className="bg-blue-50/50">
-                                  <td colSpan={10} className="p-3">
+                                  <td colSpan={11} className="p-3">
                                     <div className="bg-white rounded-lg border overflow-hidden">
                                       <table className="w-full text-sm">
                                         <thead className="bg-gray-100">
@@ -1737,174 +1737,6 @@ export default function RetailerDashboard() {
               </Card>
             )}
           </div>
-        )}
-
-        {/* ==================== INVOICES TAB ==================== */}
-        {activeTab === 'invoices' && (
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm">My Invoices</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="p-3 text-left w-8"></th>
-                      <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
-                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                      <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
-                      <th className="p-3 text-right font-medium text-gray-500">GROSS VALUE</th>
-                      <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
-                      <th className="p-3 text-right font-medium text-gray-500">NET VALUE</th>
-                      <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
-                      <th className="p-3 text-right font-medium text-gray-500">PAYABLE</th>
-                      <th className="p-3 text-center font-medium text-gray-500">PDF</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoices.length === 0 ? (
-                      <tr><td colSpan={10} className="p-8 text-center text-gray-400">No invoices found</td></tr>
-                    ) : invoices.map(invoice => {
-                      // Calculate rejection value from items
-                      const grossValue = invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) * (i.mrp || 0)), 0) || 0;
-                      const rejectionValue = invoice.items?.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0;
-                      const netValue = grossValue - rejectionValue;
-                      const commissionAmt = invoice.commission_amount || (netValue * (invoice.commission_percentage || 0) / 100);
-                      const payableAmt = netValue - commissionAmt;
-                      
-                      return (
-                        <React.Fragment key={invoice.id}>
-                          <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleInvoiceExpand(invoice.id)}>
-                            <td className="p-3">
-                              {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            </td>
-                            <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
-                            <td className="p-3">{formatDate(invoice.invoice_date)}</td>
-                            <td className="p-3 text-center">{invoice.items?.length || 0}</td>
-                            <td className="p-3 text-right">{formatCurrency(grossValue)}</td>
-                            <td className="p-3 text-right text-red-600">
-                              {rejectionValue > 0 ? `-${formatCurrency(rejectionValue)}` : '-'}
-                            </td>
-                            <td className="p-3 text-right font-medium">{formatCurrency(netValue)}</td>
-                            <td className="p-3 text-right text-green-600">
-                              {formatCurrency(commissionAmt)} ({invoice.commission_percentage || 0}%)
-                            </td>
-                            <td className="p-3 text-right font-bold">{formatCurrency(payableAmt)}</td>
-                            <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
-                              <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
-                                <Download size={14} className="text-blue-600" />
-                              </Button>
-                            </td>
-                          </tr>
-                          {expandedInvoices[invoice.id] && (
-                            <tr className="bg-blue-50">
-                              <td colSpan={10} className="p-3">
-                                <div className="bg-white rounded-lg border overflow-hidden">
-                                  <table className="w-full text-sm">
-                                    <thead className="bg-gray-100">
-                                      <tr>
-                                        <th className="p-2 text-left font-medium">Product</th>
-                                        <th className="p-2 text-left font-medium">Variant</th>
-                                        <th className="p-2 text-center font-medium">Supplied Qty</th>
-                                        <th className="p-2 text-center font-medium text-red-600">Rejection</th>
-                                        <th className="p-2 text-center font-medium text-green-700">Billable Qty</th>
-                                        <th className="p-2 text-right font-medium">Rate</th>
-                                        <th className="p-2 text-right font-medium">Amount</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {invoice.items?.map((item, idx) => {
-                                        const suppliedQty = item.supplied_qty || item.quantity || 0;
-                                        const rejectedQty = item.rejected_qty || 0;
-                                        const billableQty = suppliedQty - rejectedQty;
-                                        const rate = item.mrp || 0;
-                                        const amount = billableQty * rate;
-                                        
-                                        return (
-                                          <tr key={idx} className={`border-t ${rejectedQty > 0 ? 'bg-red-50/50' : ''}`}>
-                                            <td className="p-2 font-medium">{getProductName(item)}</td>
-                                            <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
-                                            <td className="p-2 text-center">{suppliedQty}</td>
-                                            <td className="p-2 text-center text-red-600 font-medium">
-                                              {rejectedQty > 0 ? `-${rejectedQty}` : '-'}
-                                            </td>
-                                            <td className="p-2 text-center text-green-700 font-bold">{billableQty}</td>
-                                            <td className="p-2 text-right">{formatCurrency(rate)}</td>
-                                            <td className="p-2 text-right font-medium">{formatCurrency(amount)}</td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                    <tfoot className="bg-gray-50 font-medium">
-                                      <tr className="border-t-2">
-                                        <td colSpan={4} className="p-2 text-right">Subtotals:</td>
-                                        <td className="p-2 text-center text-green-700 font-bold">
-                                          {invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) - (i.rejected_qty || 0)), 0)}
-                                        </td>
-                                        <td className="p-2"></td>
-                                        <td className="p-2 text-right font-bold">{formatCurrency(netValue)}</td>
-                                      </tr>
-                                    </tfoot>
-                                  </table>
-                                  {/* Invoice Summary */}
-                                  <div className="bg-green-50 p-3 border-t">
-                                    <div className="grid grid-cols-2 gap-2 text-sm max-w-md ml-auto">
-                                      <span className="text-gray-600">Gross Total:</span>
-                                      <span className="text-right">{formatCurrency(grossValue)}</span>
-                                      {rejectionValue > 0 && (
-                                        <>
-                                          <span className="text-red-600">(-) Rejections:</span>
-                                          <span className="text-right text-red-600">-{formatCurrency(rejectionValue)}</span>
-                                        </>
-                                      )}
-                                      <span className="text-gray-600">Net Total:</span>
-                                      <span className="text-right font-medium">{formatCurrency(netValue)}</span>
-                                      <span className="text-green-600">Your Commission ({invoice.commission_percentage || 0}%):</span>
-                                      <span className="text-right text-green-600 font-medium">{formatCurrency(commissionAmt)}</span>
-                                      <span className="text-gray-800 font-bold border-t pt-2">Amount Payable by You:</span>
-                                      <span className="text-right text-gray-800 font-bold border-t pt-2">{formatCurrency(payableAmt)}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                  {invoices.length > 0 && (
-                    <tfoot className="bg-gray-100 font-semibold">
-                      <tr>
-                        <td colSpan={4} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right">
-                          {formatCurrency(invoices.reduce((sum, inv) => {
-                            return sum + (inv.items?.reduce((s, i) => s + ((i.supplied_qty || i.quantity || 0) * (i.mrp || 0)), 0) || 0);
-                          }, 0))}
-                        </td>
-                        <td className="p-3 text-right text-red-600">
-                          -{formatCurrency(invoices.reduce((sum, inv) => {
-                            return sum + (inv.items?.reduce((s, i) => s + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0);
-                          }, 0))}
-                        </td>
-                        <td className="p-3 text-right">
-                          {formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0) + (i.commission_amount || 0), 0))}
-                        </td>
-                        <td className="p-3 text-right text-green-600">
-                          {formatCurrency(invoices.reduce((sum, i) => sum + (i.commission_amount || 0), 0))}
-                        </td>
-                        <td className="p-3 text-right font-bold">
-                          {formatCurrency(invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-            </CardContent>
-          </Card>
         )}
 
         {/* ==================== REJECTIONS TAB ==================== */}

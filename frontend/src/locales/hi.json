@@ -267,7 +267,10 @@
     "pending": "लंबित",
     "paid": "भुगतान किया",
     "downloadPdf": "PDF डाउनलोड",
-    "downloadExcel": "Excel डाउनलोड"
+    "downloadExcel": "Excel डाउनलोड",
+    "invoiced": "बिल हो गया",
+    "paymentCleared": "भुगतान हो गया",
+    "awaitingDispatch": "डिस्पैच का इंतजार"
   },
   "invoice": {
     "title": "बिल",

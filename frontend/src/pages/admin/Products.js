@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight } from 'lucide-react';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -14,6 +14,14 @@ export default function Products() {
   const [open, setOpen] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Delete with replacement state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [productToDelete, setProductToDelete] = useState(null);
+  const [dependencies, setDependencies] = useState(null);
+  const [replacementProductId, setReplacementProductId] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -106,14 +114,55 @@ export default function Products() {
     setOpen(true);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) return;
+  // Initiate delete - first check for dependencies
+  const handleDelete = async (product) => {
+    setDeleteLoading(true);
     try {
-      await api.delete(`/api/products/${id}`);
-      toast.success('Product deleted successfully');
+      const response = await api.get(`/api/products/${product.id}/dependencies`);
+      setProductToDelete(product);
+      setDependencies(response.data);
+      setReplacementProductId('');
+      setShowDeleteDialog(true);
+    } catch (error) {
+      toast.error('Failed to check product dependencies');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // Confirm delete - either simple delete or delete with replacement
+  const confirmDelete = async () => {
+    if (!productToDelete) return;
+    
+    setDeleteLoading(true);
+    try {
+      if (dependencies?.has_dependencies) {
+        // Need replacement product
+        if (!replacementProductId) {
+          toast.error('Please select a replacement product');
+          setDeleteLoading(false);
+          return;
+        }
+        
+        const response = await api.post(`/api/products/${productToDelete.id}/delete-with-replacement`, {
+          replacement_product_id: replacementProductId
+        });
+        toast.success(response.data.message);
+      } else {
+        // No dependencies - simple delete
+        await api.delete(`/api/products/${productToDelete.id}`);
+        toast.success('Product deleted successfully');
+      }
+      
+      setShowDeleteDialog(false);
+      setProductToDelete(null);
+      setDependencies(null);
+      setReplacementProductId('');
       loadProducts();
     } catch (error) {
-      toast.error('Failed to delete product');
+      toast.error(error.response?.data?.detail || 'Failed to delete product');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -318,7 +367,7 @@ export default function Products() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => handleDelete(product.id)}
+                      onClick={() => handleDelete(product)}
                       data-testid={`delete-product-${product.id}`}
                     >
                       <Trash size={16} className="text-red-600" />
@@ -339,6 +388,136 @@ export default function Products() {
           </div>
         )}
       </div>
+
+      {/* Delete Product Dialog */}
+      {showDeleteDialog && productToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div className="flex items-center gap-3 p-4 border-b bg-red-50">
+              <div className="p-2 bg-red-100 rounded-full">
+                <AlertTriangle size={24} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-800">Delete Product</h3>
+                <p className="text-sm text-red-600">"{productToDelete.name}"</p>
+              </div>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {dependencies?.has_dependencies ? (
+                <>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-sm text-amber-800 font-medium mb-2">
+                      This product has existing records that need to be remapped:
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {dependencies.dependencies.procurements > 0 && (
+                        <div className="flex justify-between">
+                          <span>Procurements:</span>
+                          <span className="font-semibold">{dependencies.dependencies.procurements}</span>
+                        </div>
+                      )}
+                      {dependencies.dependencies.qc_orders > 0 && (
+                        <div className="flex justify-between">
+                          <span>QC Orders:</span>
+                          <span className="font-semibold">{dependencies.dependencies.qc_orders}</span>
+                        </div>
+                      )}
+                      {dependencies.dependencies.indents > 0 && (
+                        <div className="flex justify-between">
+                          <span>Indents:</span>
+                          <span className="font-semibold">{dependencies.dependencies.indents}</span>
+                        </div>
+                      )}
+                      {dependencies.dependencies.dispatches > 0 && (
+                        <div className="flex justify-between">
+                          <span>Dispatches:</span>
+                          <span className="font-semibold">{dependencies.dependencies.dispatches}</span>
+                        </div>
+                      )}
+                      {dependencies.dependencies.invoices > 0 && (
+                        <div className="flex justify-between">
+                          <span>Invoices:</span>
+                          <span className="font-semibold">{dependencies.dependencies.invoices}</span>
+                        </div>
+                      )}
+                      {dependencies.dependencies.wastage > 0 && (
+                        <div className="flex justify-between">
+                          <span>Wastage Records:</span>
+                          <span className="font-semibold">{dependencies.dependencies.wastage}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-amber-200 flex justify-between text-sm font-medium">
+                      <span>Total Records:</span>
+                      <span className="text-amber-800">{dependencies.dependencies.total}</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label className="text-sm font-medium">
+                      Select Replacement Product <span className="text-red-500">*</span>
+                    </Label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      All existing records will be remapped to this product
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-shrink-0 px-3 py-2 bg-red-100 text-red-700 rounded text-sm font-medium">
+                        {productToDelete.name}
+                      </div>
+                      <ArrowRight size={20} className="text-gray-400 flex-shrink-0" />
+                      <select
+                        value={replacementProductId}
+                        onChange={(e) => setReplacementProductId(e.target.value)}
+                        className="flex-1 h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                        required
+                      >
+                        <option value="">-- Select Replacement --</option>
+                        {products
+                          .filter(p => p.id !== productToDelete.id)
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))
+                        }
+                      </select>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-sm text-green-800">
+                    This product has no associated records. It can be safely deleted.
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3 p-4 border-t bg-gray-50">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowDeleteDialog(false);
+                  setProductToDelete(null);
+                  setDependencies(null);
+                  setReplacementProductId('');
+                }}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700"
+                onClick={confirmDelete}
+                disabled={deleteLoading || (dependencies?.has_dependencies && !replacementProductId)}
+              >
+                {deleteLoading ? 'Processing...' : dependencies?.has_dependencies ? 'Delete & Remap' : 'Delete Product'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

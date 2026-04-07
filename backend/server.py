@@ -547,6 +547,218 @@ async def delete_product(product_id: str, current_user: dict = Depends(get_curre
     
     return {"message": "Product deleted successfully"}
 
+# Check if product has dependencies (purchases, sales, dispatches, etc.)
+@api_router.get("/products/{product_id}/dependencies")
+async def check_product_dependencies(product_id: str, current_user: dict = Depends(get_current_user)):
+    """Check if a product has any associated sales, purchases, or other records"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    product_name = product.get("name", "")
+    
+    # Check procurements (purchases)
+    procurement_count = await db.procurements.count_documents({
+        "$or": [
+            {"product_id": product_id},
+            {"product_name": {"$regex": f"^{product_name}$", "$options": "i"}}
+        ]
+    })
+    
+    # Check QC orders (sales)
+    qc_order_count = await db.qc_orders.count_documents({
+        "items.product_id": product_id
+    })
+    
+    # Check retailer indents
+    indent_count = await db.retailer_indents.count_documents({
+        "items.product_id": product_id
+    })
+    
+    # Check retailer dispatches
+    dispatch_count = await db.retailer_dispatches.count_documents({
+        "items.product_id": product_id
+    })
+    
+    # Check retailer invoices
+    invoice_count = await db.retailer_invoices.count_documents({
+        "items.product_id": product_id
+    })
+    
+    # Check wastage records
+    wastage_count = await db.wastage.count_documents({
+        "$or": [
+            {"product_id": product_id},
+            {"product_name": {"$regex": f"^{product_name}$", "$options": "i"}}
+        ]
+    })
+    
+    total_dependencies = procurement_count + qc_order_count + indent_count + dispatch_count + invoice_count + wastage_count
+    
+    return {
+        "product_id": product_id,
+        "product_name": product_name,
+        "has_dependencies": total_dependencies > 0,
+        "dependencies": {
+            "procurements": procurement_count,
+            "qc_orders": qc_order_count,
+            "indents": indent_count,
+            "dispatches": dispatch_count,
+            "invoices": invoice_count,
+            "wastage": wastage_count,
+            "total": total_dependencies
+        }
+    }
+
+# Delete product with replacement mapping
+@api_router.post("/products/{product_id}/delete-with-replacement")
+async def delete_product_with_replacement(product_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Delete a product and remap all its records to a replacement product"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    replacement_product_id = input.get("replacement_product_id")
+    if not replacement_product_id:
+        raise HTTPException(status_code=400, detail="Replacement product ID is required")
+    
+    # Get original product
+    original_product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not original_product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Get replacement product
+    replacement_product = await db.products.find_one({"id": replacement_product_id}, {"_id": 0})
+    if not replacement_product:
+        raise HTTPException(status_code=404, detail="Replacement product not found")
+    
+    original_name = original_product.get("name", "")
+    replacement_name = replacement_product.get("name", "")
+    
+    remapped_counts = {
+        "procurements": 0,
+        "qc_orders": 0,
+        "indents": 0,
+        "dispatches": 0,
+        "invoices": 0,
+        "wastage": 0,
+        "closing_inventory": 0
+    }
+    
+    # 1. Update procurements
+    proc_result = await db.procurements.update_many(
+        {"$or": [
+            {"product_id": product_id},
+            {"product_name": {"$regex": f"^{original_name}$", "$options": "i"}}
+        ]},
+        {"$set": {
+            "product_id": replacement_product_id,
+            "product_name": replacement_name
+        }}
+    )
+    remapped_counts["procurements"] = proc_result.modified_count
+    
+    # 2. Update QC orders (items array)
+    qc_orders = await db.qc_orders.find({"items.product_id": product_id}).to_list(1000)
+    for order in qc_orders:
+        updated_items = []
+        for item in order.get("items", []):
+            if item.get("product_id") == product_id:
+                item["product_id"] = replacement_product_id
+                item["product_name"] = replacement_name
+            updated_items.append(item)
+        await db.qc_orders.update_one(
+            {"id": order["id"]},
+            {"$set": {"items": updated_items}}
+        )
+        remapped_counts["qc_orders"] += 1
+    
+    # 3. Update retailer indents (items array)
+    indents = await db.retailer_indents.find({"items.product_id": product_id}).to_list(1000)
+    for indent in indents:
+        updated_items = []
+        for item in indent.get("items", []):
+            if item.get("product_id") == product_id:
+                item["product_id"] = replacement_product_id
+                item["product_name"] = replacement_name
+            updated_items.append(item)
+        await db.retailer_indents.update_one(
+            {"id": indent["id"]},
+            {"$set": {"items": updated_items}}
+        )
+        remapped_counts["indents"] += 1
+    
+    # 4. Update retailer dispatches (items array)
+    dispatches = await db.retailer_dispatches.find({"items.product_id": product_id}).to_list(1000)
+    for dispatch in dispatches:
+        updated_items = []
+        for item in dispatch.get("items", []):
+            if item.get("product_id") == product_id:
+                item["product_id"] = replacement_product_id
+                item["product_name"] = replacement_name
+            updated_items.append(item)
+        await db.retailer_dispatches.update_one(
+            {"id": dispatch["id"]},
+            {"$set": {"items": updated_items}}
+        )
+        remapped_counts["dispatches"] += 1
+    
+    # 5. Update retailer invoices (items array)
+    invoices = await db.retailer_invoices.find({"items.product_id": product_id}).to_list(1000)
+    for invoice in invoices:
+        updated_items = []
+        for item in invoice.get("items", []):
+            if item.get("product_id") == product_id:
+                item["product_id"] = replacement_product_id
+                item["product_name"] = replacement_name
+            updated_items.append(item)
+        await db.retailer_invoices.update_one(
+            {"id": invoice["id"]},
+            {"$set": {"items": updated_items}}
+        )
+        remapped_counts["invoices"] += 1
+    
+    # 6. Update wastage records
+    wastage_result = await db.wastage.update_many(
+        {"$or": [
+            {"product_id": product_id},
+            {"product_name": {"$regex": f"^{original_name}$", "$options": "i"}}
+        ]},
+        {"$set": {
+            "product_id": replacement_product_id,
+            "product_name": replacement_name
+        }}
+    )
+    remapped_counts["wastage"] = wastage_result.modified_count
+    
+    # 7. Update closing inventory
+    closing_result = await db.retailer_closing_inventory.update_many(
+        {"$or": [
+            {"product_id": product_id},
+            {"product_name": {"$regex": f"^{original_name}$", "$options": "i"}}
+        ]},
+        {"$set": {
+            "product_id": replacement_product_id,
+            "product_name": replacement_name
+        }}
+    )
+    remapped_counts["closing_inventory"] = closing_result.modified_count
+    
+    # Finally, delete the original product
+    await db.products.delete_one({"id": product_id})
+    
+    total_remapped = sum(remapped_counts.values())
+    
+    return {
+        "message": f"Product '{original_name}' deleted successfully. {total_remapped} records remapped to '{replacement_name}'.",
+        "deleted_product": original_name,
+        "replacement_product": replacement_name,
+        "remapped_counts": remapped_counts,
+        "total_remapped": total_remapped
+    }
+
 # ============================================================================
 # SECTION: QC PACKAGING ROUTES
 # ============================================================================

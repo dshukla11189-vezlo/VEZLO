@@ -2094,15 +2094,15 @@ export default function RetailerDashboard() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
+                      <table className="w-full text-xs">
                         <thead className="bg-gray-100">
                           <tr>
-                            <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
-                            <th className="p-3 text-center font-medium text-blue-600">{t('retailer.openingQty') || 'Opening'}</th>
-                            <th className="p-3 text-center font-medium text-green-600">{t('retailer.receivedQty') || 'Received'}</th>
-                            <th className="p-3 text-center font-medium text-red-600">{t('retailer.rejectionQty') || 'Rejection'}</th>
-                            <th className="p-3 text-center font-medium text-purple-600">{t('retailer.itemsSoldQty') || 'Items Sold'}</th>
-                            <th className="p-3 text-center font-medium text-amber-600">{t('retailer.closingQty') || 'Closing'}</th>
+                            <th className="px-2 py-1.5 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-blue-600">{t('retailer.openingQty') || 'Open'}</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-green-600">{t('retailer.receivedQty') || 'Rcvd'}</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-red-600">{t('retailer.rejectionQty') || 'Rej'}</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-purple-600">{t('retailer.itemsSoldQty') || 'Sold'}</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-amber-600">{t('retailer.closingQty') || 'Close'}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2113,33 +2113,33 @@ export default function RetailerDashboard() {
                             )
                             .map((item, idx) => (
                               <tr key={`${item.product_id}-${item.variant_id || idx}`} className="border-b hover:bg-gray-50">
-                                <td className="p-3">
-                                  <div className="font-medium text-gray-800">{item.product_name}</div>
+                                <td className="px-2 py-1">
+                                  <div className="font-medium text-gray-800 truncate max-w-[150px]">{item.product_name}</div>
                                   {item.variant_name && item.variant_name !== 'Kg' && (
-                                    <div className="text-xs text-gray-500">{item.variant_name}</div>
+                                    <div className="text-[10px] text-gray-500">{item.variant_name}</div>
                                   )}
                                 </td>
-                                <td className="p-3 text-center">
+                                <td className="px-1 py-1 text-center">
                                   <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
                                     {item.opening_qty || 0}
                                   </span>
                                 </td>
-                                <td className="p-3 text-center">
+                                <td className="px-1 py-1 text-center">
                                   <span className={`font-semibold ${item.received_qty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
                                     {item.received_qty > 0 ? `+${item.received_qty}` : '0'}
                                   </span>
                                 </td>
-                                <td className="p-3 text-center">
+                                <td className="px-1 py-1 text-center">
                                   <span className={`font-semibold ${item.rejection_qty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
                                     {item.rejection_qty > 0 ? `-${item.rejection_qty}` : '0'}
                                   </span>
                                 </td>
-                                <td className="p-3 text-center">
+                                <td className="px-1 py-1 text-center">
                                   <span className={`font-semibold ${item.items_sold !== null && item.items_sold > 0 ? 'text-purple-600' : 'text-gray-300'}`}>
                                     {item.items_sold !== null ? item.items_sold : '-'}
                                   </span>
                                 </td>
-                                <td className="p-3 text-center">
+                                <td className="px-1 py-1 text-center">
                                   <span className={`font-semibold ${item.closing_qty !== null && item.closing_qty !== undefined ? 'text-amber-600' : 'text-gray-300'}`}>
                                     {item.closing_qty !== null && item.closing_qty !== undefined ? item.closing_qty : '-'}
                                   </span>
@@ -2148,20 +2148,20 @@ export default function RetailerDashboard() {
                             ))}
                         </tbody>
                         {inventoryData.length > 0 && (
-                          <tfoot className="bg-gray-100 font-semibold">
+                          <tfoot className="bg-gray-100 font-semibold text-xs">
                             <tr>
-                              <td className="p-3 text-right">Total Products:</td>
-                              <td className="p-3 text-center text-blue-600" colSpan={5}>
-                                {inventoryData.filter(item => !inventorySearchTerm || item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())).length}
+                              <td className="px-2 py-1.5 text-right">Total:</td>
+                              <td className="px-1 py-1.5 text-center text-blue-600" colSpan={5}>
+                                {inventoryData.filter(item => !inventorySearchTerm || item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())).length} products
                               </td>
                             </tr>
                           </tfoot>
                         )}
                       </table>
                       {inventoryData.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                          <Package size={40} className="mx-auto mb-3 text-gray-300" />
-                          <p className="text-sm font-medium">{t('retailer.noInventoryData') || 'No inventory data for this date'}</p>
+                        <div className="text-center py-6 text-gray-500">
+                          <Package size={32} className="mx-auto mb-2 text-gray-300" />
+                          <p className="text-xs font-medium">{t('retailer.noInventoryData') || 'No inventory data for this date'}</p>
                         </div>
                       )}
                     </div>

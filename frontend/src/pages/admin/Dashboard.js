@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -15,6 +15,15 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 const COLORS = ['#14532D', '#D97706', '#3B82F6', '#8B5CF6', '#EF4444', '#10B981', '#F59E0B', '#6366F1'];
 
+// Helper function to calculate number of days between two dates (inclusive)
+const calculateDaysBetween = (fromDate, toDate) => {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const diffTime = Math.abs(to - from);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 for inclusive
+  return diffDays;
+};
+
 export default function AdminDashboard() {
   const { t } = useTranslation();
   const [pnlData, setPnlData] = useState(null);
@@ -29,6 +38,18 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [populatingHindi, setPopulatingHindi] = useState(false);
   const [populatingReferrals, setPopulatingReferrals] = useState(false);
+  
+  // Calculate number of days and daily average profit
+  const daysInRange = useMemo(() => calculateDaysBetween(dateFrom, dateTo), [dateFrom, dateTo]);
+  
+  const dailyAvgProfit = useMemo(() => {
+    if (!pnlData?.summary?.net_profit || daysInRange === 0) return { total: 0, qc: 0, retail: 0 };
+    return {
+      total: pnlData.summary.net_profit / daysInRange,
+      qc: (pnlData.vertical_bifurcation?.qc?.net_profit || 0) / daysInRange,
+      retail: (pnlData.vertical_bifurcation?.retail?.net_profit || 0) / daysInRange
+    };
+  }, [pnlData, daysInRange]);
   
   // Function to populate Hindi product names
   const populateHindiNames = async () => {
@@ -407,6 +428,26 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Daily Avg Profit */}
+          <Card className={`bg-gradient-to-br ${dailyAvgProfit.total >= 0 ? 'from-indigo-50 to-indigo-100 border-indigo-200' : 'from-red-50 to-red-100 border-red-200'}`}>
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 ${dailyAvgProfit.total >= 0 ? 'bg-indigo-600' : 'bg-red-600'} rounded-lg`}>
+                  <Calculator className="text-white" size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium uppercase" style={{ color: dailyAvgProfit.total >= 0 ? '#3730A3' : '#991B1B' }}>Daily Avg Profit</p>
+                  <p className="text-lg font-bold" style={{ color: dailyAvgProfit.total >= 0 ? '#312E81' : '#7F1D1D' }}>
+                    {formatCurrency(dailyAvgProfit.total)}
+                  </p>
+                  <p className="text-[10px]" style={{ color: dailyAvgProfit.total >= 0 ? '#4F46E5' : '#DC2626' }}>
+                    {daysInRange} days
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Today's Quick Summary Widget */}
@@ -572,6 +613,12 @@ export default function AdminDashboard() {
                       {formatCurrency(pnlData.vertical_bifurcation.qc.net_profit)}
                     </p>
                   </div>
+                  <div className={`p-1.5 rounded ${dailyAvgProfit.qc >= 0 ? 'bg-indigo-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-indigo-600 font-medium">DAILY AVG</p>
+                    <p className={`text-sm font-bold ${dailyAvgProfit.qc >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                      {formatCurrency(dailyAvgProfit.qc)}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex justify-between mt-2 pt-2 border-t border-blue-100 text-xs text-blue-700">
                   <span>Qty: {(pnlData.vertical_bifurcation.qc.qty || 0).toLocaleString()}</span>
@@ -635,11 +682,17 @@ export default function AdminDashboard() {
                     <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.retail.fixed_exp)}</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-2 text-center mt-2">
+                <div className="grid grid-cols-2 gap-2 text-center mt-2">
                   <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.retail.net_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
                     <p className="text-[9px] text-gray-600 font-medium">NET PROFIT</p>
                     <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.retail.net_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                       {formatCurrency(pnlData.vertical_bifurcation.retail.net_profit)}
+                    </p>
+                  </div>
+                  <div className={`p-1.5 rounded ${dailyAvgProfit.retail >= 0 ? 'bg-indigo-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-indigo-600 font-medium">DAILY AVG</p>
+                    <p className={`text-sm font-bold ${dailyAvgProfit.retail >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                      {formatCurrency(dailyAvgProfit.retail)}
                     </p>
                   </div>
                 </div>
@@ -1533,6 +1586,12 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-gray-500 font-medium">₹/UNIT</p>
                   <p className={`text-sm font-bold ${customerDetailData.totals.profitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                     ₹{customerDetailData.totals.profitPerUnit.toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center p-2 bg-indigo-50 rounded shadow-sm">
+                  <p className="text-[10px] text-indigo-600 font-medium">DAILY AVG</p>
+                  <p className={`text-sm font-bold ${(customerDetailData.totals.grossProfit / (customerDetailData.daily?.length || 1)) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                    ₹{(customerDetailData.totals.grossProfit / (customerDetailData.daily?.length || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </p>
                 </div>
               </div>

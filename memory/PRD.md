@@ -864,6 +864,17 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [x] **Duplicate text removed from My Orders**:
   - "Pending Orders (Pending Orders)" → "Pending Orders"
   - "Dispatched Orders (Received from Admin)" → "Dispatched Orders"
+- [x] **Compact inventory table design** (Apr 07, 2026):
+  - Reduced padding (p-3 → px-2 py-1)
+  - Smaller font size (text-sm → text-xs)
+  - Shortened column headers (Opening Qty → Open, Received → Rcvd, Rejection → Rej, Items Sold → Sold, Closing Qty → Close)
+  - Product name truncation with max-width
+  - Shows ~2x more products without scrolling
+- [x] **Daily Avg Profit** added to dashboards:
+  - Main Dashboard: Shows "Daily Avg Profit = Net Profit / Days" with day count
+  - QC Dashboard: Shows "DAILY AVG" for Quick Commerce
+  - Retail Dashboard: Shows "DAILY AVG" for Retail
+  - Customer P&L Modal: Shows "DAILY AVG" profit per customer
 
 
 

@@ -4328,8 +4328,9 @@ async def get_pnl_report(
     gross_profit_actual = total_sales - total_cogs - total_wastage_from_items - total_retail_rejection - total_retail_commission
     gross_margin_actual = (gross_profit_actual / total_sales * 100) if total_sales > 0 else 0
     
-    # Recalculate net profit
-    net_profit_actual = gross_profit_actual - total_variable - total_fixed
+    # Recalculate net profit (including GRN Loss which affects QC)
+    # Net Profit = Gross Profit - GRN Loss - Variable Expenses - Fixed Expenses
+    net_profit_actual = gross_profit_actual - total_grn_loss - total_variable - total_fixed
     net_margin_actual = (net_profit_actual / total_sales * 100) if total_sales > 0 else 0
     
     return {

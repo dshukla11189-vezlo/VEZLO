@@ -1212,7 +1212,7 @@ export default function Procurement() {
                     />
                   </div>
                   <div className="text-xs text-amber-600">
-                    (Shows purchases from <strong>{new Date(new Date(referenceDateForPurchase).getTime() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</strong> as template)
+                    (Shows unique purchases from <strong>last 7 days</strong> as template)
                   </div>
                 </div>
                 
@@ -1221,7 +1221,7 @@ export default function Procurement() {
                     <div className="flex flex-col gap-2 mb-3">
                       <div className="flex items-center justify-between">
                         <h4 className="font-semibold text-amber-800">
-                          Previous Day's Purchases ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)} items)
+                          Last 7 Days' Purchases ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)} unique items)
                         </h4>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1683,6 +1683,7 @@ export default function Procurement() {
                                 placeholder={t('procurement.productName')}
                                 items={products}
                                 displayKey="name"
+                                localizedDisplayKey="name_hi"
                                 secondaryKey="category"
                                 onSelect={(p) => handleProductSelect(index, p)}
                                 testId={`product-autocomplete-${index}`}

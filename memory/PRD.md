@@ -943,4 +943,16 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Invoice status badge shows when dispatch is invoiced
 - [x] **Tested and verified** - 100% success rate (10/10 tests passed)
 
+### Procurement Enhancements (COMPLETED - Apr 07, 2026)
+- [x] **Hindi Product Names in Dropdown**:
+  - AutocompleteInput component now supports `localizedDisplayKey` prop
+  - Product dropdown shows Hindi names (name_hi) when language is Hindi
+  - Search works on both English and Hindi product names
+- [x] **Last 7 Days' Purchases Logic**:
+  - Changed from "Previous Day's Purchases" to "Last 7 Days' Purchases"
+  - Backend endpoint `/api/procurement/previous-day` now returns:
+    - Unique farmer-product combinations from 7 days before selected date
+    - Removes duplicate entries, keeping most recent data for each combination
+  - Shows count of unique items (e.g., "40 unique items")
+
 

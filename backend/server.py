@@ -1105,8 +1105,9 @@ async def get_previous_day_procurements(
     reference_date: str = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get procurements from the day before reference_date to use as template for entry.
-    If no reference_date provided, defaults to today (so shows yesterday's data).
+    """Get unique procurements from the 7 days before reference_date to use as template for entry.
+    If no reference_date provided, defaults to today.
+    Returns unique farmer-product combinations from the last 7 days.
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -1120,13 +1121,16 @@ async def get_previous_day_procurements(
     else:
         ref_date = datetime.now(timezone.utc)
     
-    # Get the day before reference date
-    target_date = (ref_date - timedelta(days=1)).strftime('%Y-%m-%d')
+    # Get the date range: 7 days before reference date (exclusive of reference date)
+    end_date = (ref_date - timedelta(days=1)).strftime('%Y-%m-%d')  # Day before reference
+    start_date = (ref_date - timedelta(days=7)).strftime('%Y-%m-%d')  # 7 days before reference
     
-    # Find procurements from target date
+    # Find all procurements in the date range
     all_procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
     
-    target_procs = []
+    # Filter procurements in the date range and collect unique farmer-product combinations
+    unique_items = {}  # Key: "farmer_id|product_id" -> latest procurement item
+    
     for p in all_procurements:
         proc_date = p.get("date", "")
         if isinstance(proc_date, datetime):
@@ -1134,19 +1138,60 @@ async def get_previous_day_procurements(
         else:
             proc_date_str = str(proc_date)[:10]
         
-        if proc_date_str == target_date:
-            target_procs.append(p)
+        # Check if procurement is within the 7-day window
+        if start_date <= proc_date_str <= end_date:
+            farmer_id = p.get("farmer_id", "")
+            farmer_name = p.get("farmer_name", "")
+            
+            for product in p.get("products", []):
+                product_id = product.get("product_id", "")
+                # Create unique key for farmer-product combination
+                key = f"{farmer_id}|{product_id}"
+                
+                # Keep the most recent entry for each unique combination
+                if key not in unique_items or proc_date_str > unique_items[key].get("date", ""):
+                    unique_items[key] = {
+                        "farmer_id": farmer_id,
+                        "farmer_name": farmer_name,
+                        "product_id": product_id,
+                        "product_name": product.get("product_name", ""),
+                        "quantity": product.get("quantity", 0),
+                        "unit": product.get("unit", "Kg"),
+                        "unit_size": product.get("unit_size", ""),
+                        "rate": product.get("rate", 0),
+                        "total": product.get("total", 0),
+                        "date": proc_date_str
+                    }
     
-    # Convert to template format (remove IDs and payment status)
-    templates = []
-    for p in target_procs:
-        templates.append({
-            "farmer_id": p.get("farmer_id"),
-            "farmer_name": p.get("farmer_name"),
-            "products": p.get("products", []),
-            "total_amount": p.get("total_amount", 0),
-            "date": target_date
+    # Group items by farmer for the response format
+    farmer_items = {}
+    for item in unique_items.values():
+        farmer_id = item["farmer_id"]
+        if farmer_id not in farmer_items:
+            farmer_items[farmer_id] = {
+                "farmer_id": farmer_id,
+                "farmer_name": item["farmer_name"],
+                "products": [],
+                "date": f"{start_date} to {end_date}"
+            }
+        farmer_items[farmer_id]["products"].append({
+            "product_id": item["product_id"],
+            "product_name": item["product_name"],
+            "quantity": item["quantity"],
+            "unit": item["unit"],
+            "unit_size": item["unit_size"],
+            "rate": item["rate"],
+            "total": item["total"]
         })
+    
+    # Calculate totals for each farmer
+    templates = []
+    for farmer_data in farmer_items.values():
+        farmer_data["total_amount"] = sum(p.get("total", 0) for p in farmer_data["products"])
+        templates.append(farmer_data)
+    
+    # Sort by farmer name
+    templates.sort(key=lambda x: x.get("farmer_name", ""))
     
     return templates
 

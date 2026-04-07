@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Clock } from 'lucide-react';
@@ -11,12 +12,26 @@ export default function AutocompleteInput({
   onSelect, 
   onInputChange,  // New: callback for custom input
   displayKey = 'name',
+  localizedDisplayKey = null, // New: for Hindi/localized names (e.g., 'name_hi')
   secondaryKey = null,
   testId,
   storageKey = null, // For recent selections
   allowCustom = false, // New: allow custom input without selection
   compact = false // New: compact mode for table rows
 }) {
+  const { i18n } = useTranslation();
+  const isHindi = i18n.language === 'hi';
+  
+  // Helper to get the display value for an item based on language
+  const getDisplayValue = (item) => {
+    if (!item) return '';
+    // Use localized name if available and language is Hindi
+    if (isHindi && localizedDisplayKey && item[localizedDisplayKey]) {
+      return item[localizedDisplayKey];
+    }
+    return item[displayKey] || '';
+  };
+  
   const [searchTerm, setSearchTerm] = useState(value || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredItems, setFilteredItems] = useState([]);
@@ -69,18 +84,24 @@ export default function AutocompleteInput({
           ? String(primaryValue).toLowerCase().includes(searchLower) 
           : false;
         
+        // Also search in localized name if available
+        const localizedValue = localizedDisplayKey ? item[localizedDisplayKey] : null;
+        const localizedMatch = localizedValue != null
+          ? String(localizedValue).toLowerCase().includes(searchLower)
+          : false;
+        
         const secondaryValue = secondaryKey ? item[secondaryKey] : null;
         const secondaryMatch = secondaryValue != null 
           ? String(secondaryValue).toLowerCase().includes(searchLower) 
           : false;
         
-        return primaryMatch || secondaryMatch;
+        return primaryMatch || localizedMatch || secondaryMatch;
       });
       setFilteredItems(filtered);
     } else {
       setFilteredItems(items);
     }
-  }, [searchTerm, items, displayKey, secondaryKey]);
+  }, [searchTerm, items, displayKey, localizedDisplayKey, secondaryKey]);
 
   const handleInputChange = (e) => {
     const newValue = e.target.value;
@@ -94,7 +115,7 @@ export default function AutocompleteInput({
   };
 
   const handleSelect = (item) => {
-    setSearchTerm(item[displayKey]);
+    setSearchTerm(getDisplayValue(item));
     setShowSuggestions(false);
     if (onSelect) {
       onSelect(item);
@@ -179,7 +200,7 @@ export default function AutocompleteInput({
                   className="px-4 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100"
                   data-testid={`recent-${index}`}
                 >
-                  <div className="font-medium text-sm text-gray-900">{item[displayKey]}</div>
+                  <div className="font-medium text-sm text-gray-900">{getDisplayValue(item)}</div>
                   {secondaryKey && item[secondaryKey] && (
                     <div className="text-xs text-gray-500">{item[secondaryKey]}</div>
                   )}
@@ -206,7 +227,7 @@ export default function AutocompleteInput({
                 className="px-4 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
                 data-testid={`suggestion-${index}`}
               >
-                <div className="font-medium text-sm text-gray-900">{item[displayKey]}</div>
+                <div className="font-medium text-sm text-gray-900">{getDisplayValue(item)}</div>
                 {secondaryKey && item[secondaryKey] && (
                   <div className="text-xs text-gray-500">{item[secondaryKey]}</div>
                 )}

@@ -808,13 +808,13 @@ async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: fl
 
 
 def extract_weight_from_packaging_name(name: str) -> float:
-    """Extract weight in grams from packaging name like '500 gm', '240-260 gm', '200 gm Packet'"""
+    """Extract weight in grams from packaging name like '500 gm', '240-260 gm', '200 gm Packet', 'With Roots (100 gm Pack)'"""
     if not name:
         return 0
     
     name_lower = name.lower().strip()
     
-    # Pattern 1: Simple number + gm/g (e.g., "500 gm", "250 gm")
+    # Pattern 1: Simple number + gm/g at start (e.g., "500 gm", "250 gm")
     match = re.search(r'^(\d+)\s*(gm|g)\b', name_lower)
     if match:
         return float(match.group(1))
@@ -824,7 +824,12 @@ def extract_weight_from_packaging_name(name: str) -> float:
     if range_match:
         return (float(range_match.group(1)) + float(range_match.group(2))) / 2
     
-    # Pattern 3: Just a number (assume gm if no unit, e.g., "500")
+    # Pattern 3: Number + gm/g anywhere in the string (e.g., "With Roots (100 gm Pack)")
+    anywhere_match = re.search(r'(\d+)\s*(gm|g)\b', name_lower)
+    if anywhere_match:
+        return float(anywhere_match.group(1))
+    
+    # Pattern 4: Just a number (assume gm if no unit, e.g., "500")
     just_number = re.search(r'^(\d+)$', name_lower)
     if just_number:
         return float(just_number.group(1))
@@ -5348,44 +5353,98 @@ async def get_wastage_dashboard(
 
 @api_router.get("/stock-status/yesterday-wastage")
 async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
-    """Get product-wise wastage for previous day"""
+    """Get product-wise wastage for previous day (includes closed entries and pending entries with calculated wastage)"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # Get all closed stock status for yesterday
+    # Get all stock status for yesterday (both closed and pending)
     yesterday_records = await db.daily_stock_status.find(
-        {"date": yesterday, "status": "closed"},
+        {"date": yesterday},
         {"_id": 0}
     ).to_list(500)
     
-    # Filter products with wastage > 0
+    # Aggregate wastage by product (sum up QC + Retail entries for same product)
+    product_wastage = {}
+    
+    for record in yesterday_records:
+        product_name = record.get("product_name", "Unknown")
+        product_id = record.get("product_id", "")
+        
+        # Get values
+        wastage_qty = record.get("wastage_qty", 0) or 0
+        wastage_value = record.get("wastage_value", 0) or 0
+        opening_qty = record.get("opening_qty", 0) or 0
+        purchase_qty = record.get("purchase_qty", 0) or 0
+        dispatch_qty = record.get("dispatch_qty", 0) or 0
+        closing_qty = record.get("closing_qty", 0) or 0
+        status = record.get("status", "pending")
+        
+        # For pending entries, calculate potential wastage if not closed
+        if status != "closed" and wastage_qty == 0:
+            # Available = opening + purchase
+            available = opening_qty + purchase_qty
+            # If no closing recorded, estimate wastage as available - dispatch
+            if available > 0 and closing_qty == 0:
+                wastage_qty = max(0, available - dispatch_qty)
+                # Estimate value using average procurement price
+                avg_price = record.get("avg_price", 0) or 0
+                wastage_value = wastage_qty * avg_price
+        
+        if wastage_qty > 0:
+            if product_name not in product_wastage:
+                product_wastage[product_name] = {
+                    "product_name": product_name,
+                    "product_id": product_id,
+                    "opening_qty": 0,
+                    "purchase_qty": 0,
+                    "dispatch_qty": 0,
+                    "closing_qty": 0,
+                    "wastage_qty": 0,
+                    "wastage_value": 0,
+                    "status": status
+                }
+            
+            # Aggregate values
+            product_wastage[product_name]["opening_qty"] += opening_qty
+            product_wastage[product_name]["purchase_qty"] += purchase_qty
+            product_wastage[product_name]["dispatch_qty"] += dispatch_qty
+            product_wastage[product_name]["closing_qty"] += closing_qty
+            product_wastage[product_name]["wastage_qty"] += wastage_qty
+            product_wastage[product_name]["wastage_value"] += wastage_value
+            # Update status to closed if any entry is closed
+            if status == "closed":
+                product_wastage[product_name]["status"] = "closed"
+    
+    # Calculate wastage percent and avg_price
     wastage_products = []
     total_wastage_kg = 0
     total_wastage_value = 0
     
-    for record in yesterday_records:
-        wastage_qty = record.get("wastage_qty", 0) or 0
-        wastage_value = record.get("wastage_value", 0) or 0
+    for product_name, data in product_wastage.items():
+        available = data["opening_qty"] + data["purchase_qty"]
+        wastage_percent = (data["wastage_qty"] / available * 100) if available > 0 else 0
+        avg_price = data["wastage_value"] / data["wastage_qty"] if data["wastage_qty"] > 0 else 0
         
-        if wastage_qty > 0:
-            wastage_products.append({
-                "product_name": record.get("product_name"),
-                "opening_qty": record.get("opening_qty", 0),
-                "purchase_qty": record.get("purchase_qty", 0),
-                "dispatch_qty": record.get("dispatch_qty", 0),
-                "closing_qty": record.get("closing_qty", 0),
-                "wastage_qty": wastage_qty,
-                "wastage_value": wastage_value,
-                "wastage_percent": record.get("wastage_percent", 0),
-                "avg_price": record.get("avg_price", 0)
-            })
-            total_wastage_kg += wastage_qty
-            total_wastage_value += wastage_value
+        wastage_products.append({
+            "product_name": product_name,
+            "product_id": data["product_id"],
+            "opening_qty": round(data["opening_qty"], 2),
+            "purchase_qty": round(data["purchase_qty"], 2),
+            "dispatch_qty": round(data["dispatch_qty"], 2),
+            "closing_qty": round(data["closing_qty"], 2),
+            "wastage_qty": round(data["wastage_qty"], 2),
+            "wastage_value": round(data["wastage_value"], 2),
+            "wastage_percent": round(wastage_percent, 1),
+            "avg_price": round(avg_price, 2),
+            "status": data["status"]
+        })
+        total_wastage_kg += data["wastage_qty"]
+        total_wastage_value += data["wastage_value"]
     
-    # Sort by wastage quantity descending
-    wastage_products.sort(key=lambda x: x["wastage_qty"], reverse=True)
+    # Sort by wastage percent descending (highest wastage % first)
+    wastage_products.sort(key=lambda x: x.get("wastage_percent", 0), reverse=True)
     
     return {
         "date": yesterday,

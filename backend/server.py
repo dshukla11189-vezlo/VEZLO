@@ -8702,28 +8702,39 @@ async def get_retailer_closing_summary(
             key = f"{item.get('product_id')}_{item.get('variant_id') or 'default'}"
             prev_closing[key] = item.get("closing_qty", 0)
     
-    # Get dispatches for this date (received qty)
+    # Get dispatches for this date (received qty) and build variant name map from ALL dispatches
     dispatches = await db.retailer_dispatches.find({
         "retailer_id": retailer_id
     }, {"_id": 0}).to_list(500)
     
     received_qty = {}
+    variant_name_map = {}  # Map to store best variant names from all dispatches
+    
     for d in dispatches:
         dispatch_date = str(d.get('dispatch_date', ''))[:10]
-        if dispatch_date != date:
-            continue
+        
         for item in d.get('items', []):
             product_id = item.get('product_id')
             variant_id = item.get('variant_id') or item.get('packaging_id')
             key = f"{product_id}_{variant_id or 'default'}"
-            if key not in received_qty:
-                received_qty[key] = {
-                    'qty': 0,
-                    'product_name': item.get('product_name'),
-                    'variant_id': variant_id,
-                    'variant_name': item.get('variant_name') or item.get('packaging_name') or 'Kg'
-                }
-            received_qty[key]['qty'] += item.get('supplied_qty', 0) or 0
+            
+            # Store variant name from any dispatch (prefer non-Kg names)
+            variant_name = item.get('variant_name') or item.get('packaging_name') or 'Kg'
+            if variant_name and variant_name != 'Kg':
+                variant_name_map[key] = variant_name
+            elif key not in variant_name_map:
+                variant_name_map[key] = variant_name
+            
+            # Only count received qty for the target date
+            if dispatch_date == date:
+                if key not in received_qty:
+                    received_qty[key] = {
+                        'qty': 0,
+                        'product_name': item.get('product_name'),
+                        'variant_id': variant_id,
+                        'variant_name': variant_name
+                    }
+                received_qty[key]['qty'] += item.get('supplied_qty', 0) or 0
     
     # Get rejections for this date
     rejections = await db.retailer_rejections.find({
@@ -8752,12 +8763,25 @@ async def get_retailer_closing_summary(
         recv = received_qty.get(key, {}).get('qty', 0)
         rej = rejection_qty.get(f"{product_id}_default", 0)  # Apply rejection at product level
         
+        # Get better variant_name from dispatches if available
+        stored_variant = item.get("variant_name", "Kg")
+        dispatch_variant = received_qty.get(key, {}).get('variant_name')
+        map_variant = variant_name_map.get(key)
+        
+        # Priority: dispatch_variant (today) > map_variant (any day) > stored_variant
+        final_variant_name = stored_variant
+        if (stored_variant == "Kg" or not stored_variant):
+            if dispatch_variant and dispatch_variant != "Kg":
+                final_variant_name = dispatch_variant
+            elif map_variant and map_variant != "Kg":
+                final_variant_name = map_variant
+        
         result.append({
             "id": item.get("id"),
             "product_id": product_id,
             "product_name": item.get("product_name"),
             "variant_id": variant_id,
-            "variant_name": item.get("variant_name", "Kg"),
+            "variant_name": final_variant_name,
             "opening_qty": opening,
             "received_qty": recv,
             "rejection_qty": rej if key.endswith('_default') or not seen_keys else 0,

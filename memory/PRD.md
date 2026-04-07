@@ -876,6 +876,16 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Both Closing History and Daily Inventory tables now sort inline during render
   - Sort logic: `typeof closing_qty === 'number' && closing_qty > 0` for positive values
   - Products with closing > 0 appear first (alphabetically), then products with 0/null closing (alphabetically)
+
+### Variant Name Display Fix (COMPLETED - Apr 07, 2026)
+- [x] **Backend enhancement** to populate variant names from dispatch history:
+  - Closing inventory summary endpoint now builds a `variant_name_map` from ALL dispatches
+  - Priority: today's dispatch variant → historical dispatch variant → stored variant
+  - Fixes "Kg" showing instead of actual packaging names like "240-260 gm"
+- [x] **Applies to both**:
+  - Retailer Portal → Closing History table
+  - Admin Portal → Closing Inventory tab
+- [x] **Edit/Delete controls** working correctly for same-day records only
 - [x] **Daily Avg Profit** added to dashboards:
   - Main Dashboard: Shows "Daily Avg Profit = Net Profit / Days" with day count
   - QC Dashboard: Shows "DAILY AVG" for Quick Commerce

@@ -866,16 +866,16 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - "Pending Orders (Pending Orders)" → "Pending Orders"
   - "Dispatched Orders (Received from Admin)" → "Dispatched Orders"
 - [x] **Compact inventory table design** (Apr 07, 2026):
-  - Reduced padding (p-3 → px-2 py-1 / px-1 py-1)
-  - Smaller font size (text-sm → text-xs)
-  - Shortened column headers in both translations (en.json, hi.json):
-    - "Opening Qty" → "Open" / "ओपन"
-    - "Received" → "Rcvd" / "प्राप्त"
-    - "Rejection" → "Rej" / "रिजे."
-    - "Items Sold" → "Sold" / "बिके"
-    - "Closing Qty" → "Close" / "क्लोज"
-  - Product name truncation with max-width
-  - Shows ~2x more products without scrolling
+  - Reduced padding (p-3 → px-2 py-1.5)
+  - Changed from `w-full` table to `table-auto` for natural column sizing (reduces horizontal white space)
+  - Full headers maintained: Product, Opening, Received, Rejection, Sold, Closing
+  - Added `whitespace-nowrap` to prevent column wrapping
+  - Product name no longer truncated
+  - Table rows more compact vertically
+- [x] **Sorting added to render chain**:
+  - Both Closing History and Daily Inventory tables now sort inline during render
+  - Sort logic: `typeof closing_qty === 'number' && closing_qty > 0` for positive values
+  - Products with closing > 0 appear first (alphabetically), then products with 0/null closing (alphabetically)
 - [x] **Daily Avg Profit** added to dashboards:
   - Main Dashboard: Shows "Daily Avg Profit = Net Profit / Days" with day count
   - QC Dashboard: Shows "DAILY AVG" for Quick Commerce

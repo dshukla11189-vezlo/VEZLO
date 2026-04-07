@@ -1958,22 +1958,32 @@ export default function RetailerDashboard() {
                   )}
                   
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="text-sm border-collapse">
                       <thead className="bg-gray-100">
                         <tr>
-                          <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
-                          <th className="p-3 text-center font-medium text-gray-600">{t('retailer.closingQty') || 'Closing Qty'}</th>
-                          <th className="p-3 text-center font-medium text-gray-600">Actions</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">{t('retailer.product') || 'Product'}</th>
+                          <th className="px-3 py-2 text-center font-medium text-gray-600 whitespace-nowrap">{t('retailer.closingQty') || 'Closing'}</th>
+                          <th className="px-3 py-2 text-center font-medium text-gray-600 whitespace-nowrap">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {closingHistory.map(item => (
+                        {closingHistory
+                          .slice() // Create copy to avoid mutating original
+                          .sort((a, b) => {
+                            // Two-step sorting: non-zero closing first, then zero closing
+                            const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
+                            const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
+                            if (aHasClosing && !bHasClosing) return -1;
+                            if (!aHasClosing && bHasClosing) return 1;
+                            return (getProductName(a) || '').localeCompare(getProductName(b) || '');
+                          })
+                          .map(item => (
                           <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
-                            <td className="p-3">
+                            <td className="px-3 py-1.5 whitespace-nowrap">
                               <div className="font-medium text-gray-800">{getProductName(item)}</div>
                               <div className="text-xs text-gray-400">{item.variant_name || item.unit || 'Kg'}</div>
                             </td>
-                            <td className="p-3 text-center">
+                            <td className="px-3 py-1.5 text-center">
                               {editingItemId === item.id ? (
                                 <div className="flex items-center justify-center gap-2">
                                   <Input
@@ -2008,14 +2018,14 @@ export default function RetailerDashboard() {
                                 </span>
                               )}
                             </td>
-                            <td className="p-3 text-center">
+                            <td className="px-3 py-1.5 text-center">
                               {editingItemId !== item.id && closingHistoryDate === new Date().toISOString().split('T')[0] && (
                                 <div className="flex items-center justify-center gap-1">
                                   <Button 
                                     size="sm" 
                                     variant="ghost"
                                     onClick={() => startEditingItem(item)}
-                                    className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
+                                    className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
                                     title="Edit"
                                   >
                                     <Edit2 size={14} />
@@ -2024,7 +2034,7 @@ export default function RetailerDashboard() {
                                     size="sm" 
                                     variant="ghost"
                                     onClick={() => deleteClosingItem(item.id, item.product_name)}
-                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                                    className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
                                     title="Delete"
                                   >
                                     <Trash2 size={14} />
@@ -2038,11 +2048,9 @@ export default function RetailerDashboard() {
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot className="bg-gray-100 font-semibold">
+                      <tfoot className="bg-gray-100 font-semibold text-sm">
                         <tr>
-                          <td className="p-3 text-right">Total Items:</td>
-                          <td className="p-3 text-center text-blue-600">{closingHistory.length}</td>
-                          <td></td>
+                          <td className="px-3 py-1.5" colSpan={3}>Total: {closingHistory.length} items</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -2095,15 +2103,15 @@ export default function RetailerDashboard() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      <table className="text-xs border-collapse">
                         <thead className="bg-gray-100">
                           <tr>
-                            <th className="px-2 py-1.5 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
-                            <th className="px-1 py-1.5 text-center font-medium text-blue-600">{t('retailer.openingQty') || 'Open'}</th>
-                            <th className="px-1 py-1.5 text-center font-medium text-green-600">{t('retailer.receivedQty') || 'Rcvd'}</th>
-                            <th className="px-1 py-1.5 text-center font-medium text-red-600">{t('retailer.rejectionQty') || 'Rej'}</th>
-                            <th className="px-1 py-1.5 text-center font-medium text-purple-600">{t('retailer.itemsSoldQty') || 'Sold'}</th>
-                            <th className="px-1 py-1.5 text-center font-medium text-amber-600">{t('retailer.closingQty') || 'Close'}</th>
+                            <th className="px-2 py-1.5 text-left font-medium text-gray-600 whitespace-nowrap">{t('retailer.product') || 'Product'}</th>
+                            <th className="px-2 py-1.5 text-center font-medium text-blue-600 whitespace-nowrap">{t('retailer.openingQty') || 'Opening'}</th>
+                            <th className="px-2 py-1.5 text-center font-medium text-green-600 whitespace-nowrap">{t('retailer.receivedQty') || 'Received'}</th>
+                            <th className="px-2 py-1.5 text-center font-medium text-red-600 whitespace-nowrap">{t('retailer.rejectionQty') || 'Rejection'}</th>
+                            <th className="px-2 py-1.5 text-center font-medium text-purple-600 whitespace-nowrap">{t('retailer.itemsSoldQty') || 'Sold'}</th>
+                            <th className="px-2 py-1.5 text-center font-medium text-amber-600 whitespace-nowrap">{t('retailer.closingQty') || 'Closing'}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2112,35 +2120,43 @@ export default function RetailerDashboard() {
                               !inventorySearchTerm || 
                               item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())
                             )
+                            .sort((a, b) => {
+                              // Two-step sorting: non-zero closing first, then zero/null closing
+                              const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
+                              const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
+                              if (aHasClosing && !bHasClosing) return -1;
+                              if (!aHasClosing && bHasClosing) return 1;
+                              return (a.product_name || '').localeCompare(b.product_name || '');
+                            })
                             .map((item, idx) => (
                               <tr key={`${item.product_id}-${item.variant_id || idx}`} className="border-b hover:bg-gray-50">
-                                <td className="px-2 py-1">
-                                  <div className="font-medium text-gray-800 truncate max-w-[150px]">{item.product_name}</div>
+                                <td className="px-2 py-1 whitespace-nowrap">
+                                  <div className="font-medium text-gray-800">{item.product_name}</div>
                                   {item.variant_name && item.variant_name !== 'Kg' && (
                                     <div className="text-[10px] text-gray-500">{item.variant_name}</div>
                                   )}
                                 </td>
-                                <td className="px-1 py-1 text-center">
+                                <td className="px-2 py-1 text-center">
                                   <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
                                     {item.opening_qty || 0}
                                   </span>
                                 </td>
-                                <td className="px-1 py-1 text-center">
+                                <td className="px-2 py-1 text-center">
                                   <span className={`font-semibold ${item.received_qty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
                                     {item.received_qty > 0 ? `+${item.received_qty}` : '0'}
                                   </span>
                                 </td>
-                                <td className="px-1 py-1 text-center">
+                                <td className="px-2 py-1 text-center">
                                   <span className={`font-semibold ${item.rejection_qty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
                                     {item.rejection_qty > 0 ? `-${item.rejection_qty}` : '0'}
                                   </span>
                                 </td>
-                                <td className="px-1 py-1 text-center">
+                                <td className="px-2 py-1 text-center">
                                   <span className={`font-semibold ${item.items_sold !== null && item.items_sold > 0 ? 'text-purple-600' : 'text-gray-300'}`}>
                                     {item.items_sold !== null ? item.items_sold : '-'}
                                   </span>
                                 </td>
-                                <td className="px-1 py-1 text-center">
+                                <td className="px-2 py-1 text-center">
                                   <span className={`font-semibold ${item.closing_qty !== null && item.closing_qty !== undefined ? 'text-amber-600' : 'text-gray-300'}`}>
                                     {item.closing_qty !== null && item.closing_qty !== undefined ? item.closing_qty : '-'}
                                   </span>
@@ -2151,9 +2167,8 @@ export default function RetailerDashboard() {
                         {inventoryData.length > 0 && (
                           <tfoot className="bg-gray-100 font-semibold text-xs">
                             <tr>
-                              <td className="px-2 py-1.5 text-right">Total:</td>
-                              <td className="px-1 py-1.5 text-center text-blue-600" colSpan={5}>
-                                {inventoryData.filter(item => !inventorySearchTerm || item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())).length} products
+                              <td className="px-2 py-1.5 text-right" colSpan={6}>
+                                Total: {inventoryData.filter(item => !inventorySearchTerm || item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())).length} products
                               </td>
                             </tr>
                           </tfoot>

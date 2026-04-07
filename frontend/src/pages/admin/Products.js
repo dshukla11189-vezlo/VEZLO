@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
@@ -6,13 +6,14 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash } from 'lucide-react';
+import { Plus, Edit, Trash, Search } from 'lucide-react';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -38,6 +39,25 @@ export default function Products() {
       setLoading(false);
     }
   };
+
+  // Sort products alphabetically and filter by search query
+  const filteredProducts = useMemo(() => {
+    let result = [...products];
+    
+    // Sort alphabetically by name (case-insensitive)
+    result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(p => 
+        p.name.toLowerCase().includes(query) ||
+        (p.category && p.category.toLowerCase().includes(query))
+      );
+    }
+    
+    return result;
+  }, [products, searchQuery]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -99,7 +119,21 @@ export default function Products() {
 
   return (
     <Layout title="Products">
-      <div className="mb-6 flex justify-end">
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        {/* Search Input */}
+        <div className="relative w-full sm:w-80">
+          <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <Input
+            type="text"
+            placeholder="Search products by name or category..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-10"
+            data-testid="product-search-input"
+          />
+        </div>
+        
+        {/* Add Product Button */}
         <Dialog open={open} onOpenChange={(val) => {
           setOpen(val);
           if (!val) {
@@ -231,6 +265,11 @@ export default function Products() {
       </div>
 
       <div className="data-table">
+        {/* Results count */}
+        <div className="px-4 py-2 bg-gray-50 border-b text-sm text-gray-600">
+          Showing {filteredProducts.length} of {products.length} products
+          {searchQuery && <span className="ml-2 text-gray-500">(filtered by "{searchQuery}")</span>}
+        </div>
         <table>
           <thead>
             <tr>
@@ -245,7 +284,7 @@ export default function Products() {
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => (
+            {filteredProducts.map((product) => (
               <tr key={product.id} data-testid={`product-row-${product.id}`}>
                 <td className="font-medium">{product.name}</td>
                 <td>{product.category}</td>
@@ -290,9 +329,13 @@ export default function Products() {
             ))}
           </tbody>
         </table>
-        {products.length === 0 && !loading && (
+        {filteredProducts.length === 0 && !loading && (
           <div className="p-8 text-center text-gray-500">
-            No products found. Add your first product to get started.
+            {searchQuery ? (
+              <>No products found matching "{searchQuery}". Try a different search term.</>
+            ) : (
+              <>No products found. Add your first product to get started.</>
+            )}
           </div>
         )}
       </div>

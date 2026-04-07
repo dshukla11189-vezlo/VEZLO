@@ -5124,6 +5124,15 @@ async def get_closable_products_for_date(
                 packaging_map[number_match.group(1)] = weight
     
     dispatches_by_product = {}
+    
+    # Build cost_alias mapping: product_id -> alias_target_id
+    # If a product has cost_alias_product_id, its dispatches should count under the alias target
+    cost_alias_id_map = {}
+    for product in products:
+        alias_id = product.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[product["id"]] = alias_id
+    
     for d in all_qc_dispatches + all_retailer_dispatches:
         dispatch_date = d.get("dispatch_date", "")
         if isinstance(dispatch_date, datetime):
@@ -5134,6 +5143,9 @@ async def get_closable_products_for_date(
         if dispatch_date_str == target_date:
             for item in d.get("items", []):
                 product_id = item.get("product_id")
+                # Map to aliased product if applicable (e.g., Spinach dispatches → count under Palak)
+                target_product_id = cost_alias_id_map.get(product_id, product_id)
+                
                 supplied_qty = item.get("supplied_qty", 0)
                 # Check both packaging_name (QC) and variant_name (Retail)
                 packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
@@ -5150,7 +5162,8 @@ async def get_closable_products_for_date(
                     weight_gm = 1000
                 
                 qty_kg = (supplied_qty * weight_gm) / 1000
-                dispatches_by_product[product_id] = dispatches_by_product.get(product_id, 0) + qty_kg
+                # Use target_product_id (mapped from alias) for aggregation
+                dispatches_by_product[target_product_id] = dispatches_by_product.get(target_product_id, 0) + qty_kg
     
     # Build closable products list
     closable_products = []

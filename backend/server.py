@@ -1789,6 +1789,132 @@ async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_use
     
     return {"message": "Item removed from dispatch"}
 
+@api_router.get("/qc-dispatches/{dispatch_id}/invoice-status")
+async def check_qc_dispatch_invoice_status(dispatch_id: str, current_user: dict = Depends(get_current_user)):
+    """Check if a QC dispatch is linked to any invoice"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if dispatch exists
+    dispatch = await db.qc_dispatches.find_one({"id": dispatch_id}, {"_id": 0})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Check if this dispatch is part of any invoice
+    invoice = await db.qc_invoices.find_one(
+        {"dispatch_ids": dispatch_id},
+        {"_id": 0, "id": 1, "invoice_number": 1}
+    )
+    
+    if invoice:
+        return {
+            "is_invoiced": True,
+            "invoice_id": invoice.get("id"),
+            "invoice_number": invoice.get("invoice_number")
+        }
+    
+    return {"is_invoiced": False, "invoice_id": None, "invoice_number": None}
+
+class QCDispatchItemUpdate(BaseModel):
+    item_index: int
+    supplied_qty: float
+
+@api_router.put("/qc-dispatches/{dispatch_id}/items/{item_index}")
+async def update_qc_dispatch_item(
+    dispatch_id: str, 
+    item_index: int, 
+    input: QCDispatchItemUpdate, 
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a single item in a QC dispatch (quantity only)"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the dispatch
+    dispatch = await db.qc_dispatches.find_one({"id": dispatch_id}, {"_id": 0})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Check if dispatch is invoiced
+    invoice = await db.qc_invoices.find_one(
+        {"dispatch_ids": dispatch_id},
+        {"_id": 0, "invoice_number": 1}
+    )
+    if invoice:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot edit: Dispatch is part of invoice {invoice.get('invoice_number')}. Delete the invoice first."
+        )
+    
+    items = dispatch.get("items", [])
+    if item_index < 0 or item_index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found at specified index")
+    
+    # Update the item quantity
+    items[item_index]["supplied_qty"] = input.supplied_qty
+    
+    # Update the dispatch
+    await db.qc_dispatches.update_one(
+        {"id": dispatch_id},
+        {"$set": {"items": items}}
+    )
+    
+    return {"message": "Dispatch item updated successfully", "new_qty": input.supplied_qty}
+
+@api_router.delete("/qc-dispatches/{dispatch_id}/items-by-index/{item_index}")
+async def delete_qc_dispatch_item_by_index(
+    dispatch_id: str, 
+    item_index: int, 
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a single item from a QC dispatch by index"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the dispatch
+    dispatch = await db.qc_dispatches.find_one({"id": dispatch_id}, {"_id": 0})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Check if dispatch is invoiced
+    invoice = await db.qc_invoices.find_one(
+        {"dispatch_ids": dispatch_id},
+        {"_id": 0, "invoice_number": 1}
+    )
+    if invoice:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete: Dispatch is part of invoice {invoice.get('invoice_number')}. Delete the invoice first."
+        )
+    
+    items = dispatch.get("items", [])
+    if item_index < 0 or item_index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found at specified index")
+    
+    # Remove the item at the specified index
+    deleted_item = items.pop(item_index)
+    
+    if len(items) == 0:
+        # If no items left, delete the entire dispatch
+        await db.qc_dispatches.delete_one({"id": dispatch_id})
+        
+        # Update indent status
+        indent_id = dispatch.get("indent_id")
+        if indent_id:
+            remaining_dispatches = await db.qc_dispatches.count_documents({"indent_id": indent_id})
+            if remaining_dispatches == 0:
+                await db.qc_indents.update_one({"id": indent_id}, {"$set": {"status": "pending"}})
+        
+        return {"message": "Dispatch deleted (no items remaining)", "deleted_item": deleted_item}
+    
+    # Update the dispatch with remaining items
+    await db.qc_dispatches.update_one(
+        {"id": dispatch_id},
+        {"$set": {"items": items}}
+    )
+    
+    return {"message": "Item removed from dispatch", "deleted_item": deleted_item}
+
 # ============================================================================
 # SECTION: QC GRN ROUTES (Lines ~999-1450)
 # ============================================================================

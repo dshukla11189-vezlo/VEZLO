@@ -240,6 +240,11 @@ export default function QuickCommerce() {
   const [qcDailyReqSaved, setQcDailyReqSaved] = useState(false);
   const [wastageAverages, setWastageAverages] = useState([]);
 
+  // Dispatch item editing state
+  const [editingDispatchItem, setEditingDispatchItem] = useState(null); // { dispatchId, itemIndex, qty }
+  const [dispatchItemEditQty, setDispatchItemEditQty] = useState('');
+  const [dispatchInvoiceStatus, setDispatchInvoiceStatus] = useState({}); // { dispatchId: { is_invoiced, invoice_number } }
+
   // ============================================================================
   // SECTION: DATA LOADING (useEffect)
   // ============================================================================
@@ -1405,11 +1410,22 @@ export default function QuickCommerce() {
       .sort((a, b) => new Date(b.dispatch_date) - new Date(a.dispatch_date));
   };
 
-  const toggleExpandIndent = (indentId) => {
+  const toggleExpandIndent = async (indentId) => {
+    const isExpanding = !expandedIndents[indentId];
     setExpandedIndents(prev => ({
       ...prev,
       [indentId]: !prev[indentId]
     }));
+    
+    // When expanding, check invoice status for all dispatches of this indent
+    if (isExpanding) {
+      const indentDispatches = dispatches.filter(d => d.indent_id === indentId);
+      for (const dispatch of indentDispatches) {
+        if (!dispatchInvoiceStatus[dispatch.id]) {
+          checkDispatchInvoiceStatus(dispatch.id);
+        }
+      }
+    }
   };
 
   const openNewDispatchDialog = (indent) => {
@@ -1509,6 +1525,83 @@ export default function QuickCommerce() {
       loadData();
     } catch (error) {
       toast.error('Failed to delete dispatch entry');
+    }
+  };
+
+  // Check if a dispatch is invoiced
+  const checkDispatchInvoiceStatus = async (dispatchId) => {
+    try {
+      const response = await api.get(`/api/qc-dispatches/${dispatchId}/invoice-status`);
+      setDispatchInvoiceStatus(prev => ({
+        ...prev,
+        [dispatchId]: response.data
+      }));
+      return response.data;
+    } catch (error) {
+      console.error('Error checking invoice status:', error);
+      return { is_invoiced: false };
+    }
+  };
+
+  // Start editing a dispatch item
+  const handleEditDispatchItem = async (dispatchId, itemIndex, currentQty) => {
+    // Check invoice status first
+    const status = await checkDispatchInvoiceStatus(dispatchId);
+    if (status.is_invoiced) {
+      toast.error(`Cannot edit: Dispatch is part of invoice ${status.invoice_number}. Delete the invoice first.`);
+      return;
+    }
+    setEditingDispatchItem({ dispatchId, itemIndex });
+    setDispatchItemEditQty(currentQty.toString());
+  };
+
+  // Save edited dispatch item
+  const handleSaveDispatchItem = async () => {
+    if (!editingDispatchItem) return;
+    
+    const qty = parseFloat(dispatchItemEditQty);
+    if (isNaN(qty) || qty <= 0) {
+      toast.error('Please enter a valid quantity');
+      return;
+    }
+    
+    try {
+      await api.put(`/api/qc-dispatches/${editingDispatchItem.dispatchId}/items/${editingDispatchItem.itemIndex}`, {
+        item_index: editingDispatchItem.itemIndex,
+        supplied_qty: qty
+      });
+      toast.success('Dispatch item updated');
+      setEditingDispatchItem(null);
+      setDispatchItemEditQty('');
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update dispatch item');
+    }
+  };
+
+  // Cancel editing
+  const handleCancelEditDispatchItem = () => {
+    setEditingDispatchItem(null);
+    setDispatchItemEditQty('');
+  };
+
+  // Delete a single dispatch item by index
+  const handleDeleteDispatchItemByIndex = async (dispatchId, itemIndex, productName) => {
+    // Check invoice status first
+    const status = await checkDispatchInvoiceStatus(dispatchId);
+    if (status.is_invoiced) {
+      toast.error(`Cannot delete: Dispatch is part of invoice ${status.invoice_number}. Delete the invoice first.`);
+      return;
+    }
+    
+    if (!window.confirm(`Delete "${productName}" from this dispatch?`)) return;
+    
+    try {
+      await api.delete(`/api/qc-dispatches/${dispatchId}/items-by-index/${itemIndex}`);
+      toast.success('Item removed from dispatch');
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete item');
     }
   };
 
@@ -3667,38 +3760,115 @@ Email: ${companyEmail}`;
                                   <Clock size={16} />
                                   Dispatch Log
                                 </h4>
-                                <div className="space-y-2">
-                                  {dispatchLogs.map((dispatch) => (
-                                    <div key={dispatch.id} className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                                      <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-3">
-                                          <span className="text-sm font-medium">
-                                            {formatDate(dispatch.dispatch_date)}
-                                            {dispatch.dispatch_time && ` at ${dispatch.dispatch_time}`}
-                                          </span>
-                                          {dispatch.remarks && (
-                                            <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded">
-                                              {dispatch.remarks}
+                                <div className="space-y-3">
+                                  {dispatchLogs.map((dispatch) => {
+                                    // Check if this dispatch is invoiced
+                                    const invoiceStatus = dispatchInvoiceStatus[dispatch.id];
+                                    const isInvoiced = invoiceStatus?.is_invoiced;
+                                    
+                                    return (
+                                      <div key={dispatch.id} className={`border rounded-lg p-3 ${isInvoiced ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
+                                        <div className="flex items-center justify-between mb-2">
+                                          <div className="flex items-center gap-3">
+                                            <span className="text-sm font-medium">
+                                              {formatDate(dispatch.dispatch_date)}
+                                              {dispatch.dispatch_time && ` at ${dispatch.dispatch_time}`}
                                             </span>
-                                          )}
+                                            {dispatch.remarks && (
+                                              <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded">
+                                                {dispatch.remarks}
+                                              </span>
+                                            )}
+                                            {isInvoiced && (
+                                              <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">
+                                                Invoiced: {invoiceStatus.invoice_number}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => handleDeleteDispatch(dispatch.id)}
+                                            title={isInvoiced ? "Delete invoice first" : "Delete dispatch"}
+                                          >
+                                            <Trash2 size={14} className={isInvoiced ? "text-gray-400" : "text-red-600"} />
+                                          </Button>
                                         </div>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => handleDeleteDispatch(dispatch.id)}
-                                        >
-                                          <Trash2 size={14} className="text-red-600" />
-                                        </Button>
+                                        {/* Line Items Table */}
+                                        <table className="w-full text-sm">
+                                          <thead>
+                                            <tr className="text-xs text-gray-500">
+                                              <th className="text-left py-1 px-2">PRODUCT</th>
+                                              <th className="text-left py-1 px-2">PACKAGING</th>
+                                              <th className="text-right py-1 px-2">QTY</th>
+                                              <th className="text-right py-1 px-2 w-24">ACTIONS</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {dispatch.items?.map((item, idx) => {
+                                              const isEditing = editingDispatchItem?.dispatchId === dispatch.id && editingDispatchItem?.itemIndex === idx;
+                                              return (
+                                                <tr key={idx} className="border-t border-gray-200">
+                                                  <td className="py-1.5 px-2 font-medium">{getProductName(item)}</td>
+                                                  <td className="py-1.5 px-2 text-gray-600">{item.packaging_name || '-'}</td>
+                                                  <td className="py-1.5 px-2 text-right">
+                                                    {isEditing ? (
+                                                      <Input
+                                                        type="number"
+                                                        value={dispatchItemEditQty}
+                                                        onChange={(e) => setDispatchItemEditQty(e.target.value)}
+                                                        className="w-20 h-7 text-right text-sm"
+                                                        autoFocus
+                                                        onKeyDown={(e) => {
+                                                          if (e.key === 'Enter') handleSaveDispatchItem();
+                                                          if (e.key === 'Escape') handleCancelEditDispatchItem();
+                                                        }}
+                                                      />
+                                                    ) : (
+                                                      <span className="font-semibold">{item.supplied_qty}</span>
+                                                    )}
+                                                  </td>
+                                                  <td className="py-1.5 px-2 text-right">
+                                                    {isEditing ? (
+                                                      <div className="flex gap-1 justify-end">
+                                                        <Button size="sm" variant="ghost" onClick={handleSaveDispatchItem} className="h-6 w-6 p-0">
+                                                          <Check size={12} className="text-green-600" />
+                                                        </Button>
+                                                        <Button size="sm" variant="ghost" onClick={handleCancelEditDispatchItem} className="h-6 w-6 p-0">
+                                                          <X size={12} className="text-gray-600" />
+                                                        </Button>
+                                                      </div>
+                                                    ) : (
+                                                      <div className="flex gap-1 justify-end">
+                                                        <Button 
+                                                          size="sm" 
+                                                          variant="ghost" 
+                                                          onClick={() => handleEditDispatchItem(dispatch.id, idx, item.supplied_qty)}
+                                                          className="h-6 w-6 p-0"
+                                                          title={isInvoiced ? "Delete invoice first to edit" : "Edit quantity"}
+                                                        >
+                                                          <Edit size={12} className={isInvoiced ? "text-gray-400" : "text-blue-600"} />
+                                                        </Button>
+                                                        <Button 
+                                                          size="sm" 
+                                                          variant="ghost" 
+                                                          onClick={() => handleDeleteDispatchItemByIndex(dispatch.id, idx, getProductName(item))}
+                                                          className="h-6 w-6 p-0"
+                                                          title={isInvoiced ? "Delete invoice first to delete" : "Delete item"}
+                                                        >
+                                                          <Trash2 size={12} className={isInvoiced ? "text-gray-400" : "text-red-600"} />
+                                                        </Button>
+                                                      </div>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
                                       </div>
-                                      <div className="text-sm text-gray-700">
-                                        {dispatch.items?.map((item, idx) => (
-                                          <span key={idx} className="inline-block mr-4">
-                                            {getProductName(item)}: <span className="font-semibold">{item.supplied_qty}</span>
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}

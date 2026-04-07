@@ -102,11 +102,21 @@ export default function AdminDashboard() {
   const [customerDetailDateTo, setCustomerDetailDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [customerDetailData, setCustomerDetailData] = useState(null);
   const [loadingCustomerDetail, setLoadingCustomerDetail] = useState(false);
+  const [expandedCustomerDates, setExpandedCustomerDates] = useState({}); // For product dropdown
+
+  // Toggle customer date expand
+  const toggleCustomerDateExpand = (date) => {
+    setExpandedCustomerDates(prev => ({
+      ...prev,
+      [date]: !prev[date]
+    }));
+  };
 
   // Load customer detail data
   const loadCustomerDetail = useCallback(async (customerName) => {
     if (!customerName) return;
     setLoadingCustomerDetail(true);
+    setExpandedCustomerDates({}); // Reset expanded states
     try {
       const response = await api.get(`/api/reports/pnl?from_date=${customerDetailDateFrom}&to_date=${customerDetailDateTo}`);
       const dailyPnl = response.data?.daily_pnl || [];
@@ -119,12 +129,14 @@ export default function AdminDashboard() {
         
         if (customerItems.length === 0) return null;
         
-        const sales = customerItems.reduce((sum, item) => sum + (item.sales || 0), 0);
-        const qty = customerItems.reduce((sum, item) => sum + (item.qty || 0), 0);
+        // Use correct field names: revenue, supplied_qty, supplied_kg
+        const sales = customerItems.reduce((sum, item) => sum + (item.revenue || 0), 0);
+        const qty = customerItems.reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
+        const kg = customerItems.reduce((sum, item) => sum + (item.supplied_kg || 0), 0);
         const purchase = customerItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
         const wastage = customerItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
         const commission = customerItems.reduce((sum, item) => sum + (item.commission || 0), 0);
-        const grossProfit = sales - purchase - wastage - commission;
+        const grossProfit = customerItems.reduce((sum, item) => sum + (item.gross_profit || 0), 0);
         const grossMargin = sales > 0 ? (grossProfit / sales * 100) : 0;
         const profitPerUnit = qty > 0 ? (grossProfit / qty) : 0;
         
@@ -132,13 +144,14 @@ export default function AdminDashboard() {
           date: day.date,
           sales,
           qty,
+          kg,
           purchase,
           wastage,
           commission,
           grossProfit,
           grossMargin,
           profitPerUnit,
-          items: customerItems
+          items: customerItems // Product-wise breakdown
         };
       }).filter(Boolean);
       
@@ -146,11 +159,12 @@ export default function AdminDashboard() {
       const totals = customerDailyData.reduce((acc, day) => ({
         sales: acc.sales + day.sales,
         qty: acc.qty + day.qty,
+        kg: acc.kg + day.kg,
         purchase: acc.purchase + day.purchase,
         wastage: acc.wastage + day.wastage,
         commission: acc.commission + day.commission,
         grossProfit: acc.grossProfit + day.grossProfit
-      }), { sales: 0, qty: 0, purchase: 0, wastage: 0, commission: 0, grossProfit: 0 });
+      }), { sales: 0, qty: 0, kg: 0, purchase: 0, wastage: 0, commission: 0, grossProfit: 0 });
       
       totals.grossMargin = totals.sales > 0 ? (totals.grossProfit / totals.sales * 100) : 0;
       totals.profitPerUnit = totals.qty > 0 ? (totals.grossProfit / totals.qty) : 0;
@@ -1535,6 +1549,7 @@ export default function AdminDashboard() {
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100 sticky top-0">
                     <tr>
+                      <th className="p-2 text-left font-medium text-gray-600 w-8"></th>
                       <th className="p-2 text-left font-medium text-gray-600">DATE</th>
                       <th className="p-2 text-right font-medium text-green-600">SALES</th>
                       <th className="p-2 text-right font-medium text-gray-600">QTY</th>
@@ -1548,32 +1563,102 @@ export default function AdminDashboard() {
                   </thead>
                   <tbody>
                     {customerDetailData.daily.map((day, idx) => (
-                      <tr key={idx} className="border-b hover:bg-blue-50">
-                        <td className="p-2 font-medium">
-                          {new Date(day.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                        </td>
-                        <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
-                        <td className="p-2 text-right">{day.qty.toLocaleString()}</td>
-                        <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
-                        <td className="p-2 text-right text-red-600">{day.wastage > 0 ? `₹${day.wastage.toLocaleString()}` : '-'}</td>
-                        <td className="p-2 text-right text-amber-600">{day.commission > 0 ? `₹${day.commission.toLocaleString()}` : '-'}</td>
-                        <td className={`p-2 text-right font-semibold ${day.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                          ₹{day.grossProfit.toLocaleString()}
-                        </td>
-                        <td className="p-2 text-right">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                            day.grossMargin >= 30 ? 'bg-green-100 text-green-700' : 
-                            day.grossMargin >= 15 ? 'bg-blue-100 text-blue-700' :
-                            day.grossMargin >= 0 ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-red-100 text-red-700'
-                          }`}>
-                            {day.grossMargin.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className={`p-2 text-right ${day.profitPerUnit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ₹{day.profitPerUnit.toFixed(2)}
-                        </td>
-                      </tr>
+                      <React.Fragment key={idx}>
+                        <tr 
+                          className="border-b hover:bg-blue-50 cursor-pointer"
+                          onClick={() => toggleCustomerDateExpand(day.date)}
+                        >
+                          <td className="p-2">
+                            {expandedCustomerDates[day.date] ? (
+                              <ChevronDown size={14} className="text-blue-500" />
+                            ) : (
+                              <ChevronRight size={14} className="text-gray-400" />
+                            )}
+                          </td>
+                          <td className="p-2 font-medium">
+                            {new Date(day.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                          </td>
+                          <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
+                          <td className="p-2 text-right">{day.qty.toLocaleString()}</td>
+                          <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
+                          <td className="p-2 text-right text-red-600">{day.wastage > 0 ? `₹${day.wastage.toLocaleString()}` : '-'}</td>
+                          <td className="p-2 text-right text-amber-600">{day.commission > 0 ? `₹${day.commission.toLocaleString()}` : '-'}</td>
+                          <td className={`p-2 text-right font-semibold ${day.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            ₹{day.grossProfit.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                              day.grossMargin >= 30 ? 'bg-green-100 text-green-700' : 
+                              day.grossMargin >= 15 ? 'bg-blue-100 text-blue-700' :
+                              day.grossMargin >= 0 ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {day.grossMargin.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className={`p-2 text-right ${day.profitPerUnit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ₹{day.profitPerUnit.toFixed(2)}
+                          </td>
+                        </tr>
+                        {/* Product-wise breakdown row */}
+                        {expandedCustomerDates[day.date] && day.items && day.items.length > 0 && (
+                          <tr className="bg-blue-50/50">
+                            <td colSpan={10} className="p-2">
+                              <div className="bg-white rounded border overflow-hidden">
+                                <table className="w-full text-[10px]">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="p-1.5 text-left font-medium text-gray-600">PRODUCT</th>
+                                      <th className="p-1.5 text-center font-medium text-gray-600">QTY</th>
+                                      <th className="p-1.5 text-center font-medium text-gray-600">KG</th>
+                                      <th className="p-1.5 text-right font-medium text-green-600">REVENUE</th>
+                                      <th className="p-1.5 text-right font-medium text-orange-600">COGS</th>
+                                      <th className="p-1.5 text-right font-medium text-red-600">WASTAGE</th>
+                                      <th className="p-1.5 text-right font-medium text-amber-600">COMM.</th>
+                                      <th className="p-1.5 text-right font-medium text-gray-600">PROFIT</th>
+                                      <th className="p-1.5 text-right font-medium text-gray-600">GM %</th>
+                                      <th className="p-1.5 text-right font-medium text-gray-600">₹/QTY</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {day.items.map((item, itemIdx) => (
+                                      <tr key={itemIdx} className="border-t hover:bg-gray-50">
+                                        <td className="p-1.5 font-medium">{item.product}</td>
+                                        <td className="p-1.5 text-center">{item.supplied_qty}</td>
+                                        <td className="p-1.5 text-center">{item.supplied_kg?.toFixed(2)}</td>
+                                        <td className="p-1.5 text-right text-green-600">₹{item.revenue?.toLocaleString()}</td>
+                                        <td className="p-1.5 text-right text-orange-600">₹{item.cogs?.toLocaleString()}</td>
+                                        <td className="p-1.5 text-right text-red-600">
+                                          {item.wastage_value > 0 ? `₹${item.wastage_value?.toLocaleString()}` : '-'}
+                                        </td>
+                                        <td className="p-1.5 text-right text-amber-600">
+                                          {item.commission > 0 ? `₹${item.commission?.toLocaleString()}` : '-'}
+                                        </td>
+                                        <td className={`p-1.5 text-right font-medium ${item.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                          ₹{item.gross_profit?.toLocaleString()}
+                                        </td>
+                                        <td className="p-1.5 text-right">
+                                          <span className={`px-1.5 py-0.5 rounded text-[9px] ${
+                                            item.gross_margin >= 30 ? 'bg-green-100 text-green-700' : 
+                                            item.gross_margin >= 15 ? 'bg-blue-100 text-blue-700' :
+                                            item.gross_margin >= 0 ? 'bg-yellow-100 text-yellow-700' :
+                                            'bg-red-100 text-red-700'
+                                          }`}>
+                                            {item.gross_margin?.toFixed(1)}%
+                                          </span>
+                                        </td>
+                                        <td className={`p-1.5 text-right ${item.profit_per_qty >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                          ₹{item.profit_per_qty?.toFixed(2)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

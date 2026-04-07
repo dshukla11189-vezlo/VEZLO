@@ -6160,7 +6160,8 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
     
     amount = input.get("amount", 0)
     payment_mode = input.get("payment_mode", "cash")
-    reference_number = input.get("reference_number", "")
+    received_by = input.get("received_by", current_user.get("user_id", ""))
+    received_by_name = input.get("received_by_name", current_user.get("name", ""))
     remarks = input.get("remarks", "")
     payment_date = input.get("payment_date", datetime.now(timezone.utc).isoformat())
     
@@ -6189,7 +6190,8 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
         "payment_date": payment_date,
         "amount": amount,
         "payment_mode": payment_mode,
-        "reference_number": reference_number,
+        "received_by": received_by,
+        "received_by_name": received_by_name,
         "remarks": remarks,
         "recorded_by": current_user["user_id"],
         "created_at": datetime.now(timezone.utc).isoformat()

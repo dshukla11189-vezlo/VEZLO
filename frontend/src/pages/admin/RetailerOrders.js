@@ -131,10 +131,12 @@ export default function RetailerOrders() {
   const [invoicePaymentForm, setInvoicePaymentForm] = useState({
     amount: '',
     payment_mode: 'cash',
-    reference_number: '',
+    received_by: '',
+    received_by_name: '',
     remarks: '',
     payment_date: new Date().toISOString().split('T')[0]
   });
+  const [staffUsers, setStaffUsers] = useState([]); // Admin and Staff users for "Received By"
   
   // Invoice filter state
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all'); // all, pending, partial, paid
@@ -265,6 +267,45 @@ export default function RetailerOrders() {
     }
   }, [selectedRetailer]);
 
+  // Load admin/staff users for "Received By" dropdown
+  const loadStaffUsers = useCallback(async () => {
+    try {
+      const response = await api.get('/api/users');
+      // Filter only admin and staff users
+      const adminStaff = response.data.filter(u => u.role === 'admin' || u.role === 'staff');
+      setStaffUsers(adminStaff);
+    } catch (error) {
+      console.error('Failed to load staff users:', error);
+    }
+  }, []);
+
+  // Get current logged-in user from localStorage
+  const getCurrentUserId = () => {
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        return user.id || user.user_id;
+      }
+    } catch (e) {
+      console.error('Failed to get current user:', e);
+    }
+    return '';
+  };
+
+  const getCurrentUserName = () => {
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        return user.name || user.email;
+      }
+    } catch (e) {
+      console.error('Failed to get current user name:', e);
+    }
+    return '';
+  };
+
   // Load closing inventory for admin management
   const loadClosingInventory = useCallback(async () => {
     if (!closingInventoryRetailer || !closingInventoryDate) {
@@ -361,11 +402,11 @@ export default function RetailerOrders() {
     const loadAll = async () => {
       setLoading(true);
       await loadBaseData();
-      await Promise.all([loadIndents(), loadDispatches(), loadInvoices(), loadRejections(), loadPayments()]);
+      await Promise.all([loadIndents(), loadDispatches(), loadInvoices(), loadRejections(), loadPayments(), loadStaffUsers()]);
       setLoading(false);
     };
     loadAll();
-  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments]);
+  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers]);
 
   // Filter indents by date
   useEffect(() => {
@@ -1848,10 +1889,13 @@ export default function RetailerOrders() {
   const openInvoicePaymentModal = (invoice) => {
     setSelectedInvoiceForPayment(invoice);
     const remainingAmount = (invoice.net_payable || 0) - (invoice.paid_amount || 0);
+    const currentUserId = getCurrentUserId();
+    const currentUserName = getCurrentUserName();
     setInvoicePaymentForm({
       amount: remainingAmount > 0 ? remainingAmount.toFixed(2) : '',
       payment_mode: 'cash',
-      reference_number: '',
+      received_by: currentUserId,
+      received_by_name: currentUserName,
       remarks: '',
       payment_date: new Date().toISOString().split('T')[0]
     });
@@ -1870,7 +1914,8 @@ export default function RetailerOrders() {
       await api.post(`/api/retailer-invoices/${selectedInvoiceForPayment.id}/payment`, {
         amount: parseFloat(invoicePaymentForm.amount),
         payment_mode: invoicePaymentForm.payment_mode,
-        reference_number: invoicePaymentForm.reference_number,
+        received_by: invoicePaymentForm.received_by,
+        received_by_name: invoicePaymentForm.received_by_name,
         remarks: invoicePaymentForm.remarks,
         payment_date: invoicePaymentForm.payment_date
       });
@@ -4184,12 +4229,27 @@ export default function RetailerOrders() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference Number</label>
-                  <Input
-                    value={invoicePaymentForm.reference_number}
-                    onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, reference_number: e.target.value }))}
-                    placeholder="UPI Ref / Cheque No / Transaction ID"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Received By *</label>
+                  <select
+                    value={invoicePaymentForm.received_by}
+                    onChange={(e) => {
+                      const selectedUser = staffUsers.find(u => u.id === e.target.value);
+                      setInvoicePaymentForm(prev => ({ 
+                        ...prev, 
+                        received_by: e.target.value,
+                        received_by_name: selectedUser ? (selectedUser.name || selectedUser.email) : ''
+                      }));
+                    }}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200"
+                    required
+                  >
+                    <option value="">-- Select --</option>
+                    {staffUsers.map(user => (
+                      <option key={user.id} value={user.id}>
+                        {user.name || user.email} ({user.role === 'admin' ? 'Admin' : 'Staff'})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 
                 <div>

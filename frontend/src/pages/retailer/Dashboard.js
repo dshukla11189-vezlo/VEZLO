@@ -681,6 +681,35 @@ export default function RetailerDashboard() {
     const prevDateStr = prevDate.toISOString().split('T')[0];
     
     try {
+      // Build a map of actual variant names from ALL dispatch history
+      // This helps us show proper variant names like "240-260 gm" instead of "Kg"
+      const variantInfoFromDispatches = {};
+      dispatches.forEach(d => {
+        (d.items || []).forEach(item => {
+          const variantId = item.variant_id || item.packaging_id;
+          const variantName = item.variant_name || item.packaging_name;
+          
+          // Only store if we have a meaningful variant name (not Kg)
+          if (variantName && variantName !== 'Kg') {
+            const key = `${item.product_id}_${variantId || 'default'}`;
+            if (!variantInfoFromDispatches[key]) {
+              variantInfoFromDispatches[key] = {
+                variant_id: variantId,
+                variant_name: variantName
+              };
+            }
+          }
+          
+          // Also store by product_id only for fallback
+          if (variantName && variantName !== 'Kg' && !variantInfoFromDispatches[item.product_id]) {
+            variantInfoFromDispatches[item.product_id] = {
+              variant_id: variantId,
+              variant_name: variantName
+            };
+          }
+        });
+      });
+      
       // Get previous day closing (for opening qty)
       let openingVariants = {};
       try {
@@ -688,12 +717,34 @@ export default function RetailerDashboard() {
         (prevRes.data.items || []).forEach(item => {
           if (item.closing_qty !== null && item.closing_qty !== undefined && item.closing_qty > 0) {
             const key = `${item.product_id}_${item.variant_id || 'default'}`;
+            
+            // Try to get actual variant name from dispatch history
+            let actualVariantName = item.variant_name;
+            let actualVariantId = item.variant_id;
+            
+            // If variant is "Kg" or empty, look up from dispatch history
+            if (!actualVariantName || actualVariantName === 'Kg') {
+              // Try exact match first
+              if (variantInfoFromDispatches[key]) {
+                actualVariantName = variantInfoFromDispatches[key].variant_name;
+                actualVariantId = variantInfoFromDispatches[key].variant_id || actualVariantId;
+              }
+              // Fallback to product-level match
+              else if (variantInfoFromDispatches[item.product_id]) {
+                actualVariantName = variantInfoFromDispatches[item.product_id].variant_name;
+                actualVariantId = variantInfoFromDispatches[item.product_id].variant_id || actualVariantId;
+              }
+              else {
+                actualVariantName = 'Kg';
+              }
+            }
+            
             openingVariants[key] = {
               product_id: item.product_id,
               product_name: item.product_name,
               product_name_hi: item.product_name_hi,
-              variant_id: item.variant_id,
-              variant_name: item.variant_name || 'Kg',
+              variant_id: actualVariantId,
+              variant_name: actualVariantName,
               opening_qty: item.closing_qty,
               source: 'opening'
             };
@@ -738,6 +789,11 @@ export default function RetailerDashboard() {
         if (allRelevantVariants[key]) {
           allRelevantVariants[key].dispatch_qty = data.dispatch_qty;
           allRelevantVariants[key].source = 'both';
+          // Prefer dispatch variant name if opening has "Kg"
+          if (allRelevantVariants[key].variant_name === 'Kg' && data.variant_name !== 'Kg') {
+            allRelevantVariants[key].variant_name = data.variant_name;
+            allRelevantVariants[key].variant_id = data.variant_id;
+          }
         } else {
           allRelevantVariants[key] = data;
         }

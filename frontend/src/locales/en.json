@@ -201,6 +201,7 @@
     "payableByYou": "Payable by You",
     "amountPaid": "Amount Paid",
     "dailyInventory": "Daily Inventory",
+    "closingHistory": "Closing History",
     "openingQty": "Opening Qty",
     "receivedQty": "Received",
     "rejectionQty": "Rejection",

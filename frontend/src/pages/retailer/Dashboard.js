@@ -62,6 +62,7 @@ export default function RetailerDashboard() {
   const [editingClosingDate, setEditingClosingDate] = useState(null); // For edit mode
   const [editingItemId, setEditingItemId] = useState(null); // ID of item being edited inline
   const [editingItemQty, setEditingItemQty] = useState(''); // Temp value for inline edit
+  const [closingSubTab, setClosingSubTab] = useState('closing-history'); // Sub-tab for Closing section
   
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
@@ -612,16 +613,30 @@ export default function RetailerDashboard() {
         }
       });
       
-      // Calculate items sold for each entry
+      // Calculate items sold for each entry (default to 0 if negative)
       const inventoryItems = Object.values(inventoryMap).map(item => {
-        const itemsSold = item.closing_qty !== undefined && item.closing_qty !== null
+        const calculatedSold = item.closing_qty !== undefined && item.closing_qty !== null
           ? (item.opening_qty + item.received_qty - item.rejection_qty - item.closing_qty)
           : null;
+        // Default to 0 if sold items are negative (due to missing earlier data)
+        const itemsSold = calculatedSold !== null ? Math.max(0, calculatedSold) : null;
         return { ...item, items_sold: itemsSold };
       });
       
-      // Sort by product name
-      inventoryItems.sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''));
+      // Two-step sorting:
+      // 1. Products with non-zero closing, sorted alphabetically
+      // 2. Products with zero/null closing, sorted alphabetically
+      inventoryItems.sort((a, b) => {
+        const aHasClosing = (a.closing_qty || 0) > 0;
+        const bHasClosing = (b.closing_qty || 0) > 0;
+        
+        // Non-zero closing comes first
+        if (aHasClosing && !bHasClosing) return -1;
+        if (!aHasClosing && bHasClosing) return 1;
+        
+        // Within same group, sort alphabetically
+        return (a.product_name || '').localeCompare(b.product_name || '');
+      });
       
       setInventoryData(inventoryItems);
     } catch (error) {
@@ -635,10 +650,10 @@ export default function RetailerDashboard() {
 
   // Load inventory when date or tab changes
   useEffect(() => {
-    if (activeTab === 'inventory' && dashboardData?.retailer?.id && products.length > 0) {
+    if ((activeTab === 'closing' && closingSubTab === 'daily-inventory') && dashboardData?.retailer?.id && products.length > 0) {
       loadInventoryData(inventoryDate);
     }
-  }, [activeTab, inventoryDate, dashboardData, products.length, loadInventoryData]);
+  }, [activeTab, closingSubTab, inventoryDate, dashboardData, products.length, loadInventoryData]);
   
   // Load recorded dates
   const loadRecordedDates = async () => {
@@ -1059,7 +1074,6 @@ export default function RetailerDashboard() {
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
     { id: 'closing', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
-    { id: 'inventory', label: t('retailer.inventory') || 'Inventory', icon: Package },
     { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
   ];
 
@@ -1441,7 +1455,7 @@ export default function RetailerDashboard() {
                 <CardHeader className="py-3 border-b bg-yellow-50">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <ShoppingBag size={16} className="text-yellow-600" />
-                    {t('retailer.pendingOrders') || 'Pending Orders'} ({t('retailer.indents') || 'Indents Yet to be Dispatched'})
+                    {t('retailer.pendingOrders') || 'Pending Orders'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -1506,7 +1520,7 @@ export default function RetailerDashboard() {
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <Truck size={16} className="text-green-600" />
-                      {t('retailer.dispatchedOrders') || 'Dispatched Orders'} ({t('retailer.dispatched') || 'Received from Admin'})
+                      {t('retailer.dispatchedOrders') || 'Dispatched Orders'}
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <Calendar size={16} className="text-gray-500" />
@@ -1831,196 +1845,54 @@ export default function RetailerDashboard() {
           </Card>
         )}
 
-        {/* ==================== INVENTORY TAB (Daily Inventory View) ==================== */}
-        {activeTab === 'inventory' && (
-          <Card>
-            <CardHeader className="border-b py-3 px-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ClipboardList className="text-green-600" size={18} />
-                  {t('retailer.dailyInventory') || 'Daily Inventory'}
-                </CardTitle>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <Calendar size={16} className="text-gray-500" />
-                    <Input
-                      type="date"
-                      value={inventoryDate}
-                      onChange={(e) => setInventoryDate(e.target.value)}
-                      className="w-[150px] h-9"
-                    />
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      onClick={() => loadInventoryData(inventoryDate)}
-                      disabled={loadingClosing}
-                      className="h-9 px-3"
-                    >
-                      <RefreshCw size={14} className={loadingClosing ? 'animate-spin' : ''} />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              {/* Search Bar */}
-              <div className="flex items-center gap-3 mb-4">
-                <div className="relative flex-1 max-w-md">
-                  <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <Input
-                    type="text"
-                    placeholder={t('retailer.searchProduct') || 'Search product...'}
-                    value={inventorySearchTerm}
-                    onChange={(e) => setInventorySearchTerm(e.target.value)}
-                    className="pl-10 h-9"
-                  />
-                </div>
-                <Button 
-                  onClick={openRecordClosingModal}
-                  className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
-                >
-                  <Plus size={14} className="mr-1.5" />
-                  {t('retailer.recordClosing') || 'Record Closing'}
-                </Button>
-              </div>
 
-              {/* Inventory Table */}
-              {loadingClosing ? (
-                <div className="text-center py-8 text-gray-500">
-                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-                  <p className="text-sm">{t('common.loading') || 'Loading...'}</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
-                        <th className="p-3 text-center font-medium text-blue-600">{t('retailer.openingQty') || 'Opening Qty'}</th>
-                        <th className="p-3 text-center font-medium text-green-600">{t('retailer.receivedQty') || 'Received'}</th>
-                        <th className="p-3 text-center font-medium text-red-600">{t('retailer.rejectionQty') || 'Rejection'}</th>
-                        <th className="p-3 text-center font-medium text-purple-600">{t('retailer.itemsSoldQty') || 'Items Sold'}</th>
-                        <th className="p-3 text-center font-medium text-amber-600">{t('retailer.closingQty') || 'Closing Qty'}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        // Filter inventory data based on search
-                        const filtered = inventoryData.filter(item => {
-                          if (!inventorySearchTerm) return true;
-                          const searchLower = inventorySearchTerm.toLowerCase();
-                          return (
-                            item.product_name?.toLowerCase().includes(searchLower) ||
-                            item.product_name_hi?.includes(inventorySearchTerm)
-                          );
-                        });
-                        
-                        // Only show items that have any activity (opening, received, rejection, or closing)
-                        const activeItems = filtered.filter(item => 
-                          item.opening_qty > 0 || item.received_qty > 0 || item.rejection_qty > 0 || item.closing_qty !== undefined
-                        );
-                        
-                        if (activeItems.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan={6} className="p-8 text-center text-gray-400">
-                                <ClipboardList size={40} className="mx-auto mb-3 text-gray-300" />
-                                <p className="font-medium">{t('retailer.noInventoryData') || 'No inventory data for this date'}</p>
-                              </td>
-                            </tr>
-                          );
-                        }
-                        
-                        return activeItems.map(item => (
-                          <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
-                            <td className="p-3">
-                              <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                              <div className="text-xs text-gray-400">{item.variant_name || item.unit || 'Kg'}</div>
-                            </td>
-                            <td className="p-3 text-center">
-                              <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                                {item.opening_qty || 0}
-                              </span>
-                            </td>
-                            <td className="p-3 text-center">
-                              <span className={`font-semibold ${item.received_qty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
-                                {item.received_qty > 0 ? `+${item.received_qty}` : '0'}
-                              </span>
-                            </td>
-                            <td className="p-3 text-center">
-                              <span className={`font-semibold ${item.rejection_qty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
-                                {item.rejection_qty > 0 ? `-${item.rejection_qty}` : '0'}
-                              </span>
-                            </td>
-                            <td className="p-3 text-center">
-                              {item.items_sold !== null ? (
-                                <span className="font-semibold text-purple-600">{item.items_sold}</span>
-                              ) : (
-                                <span className="text-gray-300">-</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-center">
-                              {item.closing_qty !== undefined ? (
-                                <span className="font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">{item.closing_qty}</span>
-                              ) : (
-                                <span className="text-gray-300 italic">Not recorded</span>
-                              )}
-                            </td>
-                          </tr>
-                        ));
-                      })()}
-                    </tbody>
-                    {/* Totals Footer */}
-                    {inventoryData.filter(item => 
-                      item.opening_qty > 0 || item.received_qty > 0 || item.rejection_qty > 0 || item.closing_qty !== undefined
-                    ).length > 0 && (
-                      <tfoot className="bg-gray-100 font-semibold">
-                        <tr>
-                          <td className="p-3 text-right">Totals:</td>
-                          <td className="p-3 text-center text-blue-600">
-                            {inventoryData.reduce((sum, item) => sum + (item.opening_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-green-600">
-                            +{inventoryData.reduce((sum, item) => sum + (item.received_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-red-600">
-                            -{inventoryData.reduce((sum, item) => sum + (item.rejection_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-purple-600">
-                            {inventoryData.reduce((sum, item) => sum + (item.items_sold || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-amber-600">
-                            {inventoryData.filter(i => i.closing_qty !== undefined).reduce((sum, item) => sum + (item.closing_qty || 0), 0)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ==================== CLOSING TAB (View/Edit Closing History) ==================== */}
+        {/* ==================== CLOSING TAB (View/Edit Closing History + Daily Inventory) ==================== */}
         {activeTab === 'closing' && (
           <Card>
             <CardHeader className="border-b py-3 px-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ClipboardList className="text-green-600" size={18} />
-                  {t('retailer.closingStock') || 'Closing Stock History'}
-                </CardTitle>
-                <Button 
-                  onClick={openRecordClosingModal}
-                  className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
-                >
-                  <Plus size={14} className="mr-1.5" />
-                  {t('retailer.recordClosing') || 'Record Today\'s Closing'}
-                </Button>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ClipboardList className="text-green-600" size={18} />
+                    {t('retailer.closingStock') || 'Closing & Inventory'}
+                  </CardTitle>
+                  <Button 
+                    onClick={openRecordClosingModal}
+                    className="bg-green-600 hover:bg-green-700 h-9 text-sm px-4"
+                  >
+                    <Plus size={14} className="mr-1.5" />
+                    {t('retailer.recordClosing') || 'Record Today\'s Closing'}
+                  </Button>
+                </div>
+                {/* Sub-tabs for Closing History and Daily Inventory */}
+                <div className="flex gap-2 border-b -mb-4 pb-0">
+                  <button
+                    onClick={() => setClosingSubTab('closing-history')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      closingSubTab === 'closing-history'
+                        ? 'border-green-600 text-green-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {t('retailer.closingHistory') || 'Closing History'}
+                  </button>
+                  <button
+                    onClick={() => setClosingSubTab('daily-inventory')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      closingSubTab === 'daily-inventory'
+                        ? 'border-green-600 text-green-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {t('retailer.dailyInventory') || 'Daily Inventory'}
+                  </button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-4">
+              {/* Closing History Sub-tab */}
+              {closingSubTab === 'closing-history' && (
+                <>
               {/* Date selector to view closing history */}
               <div className="flex items-center gap-3 mb-4 pb-4 border-b">
                 <label className="text-sm font-medium text-gray-600">{t('retailer.viewClosingFor') || 'View Closing for:'}</label>
@@ -2175,6 +2047,126 @@ export default function RetailerDashboard() {
                     </table>
                   </div>
                 </div>
+              )}
+              </>
+              )}
+
+              {/* Daily Inventory Sub-tab */}
+              {closingSubTab === 'daily-inventory' && (
+                <>
+                  {/* Date selector and search */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4 pb-4 border-b">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={16} className="text-gray-500" />
+                      <Input
+                        type="date"
+                        value={inventoryDate}
+                        onChange={(e) => setInventoryDate(e.target.value)}
+                        className="w-[150px] h-9"
+                      />
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => loadInventoryData(inventoryDate)}
+                        disabled={loadingClosing}
+                        className="h-9 px-3"
+                      >
+                        <RefreshCw size={14} className={loadingClosing ? 'animate-spin' : ''} />
+                      </Button>
+                    </div>
+                    <div className="relative flex-1 max-w-md">
+                      <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                      <Input
+                        type="text"
+                        placeholder={t('retailer.searchProduct') || 'Search product...'}
+                        value={inventorySearchTerm}
+                        onChange={(e) => setInventorySearchTerm(e.target.value)}
+                        className="pl-10 h-9"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Inventory Table */}
+                  {loadingClosing ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                      <p className="text-sm">{t('common.loading') || 'Loading...'}</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="p-3 text-left font-medium text-gray-600">{t('retailer.product') || 'Product'}</th>
+                            <th className="p-3 text-center font-medium text-blue-600">{t('retailer.openingQty') || 'Opening'}</th>
+                            <th className="p-3 text-center font-medium text-green-600">{t('retailer.receivedQty') || 'Received'}</th>
+                            <th className="p-3 text-center font-medium text-red-600">{t('retailer.rejectionQty') || 'Rejection'}</th>
+                            <th className="p-3 text-center font-medium text-purple-600">{t('retailer.itemsSoldQty') || 'Items Sold'}</th>
+                            <th className="p-3 text-center font-medium text-amber-600">{t('retailer.closingQty') || 'Closing'}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {inventoryData
+                            .filter(item => 
+                              !inventorySearchTerm || 
+                              item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())
+                            )
+                            .map((item, idx) => (
+                              <tr key={`${item.product_id}-${item.variant_id || idx}`} className="border-b hover:bg-gray-50">
+                                <td className="p-3">
+                                  <div className="font-medium text-gray-800">{item.product_name}</div>
+                                  {item.variant_name && item.variant_name !== 'Kg' && (
+                                    <div className="text-xs text-gray-500">{item.variant_name}</div>
+                                  )}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                                    {item.opening_qty || 0}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${item.received_qty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
+                                    {item.received_qty > 0 ? `+${item.received_qty}` : '0'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${item.rejection_qty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                                    {item.rejection_qty > 0 ? `-${item.rejection_qty}` : '0'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${item.items_sold !== null && item.items_sold > 0 ? 'text-purple-600' : 'text-gray-300'}`}>
+                                    {item.items_sold !== null ? item.items_sold : '-'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`font-semibold ${item.closing_qty !== null && item.closing_qty !== undefined ? 'text-amber-600' : 'text-gray-300'}`}>
+                                    {item.closing_qty !== null && item.closing_qty !== undefined ? item.closing_qty : '-'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                        {inventoryData.length > 0 && (
+                          <tfoot className="bg-gray-100 font-semibold">
+                            <tr>
+                              <td className="p-3 text-right">Total Products:</td>
+                              <td className="p-3 text-center text-blue-600" colSpan={5}>
+                                {inventoryData.filter(item => !inventorySearchTerm || item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())).length}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                      {inventoryData.length === 0 && (
+                        <div className="text-center py-8 text-gray-500">
+                          <Package size={40} className="mx-auto mb-3 text-gray-300" />
+                          <p className="text-sm font-medium">{t('retailer.noInventoryData') || 'No inventory data for this date'}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

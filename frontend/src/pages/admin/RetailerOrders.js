@@ -3083,13 +3083,22 @@ export default function RetailerOrders() {
                       <tbody>
                         {closingInventoryData
                           .filter(item => item.closing_qty !== null && item.closing_qty !== undefined)
+                          // Two-step sorting: non-zero closing first (alphabetically), then zero closing (alphabetically)
+                          .sort((a, b) => {
+                            const aHasClosing = (a.closing_qty || 0) > 0;
+                            const bHasClosing = (b.closing_qty || 0) > 0;
+                            if (aHasClosing && !bHasClosing) return -1;
+                            if (!aHasClosing && bHasClosing) return 1;
+                            return (a.product_name || '').localeCompare(b.product_name || '');
+                          })
                           .map(item => {
                             // Calculate items sold (Opening + Received - Rejection - Closing)
                             const openingQty = item.opening_qty || 0;
                             const receivedQty = item.received_qty || 0;
                             const rejectionQty = item.rejection_qty || 0;
                             const closingQty = item.closing_qty || 0;
-                            const itemsSold = openingQty + receivedQty - rejectionQty - closingQty;
+                            // Default to 0 if calculated items sold is negative
+                            const itemsSold = Math.max(0, openingQty + receivedQty - rejectionQty - closingQty);
                             
                             return (
                               <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">

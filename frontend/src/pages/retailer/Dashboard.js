@@ -625,10 +625,11 @@ export default function RetailerDashboard() {
       
       // Two-step sorting:
       // 1. Products with non-zero closing, sorted alphabetically
-      // 2. Products with zero/null closing, sorted alphabetically
+      // 2. Products with zero/null/undefined closing, sorted alphabetically
       inventoryItems.sort((a, b) => {
-        const aHasClosing = (a.closing_qty || 0) > 0;
-        const bHasClosing = (b.closing_qty || 0) > 0;
+        // Check if closing_qty is a positive number (not null, undefined, or 0)
+        const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
+        const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
         
         // Non-zero closing comes first
         if (aHasClosing && !bHasClosing) return -1;

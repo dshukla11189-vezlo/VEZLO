@@ -3085,8 +3085,8 @@ export default function RetailerOrders() {
                           .filter(item => item.closing_qty !== null && item.closing_qty !== undefined)
                           // Two-step sorting: non-zero closing first (alphabetically), then zero closing (alphabetically)
                           .sort((a, b) => {
-                            const aHasClosing = (a.closing_qty || 0) > 0;
-                            const bHasClosing = (b.closing_qty || 0) > 0;
+                            const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
+                            const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
                             if (aHasClosing && !bHasClosing) return -1;
                             if (!aHasClosing && bHasClosing) return 1;
                             return (a.product_name || '').localeCompare(b.product_name || '');

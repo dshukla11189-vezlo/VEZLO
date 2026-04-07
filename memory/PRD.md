@@ -854,8 +854,9 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 ### Inventory & Closing Enhancements (COMPLETED - Apr 07, 2026)
 - [x] **Two-step inventory sorting**:
   - First: Products with non-zero closing qty (sorted alphabetically)
-  - Second: Products with zero/null closing qty (sorted alphabetically)
+  - Second: Products with zero/null/undefined closing qty (sorted alphabetically)
   - Applied to both Retailer Dashboard and Admin RetailerOrders closing inventory tables
+  - **Bug fix**: Changed sort condition from `(a.closing_qty || 0) > 0` to `typeof a.closing_qty === 'number' && a.closing_qty > 0` for proper null/undefined handling
 - [x] **Daily Inventory as Closing sub-tab**:
   - Removed standalone "Inventory" menu item from Retailer portal
   - Added "Closing History" and "Daily Inventory" sub-tabs under Closing section
@@ -865,9 +866,14 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - "Pending Orders (Pending Orders)" → "Pending Orders"
   - "Dispatched Orders (Received from Admin)" → "Dispatched Orders"
 - [x] **Compact inventory table design** (Apr 07, 2026):
-  - Reduced padding (p-3 → px-2 py-1)
+  - Reduced padding (p-3 → px-2 py-1 / px-1 py-1)
   - Smaller font size (text-sm → text-xs)
-  - Shortened column headers (Opening Qty → Open, Received → Rcvd, Rejection → Rej, Items Sold → Sold, Closing Qty → Close)
+  - Shortened column headers in both translations (en.json, hi.json):
+    - "Opening Qty" → "Open" / "ओपन"
+    - "Received" → "Rcvd" / "प्राप्त"
+    - "Rejection" → "Rej" / "रिजे."
+    - "Items Sold" → "Sold" / "बिके"
+    - "Closing Qty" → "Close" / "क्लोज"
   - Product name truncation with max-width
   - Shows ~2x more products without scrolling
 - [x] **Daily Avg Profit** added to dashboards:
@@ -875,6 +881,9 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - QC Dashboard: Shows "DAILY AVG" for Quick Commerce
   - Retail Dashboard: Shows "DAILY AVG" for Retail
   - Customer P&L Modal: Shows "DAILY AVG" profit per customer
+- [x] **Dashboard layout improved** (4+3 card distribution):
+  - Row 1: Total Sales, COGS, Wastage Loss, Gross Profit (4 cards)
+  - Row 2: Variable Exp, Net Profit, Daily Avg Profit (3 cards)
 
 
 

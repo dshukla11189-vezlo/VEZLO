@@ -327,8 +327,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Key P&L Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+        {/* Key P&L Summary Cards - Row 1 (4 cards) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           {/* Sales */}
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
             <CardContent className="p-3">
@@ -393,7 +393,10 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
+        </div>
 
+        {/* Key P&L Summary Cards - Row 2 (3 cards) */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
           {/* Variable Expenses */}
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
             <CardContent className="p-3">

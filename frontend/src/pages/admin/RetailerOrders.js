@@ -133,6 +133,7 @@ export default function RetailerOrders() {
     payment_mode: 'cash',
     received_by: '',
     received_by_name: '',
+    reference_number: '',
     remarks: '',
     payment_date: new Date().toISOString().split('T')[0]
   });
@@ -1896,6 +1897,7 @@ export default function RetailerOrders() {
       payment_mode: 'cash',
       received_by: currentUserId,
       received_by_name: currentUserName,
+      reference_number: '',
       remarks: '',
       payment_date: new Date().toISOString().split('T')[0]
     });
@@ -1910,12 +1912,19 @@ export default function RetailerOrders() {
       return;
     }
     
+    // Validate reference number for non-cash payments
+    if (invoicePaymentForm.payment_mode !== 'cash' && !invoicePaymentForm.reference_number.trim()) {
+      toast.error('Reference number is required for non-cash payments');
+      return;
+    }
+    
     try {
       await api.post(`/api/retailer-invoices/${selectedInvoiceForPayment.id}/payment`, {
         amount: parseFloat(invoicePaymentForm.amount),
         payment_mode: invoicePaymentForm.payment_mode,
         received_by: invoicePaymentForm.received_by,
         received_by_name: invoicePaymentForm.received_by_name,
+        reference_number: invoicePaymentForm.reference_number,
         remarks: invoicePaymentForm.remarks,
         payment_date: invoicePaymentForm.payment_date
       });
@@ -4251,6 +4260,26 @@ export default function RetailerOrders() {
                     ))}
                   </select>
                 </div>
+                
+                {/* Reference Number - Only for non-cash payments */}
+                {invoicePaymentForm.payment_mode !== 'cash' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Reference Number <span className="text-red-500">*</span>
+                    </label>
+                    <Input
+                      value={invoicePaymentForm.reference_number}
+                      onChange={(e) => setInvoicePaymentForm(prev => ({ ...prev, reference_number: e.target.value }))}
+                      placeholder={
+                        invoicePaymentForm.payment_mode === 'upi' ? 'UPI Transaction ID' :
+                        invoicePaymentForm.payment_mode === 'bank_transfer' ? 'NEFT/IMPS/RTGS Reference' :
+                        invoicePaymentForm.payment_mode === 'cheque' ? 'Cheque Number' :
+                        'Transaction Reference'
+                      }
+                      required
+                    />
+                  </div>
+                )}
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>

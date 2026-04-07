@@ -843,6 +843,7 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - [x] Delete disabled for units in use by products
 - [x] **Product form unit dropdown** now populated dynamically from units collection
 - [x] **Bug fix**: Fixed Python syntax error in server.py line 465 (`del unit_doc["_id"] if...` → `unit_doc.pop("_id", None)`)
+- [x] **Auto-seed on startup**: Backend automatically seeds default units on startup if collection is empty (production migration ready)
 - [x] **Testing**: All 23 tests passed (13 backend + 10 frontend)
 
 

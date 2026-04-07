@@ -510,6 +510,37 @@ async def delete_unit(unit_id: str, current_user: dict = Depends(get_current_use
     await db.units.delete_one({"id": unit_id})
     return {"message": f"Unit '{unit['name']}' deleted successfully"}
 
+# ==================== UNITS AUTO-SEED ON STARTUP ====================
+async def seed_default_units_on_startup():
+    """Auto-seed default units if collection is empty - called on server startup"""
+    try:
+        existing_count = await db.units.count_documents({})
+        if existing_count > 0:
+            logger.info(f"Units collection already has {existing_count} units. Skipping auto-seed.")
+            return
+        
+        default_units = [
+            {"name": "Kg", "symbol": "Kg", "description": "Kilogram - standard weight unit"},
+            {"name": "Gram", "symbol": "g", "description": "Gram - small weight unit"},
+            {"name": "Piece", "symbol": "Pc", "description": "Individual piece/item"},
+            {"name": "Pieces", "symbol": "Pcs", "description": "Multiple pieces/items"},
+            {"name": "Bunch", "symbol": "Bunch", "description": "Bundle of items tied together"},
+            {"name": "Packet", "symbol": "Pkt", "description": "Packaged unit"},
+            {"name": "Box", "symbol": "Box", "description": "Box container"},
+            {"name": "Crate", "symbol": "Crate", "description": "Crate container"},
+            {"name": "Dozen", "symbol": "Dz", "description": "12 pieces"},
+            {"name": "Litre", "symbol": "L", "description": "Liquid volume unit"},
+        ]
+        
+        for unit in default_units:
+            unit["id"] = str(uuid.uuid4())
+            unit["created_at"] = datetime.now(timezone.utc).isoformat()
+            await db.units.insert_one(unit)
+        
+        logger.info(f"Auto-seeded {len(default_units)} default units on startup")
+    except Exception as e:
+        logger.error(f"Failed to auto-seed units: {e}")
+
 @api_router.post("/units/seed-defaults")
 async def seed_default_units(current_user: dict = Depends(get_current_user)):
     """Seed default units if none exist"""
@@ -8057,9 +8088,12 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize backup scheduler and Gmail sync scheduler on startup"""
+    """Initialize backup scheduler, Gmail sync scheduler, and seed default data on startup"""
     global backup_scheduler
     try:
+        # Auto-seed default units if collection is empty
+        await seed_default_units_on_startup()
+        
         backup_scheduler = setup_backup_scheduler(db)
         logger.info("Backup scheduler initialized successfully")
         

@@ -4343,8 +4343,15 @@ async def get_pnl_report(
             # Allocate GRN loss proportionally based on this customer's sales share of QC
             customer_qc_share = cust_data["sales_amount"] / total_qc_sales
             customer_entry["grn_loss_share"] = round(total_grn_loss * customer_qc_share, 2)
+            customer_entry["rejection_share"] = 0  # QC doesn't have rejection
+        elif cust_data["type"] == "Retail" and total_retail_sales > 0:
+            # Allocate Rejection loss proportionally based on this customer's sales share of Retail
+            customer_retail_share = cust_data["sales_amount"] / total_retail_sales
+            customer_entry["grn_loss_share"] = 0  # Retail doesn't have GRN loss
+            customer_entry["rejection_share"] = round(total_retail_rejection * customer_retail_share, 2)
         else:
             customer_entry["grn_loss_share"] = 0
+            customer_entry["rejection_share"] = 0
         customer_pnl.append(customer_entry)
     
     return {

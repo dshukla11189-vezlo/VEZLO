@@ -1,0 +1,84 @@
+{
+  "summary": "Tested P&L math calculations and customer modal functionality. All 9 features verified working correctly: Net Profit math (QC + Retail = Main), Daily Avg math, GRN Loss allocation to QC customers, Rejection allocation to Retail customers, Customer Daily Avg using period days, and dashboard metrics display.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. P&L Net Profit Math: Main Net Profit (₹46,207.49) = QC Net Profit (₹44,415.94) + Retail Net Profit (₹1,791.55) - PASS",
+    "2. P&L Daily Avg Math: Main Daily Avg (₹6,601) = QC Daily Avg (₹6,345) + Retail Daily Avg (₹256) - PASS",
+    "3. Customer P&L Modal for QC (Ninjacart): Shows GRN LOSS field with value ₹4,590.74 - PASS",
+    "4. Customer P&L Modal for Retail (Tamanna Mart): Shows REJECTION field with value ₹0 - PASS",
+    "5. Customer Daily Avg calculation uses period days (7 days) not active days - PASS",
+    "6. Ninjacart (QC) Customer P&L modal opens and displays correct GRN Loss share (₹4,590.74) - PASS",
+    "7. Tamanna Mart (Retail) Customer P&L modal opens and displays correct Rejection share (₹0) - PASS",
+    "8. Dashboard QC section shows GRN LOSS metric (₹4.6K) - PASS",
+    "9. Dashboard Retail section shows REJECTION metric (₹0) - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/server.py (Lines 4300-4360: P&L calculations)",
+    "/app/frontend/src/pages/admin/Dashboard.js (Lines 45-52, 145-215, 1575-1627)"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "P&L calculations verified correct: Net Profit = Gross Profit - GRN Loss - Variable Exp - Fixed Exp",
+    "GRN Loss correctly allocated proportionally to QC customers based on sales share",
+    "Rejection correctly allocated proportionally to Retail customers based on sales share",
+    "Customer modal Daily Avg uses periodDays (total calendar days) instead of active days for consistency with dashboard"
+  ],
+
+  "updated_files": [],
+
+  "success_rate": {
+    "backend": "100% (API returns correct P&L calculations)",
+    "frontend": "100% (9/9 tests passed)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123",
+    "retailer_email": "tamannamart08@gmail.com",
+    "retailer_password": "admin123"
+  },
+
+  "seed_data_creation": "None",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "P&L math discrepancy issues have been fixed. Main Net Profit now equals QC Net Profit + Retail Net Profit. GRN Loss is subtracted from QC Net Profit calculation. Customer P&L modals correctly show GRN LOSS for QC customers and REJECTION for Retail customers. Daily Avg calculations use period days (7 days) for consistency. Retail REJECTION shows ₹0 because there's no rejection data in the test database.",
+
+  "verified_math": {
+    "period": "2026-04-01 to 2026-04-07 (7 days)",
+    "main_net_profit": 46207.49,
+    "qc_net_profit": 44415.94,
+    "retail_net_profit": 1791.55,
+    "qc_plus_retail": 46207.49,
+    "net_profit_match": true,
+    "main_daily_avg": 6601.07,
+    "qc_daily_avg": 6345.13,
+    "retail_daily_avg": 255.94,
+    "daily_avg_match": true,
+    "qc_grn_loss": 4590.74,
+    "retail_rejection": 0,
+    "ninjacart_grn_loss_share": 4590.74,
+    "tamanna_rejection_share": 0
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

@@ -149,6 +149,7 @@ export default function AdminDashboard() {
       );
       const customerType = customerPnlEntry?.type || 'QC';
       const grnLossShare = customerPnlEntry?.grn_loss_share || 0;
+      const rejectionShare = customerPnlEntry?.rejection_share || 0;
       
       // Filter daily data for the selected customer
       const customerDailyData = dailyPnl.map(day => {
@@ -199,9 +200,12 @@ export default function AdminDashboard() {
       totals.profitPerUnit = totals.qty > 0 ? (totals.grossProfit / totals.qty) : 0;
       totals.customerType = customerType;
       totals.grnLossShare = grnLossShare;
+      totals.rejectionShare = rejectionShare;
       // For QC customers, Net Profit = Gross Profit - GRN Loss Share
-      // For Retail, Net Profit = Gross Profit (commission already deducted)
-      totals.netProfit = customerType === 'QC' ? totals.grossProfit - grnLossShare : totals.grossProfit;
+      // For Retail, Net Profit = Gross Profit - Rejection Share (commission already deducted in gross profit)
+      totals.netProfit = customerType === 'QC' 
+        ? totals.grossProfit - grnLossShare 
+        : totals.grossProfit - rejectionShare;
       
       // Calculate period days for Daily Avg (use total calendar days, not active days)
       // This ensures customer Daily Avgs sum up to match dashboard Daily Avg
@@ -1589,11 +1593,11 @@ export default function AdminDashboard() {
                   <p className="text-sm font-bold text-red-600">₹{customerDetailData.totals.wastage.toLocaleString()}</p>
                 </div>
                 <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">{customerDetailData.totals.customerType === 'QC' ? 'GRN LOSS' : 'COMMISSION'}</p>
+                  <p className="text-[10px] text-gray-500 font-medium">{customerDetailData.totals.customerType === 'QC' ? 'GRN LOSS' : 'REJECTION'}</p>
                   <p className="text-sm font-bold text-amber-600">
                     ₹{customerDetailData.totals.customerType === 'QC' 
                       ? customerDetailData.totals.grnLossShare.toLocaleString() 
-                      : customerDetailData.totals.commission.toLocaleString()}
+                      : customerDetailData.totals.rejectionShare.toLocaleString()}
                   </p>
                 </div>
                 <div className="text-center p-2 bg-white rounded shadow-sm">

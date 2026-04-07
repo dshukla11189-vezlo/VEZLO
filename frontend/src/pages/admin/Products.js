@@ -41,6 +41,19 @@ export default function Products() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Check for duplicate product name (case-insensitive)
+    const normalizedName = formData.name.trim().toLowerCase();
+    const duplicateProduct = products.find(p => 
+      p.name.trim().toLowerCase() === normalizedName && 
+      (!editProduct || p.id !== editProduct.id)
+    );
+    
+    if (duplicateProduct) {
+      toast.error(`Product "${formData.name}" already exists!`);
+      return;
+    }
+    
     try {
       if (editProduct) {
         await api.put(`/api/products/${editProduct.id}`, formData);

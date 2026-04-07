@@ -851,6 +851,20 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [x] **Products tab restricted to Admin only** - Removed from Staff sidebar navigation
 - [x] **Staff Dashboard updated** - Changed "Products" quick action to "Stock Status"
 
+### Inventory & Closing Enhancements (COMPLETED - Apr 07, 2026)
+- [x] **Two-step inventory sorting**:
+  - First: Products with non-zero closing qty (sorted alphabetically)
+  - Second: Products with zero/null closing qty (sorted alphabetically)
+  - Applied to both Retailer Dashboard and Admin RetailerOrders closing inventory tables
+- [x] **Daily Inventory as Closing sub-tab**:
+  - Removed standalone "Inventory" menu item from Retailer portal
+  - Added "Closing History" and "Daily Inventory" sub-tabs under Closing section
+- [x] **Items Sold negative value fix**:
+  - Added `Math.max(0, ...)` to prevent negative Items Sold when historical data is missing
+- [x] **Duplicate text removed from My Orders**:
+  - "Pending Orders (Pending Orders)" → "Pending Orders"
+  - "Dispatched Orders (Received from Admin)" → "Dispatched Orders"
+
 
 
 

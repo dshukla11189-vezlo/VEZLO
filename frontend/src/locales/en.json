@@ -172,6 +172,8 @@
     "totalRejections": "Rejections",
     "createIndent": "Create Indent",
     "dispatch": "Dispatch",
+    "indents": "Pending Orders",
+    "dispatched": "Dispatched Orders",
     "grn": "GRN",
     "invoices": "Invoices",
     "rejections": "Rejections",

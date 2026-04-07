@@ -2245,9 +2245,14 @@ export default function RetailerDashboard() {
                     >
                       <div className="flex-1">
                         <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                        <div className="text-xs text-gray-400">
-                          {item.variant_name || item.unit || 'Kg'}
-                        </div>
+                        {/* Show variant name prominently if it's not just "Kg" */}
+                        {item.variant_name && item.variant_name !== 'Kg' ? (
+                          <div className="text-xs font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-1 inline-block">
+                            {item.variant_name}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-400">{item.unit || 'Kg'}</div>
+                        )}
                         <div className="flex gap-3 mt-1 text-xs">
                           {item.opening_qty > 0 && (
                             <span className="text-blue-600">Open: {item.opening_qty}</span>

@@ -678,12 +678,12 @@ export default function RetailerDashboard() {
     }
   }, [dashboardData, dispatches, rejections, products]);
 
-  // Load inventory when date or tab changes
+  // Load inventory when date or tab changes or when dispatches are loaded
   useEffect(() => {
     if ((activeTab === 'closing' && closingSubTab === 'daily-inventory') && dashboardData?.retailer?.id && products.length > 0) {
       loadInventoryData(inventoryDate);
     }
-  }, [activeTab, closingSubTab, inventoryDate, dashboardData, products.length, loadInventoryData]);
+  }, [activeTab, closingSubTab, inventoryDate, dashboardData, products.length, dispatches.length, loadInventoryData]);
   
   // Load recorded dates
   const loadRecordedDates = async () => {

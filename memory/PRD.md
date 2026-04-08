@@ -977,4 +977,74 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Dispatch tracking uses product_id + variant_id as unique key
   - Ensures correct remaining calculation for variant-specific items
 
+### Daily Variable Labour Costs Feature (COMPLETED - Apr 08, 2026)
+- [x] **Backend Data Models**:
+  - `Labour`: id, name, phone, default_daily_rate, default_overtime_rate, is_active, created_at
+  - `LabourAttendance`: id, date, labour_id, labour_name, present, overtime_hours, daily_rate, overtime_rate, total_payment, recorded_by
+  - Historical rate tracking: Each attendance record stores the rates applied that day
+- [x] **Backend API Endpoints**:
+  - `GET /api/labours` - List all labourers (with optional include_inactive filter)
+  - `POST /api/labours` - Create new labourer (duplicate name check)
+  - `PUT /api/labours/{id}` - Update labourer details
+  - `DELETE /api/labours/{id}` - Soft delete (marks inactive) or hard delete if no attendance history
+  - `GET /api/labour-attendance?date=YYYY-MM-DD` - Get attendance for a date (returns all labourers with attendance status)
+  - `POST /api/labour-attendance` - Save individual attendance record
+  - `POST /api/labour-attendance/bulk` - Save multiple attendance records at once
+  - `GET /api/labour-costs/summary?from_date=&to_date=` - Get costs summary with daily and labour breakdowns
+- [x] **Admin Panel - Labor Costs Page** (`/admin/labor-costs`):
+  - Replaced "Invoices" tab with "Labor Costs" in sidebar navigation
+  - Two sub-tabs: "Daily Costs" and "Manage Labourers"
+  - **Daily Costs Tab**:
+    - Date range filter
+    - Summary cards: Total Cost, Working Days, Man Days, Overtime Hrs, Daily Avg
+    - Labour-wise Summary table: Name, Days Present, Overtime Hours, Total Payment
+    - Daily Breakdown table with expandable rows showing individual labourer payments
+  - **Manage Labourers Tab**:
+    - Table showing all labourers with Name, Phone, Daily Rate, OT Rate/Hr, Status, Actions
+    - Add Labourer button with modal form
+    - Edit button opens modal with pre-filled data
+    - Delete button (soft delete if has attendance history)
+    - Toggle Active/Inactive status
+- [x] **Staff Panel - Attendance Page** (`/staff/attendance`):
+  - Replaced "Invoices" tab with "Attendance" in staff sidebar
+  - Date picker to select attendance date
+  - Summary cards: Total Labours, Present, Overtime Hrs, Total Cost
+  - Quick actions: "Mark All Present", "Mark All Absent"
+  - Attendance table with:
+    - Labour name
+    - Present toggle button (green checkmark / gray X)
+    - Editable Daily Rate input
+    - Editable Overtime Hours input (disabled when not present)
+    - Editable OT Rate/Hr input
+    - Calculated Total column
+  - Footer showing Present count (X / Y) and Total Cost
+  - "Unsaved changes" indicator
+  - "Save Attendance" button
+  - Instructions card at bottom
+- [x] **i18n Support**:
+  - Added `laborCosts` and `attendance` keys to en.json and hi.json
+  - Hindi translations: श्रमिक लागत (Labor Costs), उपस्थिति (Attendance)
+- [x] **Testing**: 100% pass rate (18/18 UI features, 14/14 backend tests)
+
+---
+
+## Next Tasks (Upcoming)
+
+### P1 - High Priority
+- [ ] Admin UI for Retailer Rejections logging
+- [ ] WhatsApp Integration (vendor messaging) - Blocked on user credentials
+- [ ] OCR QC Order Processing workflow in UI
+
+### P2 - Medium Priority
+- [ ] Codebase Refactoring Phase 2 (server.py ~9,700 lines → modular routes)
+- [ ] APScheduler reliability improvements (persistent job store)
+
+### Future/Backlog
+- [ ] E2E testing for Hindi language translations across edge cases
+- [ ] Reports and analytics dashboard
+- [ ] Bulk import/export functionality
+- [ ] Email notifications
+- [ ] Mobile app (React Native)
+- [ ] AI-powered demand forecasting
+
 

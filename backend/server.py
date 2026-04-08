@@ -6157,14 +6157,45 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
         if existing["status"] != "pending":
             raise HTTPException(status_code=400, detail="Cannot edit non-pending indent")
     
+    # Get all dispatches for this indent to recalculate status
+    all_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+    
+    # Calculate total dispatched per product+variant
+    total_dispatched = {}
+    for d in all_dispatches:
+        for item in d.get('items', []):
+            key = f"{item.get('product_id', '')}|{item.get('variant_id', '')}"
+            total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+    
+    # Check if all new items are fully dispatched
+    new_items = [item.model_dump() for item in input.items]
+    fully_dispatched = True
+    has_any_dispatch = len(all_dispatches) > 0
+    
+    for item in new_items:
+        key = f"{item.get('product_id', '')}|{item.get('variant_id', '')}"
+        dispatched = total_dispatched.get(key, 0)
+        if dispatched < item.get('quantity', 0):
+            fully_dispatched = False
+            break
+    
+    # Determine new status
+    if not has_any_dispatch:
+        new_status = "pending"
+    elif fully_dispatched:
+        new_status = "dispatched"
+    else:
+        new_status = "partial"
+    
     update_data = {
         "indent_date": input.indent_date.isoformat(),
-        "items": [item.model_dump() for item in input.items],
-        "remarks": input.remarks
+        "items": new_items,
+        "remarks": input.remarks,
+        "status": new_status  # Update status based on dispatch completeness
     }
     
     await db.retailer_indents.update_one({"id": indent_id}, {"$set": update_data})
-    return {"id": indent_id, "message": "Indent updated successfully"}
+    return {"id": indent_id, "message": "Indent updated successfully", "new_status": new_status}
 
 @api_router.delete("/retailer-indents/{indent_id}")
 async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(get_current_user)):

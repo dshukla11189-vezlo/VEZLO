@@ -2500,7 +2500,7 @@ export default function RetailerOrders() {
                                   <Truck size={14} className="mr-1" /> Dispatch
                                 </Button>
                               )}
-                              {indent.status === 'partial' && (
+                              {(indent.status === 'partial' || (indent.status === 'dispatched' && getIndentRemainingQtys(indent).length > 0)) && (
                                 <Button size="sm" variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-50" onClick={() => openDispatchModal(indent, true)}>
                                   <Truck size={14} className="mr-1" /> Dispatch Remaining
                                 </Button>

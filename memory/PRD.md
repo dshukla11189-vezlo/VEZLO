@@ -958,7 +958,13 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 ### Retailer Indent - Dispatch Remaining Feature (COMPLETED - Apr 08, 2026)
 - [x] **"Dispatch Remaining" button for partial indents**:
   - Shows amber-colored "Dispatch Remaining" button when indent status is 'partial'
+  - Also shows for 'dispatched' status if there are actually remaining items (edge case handling)
   - Button only appears for indents that have remaining items to dispatch
+- [x] **Backend recalculates status on indent edit**:
+  - When an indent is edited (items added/modified), status is recalculated
+  - If all items dispatched → "dispatched"
+  - If some items not dispatched → "partial"
+  - If no dispatches yet → "pending"
 - [x] **Expanded indent view shows dispatch breakdown**:
   - New columns: Product | Variant | Ordered | Dispatched | Remaining
   - Remaining items highlighted in amber background

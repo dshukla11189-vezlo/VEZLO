@@ -1026,6 +1026,23 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Hindi translations: श्रमिक लागत (Labor Costs), उपस्थिति (Attendance)
 - [x] **Testing**: 100% pass rate (18/18 UI features, 14/14 backend tests)
 
+### Variable Expenses & Customer P&L Enhancements (COMPLETED - Apr 08, 2026)
+- [x] **Variable Expenses Rate/Quantity Fields**:
+  - Form now shows Rate and Quantity inputs that auto-calculate Amount (Amount = Rate × Quantity)
+  - Table displays RATE, QTY, AMOUNT columns
+  - All fields stored in database (rate, quantity, amount)
+- [x] **Variable Expenses Payment Status**:
+  - New dropdown: "Pending", "Partially Paid", "Paid" (default: Pending)
+  - Replaced boolean `is_settled` with proper payment tracking
+  - "Partially Paid" option shows "Amount Paid" field with balance calculation
+  - Summary cards: Total Expenses, Unsettled, Paid, Partially Paid
+- [x] **Customer P&L Modal - Rejection Fix**:
+  - Fixed issue where rejection loss was not reflecting in Customer P&L modal for Retail customers
+  - Gross Profit now correctly subtracts rejection_share for Retail customers
+  - GM % and ₹/UNIT calculations now accurate for Tamanna Mart and other Retail customers
+  - Backend already correctly allocated rejection proportionally; frontend display was the issue
+- [x] **Testing**: 100% pass rate (13/13 backend tests, 6/6 frontend features)
+
 ---
 
 ## Next Tasks (Upcoming)

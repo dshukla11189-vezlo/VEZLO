@@ -1133,17 +1133,67 @@ export default function RetailerOrders() {
   };
 
   // ==================== DISPATCH HANDLERS ====================
-  const openDispatchModal = (indent) => {
+  
+  // Helper function to calculate remaining quantities for an indent
+  const getIndentRemainingQtys = (indent) => {
+    // Get all dispatches for this indent
+    const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
+    
+    // Calculate total dispatched per product+variant combination
+    const totalDispatched = {};
+    for (const dispatch of indentDispatches) {
+      for (const item of (dispatch.items || [])) {
+        // Use product_id + variant_id as key for uniqueness
+        const key = `${item.product_id}|${item.variant_id || ''}`;
+        totalDispatched[key] = (totalDispatched[key] || 0) + (item.supplied_qty || 0);
+      }
+    }
+    
+    // Calculate remaining for each indent item
+    const remainingItems = [];
+    for (const item of (indent.items || [])) {
+      const key = `${item.product_id}|${item.variant_id || ''}`;
+      const dispatched = totalDispatched[key] || 0;
+      const remaining = (item.quantity || 0) - dispatched;
+      
+      if (remaining > 0) {
+        remainingItems.push({
+          ...item,
+          dispatched_qty: dispatched,
+          remaining_qty: remaining
+        });
+      }
+    }
+    
+    return remainingItems;
+  };
+  
+  const openDispatchModal = (indent, dispatchRemaining = false) => {
     setSelectedIndent(indent);
     setEditingDispatch(null);
+    
+    // Get items with remaining quantities if dispatching remaining
+    let itemsToDispatch = indent.items;
+    if (dispatchRemaining || indent.status === 'partial') {
+      const remainingItems = getIndentRemainingQtys(indent);
+      if (remainingItems.length === 0) {
+        toast.info('All items have been fully dispatched');
+        return;
+      }
+      itemsToDispatch = remainingItems.map(item => ({
+        ...item,
+        quantity: item.remaining_qty  // Use remaining as the indent quantity
+      }));
+    }
+    
     setDispatchForm({
       dispatch_date: new Date().toISOString().split('T')[0],
-      items: indent.items.map(item => ({
+      items: itemsToDispatch.map(item => ({
         product_id: item.product_id,
         product_name: item.product_name,
         variant_id: item.variant_id,
         variant_name: item.variant_name,
-        indent_qty: item.quantity,
+        indent_qty: item.quantity || item.remaining_qty,
         supplied_qty: '',  // Empty by default - user fills only what they dispatch
         mrp: 0,
         total_value: 0
@@ -2450,6 +2500,11 @@ export default function RetailerOrders() {
                                   <Truck size={14} className="mr-1" /> Dispatch
                                 </Button>
                               )}
+                              {indent.status === 'partial' && (
+                                <Button size="sm" variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-50" onClick={() => openDispatchModal(indent, true)}>
+                                  <Truck size={14} className="mr-1" /> Dispatch Remaining
+                                </Button>
+                              )}
                               <Button size="sm" variant="ghost" onClick={() => handleDeleteIndent(indent.id)}>
                                 <Trash2 size={14} className="text-red-600" />
                               </Button>
@@ -2459,24 +2514,62 @@ export default function RetailerOrders() {
                         {expandedIndents[indent.id] && (
                           <tr className="bg-blue-50">
                             <td colSpan={6} className="p-3">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="border-b">
-                                    <th className="p-2 text-left">Product</th>
-                                    <th className="p-2 text-left">Variant</th>
-                                    <th className="p-2 text-right">Quantity</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {indent.items?.map((item, idx) => (
-                                    <tr key={idx}>
-                                      <td className="p-2">{getProductName(item)}</td>
-                                      <td className="p-2">{item.variant_name || '-'}</td>
-                                      <td className="p-2 text-right">{item.quantity}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                              {(() => {
+                                // Calculate dispatched quantities for this indent
+                                const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
+                                const dispatchedQtys = {};
+                                for (const dispatch of indentDispatches) {
+                                  for (const item of (dispatch.items || [])) {
+                                    const key = `${item.product_id}|${item.variant_id || ''}`;
+                                    dispatchedQtys[key] = (dispatchedQtys[key] || 0) + (item.supplied_qty || 0);
+                                  }
+                                }
+                                const showDispatchColumns = indent.status === 'partial' || indent.status === 'dispatched';
+                                
+                                return (
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b">
+                                        <th className="p-2 text-left">Product</th>
+                                        <th className="p-2 text-left">Variant</th>
+                                        <th className="p-2 text-right">Ordered</th>
+                                        {showDispatchColumns && (
+                                          <>
+                                            <th className="p-2 text-right">Dispatched</th>
+                                            <th className="p-2 text-right">Remaining</th>
+                                          </>
+                                        )}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {indent.items?.map((item, idx) => {
+                                        const key = `${item.product_id}|${item.variant_id || ''}`;
+                                        const dispatched = dispatchedQtys[key] || 0;
+                                        const remaining = (item.quantity || 0) - dispatched;
+                                        return (
+                                          <tr key={idx} className={remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}>
+                                            <td className="p-2">{getProductName(item)}</td>
+                                            <td className="p-2">{item.variant_name || '-'}</td>
+                                            <td className="p-2 text-right">{item.quantity}</td>
+                                            {showDispatchColumns && (
+                                              <>
+                                                <td className="p-2 text-right text-green-700">{dispatched}</td>
+                                                <td className="p-2 text-right font-semibold">
+                                                  {remaining > 0 ? (
+                                                    <span className="text-amber-700">{remaining}</span>
+                                                  ) : (
+                                                    <span className="text-green-600">✓</span>
+                                                  )}
+                                                </td>
+                                              </>
+                                            )}
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                );
+                              })()}
                             </td>
                           </tr>
                         )}

@@ -955,4 +955,20 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
     - Removes duplicate entries, keeping most recent data for each combination
   - Shows count of unique items (e.g., "40 unique items")
 
+### Retailer Indent - Dispatch Remaining Feature (COMPLETED - Apr 08, 2026)
+- [x] **"Dispatch Remaining" button for partial indents**:
+  - Shows amber-colored "Dispatch Remaining" button when indent status is 'partial'
+  - Button only appears for indents that have remaining items to dispatch
+- [x] **Expanded indent view shows dispatch breakdown**:
+  - New columns: Product | Variant | Ordered | Dispatched | Remaining
+  - Remaining items highlighted in amber background
+  - Fully dispatched items show ✓ checkmark
+- [x] **Dispatch modal shows only remaining items**:
+  - When clicking "Dispatch Remaining", modal shows only items with qty > 0 remaining
+  - "Indent Qty" column shows the remaining quantity (not original ordered qty)
+  - User can fill Supply Qty and MRP for each remaining item
+- [x] **Handles product+variant combinations**:
+  - Dispatch tracking uses product_id + variant_id as unique key
+  - Ensures correct remaining calculation for variant-specific items
+
 

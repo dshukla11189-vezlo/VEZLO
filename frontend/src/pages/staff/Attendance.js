@@ -7,16 +7,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { 
-  Users, Save, RefreshCw, Calendar, DollarSign, Clock, CheckCircle2, XCircle
+  Users, Save, RefreshCw, Calendar, Clock, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react';
 
 export default function Attendance() {
   const { t } = useTranslation();
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const today = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState(today);
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Check if selected date is today (editable) or past date (view only)
+  const isToday = selectedDate === today;
+  const isPastDate = selectedDate < today;
 
   // Load attendance for selected date
   const loadAttendance = useCallback(async () => {
@@ -36,16 +41,15 @@ export default function Attendance() {
     loadAttendance();
   }, [loadAttendance]);
 
-  // Update attendance for a labour
+  // Update attendance for a labour (only overtime hours now)
   const updateAttendance = (labourId, field, value) => {
+    if (!isToday) return; // Block editing for past dates
+    
     setAttendance(prev => prev.map(record => {
       if (record.labour_id === labourId) {
         const updated = { ...record, [field]: value };
-        // Recalculate total payment
-        if (updated.present) {
-          updated.total_payment = updated.daily_rate + (updated.overtime_hours * updated.overtime_rate);
-        } else {
-          updated.total_payment = 0;
+        // Reset overtime if not present
+        if (!updated.present) {
           updated.overtime_hours = 0;
         }
         return updated;
@@ -57,14 +61,15 @@ export default function Attendance() {
 
   // Toggle present status
   const togglePresent = (labourId) => {
+    if (!isToday) return; // Block editing for past dates
+    
     setAttendance(prev => prev.map(record => {
       if (record.labour_id === labourId) {
         const newPresent = !record.present;
         return {
           ...record,
           present: newPresent,
-          overtime_hours: newPresent ? record.overtime_hours : 0,
-          total_payment: newPresent ? record.daily_rate + (record.overtime_hours * record.overtime_rate) : 0
+          overtime_hours: newPresent ? record.overtime_hours : 0
         };
       }
       return record;
@@ -74,27 +79,32 @@ export default function Attendance() {
 
   // Mark all present
   const markAllPresent = () => {
+    if (!isToday) return;
     setAttendance(prev => prev.map(record => ({
       ...record,
-      present: true,
-      total_payment: record.daily_rate + (record.overtime_hours * record.overtime_rate)
+      present: true
     })));
     setHasChanges(true);
   };
 
   // Mark all absent
   const markAllAbsent = () => {
+    if (!isToday) return;
     setAttendance(prev => prev.map(record => ({
       ...record,
       present: false,
-      overtime_hours: 0,
-      total_payment: 0
+      overtime_hours: 0
     })));
     setHasChanges(true);
   };
 
   // Save all attendance
   const saveAttendance = async () => {
+    if (!isToday) {
+      toast.error('Cannot modify attendance for past dates');
+      return;
+    }
+    
     setSaving(true);
     try {
       const records = attendance.map(a => ({
@@ -123,8 +133,8 @@ export default function Attendance() {
 
   // Calculate totals
   const presentCount = attendance.filter(a => a.present).length;
+  const absentCount = attendance.length - presentCount;
   const totalOvertimeHours = attendance.reduce((sum, a) => sum + (a.present ? a.overtime_hours : 0), 0);
-  const totalPayment = attendance.reduce((sum, a) => sum + a.total_payment, 0);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
@@ -143,29 +153,47 @@ export default function Attendance() {
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
+              max={today}
               className="w-40 h-9"
               data-testid="attendance-date"
             />
             <span className="text-sm text-gray-500 hidden md:inline">{formatDate(selectedDate)}</span>
+            {isToday && (
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Today</span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={loadAttendance} data-testid="refresh-attendance">
               <RefreshCw size={14} className="mr-1" /> Refresh
             </Button>
-            <Button 
-              size="sm" 
-              onClick={saveAttendance} 
-              disabled={!hasChanges || saving}
-              className="bg-[#14532D]"
-              data-testid="save-attendance"
-            >
-              <Save size={14} className="mr-1" /> {saving ? 'Saving...' : 'Save Attendance'}
-            </Button>
+            {isToday && (
+              <Button 
+                size="sm" 
+                onClick={saveAttendance} 
+                disabled={!hasChanges || saving}
+                className="bg-[#14532D]"
+                data-testid="save-attendance"
+              >
+                <Save size={14} className="mr-1" /> {saving ? 'Saving...' : 'Save Attendance'}
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Past Date Warning */}
+        {isPastDate && (
+          <Card className="bg-amber-50 border-amber-200">
+            <CardContent className="p-3 flex items-center gap-2">
+              <AlertCircle size={18} className="text-amber-600" />
+              <span className="text-sm text-amber-800">
+                Viewing past attendance (read-only). You can only edit today's attendance.
+              </span>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Summary Cards - Only 3 cards now (removed Total Cost) */}
+        <div className="grid grid-cols-3 gap-3">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardContent className="p-3">
               <div className="flex items-center gap-2">
@@ -207,38 +235,26 @@ export default function Attendance() {
               </div>
             </CardContent>
           </Card>
-
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-purple-600 rounded-lg">
-                  <DollarSign className="text-white" size={16} />
-                </div>
-                <div>
-                  <p className="text-[10px] text-purple-800 font-medium uppercase">Total Cost</p>
-                  <p className="text-lg font-bold text-purple-900" data-testid="total-cost">₹{totalPayment.toLocaleString()}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Quick Actions */}
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={markAllPresent} className="text-green-700 border-green-300 hover:bg-green-50">
-            <CheckCircle2 size={14} className="mr-1" /> Mark All Present
-          </Button>
-          <Button variant="outline" size="sm" onClick={markAllAbsent} className="text-red-700 border-red-300 hover:bg-red-50">
-            <XCircle size={14} className="mr-1" /> Mark All Absent
-          </Button>
-        </div>
+        {/* Quick Actions - Only show for today */}
+        {isToday && (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={markAllPresent} className="text-green-700 border-green-300 hover:bg-green-50">
+              <CheckCircle2 size={14} className="mr-1" /> Mark All Present
+            </Button>
+            <Button variant="outline" size="sm" onClick={markAllAbsent} className="text-red-700 border-red-300 hover:bg-red-50">
+              <XCircle size={14} className="mr-1" /> Mark All Absent
+            </Button>
+          </div>
+        )}
 
-        {/* Attendance Table */}
+        {/* Attendance Table - Simplified (no rates, no costs) */}
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-sm flex items-center justify-between">
               <span>Attendance for {formatDate(selectedDate)}</span>
-              {hasChanges && (
+              {hasChanges && isToday && (
                 <span className="text-xs text-orange-600 bg-orange-100 px-2 py-0.5 rounded">
                   Unsaved changes
                 </span>
@@ -261,10 +277,7 @@ export default function Attendance() {
                     <tr>
                       <th className="p-3 text-left font-medium text-gray-500">LABOUR NAME</th>
                       <th className="p-3 text-center font-medium text-gray-500">PRESENT</th>
-                      <th className="p-3 text-center font-medium text-gray-500">DAILY RATE</th>
                       <th className="p-3 text-center font-medium text-gray-500">OVERTIME (HRS)</th>
-                      <th className="p-3 text-center font-medium text-gray-500">OT RATE/HR</th>
-                      <th className="p-3 text-right font-medium text-gray-500">TOTAL</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -278,11 +291,12 @@ export default function Attendance() {
                         <td className="p-3 text-center">
                           <button
                             onClick={() => togglePresent(record.labour_id)}
+                            disabled={!isToday}
                             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
                               record.present 
                                 ? 'bg-green-500 text-white hover:bg-green-600' 
                                 : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-                            }`}
+                            } ${!isToday ? 'cursor-not-allowed opacity-70' : ''}`}
                             data-testid={`toggle-present-${record.labour_id}`}
                           >
                             {record.present ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
@@ -291,37 +305,15 @@ export default function Attendance() {
                         <td className="p-3 text-center">
                           <Input
                             type="number"
-                            value={record.daily_rate || ''}
-                            onChange={(e) => updateAttendance(record.labour_id, 'daily_rate', parseFloat(e.target.value) || 0)}
-                            className="w-20 h-8 text-center mx-auto"
-                            placeholder="0"
-                            data-testid={`daily-rate-${record.labour_id}`}
-                          />
-                        </td>
-                        <td className="p-3 text-center">
-                          <Input
-                            type="number"
                             step="0.5"
+                            min="0"
                             value={record.overtime_hours || ''}
                             onChange={(e) => updateAttendance(record.labour_id, 'overtime_hours', parseFloat(e.target.value) || 0)}
-                            disabled={!record.present}
-                            className={`w-16 h-8 text-center mx-auto ${!record.present ? 'bg-gray-100' : ''}`}
+                            disabled={!record.present || !isToday}
+                            className={`w-20 h-8 text-center mx-auto ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             placeholder="0"
                             data-testid={`overtime-hours-${record.labour_id}`}
                           />
-                        </td>
-                        <td className="p-3 text-center">
-                          <Input
-                            type="number"
-                            value={record.overtime_rate || ''}
-                            onChange={(e) => updateAttendance(record.labour_id, 'overtime_rate', parseFloat(e.target.value) || 0)}
-                            className="w-16 h-8 text-center mx-auto"
-                            placeholder="0"
-                            data-testid={`overtime-rate-${record.labour_id}`}
-                          />
-                        </td>
-                        <td className="p-3 text-right font-bold text-green-700">
-                          ₹{record.total_payment.toLocaleString()}
                         </td>
                       </tr>
                     ))}
@@ -329,11 +321,12 @@ export default function Attendance() {
                   <tfoot className="bg-gray-100">
                     <tr>
                       <td className="p-3 font-bold">TOTAL</td>
-                      <td className="p-3 text-center font-bold text-green-700">{presentCount} / {attendance.length}</td>
-                      <td className="p-3"></td>
+                      <td className="p-3 text-center font-bold">
+                        <span className="text-green-700">{presentCount}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-gray-600">{attendance.length}</span>
+                      </td>
                       <td className="p-3 text-center font-bold text-orange-600">{totalOvertimeHours.toFixed(1)} hrs</td>
-                      <td className="p-3"></td>
-                      <td className="p-3 text-right font-bold text-green-700">₹{totalPayment.toLocaleString()}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -347,11 +340,11 @@ export default function Attendance() {
           <CardContent className="p-4">
             <h4 className="font-medium text-blue-900 mb-2">Instructions:</h4>
             <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-              <li>Select the date for which you want to mark attendance</li>
+              <li>You can only mark attendance for today's date</li>
               <li>Click the circle button to mark present/absent for each labourer</li>
               <li>Enter overtime hours if any labourer worked extra (only when present)</li>
-              <li>Total payment is automatically calculated: Daily Rate + (Overtime Hours × OT Rate)</li>
               <li>Click "Save Attendance" to save all changes</li>
+              <li>Past dates are view-only and cannot be modified</li>
             </ul>
           </CardContent>
         </Card>

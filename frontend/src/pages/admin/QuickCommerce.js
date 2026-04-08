@@ -241,8 +241,9 @@ export default function QuickCommerce() {
   const [wastageAverages, setWastageAverages] = useState([]);
 
   // Dispatch item editing state
-  const [editingDispatchItem, setEditingDispatchItem] = useState(null); // { dispatchId, itemIndex, qty }
+  const [editingDispatchItem, setEditingDispatchItem] = useState(null); // { dispatchId, itemIndex, qty, crates }
   const [dispatchItemEditQty, setDispatchItemEditQty] = useState('');
+  const [dispatchItemEditCrates, setDispatchItemEditCrates] = useState('');
   const [dispatchInvoiceStatus, setDispatchInvoiceStatus] = useState({}); // { dispatchId: { is_invoiced, invoice_number } }
 
   // ============================================================================
@@ -1544,7 +1545,7 @@ export default function QuickCommerce() {
   };
 
   // Start editing a dispatch item
-  const handleEditDispatchItem = async (dispatchId, itemIndex, currentQty) => {
+  const handleEditDispatchItem = async (dispatchId, itemIndex, currentQty, currentCrates) => {
     // Check invoice status first
     const status = await checkDispatchInvoiceStatus(dispatchId);
     if (status.is_invoiced) {
@@ -1553,6 +1554,7 @@ export default function QuickCommerce() {
     }
     setEditingDispatchItem({ dispatchId, itemIndex });
     setDispatchItemEditQty(currentQty.toString());
+    setDispatchItemEditCrates((currentCrates || 0).toString());
   };
 
   // Save edited dispatch item
@@ -1565,14 +1567,18 @@ export default function QuickCommerce() {
       return;
     }
     
+    const crates = parseInt(dispatchItemEditCrates) || 0;
+    
     try {
       await api.put(`/api/qc-dispatches/${editingDispatchItem.dispatchId}/items/${editingDispatchItem.itemIndex}`, {
         item_index: editingDispatchItem.itemIndex,
-        supplied_qty: qty
+        supplied_qty: qty,
+        no_of_crates: crates
       });
       toast.success('Dispatch item updated');
       setEditingDispatchItem(null);
       setDispatchItemEditQty('');
+      setDispatchItemEditCrates('');
       loadData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update dispatch item');
@@ -1583,6 +1589,7 @@ export default function QuickCommerce() {
   const handleCancelEditDispatchItem = () => {
     setEditingDispatchItem(null);
     setDispatchItemEditQty('');
+    setDispatchItemEditCrates('');
   };
 
   // Delete a single dispatch item by index
@@ -3801,6 +3808,7 @@ Email: ${companyEmail}`;
                                               <th className="text-left py-1 px-2">PRODUCT</th>
                                               <th className="text-left py-1 px-2">PACKAGING</th>
                                               <th className="text-right py-1 px-2">QTY</th>
+                                              <th className="text-right py-1 px-2">CRATES</th>
                                               <th className="text-right py-1 px-2 w-24">ACTIONS</th>
                                             </tr>
                                           </thead>
@@ -3830,6 +3838,23 @@ Email: ${companyEmail}`;
                                                   </td>
                                                   <td className="py-1.5 px-2 text-right">
                                                     {isEditing ? (
+                                                      <Input
+                                                        type="number"
+                                                        value={dispatchItemEditCrates}
+                                                        onChange={(e) => setDispatchItemEditCrates(e.target.value)}
+                                                        className="w-16 h-7 text-right text-sm border border-gray-300"
+                                                        placeholder="0"
+                                                        onKeyDown={(e) => {
+                                                          if (e.key === 'Enter') handleSaveDispatchItem();
+                                                          if (e.key === 'Escape') handleCancelEditDispatchItem();
+                                                        }}
+                                                      />
+                                                    ) : (
+                                                      <span className="text-gray-600">{item.no_of_crates || 0}</span>
+                                                    )}
+                                                  </td>
+                                                  <td className="py-1.5 px-2 text-right">
+                                                    {isEditing ? (
                                                       <div className="flex gap-1 justify-end">
                                                         <Button size="sm" variant="ghost" onClick={handleSaveDispatchItem} className="h-6 w-6 p-0">
                                                           <Check size={12} className="text-green-600" />
@@ -3843,9 +3868,9 @@ Email: ${companyEmail}`;
                                                         <Button 
                                                           size="sm" 
                                                           variant="ghost" 
-                                                          onClick={() => handleEditDispatchItem(dispatch.id, idx, item.supplied_qty)}
+                                                          onClick={() => handleEditDispatchItem(dispatch.id, idx, item.supplied_qty, item.no_of_crates)}
                                                           className="h-6 w-6 p-0"
-                                                          title={isInvoiced ? "Delete invoice first to edit" : "Edit quantity"}
+                                                          title={isInvoiced ? "Delete invoice first to edit" : "Edit qty & crates"}
                                                         >
                                                           <Edit size={12} className={isInvoiced ? "text-gray-400" : "text-blue-600"} />
                                                         </Button>

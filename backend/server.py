@@ -1863,6 +1863,7 @@ async def check_qc_dispatch_invoice_status(dispatch_id: str, current_user: dict 
 class QCDispatchItemUpdate(BaseModel):
     item_index: int
     supplied_qty: float
+    no_of_crates: Optional[int] = None
 
 @api_router.put("/qc-dispatches/{dispatch_id}/items/{item_index}")
 async def update_qc_dispatch_item(
@@ -1871,7 +1872,7 @@ async def update_qc_dispatch_item(
     input: QCDispatchItemUpdate, 
     current_user: dict = Depends(get_current_user)
 ):
-    """Update a single item in a QC dispatch (quantity only)"""
+    """Update a single item in a QC dispatch (quantity and crates)"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -1895,8 +1896,10 @@ async def update_qc_dispatch_item(
     if item_index < 0 or item_index >= len(items):
         raise HTTPException(status_code=404, detail="Item not found at specified index")
     
-    # Update the item quantity
+    # Update the item quantity and crates
     items[item_index]["supplied_qty"] = input.supplied_qty
+    if input.no_of_crates is not None:
+        items[item_index]["no_of_crates"] = input.no_of_crates
     
     # Update the dispatch
     await db.qc_dispatches.update_one(
@@ -1904,7 +1907,7 @@ async def update_qc_dispatch_item(
         {"$set": {"items": items}}
     )
     
-    return {"message": "Dispatch item updated successfully", "new_qty": input.supplied_qty}
+    return {"message": "Dispatch item updated successfully", "new_qty": input.supplied_qty, "new_crates": input.no_of_crates}
 
 @api_router.delete("/qc-dispatches/{dispatch_id}/items-by-index/{item_index}")
 async def delete_qc_dispatch_item_by_index(

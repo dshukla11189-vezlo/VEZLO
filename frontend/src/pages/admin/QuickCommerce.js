@@ -3890,6 +3890,18 @@ Email: ${companyEmail}`;
                                               );
                                             })}
                                           </tbody>
+                                          <tfoot>
+                                            <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+                                              <td className="py-2 px-2 text-right" colSpan={2}>Total:</td>
+                                              <td className="py-2 px-2 text-right text-green-700">
+                                                {dispatch.items?.reduce((sum, item) => sum + (item.supplied_qty || 0), 0).toLocaleString()}
+                                              </td>
+                                              <td className="py-2 px-2 text-right text-blue-700">
+                                                {dispatch.items?.reduce((sum, item) => sum + (item.no_of_crates || 0), 0).toLocaleString()}
+                                              </td>
+                                              <td className="py-2 px-2"></td>
+                                            </tr>
+                                          </tfoot>
                                         </table>
                                       </div>
                                     );

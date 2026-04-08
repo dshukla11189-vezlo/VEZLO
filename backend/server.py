@@ -8988,16 +8988,20 @@ async def get_retailer_closing_summary(
         key = f"{product_id}_default"  # Rejections may not have variants
         rejection_qty[key] = rejection_qty.get(key, 0) + (r.get('quantity', 0) or 0)
     
-    # Build comprehensive result
+    # Build comprehensive result - deduplicate by product_id + variant_id
     result = []
-    seen_keys = set()
+    seen_keys = {}  # Changed to dict to track the best entry for each key
     
     # First add all closing items with full data
     for item in closing_items:
         product_id = item.get('product_id')
         variant_id = item.get('variant_id')
         key = f"{product_id}_{variant_id or 'default'}"
-        seen_keys.add(key)
+        
+        # Skip if we already have this key (deduplication)
+        if key in seen_keys:
+            continue
+        seen_keys[key] = True
         
         # Get opening from previous day - try exact key match first, then product-only fallback
         opening = prev_closing.get(key, 0)
@@ -9030,7 +9034,7 @@ async def get_retailer_closing_summary(
             "variant_name": final_variant_name,
             "opening_qty": opening,
             "received_qty": recv,
-            "rejection_qty": rej if key.endswith('_default') or not seen_keys else 0,
+            "rejection_qty": rej if key.endswith('_default') or len(seen_keys) == 1 else 0,
             "closing_qty": item.get("closing_qty")
         })
     

@@ -12,7 +12,8 @@
     "variableExpenses": "Variable Expenses",
     "fixedExpenses": "Fixed Expenses",
     "payments": "Payments",
-    "invoices": "Invoices",
+    "laborCosts": "Labor Costs",
+    "attendance": "Attendance",
     "userManagement": "User Management",
     "backup": "Data Backup",
     "logout": "Logout"

@@ -785,3 +785,66 @@ class RetailerInventoryItemUpdate(BaseModel):
     wastage_qty: Optional[float] = None
     closing_qty: Optional[float] = None
     remarks: Optional[str] = None
+
+
+# ==================== LABOUR MANAGEMENT MODELS ====================
+
+class Labour(BaseModel):
+    """Model for labourers/workers"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    phone: Optional[str] = None
+    default_daily_rate: float = 0  # Default daily wage in ₹
+    default_overtime_rate: float = 0  # Default overtime rate per hour in ₹
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class LabourCreate(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    default_daily_rate: float = 0
+    default_overtime_rate: float = 0
+    is_active: bool = True
+
+class LabourUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    default_daily_rate: Optional[float] = None
+    default_overtime_rate: Optional[float] = None
+    is_active: Optional[bool] = None
+
+
+class LabourAttendance(BaseModel):
+    """Model for daily attendance records"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: str  # YYYY-MM-DD format
+    labour_id: str
+    labour_name: str
+    present: bool = False
+    overtime_hours: float = 0  # Hours of overtime worked
+    daily_rate: float = 0  # Rate applied for this day (may differ from default for historical tracking)
+    overtime_rate: float = 0  # Overtime rate applied for this day
+    total_payment: float = 0  # Calculated: daily_rate (if present) + (overtime_hours * overtime_rate)
+    recorded_by: str  # user_id of supervisor who marked attendance
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class LabourAttendanceCreate(BaseModel):
+    date: str  # YYYY-MM-DD format
+    labour_id: str
+    labour_name: str
+    present: bool = False
+    overtime_hours: float = 0
+    daily_rate: float = 0
+    overtime_rate: float = 0
+    remarks: Optional[str] = None
+
+class LabourAttendanceUpdate(BaseModel):
+    present: Optional[bool] = None
+    overtime_hours: Optional[float] = None
+    daily_rate: Optional[float] = None
+    overtime_rate: Optional[float] = None
+    remarks: Optional[str] = None

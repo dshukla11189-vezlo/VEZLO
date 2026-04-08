@@ -12,7 +12,8 @@
     "variableExpenses": "परिवर्तनीय खर्च",
     "fixedExpenses": "निश्चित खर्च",
     "payments": "भुगतान",
-    "invoices": "बिल",
+    "laborCosts": "श्रमिक लागत",
+    "attendance": "उपस्थिति",
     "userManagement": "उपयोगकर्ता प्रबंधन",
     "backup": "डेटा बैकअप",
     "logout": "लॉगआउट"

@@ -15,11 +15,12 @@ import Wastage from './pages/admin/Wastage';
 import VariableExpenses from './pages/admin/VariableExpenses';
 import FixedExpenses from './pages/admin/FixedExpenses';
 import Payments from './pages/admin/Payments';
-import Invoices from './pages/admin/Invoices';
+import LaborCosts from './pages/admin/LaborCosts';
 import UserManagement from './pages/admin/UserManagement';
 import Backup from './pages/admin/Backup';
 import RetailerDashboard from './pages/retailer/Dashboard';
 import StaffDashboard from './pages/staff/Dashboard';
+import StaffAttendance from './pages/staff/Attendance';
 import './App.css';
 
 function ProtectedRoute({ children, allowedRoles }) {
@@ -152,10 +153,10 @@ function App() {
             }
           />
           <Route
-            path="/admin/invoices"
+            path="/admin/labor-costs"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'staff']}>
-                <Invoices />
+              <ProtectedRoute allowedRoles={['admin']}>
+                <LaborCosts />
               </ProtectedRoute>
             }
           />
@@ -192,6 +193,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['staff']}>
                 <StaffDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/staff/attendance"
+            element={
+              <ProtectedRoute allowedRoles={['staff', 'admin']}>
+                <StaffAttendance />
               </ProtectedRoute>
             }
           />

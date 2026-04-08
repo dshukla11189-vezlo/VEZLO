@@ -2481,14 +2481,23 @@ export default function RetailerOrders() {
                           </td>
                           <td className="p-3 text-center">{indent.items?.length || 0}</td>
                           <td className="p-3 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              indent.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                              indent.status === 'dispatched' ? 'bg-blue-100 text-blue-700' :
-                              indent.status === 'received' ? 'bg-green-100 text-green-700' :
-                              'bg-gray-100 text-gray-700'
-                            }`}>
-                              {indent.status}
-                            </span>
+                            {(() => {
+                              // Check if there are remaining items to dispatch
+                              const hasRemainingItems = indent.status !== 'pending' && getIndentRemainingQtys(indent).length > 0;
+                              const displayStatus = hasRemainingItems ? 'partial' : indent.status;
+                              
+                              return (
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  displayStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                  displayStatus === 'partial' ? 'bg-amber-100 text-amber-700' :
+                                  displayStatus === 'dispatched' ? 'bg-blue-100 text-blue-700' :
+                                  displayStatus === 'received' ? 'bg-green-100 text-green-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {displayStatus}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">

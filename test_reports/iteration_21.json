@@ -1,0 +1,97 @@
+{
+  "summary": "Tested Variable Expenses Rate/Qty/Payment Status features and Customer P&L Rejection field. All backend APIs (13/13 tests) and frontend UI features verified working.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/employees", "issue": "Returns 404 - endpoint not implemented (non-blocking, used for employee expense reimbursement feature)"}
+    ]
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. Backend: Variable Expenses API accepts rate, quantity, payment_status fields - PASS",
+    "2. Backend: Create expense with rate=500, quantity=3, amount=1500 - PASS",
+    "3. Backend: Create expense with payment_status='partially_paid' and paid_amount - PASS",
+    "4. Backend: Create expense with payment_status='paid' - PASS",
+    "5. Backend: GET expenses returns rate, quantity, payment_status fields - PASS",
+    "6. Backend: Update expense payment_status - PASS",
+    "7. Backend: P&L API returns customer_pnl array with rejection_share for Retail customers - PASS",
+    "8. Backend: Tamanna Mart (Retail) has rejection_share: ₹5007 for March 2026 - PASS",
+    "9. Backend: QC customers have grn_loss_share and rejection_share=0 - PASS",
+    "10. Backend: vertical_bifurcation.retail has rejection field - PASS",
+    "11. Frontend: Variable Expenses table shows RATE, QTY, STATUS columns - PASS",
+    "12. Frontend: Add Expense form shows Rate, Quantity, Payment Status fields - PASS",
+    "13. Frontend: Rate × Quantity auto-calculates Amount (100 × 5 = 500) - PASS",
+    "14. Frontend: Dashboard Retail section shows REJECTION field - PASS",
+    "15. Frontend: Customer P&L Modal shows REJECTION field for Retail customers - PASS",
+    "16. Frontend: Customers tab shows clickable customer names - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_variable_expenses_pnl.py",
+    "/app/test_reports/pytest/pytest_variable_expenses_pnl.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "Backend P&L API correctly calculates rejection_share for Retail customers based on sales proportion",
+    "Frontend Dashboard.js correctly displays REJECTION for Retail customers in modal (line 1645)",
+    "Variable Expenses form auto-calculation working correctly",
+    "Payment status tracking (Pending, Partially Paid, Paid) implemented correctly"
+  ],
+
+  "updated_files": [
+    "/app/backend/tests/test_variable_expenses_pnl.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "100% (6/6 UI features verified)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing data. For March 2026, Tamanna Mart (Retail) has rejection_share: ₹5007, Ninjacart (QC) has grn_loss_share: ₹1819.42",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "Variable Expenses and Customer P&L features fully tested. Variable Expenses table has RATE, QTY, STATUS columns. Add Expense form has Rate, Quantity (auto-calculates Amount), and Payment Status dropdown. Customer P&L Modal shows REJECTION for Retail customers and GRN LOSS for QC customers. Use date range 2026-03-01 to 2026-03-31 to see rejection data for Tamanna Mart.",
+
+  "verified_features": {
+    "variable_expenses": {
+      "table_columns": ["DATE", "CATEGORY", "DESCRIPTION", "RATE", "QTY", "AMOUNT", "VERTICAL", "PAID TO", "STATUS", "ACTIONS"],
+      "form_fields": {
+        "rate": true,
+        "quantity": true,
+        "amount_auto_calc": true,
+        "payment_status_dropdown": ["Pending", "Partially Paid", "Paid"]
+      }
+    },
+    "customer_pnl_modal": {
+      "rejection_field_for_retail": true,
+      "grn_loss_field_for_qc": true,
+      "clickable_customer_names": true
+    },
+    "dashboard_retail_section": {
+      "rejection_field": true,
+      "commission_field": true
+    }
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

@@ -224,16 +224,25 @@ export default function AdminDashboard() {
         grossProfit: acc.grossProfit + day.grossProfit
       }), { sales: 0, qty: 0, kg: 0, purchase: 0, wastage: 0, commission: 0, grossProfit: 0 });
       
-      totals.grossMargin = totals.sales > 0 ? (totals.grossProfit / totals.sales * 100) : 0;
-      totals.profitPerUnit = totals.qty > 0 ? (totals.grossProfit / totals.qty) : 0;
+      // For Retail customers, the line-item gross_profit doesn't include rejection
+      // We need to subtract rejection_share to get the TRUE gross profit that matches dashboard
+      // Gross Profit (Retail) = Sum of line_item profits - Rejection Loss
+      const adjustedGrossProfit = customerType === 'Retail' 
+        ? totals.grossProfit - rejectionShare 
+        : totals.grossProfit;
+      
+      totals.grossMargin = totals.sales > 0 ? (adjustedGrossProfit / totals.sales * 100) : 0;
+      totals.profitPerUnit = totals.qty > 0 ? (adjustedGrossProfit / totals.qty) : 0;
       totals.customerType = customerType;
       totals.grnLossShare = grnLossShare;
       totals.rejectionShare = rejectionShare;
+      // Store the adjusted gross profit
+      totals.grossProfit = adjustedGrossProfit;
       // For QC customers, Net Profit = Gross Profit - GRN Loss Share
-      // For Retail, Net Profit = Gross Profit - Rejection Share (commission already deducted in gross profit)
+      // For Retail, Net Profit = Gross Profit (already has rejection deducted)
       totals.netProfit = customerType === 'QC' 
-        ? totals.grossProfit - grnLossShare 
-        : totals.grossProfit - rejectionShare;
+        ? adjustedGrossProfit - grnLossShare 
+        : adjustedGrossProfit;
       
       // Calculate period days for Daily Avg (use total calendar days, not active days)
       // This ensures customer Daily Avgs sum up to match dashboard Daily Avg

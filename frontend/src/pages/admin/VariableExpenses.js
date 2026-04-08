@@ -28,6 +28,12 @@ const EXPENSE_CATEGORIES = [
 
 const PAYMENT_MODES = ['Cash', 'UPI', 'Bank Transfer', 'Cheque'];
 
+const PAYMENT_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending', color: 'bg-orange-100 text-orange-700' },
+  { value: 'partially_paid', label: 'Partially Paid', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'paid', label: 'Paid', color: 'bg-green-100 text-green-700' }
+];
+
 const VERTICAL_OPTIONS = [
   { value: 'all', label: 'All (Split Equally)' },
   { value: 'qc', label: 'QC Only' },
@@ -53,6 +59,8 @@ export default function VariableExpenses() {
     date: new Date().toISOString().split('T')[0],
     category: '',
     description: '',
+    rate: '',
+    quantity: '',
     amount: '',
     paid_to: '',
     payment_mode: 'Cash',
@@ -60,7 +68,8 @@ export default function VariableExpenses() {
     paid_by: 'Company', // Company or Employee name
     is_employee_expense: false,
     employee_name: '',
-    is_settled: true,
+    payment_status: 'pending', // 'pending', 'partially_paid', 'paid'
+    paid_amount: '',
     settlement_date: '',
     settlement_remarks: '',
     vertical: 'all' // 'all', 'qc', or 'retail'
@@ -112,6 +121,8 @@ export default function VariableExpenses() {
       date: new Date().toISOString().split('T')[0],
       category: '',
       description: '',
+      rate: '',
+      quantity: '',
       amount: '',
       paid_to: '',
       payment_mode: 'Cash',
@@ -119,7 +130,8 @@ export default function VariableExpenses() {
       paid_by: 'Company',
       is_employee_expense: false,
       employee_name: '',
-      is_settled: true,
+      payment_status: 'pending',
+      paid_amount: '',
       settlement_date: '',
       settlement_remarks: '',
       vertical: 'all'
@@ -136,8 +148,13 @@ export default function VariableExpenses() {
     try {
       const payload = {
         ...formData,
+        rate: formData.rate ? parseFloat(formData.rate) : null,
+        quantity: formData.quantity ? parseFloat(formData.quantity) : null,
         amount: parseFloat(formData.amount),
-        is_settled: formData.is_employee_expense ? formData.is_settled : true,
+        paid_amount: formData.paid_amount ? parseFloat(formData.paid_amount) : 0,
+        payment_status: formData.payment_status || 'pending',
+        // Legacy is_settled: true only if fully paid
+        is_settled: formData.payment_status === 'paid',
         paid_by: formData.is_employee_expense ? formData.employee_name : 'Company'
       };
       
@@ -164,6 +181,8 @@ export default function VariableExpenses() {
       date: expense.date?.split('T')[0] || '',
       category: expense.category || '',
       description: expense.description || '',
+      rate: expense.rate?.toString() || '',
+      quantity: expense.quantity?.toString() || '',
       amount: expense.amount?.toString() || '',
       paid_to: expense.paid_to || '',
       payment_mode: expense.payment_mode || 'Cash',
@@ -171,7 +190,8 @@ export default function VariableExpenses() {
       paid_by: expense.paid_by || 'Company',
       is_employee_expense: expense.paid_by !== 'Company',
       employee_name: expense.paid_by !== 'Company' ? expense.paid_by : '',
-      is_settled: expense.is_settled ?? true,
+      payment_status: expense.payment_status || (expense.is_settled ? 'paid' : 'pending'),
+      paid_amount: expense.paid_amount?.toString() || '',
       settlement_date: expense.settlement_date?.split('T')[0] || '',
       settlement_remarks: expense.settlement_remarks || '',
       vertical: expense.vertical || 'all'
@@ -221,9 +241,12 @@ export default function VariableExpenses() {
     );
   };
 
-  const unsettledExpenses = expenses.filter(e => !e.is_settled);
+  const unsettledExpenses = expenses.filter(e => e.payment_status !== 'paid' && !e.is_settled);
+  const pendingExpenses = expenses.filter(e => e.payment_status === 'pending');
+  const partiallyPaidExpenses = expenses.filter(e => e.payment_status === 'partially_paid');
   const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const unsettledAmount = unsettledExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const paidAmount = expenses.filter(e => e.payment_status === 'paid' || e.is_settled).reduce((sum, e) => sum + (e.amount || 0), 0);
   
   // Group by category for summary
   const categoryTotals = expenses.reduce((acc, e) => {
@@ -290,19 +313,19 @@ export default function VariableExpenses() {
                 <CheckCircle className="text-green-600" size={18} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Settled</p>
-                <p className="text-lg font-bold text-green-600">₹{(totalAmount - unsettledAmount).toLocaleString()}</p>
+                <p className="text-xs text-gray-500">Paid</p>
+                <p className="text-lg font-bold text-green-600">₹{paidAmount.toLocaleString()}</p>
               </div>
             </div>
           </Card>
           <Card className="p-3">
             <div className="flex items-center gap-2">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Users className="text-purple-600" size={18} />
+              <div className="p-2 bg-yellow-100 rounded-lg">
+                <AlertCircle className="text-yellow-600" size={18} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Employee Claims</p>
-                <p className="text-lg font-bold">{unsettledExpenses.length}</p>
+                <p className="text-xs text-gray-500">Partially Paid</p>
+                <p className="text-lg font-bold text-yellow-600">{partiallyPaidExpenses.length}</p>
               </div>
             </div>
           </Card>
@@ -395,9 +418,10 @@ export default function VariableExpenses() {
                       <th className="p-2 text-left text-xs font-medium text-gray-500">DATE</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">CATEGORY</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">DESCRIPTION</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">RATE</th>
+                      <th className="p-2 text-right text-xs font-medium text-gray-500">QTY</th>
                       <th className="p-2 text-right text-xs font-medium text-gray-500">AMOUNT</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">VERTICAL</th>
-                      <th className="p-2 text-left text-xs font-medium text-gray-500">PAID BY</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">PAID TO</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">ACTIONS</th>
@@ -406,15 +430,18 @@ export default function VariableExpenses() {
                   <tbody>
                     {expenses.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="p-8 text-center text-gray-500">
+                        <td colSpan={11} className="p-8 text-center text-gray-500">
                           No expenses found. Click "Add Expense" to get started.
                         </td>
                       </tr>
                     ) : (
-                      expenses.map((expense) => (
-                        <tr key={expense.id} className={`border-b hover:bg-gray-50 ${!expense.is_settled ? 'bg-orange-50' : ''}`}>
+                      expenses.map((expense) => {
+                        const statusConfig = PAYMENT_STATUS_OPTIONS.find(s => s.value === expense.payment_status) || PAYMENT_STATUS_OPTIONS[0];
+                        const isUnsettled = expense.payment_status !== 'paid' && !expense.is_settled;
+                        return (
+                        <tr key={expense.id} className={`border-b hover:bg-gray-50 ${isUnsettled ? 'bg-orange-50' : ''}`}>
                           <td className="p-2">
-                            {!expense.is_settled && (
+                            {isUnsettled && (
                               <Checkbox 
                                 checked={selectedExpenses.includes(expense.id)}
                                 onCheckedChange={() => toggleExpenseSelection(expense.id)}
@@ -428,6 +455,8 @@ export default function VariableExpenses() {
                             <span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{expense.category}</span>
                           </td>
                           <td className="p-2 text-xs max-w-[150px] truncate">{expense.description || '-'}</td>
+                          <td className="p-2 text-right text-xs text-gray-600">{expense.rate ? `₹${expense.rate.toLocaleString()}` : '-'}</td>
+                          <td className="p-2 text-right text-xs text-gray-600">{expense.quantity || '-'}</td>
                           <td className="p-2 text-right font-medium">₹{expense.amount?.toLocaleString()}</td>
                           <td className="p-2 text-center">
                             <span className={`px-2 py-0.5 rounded text-xs ${
@@ -438,24 +467,13 @@ export default function VariableExpenses() {
                               {expense.vertical === 'qc' ? 'QC' : expense.vertical === 'retail' ? 'Retail' : 'All'}
                             </span>
                           </td>
-                          <td className="p-2 text-xs">
-                            {expense.paid_by === 'Company' ? (
-                              <span className="text-green-600">Company</span>
-                            ) : (
-                              <span className="text-blue-600">{expense.paid_by}</span>
-                            )}
-                          </td>
                           <td className="p-2 text-xs">{expense.paid_to || '-'}</td>
                           <td className="p-2 text-center">
-                            {expense.is_settled ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">
-                                <CheckCircle size={10} /> Settled
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
-                                <Clock size={10} /> Pending
-                              </span>
-                            )}
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${statusConfig.color}`}>
+                              {expense.payment_status === 'paid' || expense.is_settled ? <CheckCircle size={10} /> : 
+                               expense.payment_status === 'partially_paid' ? <AlertCircle size={10} /> : <Clock size={10} />}
+                              {statusConfig.label}
+                            </span>
                           </td>
                           <td className="p-2 text-center">
                             <div className="flex items-center justify-center gap-1">
@@ -468,7 +486,7 @@ export default function VariableExpenses() {
                             </div>
                           </td>
                         </tr>
-                      ))
+                      )})
                     )}
                   </tbody>
                 </table>
@@ -539,7 +557,38 @@ export default function VariableExpenses() {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
+              {/* Rate × Quantity = Amount */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Rate (₹)</label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={formData.rate}
+                    onChange={(e) => {
+                      const rate = e.target.value;
+                      const qty = formData.quantity;
+                      const calculatedAmount = rate && qty ? (parseFloat(rate) * parseFloat(qty)).toFixed(2) : formData.amount;
+                      setFormData(prev => ({ ...prev, rate, amount: calculatedAmount }));
+                    }}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Quantity</label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={formData.quantity}
+                    onChange={(e) => {
+                      const qty = e.target.value;
+                      const rate = formData.rate;
+                      const calculatedAmount = rate && qty ? (parseFloat(rate) * parseFloat(qty)).toFixed(2) : formData.amount;
+                      setFormData(prev => ({ ...prev, quantity: qty, amount: calculatedAmount }));
+                    }}
+                    className="h-8 text-sm"
+                  />
+                </div>
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-1 block">Amount (₹) *</label>
                   <Input
@@ -547,9 +596,15 @@ export default function VariableExpenses() {
                     placeholder="0.00"
                     value={formData.amount}
                     onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
-                    className="h-8 text-sm"
+                    className="h-8 text-sm font-semibold bg-gray-50"
                   />
+                  {formData.rate && formData.quantity && (
+                    <p className="text-[10px] text-gray-400 mt-0.5">= {formData.rate} × {formData.quantity}</p>
+                  )}
                 </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-1 block">Payment Mode</label>
                   <Select value={formData.payment_mode} onValueChange={(v) => setFormData(prev => ({ ...prev, payment_mode: v }))}>
@@ -563,7 +618,39 @@ export default function VariableExpenses() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Payment Status *</label>
+                  <Select value={formData.payment_status} onValueChange={(v) => setFormData(prev => ({ ...prev, payment_status: v }))}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_STATUS_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+              
+              {/* Partially Paid - show paid amount */}
+              {formData.payment_status === 'partially_paid' && (
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Amount Paid (₹)</label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={formData.paid_amount}
+                    onChange={(e) => setFormData(prev => ({ ...prev, paid_amount: e.target.value }))}
+                    className="h-8 text-sm"
+                  />
+                  {formData.amount && formData.paid_amount && (
+                    <p className="text-[10px] text-orange-600 mt-0.5">
+                      Balance: ₹{(parseFloat(formData.amount) - parseFloat(formData.paid_amount)).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -614,7 +701,7 @@ export default function VariableExpenses() {
                     onCheckedChange={(checked) => setFormData(prev => ({ 
                       ...prev, 
                       is_employee_expense: checked,
-                      is_settled: !checked 
+                      payment_status: checked ? 'pending' : prev.payment_status 
                     }))}
                   />
                   <label className="text-xs font-medium text-gray-700">Paid by Employee (Reimbursement)</label>
@@ -632,15 +719,7 @@ export default function VariableExpenses() {
                       />
                     </div>
                     
-                    <div className="flex items-center gap-2">
-                      <Checkbox 
-                        checked={formData.is_settled}
-                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_settled: checked }))}
-                      />
-                      <label className="text-xs text-gray-700">Already Settled</label>
-                    </div>
-                    
-                    {formData.is_settled && (
+                    {formData.payment_status === 'paid' && (
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs font-medium text-gray-700 mb-1 block">Settlement Date</label>

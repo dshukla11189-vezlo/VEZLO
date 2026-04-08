@@ -6192,6 +6192,7 @@ async def bulk_settle_variable_expenses(data: dict, current_user: dict = Depends
         {"id": {"$in": expense_ids}},
         {"$set": {
             "is_settled": True,
+            "payment_status": "paid",  # Update new payment_status field
             "settlement_date": settlement_date,
             "settlement_remarks": settlement_remarks,
             "settled_by": current_user["email"],

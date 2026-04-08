@@ -4595,6 +4595,467 @@ async def get_pnl_report(
         ]
     }
 
+
+# ============================================================================
+# P&L EXCEL EXPORT - Detailed audit report with customer/product breakdown
+# ============================================================================
+
+@app.get("/api/reports/pnl/export-excel")
+async def export_pnl_excel(
+    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Export detailed P&L report as Excel for audit purposes"""
+    import xlsxwriter
+    from io import BytesIO
+    
+    # First get the P&L data using the existing function logic
+    # (We'll call the API internally or duplicate the logic)
+    
+    # Fetch all required data
+    qc_orders = await db.qc_orders.find({}, {"_id": 0}).to_list(5000)
+    qc_dispatches_raw = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
+    retailer_dispatches_raw = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    procurements = await db.procurements.find({
+        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    stock_status = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date},
+        "status": "closed"
+    }, {"_id": 0}).to_list(1000)
+    variable_expenses = await db.variable_expenses.find({
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(500)
+    fixed_expenses = await db.fixed_expenses.find({}, {"_id": 0}).to_list(100)
+    products = await db.products.find({}, {"_id": 0}).to_list(500)
+    retailer_rejections = await db.retailer_rejections.find({
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(500)
+    qc_grns = await db.qc_grns.find({
+        "grn_date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(500)
+    
+    # Build lookup maps
+    product_map = {p.get("id"): p for p in products}
+    packaging_map = {}
+    for p in products:
+        for pkg in p.get("packaging", []):
+            packaging_map[pkg.get("id")] = {
+                "weight_gm": pkg.get("weight_gm", 0),
+                "product_name": p.get("name")
+            }
+    
+    cost_alias_map = {}
+    for p in products:
+        if p.get("cost_alias"):
+            cost_alias_map[p.get("name")] = p.get("cost_alias")
+    
+    # Calculate average purchase price by product
+    avg_price_by_product = {}
+    for proc in procurements:
+        for item in proc.get("products", []):
+            product_name = item.get("product_name", "")
+            qty = item.get("quantity", 0) or 0
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            total = item.get("total", 0) or 0
+            
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000
+                except:
+                    qty_kg = qty
+            else:
+                qty_kg = qty
+            
+            if qty_kg > 0:
+                if product_name not in avg_price_by_product:
+                    avg_price_by_product[product_name] = {"total_value": 0, "total_qty": 0}
+                avg_price_by_product[product_name]["total_value"] += total
+                avg_price_by_product[product_name]["total_qty"] += qty_kg
+    
+    for product, data in avg_price_by_product.items():
+        if data["total_qty"] > 0:
+            avg_price_by_product[product] = data["total_value"] / data["total_qty"]
+        else:
+            avg_price_by_product[product] = 0
+    
+    # Process data into structured format for Excel
+    daily_data = {}  # date -> {qc_items: [], retail_items: [], summary: {}}
+    customer_data = {}  # customer -> {items: [], summary: {}}
+    product_data = {}  # product -> {sales, purchase, wastage, etc.}
+    
+    # Process QC dispatches
+    for dispatch in qc_dispatches_raw:
+        dispatch_date = dispatch.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date = str(dispatch_date)[:10]
+        
+        if dispatch_date < from_date or dispatch_date > to_date:
+            continue
+        
+        if dispatch_date not in daily_data:
+            daily_data[dispatch_date] = {"qc_items": [], "retail_items": [], "summary": {}}
+        
+        customer = dispatch.get("customer_name", "Unknown")
+        if customer not in customer_data:
+            customer_data[customer] = {"type": "QC", "items": [], "summary": {"sales": 0, "cogs": 0, "wastage": 0, "qty": 0}}
+        
+        for item in dispatch.get("items", []):
+            product = item.get("product_name", "Unknown")
+            qty = item.get("quantity", 0) or 0
+            unit = item.get("unit", "")
+            mrp = item.get("mrp", 0) or 0
+            revenue = qty * mrp
+            
+            # Calculate COGS
+            pkg_info = packaging_map.get(item.get("packaging_id"), {})
+            weight_gm = pkg_info.get("weight_gm", 0)
+            if weight_gm > 0:
+                supplied_kg = (qty * weight_gm) / 1000
+            else:
+                supplied_kg = qty
+            
+            lookup_product = cost_alias_map.get(product, product)
+            avg_price = avg_price_by_product.get(lookup_product, 0)
+            if avg_price == 0 and lookup_product != product:
+                avg_price = avg_price_by_product.get(product, 0)
+            cogs = supplied_kg * avg_price
+            
+            item_data = {
+                "date": dispatch_date,
+                "customer": customer,
+                "customer_type": "QC",
+                "product": product,
+                "unit": unit,
+                "qty": qty,
+                "rate": mrp,
+                "revenue": round(revenue, 2),
+                "cogs": round(cogs, 2),
+                "wastage": 0,
+                "gross_profit": round(revenue - cogs, 2)
+            }
+            
+            daily_data[dispatch_date]["qc_items"].append(item_data)
+            customer_data[customer]["items"].append(item_data)
+            customer_data[customer]["summary"]["sales"] += revenue
+            customer_data[customer]["summary"]["cogs"] += cogs
+            customer_data[customer]["summary"]["qty"] += qty
+            
+            # Product data
+            if product not in product_data:
+                product_data[product] = {"sales": 0, "qty": 0, "cogs": 0, "wastage": 0, "customers": set()}
+            product_data[product]["sales"] += revenue
+            product_data[product]["qty"] += qty
+            product_data[product]["cogs"] += cogs
+            product_data[product]["customers"].add(customer)
+    
+    # Process Retailer dispatches
+    for dispatch in retailer_dispatches_raw:
+        dispatch_date = dispatch.get("dispatch_date", "")
+        if isinstance(dispatch_date, datetime):
+            dispatch_date = dispatch_date.strftime('%Y-%m-%d')
+        else:
+            dispatch_date = str(dispatch_date)[:10]
+        
+        if dispatch_date < from_date or dispatch_date > to_date:
+            continue
+        
+        if dispatch_date not in daily_data:
+            daily_data[dispatch_date] = {"qc_items": [], "retail_items": [], "summary": {}}
+        
+        retailer = await db.users.find_one({"id": dispatch.get("retailer_id")}, {"_id": 0})
+        customer = retailer.get("business_name") or retailer.get("name", "Unknown") if retailer else "Unknown"
+        customer = f"{customer} (Retail)"
+        
+        if customer not in customer_data:
+            customer_data[customer] = {"type": "Retail", "items": [], "summary": {"sales": 0, "cogs": 0, "wastage": 0, "qty": 0, "commission": 0}}
+        
+        commission_pct = dispatch.get("commission_pct", 20) or 20
+        
+        for item in dispatch.get("items", []):
+            product = item.get("product_name", "Unknown")
+            qty = item.get("supply_qty", 0) or 0
+            unit = item.get("unit", "")
+            mrp = item.get("mrp", 0) or 0
+            revenue = qty * mrp
+            commission = revenue * (commission_pct / 100)
+            
+            # Calculate COGS
+            pkg_info = packaging_map.get(item.get("packaging_id"), {})
+            weight_gm = pkg_info.get("weight_gm", 0)
+            if weight_gm > 0:
+                supplied_kg = (qty * weight_gm) / 1000
+            else:
+                supplied_kg = qty
+            
+            lookup_product = cost_alias_map.get(product, product)
+            avg_price = avg_price_by_product.get(lookup_product, 0)
+            if avg_price == 0 and lookup_product != product:
+                avg_price = avg_price_by_product.get(product, 0)
+            cogs = supplied_kg * avg_price
+            
+            item_data = {
+                "date": dispatch_date,
+                "customer": customer,
+                "customer_type": "Retail",
+                "product": product,
+                "unit": unit,
+                "qty": qty,
+                "rate": mrp,
+                "revenue": round(revenue, 2),
+                "cogs": round(cogs, 2),
+                "wastage": 0,
+                "commission": round(commission, 2),
+                "gross_profit": round(revenue - cogs - commission, 2)
+            }
+            
+            daily_data[dispatch_date]["retail_items"].append(item_data)
+            customer_data[customer]["items"].append(item_data)
+            customer_data[customer]["summary"]["sales"] += revenue
+            customer_data[customer]["summary"]["cogs"] += cogs
+            customer_data[customer]["summary"]["qty"] += qty
+            customer_data[customer]["summary"]["commission"] = customer_data[customer]["summary"].get("commission", 0) + commission
+            
+            # Product data
+            if product not in product_data:
+                product_data[product] = {"sales": 0, "qty": 0, "cogs": 0, "wastage": 0, "customers": set()}
+            product_data[product]["sales"] += revenue
+            product_data[product]["qty"] += qty
+            product_data[product]["cogs"] += cogs
+            product_data[product]["customers"].add(customer)
+    
+    # Process wastage
+    for status in stock_status:
+        product = status.get("product_name", "Unknown")
+        wastage_value = status.get("wastage_value", 0) or 0
+        status_date = status.get("date", "")[:10]
+        
+        if product in product_data:
+            product_data[product]["wastage"] += wastage_value
+    
+    # Process purchases
+    purchase_data = {}  # farmer -> {products: [], total: 0}
+    for proc in procurements:
+        farmer = proc.get("farmer_name", "Unknown")
+        proc_date = proc.get("date", "")[:10]
+        
+        if farmer not in purchase_data:
+            purchase_data[farmer] = {"products": [], "total": 0, "qty": 0}
+        
+        for item in proc.get("products", []):
+            product = item.get("product_name", "Unknown")
+            qty = item.get("quantity", 0) or 0
+            total = item.get("total", 0) or 0
+            
+            purchase_data[farmer]["products"].append({
+                "date": proc_date,
+                "product": product,
+                "qty": qty,
+                "unit": item.get("unit", "Kg"),
+                "rate": item.get("rate", 0),
+                "total": total
+            })
+            purchase_data[farmer]["total"] += total
+            purchase_data[farmer]["qty"] += qty
+    
+    # Create Excel workbook
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    
+    # Define formats
+    header_format = workbook.add_format({
+        'bold': True, 'bg_color': '#14532D', 'font_color': 'white',
+        'border': 1, 'align': 'center', 'valign': 'vcenter'
+    })
+    currency_format = workbook.add_format({'num_format': '₹#,##0.00', 'border': 1})
+    number_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+    percent_format = workbook.add_format({'num_format': '0.0%', 'border': 1})
+    text_format = workbook.add_format({'border': 1})
+    date_format = workbook.add_format({'num_format': 'dd-mmm-yyyy', 'border': 1})
+    total_format = workbook.add_format({
+        'bold': True, 'bg_color': '#E5E7EB', 'border': 1, 'num_format': '₹#,##0.00'
+    })
+    section_format = workbook.add_format({
+        'bold': True, 'bg_color': '#FEF3C7', 'border': 1
+    })
+    
+    # Sheet 1: Summary
+    summary_sheet = workbook.add_worksheet("Summary")
+    summary_sheet.set_column('A:A', 25)
+    summary_sheet.set_column('B:F', 15)
+    
+    row = 0
+    summary_sheet.write(row, 0, f"P&L Report: {from_date} to {to_date}", workbook.add_format({'bold': True, 'font_size': 14}))
+    row += 2
+    
+    # Calculate totals
+    total_sales = sum(c["summary"]["sales"] for c in customer_data.values())
+    total_cogs = sum(c["summary"]["cogs"] for c in customer_data.values())
+    total_wastage = sum(p["wastage"] for p in product_data.values())
+    total_commission = sum(c["summary"].get("commission", 0) for c in customer_data.values())
+    total_gross = total_sales - total_cogs - total_wastage - total_commission
+    
+    summary_sheet.write(row, 0, "Metric", header_format)
+    summary_sheet.write(row, 1, "Amount", header_format)
+    row += 1
+    
+    metrics = [
+        ("Total Sales", total_sales),
+        ("Total COGS", total_cogs),
+        ("Total Wastage", total_wastage),
+        ("Total Commission", total_commission),
+        ("Gross Profit", total_gross),
+        ("Gross Margin %", total_gross / total_sales * 100 if total_sales > 0 else 0),
+    ]
+    
+    for metric, value in metrics:
+        summary_sheet.write(row, 0, metric, text_format)
+        if "%" in metric:
+            summary_sheet.write(row, 1, f"{value:.1f}%", text_format)
+        else:
+            summary_sheet.write(row, 1, value, currency_format)
+        row += 1
+    
+    # Sheet 2: Daily P&L Breakdown
+    daily_sheet = workbook.add_worksheet("Daily P&L")
+    daily_sheet.set_column('A:A', 12)
+    daily_sheet.set_column('B:B', 20)
+    daily_sheet.set_column('C:C', 25)
+    daily_sheet.set_column('D:K', 12)
+    
+    headers = ["Date", "Vertical", "Customer", "Product", "Qty", "Rate", "Sales", "COGS", "Wastage", "Commission", "Gross P/L"]
+    row = 0
+    for col, header in enumerate(headers):
+        daily_sheet.write(row, col, header, header_format)
+    row += 1
+    
+    for date in sorted(daily_data.keys()):
+        data = daily_data[date]
+        
+        # QC items
+        for item in data["qc_items"]:
+            daily_sheet.write(row, 0, date, date_format)
+            daily_sheet.write(row, 1, "QC", text_format)
+            daily_sheet.write(row, 2, item["customer"], text_format)
+            daily_sheet.write(row, 3, item["product"], text_format)
+            daily_sheet.write(row, 4, item["qty"], number_format)
+            daily_sheet.write(row, 5, item["rate"], currency_format)
+            daily_sheet.write(row, 6, item["revenue"], currency_format)
+            daily_sheet.write(row, 7, item["cogs"], currency_format)
+            daily_sheet.write(row, 8, item.get("wastage", 0), currency_format)
+            daily_sheet.write(row, 9, 0, currency_format)
+            daily_sheet.write(row, 10, item["gross_profit"], currency_format)
+            row += 1
+        
+        # Retail items
+        for item in data["retail_items"]:
+            daily_sheet.write(row, 0, date, date_format)
+            daily_sheet.write(row, 1, "Retail", text_format)
+            daily_sheet.write(row, 2, item["customer"], text_format)
+            daily_sheet.write(row, 3, item["product"], text_format)
+            daily_sheet.write(row, 4, item["qty"], number_format)
+            daily_sheet.write(row, 5, item["rate"], currency_format)
+            daily_sheet.write(row, 6, item["revenue"], currency_format)
+            daily_sheet.write(row, 7, item["cogs"], currency_format)
+            daily_sheet.write(row, 8, item.get("wastage", 0), currency_format)
+            daily_sheet.write(row, 9, item.get("commission", 0), currency_format)
+            daily_sheet.write(row, 10, item["gross_profit"], currency_format)
+            row += 1
+    
+    # Sheet 3: Customer-wise P&L
+    customer_sheet = workbook.add_worksheet("Customer P&L")
+    customer_sheet.set_column('A:A', 30)
+    customer_sheet.set_column('B:G', 15)
+    
+    headers = ["Customer", "Type", "Qty", "Sales", "COGS", "Commission", "Gross P/L", "GM%"]
+    row = 0
+    for col, header in enumerate(headers):
+        customer_sheet.write(row, col, header, header_format)
+    row += 1
+    
+    for customer in sorted(customer_data.keys()):
+        data = customer_data[customer]
+        summary = data["summary"]
+        gross = summary["sales"] - summary["cogs"] - summary.get("commission", 0)
+        gm = (gross / summary["sales"] * 100) if summary["sales"] > 0 else 0
+        
+        customer_sheet.write(row, 0, customer, text_format)
+        customer_sheet.write(row, 1, data["type"], text_format)
+        customer_sheet.write(row, 2, summary["qty"], number_format)
+        customer_sheet.write(row, 3, summary["sales"], currency_format)
+        customer_sheet.write(row, 4, summary["cogs"], currency_format)
+        customer_sheet.write(row, 5, summary.get("commission", 0), currency_format)
+        customer_sheet.write(row, 6, gross, currency_format)
+        customer_sheet.write(row, 7, f"{gm:.1f}%", text_format)
+        row += 1
+    
+    # Sheet 4: Product-wise P&L
+    product_sheet = workbook.add_worksheet("Product P&L")
+    product_sheet.set_column('A:A', 25)
+    product_sheet.set_column('B:G', 15)
+    
+    headers = ["Product", "Qty Sold", "Sales", "COGS", "Wastage", "Gross P/L", "GM%", "Customers"]
+    row = 0
+    for col, header in enumerate(headers):
+        product_sheet.write(row, col, header, header_format)
+    row += 1
+    
+    for product in sorted(product_data.keys()):
+        data = product_data[product]
+        gross = data["sales"] - data["cogs"] - data["wastage"]
+        gm = (gross / data["sales"] * 100) if data["sales"] > 0 else 0
+        
+        product_sheet.write(row, 0, product, text_format)
+        product_sheet.write(row, 1, data["qty"], number_format)
+        product_sheet.write(row, 2, data["sales"], currency_format)
+        product_sheet.write(row, 3, data["cogs"], currency_format)
+        product_sheet.write(row, 4, data["wastage"], currency_format)
+        product_sheet.write(row, 5, gross, currency_format)
+        product_sheet.write(row, 6, f"{gm:.1f}%", text_format)
+        product_sheet.write(row, 7, ", ".join(data["customers"]), text_format)
+        row += 1
+    
+    # Sheet 5: Purchases by Farmer
+    purchase_sheet = workbook.add_worksheet("Purchases")
+    purchase_sheet.set_column('A:A', 12)
+    purchase_sheet.set_column('B:B', 20)
+    purchase_sheet.set_column('C:C', 25)
+    purchase_sheet.set_column('D:G', 12)
+    
+    headers = ["Date", "Farmer", "Product", "Qty", "Unit", "Rate", "Total"]
+    row = 0
+    for col, header in enumerate(headers):
+        purchase_sheet.write(row, col, header, header_format)
+    row += 1
+    
+    for farmer in sorted(purchase_data.keys()):
+        data = purchase_data[farmer]
+        for item in data["products"]:
+            purchase_sheet.write(row, 0, item["date"], date_format)
+            purchase_sheet.write(row, 1, farmer, text_format)
+            purchase_sheet.write(row, 2, item["product"], text_format)
+            purchase_sheet.write(row, 3, item["qty"], number_format)
+            purchase_sheet.write(row, 4, item["unit"], text_format)
+            purchase_sheet.write(row, 5, item["rate"], currency_format)
+            purchase_sheet.write(row, 6, item["total"], currency_format)
+            row += 1
+    
+    workbook.close()
+    output.seek(0)
+    
+    filename = f"PnL_Report_{from_date}_to_{to_date}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 # ============================================================================
 # SECTION: STOCK STATUS ROUTES (Lines ~2486-3100)
 # ============================================================================

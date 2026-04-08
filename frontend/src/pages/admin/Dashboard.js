@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [populatingHindi, setPopulatingHindi] = useState(false);
   const [populatingReferrals, setPopulatingReferrals] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   
   // Calculate number of days and daily average profit
   const daysInRange = useMemo(() => calculateDaysBetween(dateFrom, dateTo), [dateFrom, dateTo]);
@@ -50,6 +51,33 @@ export default function AdminDashboard() {
       retail: (pnlData.vertical_bifurcation?.retail?.net_profit || 0) / daysInRange
     };
   }, [pnlData, daysInRange]);
+
+  // Function to export P&L to Excel
+  const exportPnlToExcel = async () => {
+    setExportingExcel(true);
+    try {
+      const response = await api.get(`/api/reports/pnl/export-excel?from_date=${dateFrom}&to_date=${dateTo}`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `PnL_Report_${dateFrom}_to_${dateTo}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('P&L Report exported successfully!');
+    } catch (error) {
+      console.error('Error exporting P&L:', error);
+      toast.error('Failed to export P&L report');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
   
   // Function to populate Hindi product names
   const populateHindiNames = async () => {
@@ -324,6 +352,18 @@ export default function AdminDashboard() {
             />
             <Button variant="outline" size="sm" onClick={loadPnlData}>
               <RefreshCw size={14} className="mr-1" /> Refresh
+            </Button>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={exportPnlToExcel}
+              disabled={exportingExcel || !pnlData}
+              className="bg-green-600 hover:bg-green-700 text-white"
+              title="Export detailed P&L report to Excel for audit"
+              data-testid="export-pnl-excel"
+            >
+              <FileSpreadsheet size={14} className="mr-1" />
+              {exportingExcel ? 'Exporting...' : 'Export Excel'}
             </Button>
             <Button 
               variant="outline" 

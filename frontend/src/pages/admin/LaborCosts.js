@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { 
   Users, Plus, Edit2, Trash2, RefreshCw, Calendar, DollarSign, 
-  Clock, User, Phone, Save, X, ChevronDown, ChevronRight
+  Clock, User, Phone, Save, X, ChevronDown, ChevronRight, Building2, CalendarDays
 } from 'lucide-react';
 import {
   Dialog,
@@ -31,7 +31,10 @@ export default function LaborCosts() {
     name: '',
     phone: '',
     default_daily_rate: '',
-    default_overtime_rate: ''
+    default_overtime_rate: '',
+    bank_account_number: '',
+    ifsc_code: '',
+    joining_date: ''
   });
   
   // Costs state
@@ -88,7 +91,10 @@ export default function LaborCosts() {
       name: '',
       phone: '',
       default_daily_rate: '',
-      default_overtime_rate: ''
+      default_overtime_rate: '',
+      bank_account_number: '',
+      ifsc_code: '',
+      joining_date: ''
     });
     setShowLabourModal(true);
   };
@@ -99,7 +105,10 @@ export default function LaborCosts() {
       name: labour.name,
       phone: labour.phone || '',
       default_daily_rate: labour.default_daily_rate || '',
-      default_overtime_rate: labour.default_overtime_rate || ''
+      default_overtime_rate: labour.default_overtime_rate || '',
+      bank_account_number: labour.bank_account_number || '',
+      ifsc_code: labour.ifsc_code || '',
+      joining_date: labour.joining_date || ''
     });
     setShowLabourModal(true);
   };
@@ -115,7 +124,10 @@ export default function LaborCosts() {
         name: labourForm.name.trim(),
         phone: labourForm.phone.trim() || null,
         default_daily_rate: parseFloat(labourForm.default_daily_rate) || 0,
-        default_overtime_rate: parseFloat(labourForm.default_overtime_rate) || 0
+        default_overtime_rate: parseFloat(labourForm.default_overtime_rate) || 0,
+        bank_account_number: labourForm.bank_account_number.trim() || null,
+        ifsc_code: labourForm.ifsc_code.trim() || null,
+        joining_date: labourForm.joining_date || null
       };
 
       if (editingLabour) {
@@ -431,7 +443,7 @@ export default function LaborCosts() {
               </Button>
             </div>
 
-            <div className="data-table">
+            <div className="data-table overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -439,6 +451,8 @@ export default function LaborCosts() {
                     <th>PHONE</th>
                     <th className="text-right">DAILY RATE</th>
                     <th className="text-right">OT RATE/HR</th>
+                    <th>JOINING DATE</th>
+                    <th>BANK INFO</th>
                     <th className="text-center">STATUS</th>
                     <th className="text-center">ACTIONS</th>
                   </tr>
@@ -456,6 +470,23 @@ export default function LaborCosts() {
                       </td>
                       <td className="text-right font-semibold text-green-700">₹{labour.default_daily_rate || 0}</td>
                       <td className="text-right font-medium text-orange-600">₹{labour.default_overtime_rate || 0}</td>
+                      <td className="text-gray-600 text-sm">
+                        {labour.joining_date ? (
+                          <span className="flex items-center gap-1">
+                            <CalendarDays size={12} /> {new Date(labour.joining_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className="text-gray-600 text-sm">
+                        {labour.bank_account_number ? (
+                          <span className="flex items-center gap-1" title={`A/C: ${labour.bank_account_number}\nIFSC: ${labour.ifsc_code || 'N/A'}`}>
+                            <Building2 size={12} className="text-blue-600" /> 
+                            <span className="font-mono text-xs">
+                              ****{labour.bank_account_number.slice(-4)}
+                            </span>
+                          </span>
+                        ) : '-'}
+                      </td>
                       <td className="text-center">
                         <button
                           onClick={() => toggleLabourActive(labour)}
@@ -503,11 +534,11 @@ export default function LaborCosts() {
 
         {/* Add/Edit Labour Modal */}
         <Dialog open={showLabourModal} onOpenChange={setShowLabourModal}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>{editingLabour ? 'Edit Labourer' : 'Add Labourer'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
               <div>
                 <label className="text-sm font-medium text-gray-700">Name *</label>
                 <Input
@@ -518,11 +549,11 @@ export default function LaborCosts() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Phone</label>
+                <label className="text-sm font-medium text-gray-700">Phone Number</label>
                 <Input
                   value={labourForm.phone}
                   onChange={(e) => setLabourForm({ ...labourForm, phone: e.target.value })}
-                  placeholder="Phone number"
+                  placeholder="e.g., 9876543210"
                   data-testid="labour-phone-input"
                 />
               </div>
@@ -547,6 +578,33 @@ export default function LaborCosts() {
                     data-testid="labour-ot-rate-input"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Bank Account Number</label>
+                <Input
+                  value={labourForm.bank_account_number}
+                  onChange={(e) => setLabourForm({ ...labourForm, bank_account_number: e.target.value })}
+                  placeholder="e.g., 1234567890123"
+                  data-testid="labour-bank-account-input"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">IFSC Code</label>
+                <Input
+                  value={labourForm.ifsc_code}
+                  onChange={(e) => setLabourForm({ ...labourForm, ifsc_code: e.target.value.toUpperCase() })}
+                  placeholder="e.g., SBIN0001234"
+                  data-testid="labour-ifsc-input"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Joining Date</label>
+                <Input
+                  type="date"
+                  value={labourForm.joining_date}
+                  onChange={(e) => setLabourForm({ ...labourForm, joining_date: e.target.value })}
+                  data-testid="labour-joining-date-input"
+                />
               </div>
             </div>
             <DialogFooter>

@@ -797,6 +797,9 @@ class Labour(BaseModel):
     phone: Optional[str] = None
     default_daily_rate: float = 0  # Default daily wage in ₹
     default_overtime_rate: float = 0  # Default overtime rate per hour in ₹
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    joining_date: Optional[str] = None  # YYYY-MM-DD format
     is_active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -805,6 +808,9 @@ class LabourCreate(BaseModel):
     phone: Optional[str] = None
     default_daily_rate: float = 0
     default_overtime_rate: float = 0
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    joining_date: Optional[str] = None
     is_active: bool = True
 
 class LabourUpdate(BaseModel):
@@ -812,6 +818,9 @@ class LabourUpdate(BaseModel):
     phone: Optional[str] = None
     default_daily_rate: Optional[float] = None
     default_overtime_rate: Optional[float] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    joining_date: Optional[str] = None
     is_active: Optional[bool] = None
 
 

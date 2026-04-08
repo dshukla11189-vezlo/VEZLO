@@ -9488,6 +9488,9 @@ async def create_labour(
         "phone": labour.get("phone"),
         "default_daily_rate": float(labour.get("default_daily_rate", 0)),
         "default_overtime_rate": float(labour.get("default_overtime_rate", 0)),
+        "bank_account_number": labour.get("bank_account_number"),
+        "ifsc_code": labour.get("ifsc_code"),
+        "joining_date": labour.get("joining_date"),
         "is_active": labour.get("is_active", True),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -9516,6 +9519,12 @@ async def update_labour(
         update_data["default_daily_rate"] = float(labour["default_daily_rate"])
     if "default_overtime_rate" in labour:
         update_data["default_overtime_rate"] = float(labour["default_overtime_rate"])
+    if "bank_account_number" in labour:
+        update_data["bank_account_number"] = labour["bank_account_number"]
+    if "ifsc_code" in labour:
+        update_data["ifsc_code"] = labour["ifsc_code"]
+    if "joining_date" in labour:
+        update_data["joining_date"] = labour["joining_date"]
     if "is_active" in labour:
         update_data["is_active"] = labour["is_active"]
     

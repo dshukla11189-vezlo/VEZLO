@@ -535,11 +535,31 @@ export default function RetailerDashboard() {
       // Build inventory data from all sources (variants from dispatch, closing, etc.)
       const inventoryMap = {};
       
-      // Add items from received dispatches
+      // FIRST: Build product-level fallback map from previous closing (for opening qty)
+      const prevClosingByProduct = {};  // Fallback map: product_id -> total closing
+      Object.entries(prevClosingMap).forEach(([key, data]) => {
+        const [productId] = key.split('_');
+        if (!prevClosingByProduct[productId]) {
+          prevClosingByProduct[productId] = 0;
+        }
+        prevClosingByProduct[productId] += data.closing_qty || 0;
+      });
+      
+      // Add items from received dispatches - now can use prevClosingByProduct for opening
       Object.entries(receivedMap).forEach(([key, data]) => {
         const [productId, variantId] = key.split('_');
         if (!inventoryMap[key]) {
           const product = products.find(p => p.id === productId);
+          
+          // Try to get opening from exact key match first, then product-level fallback
+          let openingQty = 0;
+          if (prevClosingMap[key]) {
+            openingQty = prevClosingMap[key].closing_qty || 0;
+          } else if (prevClosingByProduct[productId]) {
+            // Fallback: use product-level previous closing if variant key didn't match
+            openingQty = prevClosingByProduct[productId];
+          }
+          
           inventoryMap[key] = {
             product_id: productId,
             product_name: data.product_name || product?.name,
@@ -547,7 +567,7 @@ export default function RetailerDashboard() {
             variant_id: data.variant_id,
             variant_name: data.variant_name || 'Kg',
             unit: data.variant_name || 'Kg',
-            opening_qty: 0,
+            opening_qty: openingQty,
             received_qty: 0,
             rejection_qty: 0,
             items_sold: null,
@@ -560,6 +580,7 @@ export default function RetailerDashboard() {
       // Add items from previous closing (opening qty)
       Object.entries(prevClosingMap).forEach(([key, data]) => {
         const [productId, variantId] = key.split('_');
+        
         if (!inventoryMap[key]) {
           const product = products.find(p => p.id === productId);
           inventoryMap[key] = {
@@ -597,6 +618,14 @@ export default function RetailerDashboard() {
             items_sold: null,
             closing_qty: undefined
           };
+          
+          // Try to get opening from exact key match first, then product-level fallback
+          if (prevClosingMap[key]) {
+            inventoryMap[key].opening_qty = prevClosingMap[key].closing_qty || 0;
+          } else if (prevClosingByProduct[productId]) {
+            // Fallback: use product-level previous closing if variant key didn't match
+            inventoryMap[key].opening_qty = prevClosingByProduct[productId];
+          }
         }
         inventoryMap[key].closing_qty = data.closing_qty;
       });

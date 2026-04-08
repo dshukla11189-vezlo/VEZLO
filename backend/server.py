@@ -8919,15 +8919,28 @@ async def get_retailer_closing_summary(
     ).to_list(500)
     
     # Get previous day's closing (for opening qty)
+    # Build multiple lookup maps: one with variant, one without (product-level)
     prev_closing = {}
+    prev_closing_product_only = {}  # Fallback for variant-to-product matching
     if prev_date_str:
         prev_items = await db.retailer_closing_inventory.find(
             {"retailer_id": retailer_id, "closing_date": prev_date_str},
             {"_id": 0}
         ).to_list(500)
         for item in prev_items:
-            key = f"{item.get('product_id')}_{item.get('variant_id') or 'default'}"
-            prev_closing[key] = item.get("closing_qty", 0)
+            product_id = item.get('product_id')
+            variant_id = item.get('variant_id')
+            closing_qty = item.get("closing_qty", 0)
+            
+            # Key with variant (or 'default' if no variant)
+            key = f"{product_id}_{variant_id or 'default'}"
+            prev_closing[key] = closing_qty
+            
+            # Also store product-level aggregate for fallback
+            # If multiple variants exist, sum them up (though typically there's one)
+            if product_id not in prev_closing_product_only:
+                prev_closing_product_only[product_id] = 0
+            prev_closing_product_only[product_id] += closing_qty
     
     # Get dispatches for this date (received qty) and build variant name map from ALL dispatches
     dispatches = await db.retailer_dispatches.find({
@@ -8986,7 +8999,13 @@ async def get_retailer_closing_summary(
         key = f"{product_id}_{variant_id or 'default'}"
         seen_keys.add(key)
         
+        # Get opening from previous day - try exact key match first, then product-only fallback
         opening = prev_closing.get(key, 0)
+        if opening == 0 and product_id in prev_closing_product_only:
+            # Fallback: use product-level previous closing if variant key didn't match
+            # This handles cases where previous day had no variant but today has variant
+            opening = prev_closing_product_only.get(product_id, 0)
+        
         recv = received_qty.get(key, {}).get('qty', 0)
         rej = rejection_qty.get(f"{product_id}_default", 0)  # Apply rejection at product level
         

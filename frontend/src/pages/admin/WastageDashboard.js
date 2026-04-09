@@ -179,9 +179,9 @@ export default function WastageDashboard() {
   const summary = dashboardData?.summary || {};
   const dailyTrend = dashboardData?.daily_trend || [];
   // Sort top products by wastage percentage in descending order
-  // AND filter to only show products with dispatched qty > 10 kg
+  // AND filter to only show products with total_input > 10 kg
   const topProducts = [...(dashboardData?.top_wastage_products || [])]
-    .filter(p => (p.dispatched_qty || p.total_dispatched || 0) > 10) // Only products with >10kg dispatched
+    .filter(p => (p.total_input || 0) > 10) // Only products with >10kg total input (opening + purchase)
     .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0));
   const maxDailyWastage = Math.max(...dailyTrend.map(d => d.total_wastage_kg), 1);
 
@@ -512,7 +512,7 @@ export default function WastageDashboard() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <CardTitle className="flex items-center gap-2">
                 <TrendingDown size={20} /> Top Wastage Products
-                <span className="text-xs font-normal text-gray-500">(Dispatched &gt; 10 Kg)</span>
+                <span className="text-xs font-normal text-gray-500">(Input &gt; 10 Kg)</span>
               </CardTitle>
               <span className="text-xs text-gray-500">
                 {dateFrom} to {dateTo}

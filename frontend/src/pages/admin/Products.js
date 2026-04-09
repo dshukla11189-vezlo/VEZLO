@@ -44,12 +44,16 @@ export default function Products() {
     name: '',
     category: '',
     unit: 'Kg',
+    product_type: '',  // 'Fruits', 'Vegetables', 'Exotic', 'Leafy', etc.
     current_stock: 0,
     price_per_kg: 0,
     price_per_packet: 0,
     lifecycle_duration: '',  // 'low', 'medium', 'high'
     cost_alias_product_id: ''  // For P&L: use this product's purchase cost
   });
+
+  // Product type options
+  const PRODUCT_TYPE_OPTIONS = ['Fruits', 'Vegetables', 'Exotic', 'Leafy', 'Herbs', 'Mushrooms', 'Others'];
 
   // Load products
   const loadProducts = useCallback(async () => {
@@ -202,7 +206,7 @@ export default function Products() {
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', category: '', unit: 'Kg', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '' });
+      setFormData({ name: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '' });
       loadProducts();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save product');
@@ -215,6 +219,7 @@ export default function Products() {
       name: product.name,
       category: product.category,
       unit: product.unit,
+      product_type: product.product_type || '',
       current_stock: product.current_stock,
       price_per_kg: product.price_per_kg || 0,
       price_per_packet: product.price_per_packet || 0,
@@ -436,6 +441,23 @@ export default function Products() {
                   />
                 </div>
                 <div>
+                  <Label htmlFor="product_type">Type</Label>
+                  <select
+                    id="product_type"
+                    data-testid="product-type-input"
+                    value={formData.product_type}
+                    onChange={(e) => setFormData({ ...formData, product_type: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  >
+                    <option value="">Select Type</option>
+                    {PRODUCT_TYPE_OPTIONS.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
                   <Label htmlFor="unit">Unit</Label>
                   <select
                     id="unit"
@@ -451,8 +473,6 @@ export default function Products() {
                     ))}
                   </select>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="stock">Current Stock</Label>
                   <Input
@@ -474,17 +494,6 @@ export default function Products() {
                     data-testid="product-price-kg-input"
                     value={formData.price_per_kg}
                     onChange={(e) => setFormData({ ...formData, price_per_kg: parseFloat(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="price_packet">Price/Packet</Label>
-                  <Input
-                    id="price_packet"
-                    type="number"
-                    step="0.01"
-                    data-testid="product-price-packet-input"
-                    value={formData.price_per_packet}
-                    onChange={(e) => setFormData({ ...formData, price_per_packet: parseFloat(e.target.value) })}
                   />
                 </div>
               </div>
@@ -551,13 +560,21 @@ export default function Products() {
               <tr key={product.id} data-testid={`product-row-${product.id}`}>
                 <td className="font-medium">{product.name}</td>
                 <td>
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    product.unit === 'Kg' ? 'bg-green-100 text-green-700' :
-                    product.unit === 'Packet' || product.unit === 'Pcs' ? 'bg-blue-100 text-blue-700' :
-                    'bg-gray-100 text-gray-600'
-                  }`}>
-                    {product.unit || '-'}
-                  </span>
+                  {product.product_type ? (
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      product.product_type === 'Fruits' ? 'bg-orange-100 text-orange-700' :
+                      product.product_type === 'Vegetables' ? 'bg-green-100 text-green-700' :
+                      product.product_type === 'Exotic' ? 'bg-purple-100 text-purple-700' :
+                      product.product_type === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
+                      product.product_type === 'Herbs' ? 'bg-teal-100 text-teal-700' :
+                      product.product_type === 'Mushrooms' ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {product.product_type}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 text-xs">-</span>
+                  )}
                 </td>
                 <td>{product.category}</td>
                 <td>

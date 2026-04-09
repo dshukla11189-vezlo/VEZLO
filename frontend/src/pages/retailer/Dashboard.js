@@ -2001,12 +2001,18 @@ export default function RetailerDashboard() {
                         {closingHistory
                           .slice() // Create copy to avoid mutating original
                           .sort((a, b) => {
-                            // Two-step sorting: non-zero closing first, then zero closing
-                            const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
-                            const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
+                            // Two-step sorting: non-zero closing first, then by descending closing qty
+                            const aClosing = typeof a.closing_qty === 'number' ? a.closing_qty : 0;
+                            const bClosing = typeof b.closing_qty === 'number' ? b.closing_qty : 0;
+                            const aHasClosing = aClosing > 0;
+                            const bHasClosing = bClosing > 0;
+                            
+                            // Non-zero closing comes first
                             if (aHasClosing && !bHasClosing) return -1;
                             if (!aHasClosing && bHasClosing) return 1;
-                            return (getProductName(a) || '').localeCompare(getProductName(b) || '');
+                            
+                            // Within same group, sort by descending closing qty
+                            return bClosing - aClosing;
                           })
                           .map(item => (
                           <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
@@ -2152,12 +2158,18 @@ export default function RetailerDashboard() {
                               item.product_name?.toLowerCase().includes(inventorySearchTerm.toLowerCase())
                             )
                             .sort((a, b) => {
-                              // Two-step sorting: non-zero closing first, then zero/null closing
-                              const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
-                              const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
+                              // Two-step sorting: non-zero closing first, then by descending closing qty
+                              const aClosing = typeof a.closing_qty === 'number' ? a.closing_qty : 0;
+                              const bClosing = typeof b.closing_qty === 'number' ? b.closing_qty : 0;
+                              const aHasClosing = aClosing > 0;
+                              const bHasClosing = bClosing > 0;
+                              
+                              // Non-zero closing comes first
                               if (aHasClosing && !bHasClosing) return -1;
                               if (!aHasClosing && bHasClosing) return 1;
-                              return (a.product_name || '').localeCompare(b.product_name || '');
+                              
+                              // Within same group, sort by descending closing qty
+                              return bClosing - aClosing;
                             })
                             .map((item, idx) => (
                               <tr key={`${item.product_id}-${item.variant_id || idx}`} className="border-b hover:bg-gray-50">

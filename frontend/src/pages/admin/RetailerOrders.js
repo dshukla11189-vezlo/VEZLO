@@ -3193,13 +3193,19 @@ export default function RetailerOrders() {
                       <tbody>
                         {closingInventoryData
                           .filter(item => item.closing_qty !== null && item.closing_qty !== undefined)
-                          // Two-step sorting: non-zero closing first (alphabetically), then zero closing (alphabetically)
+                          // Two-step sorting: non-zero closing first (by descending qty), then zero closing
                           .sort((a, b) => {
-                            const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
-                            const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
+                            const aClosing = typeof a.closing_qty === 'number' ? a.closing_qty : 0;
+                            const bClosing = typeof b.closing_qty === 'number' ? b.closing_qty : 0;
+                            const aHasClosing = aClosing > 0;
+                            const bHasClosing = bClosing > 0;
+                            
+                            // Non-zero closing comes first
                             if (aHasClosing && !bHasClosing) return -1;
                             if (!aHasClosing && bHasClosing) return 1;
-                            return (a.product_name || '').localeCompare(b.product_name || '');
+                            
+                            // Within same group, sort by descending closing qty
+                            return bClosing - aClosing;
                           })
                           .map(item => {
                             // Calculate items sold (Opening + Received - Rejection - Closing)

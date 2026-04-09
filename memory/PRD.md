@@ -1141,6 +1141,18 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Shows costs as % of Sales
   - Pie charts show breakdown by category with Labour visible
 
+### Fixed Costs Removed from QC/Retail Sub-Dashboards (COMPLETED - Apr 09, 2026)
+- [x] **Removed Fixed Costs from QC and Retail sections**:
+  - Fixed costs now ONLY shown in main dashboard summary
+  - QC and Retail sections no longer show FIXED EXP column
+  - Renamed "NET PROFIT" to "CONTRIBUTION" (Gross Profit - Variable Expenses)
+  - Contribution = profit before Fixed costs allocation
+  - This properly reflects vertical-level profitability without arbitrary fixed cost splitting
+- [x] **Clarification on Labour Costs**:
+  - Labour costs are calculated from actual attendance records
+  - Currently shows ₹2,480 because only Apr 8 has attendance data
+  - User needs to use "Copy to Dates" feature to backfill historical attendance
+
 ---
 
 ## Next Tasks (Upcoming)

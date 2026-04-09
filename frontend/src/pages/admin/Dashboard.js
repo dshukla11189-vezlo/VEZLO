@@ -766,14 +766,10 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
                     <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.qc.variable_exp)}</p>
                   </div>
-                  <div className="p-1.5 bg-gray-100/50 rounded">
-                    <p className="text-[9px] text-gray-600 font-medium">FIXED EXP</p>
-                    <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.qc.fixed_exp)}</p>
-                  </div>
-                  <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.qc.net_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
-                    <p className="text-[9px] text-gray-600 font-medium">NET PROFIT</p>
-                    <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.qc.net_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatCurrency(pnlData.vertical_bifurcation.qc.net_profit)}
+                  <div className={`p-1.5 rounded ${(pnlData.vertical_bifurcation.qc.gross_profit - pnlData.vertical_bifurcation.qc.variable_exp) >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-gray-600 font-medium">CONTRIBUTION</p>
+                    <p className={`text-sm font-bold ${(pnlData.vertical_bifurcation.qc.gross_profit - pnlData.vertical_bifurcation.qc.variable_exp) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatCurrency(pnlData.vertical_bifurcation.qc.gross_profit - pnlData.vertical_bifurcation.qc.variable_exp)}
                     </p>
                   </div>
                   <div className={`p-1.5 rounded ${dailyAvgProfit.qc >= 0 ? 'bg-indigo-100/50' : 'bg-red-100/50'}`}>
@@ -786,7 +782,6 @@ export default function AdminDashboard() {
                 <div className="flex justify-between mt-2 pt-2 border-t border-blue-100 text-xs text-blue-700">
                   <span>Qty: {(pnlData.vertical_bifurcation.qc.qty || 0).toLocaleString()}</span>
                   <span>Orders: {pnlData.vertical_bifurcation.qc.orders || 0}</span>
-                  <span>Net Margin: {pnlData.vertical_bifurcation.qc.net_margin}%</span>
                 </div>
               </CardContent>
             </Card>
@@ -840,29 +835,16 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
                     <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.retail.variable_exp)}</p>
                   </div>
-                  <div className="p-1.5 bg-gray-100/50 rounded">
-                    <p className="text-[9px] text-gray-600 font-medium">FIXED EXP</p>
-                    <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.retail.fixed_exp)}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-center mt-2">
-                  <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.retail.net_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
-                    <p className="text-[9px] text-gray-600 font-medium">NET PROFIT</p>
-                    <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.retail.net_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatCurrency(pnlData.vertical_bifurcation.retail.net_profit)}
-                    </p>
-                  </div>
-                  <div className={`p-1.5 rounded ${dailyAvgProfit.retail >= 0 ? 'bg-indigo-100/50' : 'bg-red-100/50'}`}>
-                    <p className="text-[9px] text-indigo-600 font-medium">DAILY AVG</p>
-                    <p className={`text-sm font-bold ${dailyAvgProfit.retail >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
-                      {formatCurrency(dailyAvgProfit.retail)}
+                  <div className={`p-1.5 rounded ${(pnlData.vertical_bifurcation.retail.gross_profit - pnlData.vertical_bifurcation.retail.variable_exp) >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
+                    <p className="text-[9px] text-gray-600 font-medium">CONTRIBUTION</p>
+                    <p className={`text-sm font-bold ${(pnlData.vertical_bifurcation.retail.gross_profit - pnlData.vertical_bifurcation.retail.variable_exp) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatCurrency(pnlData.vertical_bifurcation.retail.gross_profit - pnlData.vertical_bifurcation.retail.variable_exp)}
                     </p>
                   </div>
                 </div>
                 <div className="flex justify-between mt-2 pt-2 border-t border-emerald-100 text-xs text-emerald-700">
                   <span>Qty: {(pnlData.vertical_bifurcation.retail.qty || 0).toLocaleString()}</span>
                   <span>Orders: {pnlData.vertical_bifurcation.retail.orders || 0}</span>
-                  <span>Net Margin: {pnlData.vertical_bifurcation.retail.net_margin}%</span>
                 </div>
               </CardContent>
             </Card>

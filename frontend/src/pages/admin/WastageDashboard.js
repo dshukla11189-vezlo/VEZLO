@@ -97,6 +97,15 @@ export default function WastageDashboard() {
     return d.toISOString().split('T')[0];
   });
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  
+  // Selected date for detailed wastage view (default: yesterday)
+  const [selectedWastageDate, setSelectedWastageDate] = useState(() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return yesterday.toISOString().split('T')[0];
+  });
+  const [selectedDateWastage, setSelectedDateWastage] = useState(null);
+  const [loadingSelectedDate, setLoadingSelectedDate] = useState(false);
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
@@ -139,6 +148,26 @@ export default function WastageDashboard() {
       console.error('Load yesterday wastage error:', error);
     }
   };
+  
+  // Load wastage for a specific selected date
+  const loadSelectedDateWastage = useCallback(async (date) => {
+    setLoadingSelectedDate(true);
+    try {
+      const response = await api.get(`/api/stock-status/wastage-by-date?date=${date}`);
+      setSelectedDateWastage(response.data);
+    } catch (error) {
+      console.error('Load selected date wastage error:', error);
+      // Fallback: if no specific endpoint, try to get from dashboard data
+      setSelectedDateWastage(null);
+    } finally {
+      setLoadingSelectedDate(false);
+    }
+  }, []);
+  
+  // Load selected date wastage when date changes
+  useEffect(() => {
+    loadSelectedDateWastage(selectedWastageDate);
+  }, [selectedWastageDate, loadSelectedDateWastage]);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
@@ -303,16 +332,37 @@ export default function WastageDashboard() {
         </Card>
       </div>
 
-      {/* Yesterday's Product-wise Wastage Table */}
-      {yesterdayWastage && yesterdayWastage.products?.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader className="pb-2">
+      {/* Selected Date's Product-wise Wastage Table */}
+      <Card className="mb-6">
+        <CardHeader className="pb-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-red-700">
               <AlertTriangle size={20} />
-              Yesterday's Wastage ({yesterdayWastage.date}) - ₹{yesterdayWastage.total_wastage_value?.toFixed(0)}
+              Wastage Details
+              {loadingSelectedDate && <RefreshCw size={14} className="animate-spin ml-2" />}
             </CardTitle>
-          </CardHeader>
-          <CardContent>
+            <div className="flex items-center gap-2">
+              <Calendar size={14} className="text-gray-400" />
+              <Input
+                type="date"
+                value={selectedWastageDate}
+                onChange={(e) => setSelectedWastageDate(e.target.value)}
+                className="h-8 w-36 text-sm"
+              />
+              {selectedDateWastage && (
+                <span className="text-sm text-red-600 font-semibold">
+                  Total: ₹{selectedDateWastage.total_wastage_value?.toLocaleString()}
+                </span>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingSelectedDate ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-red-600"></div>
+            </div>
+          ) : selectedDateWastage && selectedDateWastage.products?.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-red-50">
@@ -328,7 +378,7 @@ export default function WastageDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...yesterdayWastage.products]
+                  {[...selectedDateWastage.products]
                     .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0))
                     .map((product, idx) => (
                     <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
@@ -349,26 +399,39 @@ export default function WastageDashboard() {
                 </tbody>
                 <tfoot className="bg-red-100 font-semibold">
                   <tr>
-                    <td className="p-2">TOTAL</td>
-                    <td colSpan={4}></td>
-                    <td className="p-2 text-right text-red-700">{yesterdayWastage.total_wastage_kg?.toFixed(2)} Kg</td>
-                    <td className="p-2 text-right text-red-700">₹{yesterdayWastage.total_wastage_value?.toFixed(0)}</td>
-                    <td></td>
+                    <td className="p-2">Total ({selectedDateWastage.products.length} products)</td>
+                    <td className="p-2 text-right">-</td>
+                    <td className="p-2 text-right">-</td>
+                    <td className="p-2 text-right">-</td>
+                    <td className="p-2 text-right">-</td>
+                    <td className="p-2 text-right text-red-700">{selectedDateWastage.total_wastage_kg?.toFixed(2)} Kg</td>
+                    <td className="p-2 text-right text-red-700">₹{selectedDateWastage.total_wastage_value?.toFixed(0)}</td>
+                    <td className="p-2 text-right">-</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <div className="text-center text-gray-500 py-8">
+              No wastage data available for {selectedWastageDate}.
+              <p className="text-sm mt-2">Select a different date to view wastage details.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Daily Trend Chart - Redesigned */}
+        {/* Daily Trend Chart - Uses main date filter */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2">
-              <Calendar size={20} /> Daily Wastage Trend
-            </CardTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+              <CardTitle className="flex items-center gap-2">
+                <Calendar size={20} /> Daily Wastage Trend
+              </CardTitle>
+              <span className="text-xs text-gray-500">
+                {dateFrom} to {dateTo}
+              </span>
+            </div>
           </CardHeader>
           <CardContent>
             {dailyTrend.length === 0 ? (

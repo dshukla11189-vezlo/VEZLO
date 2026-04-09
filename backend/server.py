@@ -6061,6 +6061,103 @@ async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
         "products": wastage_products
     }
 
+
+@api_router.get("/stock-status/wastage-by-date")
+async def get_wastage_by_date(date: str, current_user: dict = Depends(get_current_user)):
+    """Get product-wise wastage for a specific date"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all stock status for the given date
+    day_records = await db.daily_stock_status.find(
+        {"date": date},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Aggregate wastage by product
+    product_wastage = {}
+    
+    for record in day_records:
+        product_name = record.get("product_name", "Unknown")
+        product_id = record.get("product_id", "")
+        
+        # Get values
+        wastage_qty = record.get("wastage_qty", 0) or 0
+        wastage_value = record.get("wastage_value", 0) or 0
+        opening_qty = record.get("opening_qty", 0) or 0
+        purchase_qty = record.get("purchase_qty", 0) or 0
+        dispatch_qty = record.get("dispatch_qty", 0) or 0
+        closing_qty = record.get("closing_qty", 0) or 0
+        status = record.get("status", "pending")
+        
+        # For pending entries, calculate potential wastage if not closed
+        if status != "closed" and wastage_qty == 0:
+            available = opening_qty + purchase_qty
+            if available > 0 and closing_qty == 0:
+                wastage_qty = max(0, available - dispatch_qty)
+                avg_price = record.get("avg_price", 0) or 0
+                wastage_value = wastage_qty * avg_price
+        
+        if wastage_qty > 0:
+            if product_name not in product_wastage:
+                product_wastage[product_name] = {
+                    "product_name": product_name,
+                    "product_id": product_id,
+                    "opening_qty": 0,
+                    "purchase_qty": 0,
+                    "dispatch_qty": 0,
+                    "closing_qty": 0,
+                    "wastage_qty": 0,
+                    "wastage_value": 0,
+                    "status": status
+                }
+            
+            # Aggregate values
+            product_wastage[product_name]["opening_qty"] += opening_qty
+            product_wastage[product_name]["purchase_qty"] += purchase_qty
+            product_wastage[product_name]["dispatch_qty"] += dispatch_qty
+            product_wastage[product_name]["closing_qty"] += closing_qty
+            product_wastage[product_name]["wastage_qty"] += wastage_qty
+            product_wastage[product_name]["wastage_value"] += wastage_value
+            if status == "closed":
+                product_wastage[product_name]["status"] = "closed"
+    
+    # Calculate wastage percent
+    wastage_products = []
+    total_wastage_kg = 0
+    total_wastage_value = 0
+    
+    for product_name, data in product_wastage.items():
+        available = data["opening_qty"] + data["purchase_qty"]
+        wastage_percent = (data["wastage_qty"] / available * 100) if available > 0 else 0
+        
+        wastage_products.append({
+            "product_name": product_name,
+            "product_id": data["product_id"],
+            "opening_qty": round(data["opening_qty"], 2),
+            "purchase_qty": round(data["purchase_qty"], 2),
+            "dispatch_qty": round(data["dispatch_qty"], 2),
+            "closing_qty": round(data["closing_qty"], 2),
+            "wastage_qty": round(data["wastage_qty"], 2),
+            "wastage_value": round(data["wastage_value"], 2),
+            "wastage_percent": round(wastage_percent, 1),
+            "status": data["status"]
+        })
+        
+        total_wastage_kg += data["wastage_qty"]
+        total_wastage_value += data["wastage_value"]
+    
+    # Sort by wastage percent descending
+    wastage_products.sort(key=lambda x: x.get("wastage_percent", 0), reverse=True)
+    
+    return {
+        "date": date,
+        "total_wastage_kg": round(total_wastage_kg, 2),
+        "total_wastage_value": round(total_wastage_value, 2),
+        "products": wastage_products
+    }
+
+
 @api_router.put("/stock-status/{status_id}")
 async def update_stock_status(status_id: str, updates: dict, current_user: dict = Depends(get_current_user)):
     """Update a stock status entry"""

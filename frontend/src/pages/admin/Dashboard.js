@@ -291,10 +291,65 @@ export default function AdminDashboard() {
   const loadProductPnlData = useCallback(async () => {
     setLoadingProductPnl(true);
     try {
-      const response = await api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`);
-      // Sort by margin % descending
-      const products = (response.data?.product_pnl || []).sort((a, b) => (b.margin || 0) - (a.margin || 0));
-      setProductPnlData(products);
+      const [pnlResponse, productsResponse] = await Promise.all([
+        api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`),
+        api.get('/api/products')
+      ]);
+      
+      let products = pnlResponse.data?.product_pnl || [];
+      
+      // Build a map of product aliases: {product_name: alias_product_name}
+      const productList = productsResponse.data || [];
+      const productIdToName = {};
+      productList.forEach(p => { productIdToName[p.id] = p.name; });
+      
+      const aliasMap = {}; // {aliased_product: [products_that_alias_to_it]}
+      productList.forEach(p => {
+        if (p.cost_alias_product_id && productIdToName[p.cost_alias_product_id]) {
+          const aliasName = productIdToName[p.cost_alias_product_id];
+          if (!aliasMap[aliasName]) aliasMap[aliasName] = [];
+          aliasMap[aliasName].push(p.name);
+        }
+      });
+      
+      // Merge aliased products (e.g., Spinach into Palak)
+      // Find products that should be merged
+      const mergedProducts = {};
+      const processedAliases = new Set();
+      
+      products.forEach(p => {
+        const productName = p.product;
+        
+        // Check if this product is aliased to another
+        let targetName = productName;
+        for (const [aliasTarget, aliases] of Object.entries(aliasMap)) {
+          if (aliases.includes(productName)) {
+            targetName = aliasTarget;
+            processedAliases.add(productName);
+            break;
+          }
+        }
+        
+        if (!mergedProducts[targetName]) {
+          mergedProducts[targetName] = { ...p, product: targetName };
+        } else {
+          // Merge: add up all numeric values
+          const existing = mergedProducts[targetName];
+          existing.sales_amount = (existing.sales_amount || 0) + (p.sales_amount || 0);
+          existing.sales_qty = (existing.sales_qty || 0) + (p.sales_qty || 0);
+          existing.purchase_amount = (existing.purchase_amount || 0) + (p.purchase_amount || 0);
+          existing.purchase_qty = (existing.purchase_qty || 0) + (p.purchase_qty || 0);
+          existing.wastage_amount = (existing.wastage_amount || 0) + (p.wastage_amount || 0);
+          existing.profit = (existing.profit || 0) + (p.profit || 0);
+          // Recalculate margin and profit_per_unit
+          existing.margin = existing.sales_amount > 0 ? ((existing.profit / existing.sales_amount) * 100) : 0;
+          existing.profit_per_unit = existing.sales_qty > 0 ? (existing.profit / existing.sales_qty) : 0;
+        }
+      });
+      
+      // Convert back to array and sort by Gross P/L descending
+      const mergedList = Object.values(mergedProducts).sort((a, b) => (b.profit || 0) - (a.profit || 0));
+      setProductPnlData(mergedList);
     } catch (error) {
       console.error('Failed to load product P&L:', error);
       toast.error('Failed to load product P&L data');
@@ -1401,7 +1456,8 @@ export default function AdminDashboard() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Package size={16} /> Product-wise P&L
-                  <span className="text-xs font-normal text-gray-500">(Sorted by Margin %)</span>
+                  <span className="text-xs font-normal text-gray-500">(Sorted by Gross P/L)</span>
+                  <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{productPnlData.length} items</span>
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   <Calendar size={14} className="text-gray-400" />
@@ -1409,14 +1465,14 @@ export default function AdminDashboard() {
                     type="date"
                     value={productDateFrom}
                     onChange={(e) => setProductDateFrom(e.target.value)}
-                    className="h-7 w-32 text-xs"
+                    className="h-8 w-36 text-sm"
                   />
-                  <span className="text-gray-400 text-xs">to</span>
+                  <span className="text-gray-400 text-sm">to</span>
                   <Input
                     type="date"
                     value={productDateTo}
                     onChange={(e) => setProductDateTo(e.target.value)}
-                    className="h-7 w-32 text-xs"
+                    className="h-8 w-36 text-sm"
                   />
                   {loadingProductPnl && <RefreshCw size={14} className="animate-spin text-gray-400" />}
                 </div>
@@ -1429,18 +1485,18 @@ export default function AdminDashboard() {
                 </div>
               ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="p-2 text-left font-medium text-gray-500">PRODUCT</th>
-                      <th className="p-2 text-right font-medium text-gray-500">SALES (₹)</th>
-                      <th className="p-2 text-right font-medium text-gray-500">SALES QTY</th>
-                      <th className="p-2 text-right font-medium text-gray-500">PURCHASE (₹)</th>
-                      <th className="p-2 text-right font-medium text-gray-500">PURCHASE QTY</th>
-                      <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
-                      <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
-                      <th className="p-2 text-right font-medium text-gray-500">MARGIN %</th>
-                      <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
+                      <th className="p-2.5 text-left font-medium text-gray-600">PRODUCT</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">SALES (₹)</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">SALES QTY</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">PURCHASE (₹)</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">PURCHASE QTY</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">WASTAGE</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">GROSS P/L</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">MARGIN %</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">₹/UNIT</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1451,32 +1507,59 @@ export default function AdminDashboard() {
                     ) : (
                       productPnlData.map((p, idx) => (
                         <tr key={idx} className="border-b hover:bg-gray-50">
-                          <td className="p-2 font-medium">{p.product}</td>
-                          <td className="p-2 text-right text-green-600">₹{p.sales_amount.toLocaleString()}</td>
-                          <td className="p-2 text-right">{p.sales_qty.toLocaleString()}</td>
-                          <td className="p-2 text-right text-orange-600">₹{p.purchase_amount.toLocaleString()}</td>
-                          <td className="p-2 text-right">{p.purchase_qty.toLocaleString()} Kg</td>
-                          <td className="p-2 text-right text-red-600">₹{p.wastage_amount.toLocaleString()}</td>
-                          <td className={`p-2 text-right font-semibold ${p.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                            {p.profit >= 0 ? '+' : ''}₹{p.profit.toLocaleString()}
+                          <td className="p-2.5 font-medium">{p.product}</td>
+                          <td className="p-2.5 text-right text-green-600">₹{p.sales_amount?.toLocaleString()}</td>
+                          <td className="p-2.5 text-right">{p.sales_qty?.toLocaleString()}</td>
+                          <td className="p-2.5 text-right text-orange-600">₹{p.purchase_amount?.toLocaleString()}</td>
+                          <td className="p-2.5 text-right">{p.purchase_qty?.toLocaleString()} Kg</td>
+                          <td className="p-2.5 text-right text-red-600">₹{p.wastage_amount?.toLocaleString()}</td>
+                          <td className={`p-2.5 text-right font-semibold ${p.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            {p.profit >= 0 ? '+' : ''}₹{p.profit?.toLocaleString()}
                           </td>
-                          <td className="p-2 text-right">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                          <td className="p-2.5 text-right">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                               p.margin >= 20 ? 'bg-green-100 text-green-700' : 
                               p.margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
                               p.margin >= 0 ? 'bg-orange-100 text-orange-700' :
                               'bg-red-100 text-red-700'
                             }`}>
-                              {p.margin}%
+                              {p.margin?.toFixed(1)}%
                             </span>
                           </td>
-                          <td className={`p-2 text-right ${p.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          <td className={`p-2.5 text-right ${p.profit_per_unit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             ₹{p.profit_per_unit?.toFixed(2) || '0.00'}
                           </td>
                         </tr>
                       ))
                     )}
                   </tbody>
+                  {productPnlData.length > 0 && (
+                    <tfoot className="bg-gray-100 font-semibold border-t-2">
+                      <tr>
+                        <td className="p-2.5">TOTAL ({productPnlData.length} products)</td>
+                        <td className="p-2.5 text-right text-green-700">
+                          ₹{productPnlData.reduce((sum, p) => sum + (p.sales_amount || 0), 0).toLocaleString()}
+                        </td>
+                        <td className="p-2.5 text-right">
+                          {productPnlData.reduce((sum, p) => sum + (p.sales_qty || 0), 0).toLocaleString()}
+                        </td>
+                        <td className="p-2.5 text-right text-orange-700">
+                          ₹{productPnlData.reduce((sum, p) => sum + (p.purchase_amount || 0), 0).toLocaleString()}
+                        </td>
+                        <td className="p-2.5 text-right">
+                          {productPnlData.reduce((sum, p) => sum + (p.purchase_qty || 0), 0).toLocaleString()} Kg
+                        </td>
+                        <td className="p-2.5 text-right text-red-700">
+                          ₹{productPnlData.reduce((sum, p) => sum + (p.wastage_amount || 0), 0).toLocaleString()}
+                        </td>
+                        <td className={`p-2.5 text-right ${productPnlData.reduce((sum, p) => sum + (p.profit || 0), 0) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          ₹{productPnlData.reduce((sum, p) => sum + (p.profit || 0), 0).toLocaleString()}
+                        </td>
+                        <td className="p-2.5 text-right">-</td>
+                        <td className="p-2.5 text-right">-</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
               )}

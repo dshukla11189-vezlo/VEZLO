@@ -1043,6 +1043,27 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Backend already correctly allocated rejection proportionally; frontend display was the issue
 - [x] **Testing**: 100% pass rate (13/13 backend tests, 6/6 frontend features)
 
+### UI/UX Improvements - Sorting, Products Table, Wastage Filter (COMPLETED - Apr 09, 2026)
+- [x] **Inventory Sorting Change**:
+  - Changed sorting from alphabetical to: non-zero closing qty first, then by descending closing qty
+  - Applied to both Retailer Portal (Daily Inventory) and Admin Stock Status page
+- [x] **Products Table Redesign**:
+  - Removed columns: Stock, Price/kg, Price/packet
+  - Added column: Type (shows unit badge - Kg=green, Packet/Pcs=blue)
+  - Final columns: Product Name, Type, Category, Lifecycle, Actions
+- [x] **Wastage Dashboard Date Filter**:
+  - All data now respects the main date range filter (From/To)
+  - Removed separate 7-day period selector from Top Wastage Products section
+  - Changed default date range to 30 days (was 7 days)
+- [x] **Top Wastage Products Filter**:
+  - Now only shows products with dispatched qty > 10 Kg
+  - Shows "(Dispatched > 10 Kg)" label and date range
+- [x] **Product P&L Dashboard**:
+  - Added separate date picker (From/To) for product-level P&L data
+  - Data sorted by Margin % descending
+  - Shows "(Sorted by Margin %)" label
+- [x] **Testing**: 100% pass rate (11/11 frontend features verified)
+
 ---
 
 ## Next Tasks (Upcoming)

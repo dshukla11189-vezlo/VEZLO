@@ -385,6 +385,8 @@ export default function AdminDashboard() {
       
       dailyPnl.forEach(day => {
         const products = day.products || [];
+        const lineItems = day.line_items || [];
+        
         // Products is a list, find the product by name
         const productData = Array.isArray(products) 
           ? products.find(p => p.product === productName)
@@ -394,27 +396,43 @@ export default function AdminDashboard() {
           const salesAmt = productData.sales || productData.sales_amount || 0;
           const salesQty = productData.sales_qty || 0;
           const salesKg = productData.sales_kg || 0;  // Sales in Kg for proper rate calculation
-          const purchaseAmt = productData.purchase || productData.purchase_amount || 0;
-          const purchaseQty = productData.purchase_qty || 0;
-          const wastageAmt = productData.wastage || productData.wastage_amount || 0;
+          
+          // Calculate COGS and wastage from line_items for this product
+          // This gives us the actual consumed cost, not total procurement
+          const productLineItems = lineItems.filter(item => item.product === productName);
+          const cogsFromLineItems = productLineItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
+          const wastageFromLineItems = productLineItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
+          const suppliedKgFromLineItems = productLineItems.reduce((sum, item) => sum + (item.supplied_kg || 0), 0);
+          
+          // Use COGS from line items (actual cost consumed) instead of total procurement
+          const purchaseAmt = cogsFromLineItems > 0 ? cogsFromLineItems : (productData.purchase || 0);
+          const purchaseQty = suppliedKgFromLineItems > 0 ? suppliedKgFromLineItems : (productData.purchase_qty || 0);
+          const wastageAmt = wastageFromLineItems > 0 ? wastageFromLineItems : (productData.wastage || 0);
+          
+          // Calculate average purchase price per kg (for COGS)
+          const avgPurchasePrice = purchaseQty > 0 ? purchaseAmt / purchaseQty : 0;
+          
+          // Wastage % should be relative to total consumed (COGS + Wastage)
+          const totalConsumed = purchaseAmt + wastageAmt;
+          const wastagePct = totalConsumed > 0 ? (wastageAmt / totalConsumed) * 100 : 0;
           
           productDailyData.push({
             date: day.date,
             sales_amount: salesAmt,
             sales_qty: salesQty,
             sales_kg: salesKg,
-            purchase_amount: purchaseAmt,
-            purchase_qty: purchaseQty,
+            purchase_amount: purchaseAmt,  // Now shows COGS (consumed cost)
+            purchase_qty: purchaseQty,      // Now shows supplied Kg
             wastage_amount: wastageAmt,
             wastage_qty: productData.wastage_qty || 0,
             gross_profit: productData.gross_profit || 0,
             margin: salesAmt > 0 
               ? ((productData.gross_profit / salesAmt) * 100).toFixed(1) 
               : 0,
-            // Calculated fields - use sales_kg for Avg SP (per Kg)
-            wastage_pct: purchaseAmt > 0 ? ((wastageAmt / purchaseAmt) * 100).toFixed(1) : 0,
-            avg_purchase_price: purchaseQty > 0 ? (purchaseAmt / purchaseQty).toFixed(2) : 0,
-            avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0  // Use sales_kg for per-Kg rate
+            // Calculated fields
+            wastage_pct: wastagePct.toFixed(1),
+            avg_purchase_price: avgPurchasePrice.toFixed(2),
+            avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0
           });
         }
       });
@@ -2170,8 +2188,8 @@ export default function AdminDashboard() {
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">SALES (₹)</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">SALES QTY</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">AVG SP</th>
-                      <th className="p-2 text-right font-medium text-gray-600 text-xs">PURCHASE (₹)</th>
-                      <th className="p-2 text-right font-medium text-gray-600 text-xs">PURCHASE QTY</th>
+                      <th className="p-2 text-right font-medium text-orange-600 text-xs">COGS (₹)</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">COGS QTY</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">AVG PP</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">WASTAGE</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">WASTAGE %</th>

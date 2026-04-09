@@ -1064,6 +1064,26 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Shows "(Sorted by Margin %)" label
 - [x] **Testing**: 100% pass rate (11/11 frontend features verified)
 
+### Bug Fixes - Sorting, Type Column, Wastage Filter (COMPLETED - Apr 09, 2026)
+- [x] **Inventory Sorting Bug Fix**:
+  - Fixed sorting in retailer Dashboard.js `inventoryData` sort - now uses descending closing_qty instead of alphabetical
+  - Fixed sorting in retailer Dashboard.js `closingHistory` sort - same fix applied
+  - Fixed sorting in admin RetailerOrders.js `closingInventoryData` sort - same fix applied
+  - All inventory lists now show: non-zero closing first → sorted by descending qty → then zero closing
+- [x] **Products Type Column Fix**:
+  - Added new `product_type` field to products (Fruits, Vegetables, Exotic, Leafy, Herbs, Mushrooms, Others)
+  - TYPE column now shows product_type (not unit like "Kg")
+  - Edit form has Type dropdown with all options
+  - Colored badges: Fruits=orange, Vegetables=green, Exotic=purple, Leafy=emerald, Herbs=teal, Mushrooms=amber
+- [x] **Top Wastage Products Filter Fix**:
+  - Changed filter from `dispatched_qty` to `total_input` > 10 Kg
+  - Products now correctly showing (Dill Leaf 54.5%, Palak 51.5%, Fenugreek 38.6%, etc.)
+  - Updated label to "(Input > 10 Kg)"
+- [x] **Dashboard Products P&L Data Verification**:
+  - Data is correct - verified Curry Leaves: Sales=₹26,598, Margin=-40.8%
+  - Products sorted by Margin % descending (Spinach 100% at top)
+- [x] **Testing**: 100% pass rate (9/9 features verified) - `/app/test_reports/iteration_23.json`
+
 ---
 
 ## Next Tasks (Upcoming)

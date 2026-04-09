@@ -384,21 +384,24 @@ export default function AdminDashboard() {
       const productDailyData = [];
       
       dailyPnl.forEach(day => {
-        const products = day.products || {};
-        const productData = products[productName];
+        const products = day.products || [];
+        // Products is a list, find the product by name
+        const productData = Array.isArray(products) 
+          ? products.find(p => p.product === productName)
+          : products[productName]; // Fallback for dict format
         
         if (productData) {
           productDailyData.push({
             date: day.date,
-            sales_amount: productData.sales_amount || 0,
+            sales_amount: productData.sales || productData.sales_amount || 0,
             sales_qty: productData.sales_qty || 0,
-            purchase_amount: productData.purchase_amount || 0,
+            purchase_amount: productData.purchase || productData.purchase_amount || 0,
             purchase_qty: productData.purchase_qty || 0,
-            wastage_amount: productData.wastage_amount || 0,
+            wastage_amount: productData.wastage || productData.wastage_amount || 0,
             wastage_qty: productData.wastage_qty || 0,
             gross_profit: productData.gross_profit || 0,
-            margin: productData.sales_amount > 0 
-              ? ((productData.gross_profit / productData.sales_amount) * 100).toFixed(1) 
+            margin: (productData.sales || productData.sales_amount || 0) > 0 
+              ? ((productData.gross_profit / (productData.sales || productData.sales_amount)) * 100).toFixed(1) 
               : 0
           });
         }

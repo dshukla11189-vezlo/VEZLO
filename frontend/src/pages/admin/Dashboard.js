@@ -871,15 +871,20 @@ export default function AdminDashboard() {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b pb-2">
-          {['overview', 'customers', 'products', 'expenses'].map(tab => (
+          {[
+            { key: 'overview', label: 'Overview', icon: '📊' },
+            { key: 'customers', label: 'Customers', icon: '👥' },
+            { key: 'products', label: 'Products', icon: '📦' },
+            { key: 'costs', label: 'Costs', icon: '💰' }
+          ].map(tab => (
             <Button
-              key={tab}
-              variant={activeTab === tab ? 'default' : 'ghost'}
+              key={tab.key}
+              variant={activeTab === tab.key ? 'default' : 'ghost'}
               size="sm"
-              onClick={() => setActiveTab(tab)}
-              className={activeTab === tab ? 'bg-[#14532D]' : ''}
+              onClick={() => setActiveTab(tab.key)}
+              className={activeTab === tab.key ? 'bg-[#14532D]' : ''}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab.label}
             </Button>
           ))}
         </div>
@@ -1567,108 +1572,155 @@ export default function AdminDashboard() {
           </Card>
         )}
 
-        {activeTab === 'expenses' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Variable Expenses */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Receipt size={16} /> Variable Expenses Breakdown
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {variableExpenseData.length > 0 ? (
-                  <>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <RePieChart>
-                        <Pie
-                          data={variableExpenseData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          outerRadius={70}
-                          fill="#8884d8"
-                          dataKey="value"
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        >
-                          {variableExpenseData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, '']} />
-                      </RePieChart>
-                    </ResponsiveContainer>
-                    <div className="mt-2 space-y-1">
-                      {variableExpenseData.map((exp, idx) => (
-                        <div key={idx} className="flex justify-between text-xs">
-                          <span className="flex items-center gap-1">
-                            <span className="w-2 h-2 rounded" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></span>
-                            {exp.name}
-                          </span>
-                          <span className="font-medium">₹{exp.value.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="h-[250px] flex items-center justify-center text-gray-400">
-                    No variable expenses
+        {activeTab === 'costs' && (
+          <div className="space-y-4">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-4">
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                <CardContent className="p-4">
+                  <div className="text-xs text-blue-700 font-medium">VARIABLE COSTS</div>
+                  <div className="text-2xl font-bold text-blue-900">
+                    ₹{(pnlData?.summary?.total_variable_expenses || 0).toLocaleString()}
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                  <div className="text-xs text-blue-600">
+                    Includes Labour: ₹{(pnlData?.summary?.total_labour_cost || 0).toLocaleString()}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+                <CardContent className="p-4">
+                  <div className="text-xs text-orange-700 font-medium">FIXED COSTS</div>
+                  <div className="text-2xl font-bold text-orange-900">
+                    ₹{(pnlData?.summary?.total_fixed_expenses || 0).toLocaleString()}
+                  </div>
+                  <div className="text-xs text-orange-600">Monthly recurring</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+                <CardContent className="p-4">
+                  <div className="text-xs text-red-700 font-medium">TOTAL COSTS</div>
+                  <div className="text-2xl font-bold text-red-900">
+                    ₹{((pnlData?.summary?.total_variable_expenses || 0) + (pnlData?.summary?.total_fixed_expenses || 0)).toLocaleString()}
+                  </div>
+                  <div className="text-xs text-red-600">
+                    {(((pnlData?.summary?.total_variable_expenses || 0) + (pnlData?.summary?.total_fixed_expenses || 0)) / (pnlData?.summary?.total_sales || 1) * 100).toFixed(1)}% of Sales
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
-            {/* Fixed Expenses */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Calculator size={16} /> Fixed Expenses Breakdown
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {fixedExpenseData.length > 0 ? (
-                  <>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <RePieChart>
-                        <Pie
-                          data={fixedExpenseData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          outerRadius={70}
-                          fill="#8884d8"
-                          dataKey="value"
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        >
-                          {fixedExpenseData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, '']} />
-                      </RePieChart>
-                    </ResponsiveContainer>
-                    <div className="mt-2 space-y-1">
-                      {fixedExpenseData.map((exp, idx) => (
-                        <div key={idx} className="flex justify-between text-xs">
-                          <span className="flex items-center gap-1">
-                            <span className="w-2 h-2 rounded" style={{ backgroundColor: COLORS[(idx + 3) % COLORS.length] }}></span>
-                            {exp.name}
-                          </span>
-                          <span className="font-medium">₹{exp.value.toLocaleString()}</span>
-                        </div>
-                      ))}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Variable Expenses */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center gap-2 justify-between">
+                    <span className="flex items-center gap-2">
+                      <Receipt size={16} /> Variable Costs (incl. Labour)
+                    </span>
+                    <span className="text-xs font-normal text-blue-600">
+                      ₹{(pnlData?.summary?.total_variable_expenses || 0).toLocaleString()}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {variableExpenseData.length > 0 ? (
+                    <>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <RePieChart>
+                          <Pie
+                            data={variableExpenseData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            outerRadius={70}
+                            fill="#8884d8"
+                            dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          >
+                            {variableExpenseData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, '']} />
+                        </RePieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-2 space-y-1">
+                        {variableExpenseData.map((exp, idx) => (
+                          <div key={idx} className="flex justify-between text-xs">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></span>
+                              {exp.name}
+                            </span>
+                            <span className="font-medium">₹{exp.value.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="h-[250px] flex items-center justify-center text-gray-400">
+                      No variable costs
                     </div>
-                  </>
-                ) : (
-                  <div className="h-[250px] flex items-center justify-center text-gray-400">
-                    No fixed expenses
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Fixed Expenses */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center gap-2 justify-between">
+                    <span className="flex items-center gap-2">
+                      <Calculator size={16} /> Fixed Costs (Monthly)
+                    </span>
+                    <span className="text-xs font-normal text-orange-600">
+                      ₹{(pnlData?.summary?.total_fixed_expenses || 0).toLocaleString()}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {fixedExpenseData.length > 0 ? (
+                    <>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <RePieChart>
+                          <Pie
+                            data={fixedExpenseData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            outerRadius={70}
+                            fill="#8884d8"
+                            dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          >
+                            {fixedExpenseData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, '']} />
+                        </RePieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-2 space-y-1">
+                        {fixedExpenseData.map((exp, idx) => (
+                          <div key={idx} className="flex justify-between text-xs">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded" style={{ backgroundColor: COLORS[(idx + 3) % COLORS.length] }}></span>
+                              {exp.name}
+                            </span>
+                            <span className="font-medium">₹{exp.value.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="h-[250px] flex items-center justify-center text-gray-400">
+                      No fixed costs
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
             {/* Purchase by Farmer */}
-            <Card className="lg:col-span-2">
+            <Card>
               <CardHeader className="py-3">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Users size={16} /> Purchase by Farmer/Supplier

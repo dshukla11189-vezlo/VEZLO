@@ -1127,6 +1127,20 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Copies attendance data to all dates in range
   - Useful for backfilling historical attendance data before Apr 8
 
+### Labour Costs in P&L & Costs Tab (COMPLETED - Apr 09, 2026)
+- [x] **Labour Costs Now Included in Net Profit**:
+  - Backend P&L calculation now fetches labour attendance from `db.labour_attendance`
+  - Calculates total labour cost: daily_rate + (overtime_hours × overtime_rate)
+  - Labour is added to Variable Expenses category for reporting
+  - Net Profit now correctly deducts labour costs
+  - API response includes `total_labour_cost` in summary
+- [x] **New Costs Tab in Dashboard**:
+  - Renamed "Expenses" tab to "Costs"
+  - Added summary cards: Variable Costs, Fixed Costs, Total Costs
+  - Variable Costs card shows "Includes Labour: ₹X"
+  - Shows costs as % of Sales
+  - Pie charts show breakdown by category with Labour visible
+
 ---
 
 ## Next Tasks (Upcoming)

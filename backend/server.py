@@ -4200,6 +4200,42 @@ async def get_pnl_report(
         if exp_date in sales_by_date:
             sales_by_date[exp_date]["variable_exp"] += amount
     
+    # ========== LABOUR COSTS (Variable Daily Costs) ==========
+    labour_attendance = await db.labour_attendance.find({
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).to_list(5000)
+    
+    total_labour_cost = 0
+    labour_cost_by_date = {}
+    
+    for record in labour_attendance:
+        if not record.get("present", False):
+            continue
+        
+        att_date = record.get("date", "")[:10]
+        daily_rate = float(record.get("daily_rate", 0) or 0)
+        overtime_hours = float(record.get("overtime_hours", 0) or 0)
+        overtime_rate = float(record.get("overtime_rate", 0) or 0)
+        
+        day_cost = daily_rate + (overtime_hours * overtime_rate)
+        total_labour_cost += day_cost
+        
+        if att_date not in labour_cost_by_date:
+            labour_cost_by_date[att_date] = 0
+        labour_cost_by_date[att_date] += day_cost
+        
+        # Add to daily breakdown
+        if att_date in sales_by_date:
+            if "labour_cost" not in sales_by_date[att_date]:
+                sales_by_date[att_date]["labour_cost"] = 0
+            sales_by_date[att_date]["labour_cost"] += day_cost
+    
+    # Add Labour to variable category for display
+    if total_labour_cost > 0:
+        variable_by_category["Labour"] = total_labour_cost
+        total_variable += total_labour_cost
+        variable_all += total_labour_cost  # Labour is shared across all verticals
+    
     # ========== FIXED EXPENSES ==========
     # Get current month's fixed expenses
     current_month = datetime.now(timezone.utc).month - 1  # 0-indexed
@@ -4430,6 +4466,7 @@ async def get_pnl_report(
             "profit_per_unit": round(day_profit_per_unit, 2),
             "variable_exp": round(day_data["variable_exp"], 2),
             "fixed_exp": round(day_data["fixed_exp"], 2),
+            "labour_cost": round(day_data.get("labour_cost", 0), 2),
             "net_profit": round(day_net, 2),
             "products": products_detail,
             "line_items": detailed_line_items  # NEW: Customer→Product breakdown
@@ -4594,6 +4631,7 @@ async def get_pnl_report(
             "gross_margin_pct": round(gross_margin_actual, 1),
             "total_variable_expenses": round(total_variable, 2),
             "total_fixed_expenses": round(total_fixed, 2),
+            "total_labour_cost": round(total_labour_cost, 2),
             "net_profit": round(net_profit_actual, 2),
             "net_margin": round(net_margin_actual, 1)
         },

@@ -1084,6 +1084,24 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Products sorted by Margin % descending (Spinach 100% at top)
 - [x] **Testing**: 100% pass rate (9/9 features verified) - `/app/test_reports/iteration_23.json`
 
+### Product P&L & Wastage Dashboard Enhancements (COMPLETED - Apr 09, 2026)
+- [x] **Products P&L Improvements**:
+  - Added item count badge (e.g., "37 items") next to title
+  - Added TOTAL footer row with sums: Sales ₹186,972, Purchase ₹117,798, Wastage ₹49,431, Gross P/L ₹19,743
+  - Changed sorting from Margin % to **Gross P/L descending**
+  - Merged Spinach into Palak using `cost_alias_product_id` (now shows combined P&L)
+  - Fixed date picker width (w-36, fully visible)
+  - Increased font size from text-xs to **text-sm**
+- [x] **Wastage Dashboard Updates**:
+  - Renamed "Yesterday's Wastage" to "Wastage Details" with **date picker**
+  - User can select any date to view that day's product-wise wastage
+  - Shows "Total: ₹X" next to date picker
+  - Daily Wastage Trend now shows date range in header (respects main filter)
+- [x] **New Backend Endpoint**:
+  - Added `/api/stock-status/wastage-by-date?date=YYYY-MM-DD` endpoint
+  - Returns product-wise wastage for any selected date
+- [x] **Testing**: 100% pass rate (10/10 features verified) - `/app/test_reports/iteration_24.json`
+
 ---
 
 ## Next Tasks (Upcoming)

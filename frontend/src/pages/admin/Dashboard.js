@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet, Building2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
@@ -162,6 +162,11 @@ export default function AdminDashboard() {
   const [productDateTo, setProductDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [productPnlData, setProductPnlData] = useState([]);
   const [loadingProductPnl, setLoadingProductPnl] = useState(false);
+
+  // Product detail modal state
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [productDetailData, setProductDetailData] = useState([]);
+  const [loadingProductDetail, setLoadingProductDetail] = useState(false);
 
   // Toggle customer date expand
   const toggleCustomerDateExpand = (date) => {
@@ -365,6 +370,52 @@ export default function AdminDashboard() {
     }
   }, [activeTab, loadProductPnlData]);
 
+  // Load product detail (date-wise breakdown)
+  const loadProductDetail = useCallback(async (productName) => {
+    if (!productName) return;
+    setSelectedProduct(productName);
+    setLoadingProductDetail(true);
+    
+    try {
+      const response = await api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`);
+      const dailyPnl = response.data?.daily_pnl || [];
+      
+      // Extract date-wise data for this product
+      const productDailyData = [];
+      
+      dailyPnl.forEach(day => {
+        const products = day.products || {};
+        const productData = products[productName];
+        
+        if (productData) {
+          productDailyData.push({
+            date: day.date,
+            sales_amount: productData.sales_amount || 0,
+            sales_qty: productData.sales_qty || 0,
+            purchase_amount: productData.purchase_amount || 0,
+            purchase_qty: productData.purchase_qty || 0,
+            wastage_amount: productData.wastage_amount || 0,
+            wastage_qty: productData.wastage_qty || 0,
+            gross_profit: productData.gross_profit || 0,
+            margin: productData.sales_amount > 0 
+              ? ((productData.gross_profit / productData.sales_amount) * 100).toFixed(1) 
+              : 0
+          });
+        }
+      });
+      
+      // Sort by date descending (most recent first)
+      productDailyData.sort((a, b) => b.date.localeCompare(a.date));
+      
+      setProductDetailData(productDailyData);
+    } catch (error) {
+      console.error('Failed to load product detail:', error);
+      toast.error('Failed to load product details');
+    } finally {
+      setLoadingProductDetail(false);
+    }
+  }, [productDateFrom, productDateTo]);
+
   const loadPnlData = useCallback(async () => {
     setLoading(true);
     try {
@@ -555,8 +606,8 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        {/* Key P&L Summary Cards - Row 2 (3 cards) */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        {/* Key P&L Summary Cards - Row 2 (4 cards) */}
+        <div className="grid grid-cols-4 gap-3 mb-4">
           {/* Variable Expenses */}
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
             <CardContent className="p-3">
@@ -567,6 +618,21 @@ export default function AdminDashboard() {
                 <div>
                   <p className="text-[10px] text-purple-800 font-medium uppercase">Variable Exp</p>
                   <p className="text-lg font-bold text-purple-900">{formatCurrency(summary.total_variable_expenses)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Fixed Expenses */}
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-orange-600 rounded-lg">
+                  <Building2 className="text-white" size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-orange-800 font-medium uppercase">Fixed Exp</p>
+                  <p className="text-lg font-bold text-orange-900">{formatCurrency(summary.total_fixed_expenses)}</p>
                 </div>
               </div>
             </CardContent>
@@ -1494,7 +1560,15 @@ export default function AdminDashboard() {
                     ) : (
                       productPnlData.map((p, idx) => (
                         <tr key={idx} className="border-b hover:bg-gray-50">
-                          <td className="p-2.5 font-medium">{p.product}</td>
+                          <td className="p-2.5 font-medium">
+                            <button 
+                              onClick={() => loadProductDetail(p.product)}
+                              className="text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                              data-testid={`product-detail-btn-${idx}`}
+                            >
+                              {p.product}
+                            </button>
+                          </td>
                           <td className="p-2.5 text-right text-green-600">₹{p.sales_amount?.toLocaleString()}</td>
                           <td className="p-2.5 text-right">{p.sales_qty?.toLocaleString()}</td>
                           <td className="p-2.5 text-right text-orange-600">₹{p.purchase_amount?.toLocaleString()}</td>
@@ -1986,6 +2060,120 @@ export default function AdminDashboard() {
             {/* Modal Footer */}
             <div className="p-3 border-t bg-gray-50 text-center">
               <Button variant="outline" onClick={() => { setSelectedCustomer(null); setCustomerDetailData(null); }}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product Detail Modal */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedProduct(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="p-4 border-b bg-gradient-to-r from-[#14532D] to-green-700 text-white">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <Package size={20} />
+                    {selectedProduct} - Date-wise Details
+                  </h2>
+                  <p className="text-green-100 text-xs mt-1">
+                    {productDateFrom} to {productDateTo} ({productDetailData.length} days with data)
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setSelectedProduct(null)}
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-auto max-h-[calc(85vh-140px)]">
+              {loadingProductDetail ? (
+                <div className="flex items-center justify-center h-48">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
+                </div>
+              ) : productDetailData.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="p-3 text-left font-medium text-gray-600">DATE</th>
+                      <th className="p-3 text-right font-medium text-gray-600">SALES (₹)</th>
+                      <th className="p-3 text-right font-medium text-gray-600">SALES QTY</th>
+                      <th className="p-3 text-right font-medium text-gray-600">PURCHASE (₹)</th>
+                      <th className="p-3 text-right font-medium text-gray-600">PURCHASE QTY</th>
+                      <th className="p-3 text-right font-medium text-gray-600">WASTAGE</th>
+                      <th className="p-3 text-right font-medium text-gray-600">GROSS P/L</th>
+                      <th className="p-3 text-right font-medium text-gray-600">MARGIN %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productDetailData.map((day, idx) => (
+                      <tr key={idx} className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                        <td className="p-3 font-medium">
+                          {new Date(day.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                        </td>
+                        <td className="p-3 text-right text-green-600">₹{day.sales_amount?.toLocaleString()}</td>
+                        <td className="p-3 text-right">{day.sales_qty?.toLocaleString()}</td>
+                        <td className="p-3 text-right text-orange-600">₹{day.purchase_amount?.toLocaleString()}</td>
+                        <td className="p-3 text-right">{day.purchase_qty?.toLocaleString()} Kg</td>
+                        <td className="p-3 text-right text-red-600">₹{day.wastage_amount?.toLocaleString()}</td>
+                        <td className={`p-3 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          {day.gross_profit >= 0 ? '+' : ''}₹{day.gross_profit?.toLocaleString()}
+                        </td>
+                        <td className="p-3 text-right">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            day.margin >= 20 ? 'bg-green-100 text-green-700' : 
+                            day.margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
+                            day.margin >= 0 ? 'bg-orange-100 text-orange-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {day.margin}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-100 font-semibold border-t-2">
+                    <tr>
+                      <td className="p-3">TOTAL</td>
+                      <td className="p-3 text-right text-green-700">
+                        ₹{productDetailData.reduce((sum, d) => sum + (d.sales_amount || 0), 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right">
+                        {productDetailData.reduce((sum, d) => sum + (d.sales_qty || 0), 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right text-orange-700">
+                        ₹{productDetailData.reduce((sum, d) => sum + (d.purchase_amount || 0), 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right">
+                        {productDetailData.reduce((sum, d) => sum + (d.purchase_qty || 0), 0).toLocaleString()} Kg
+                      </td>
+                      <td className="p-3 text-right text-red-700">
+                        ₹{productDetailData.reduce((sum, d) => sum + (d.wastage_amount || 0), 0).toLocaleString()}
+                      </td>
+                      <td className={`p-3 text-right ${productDetailData.reduce((sum, d) => sum + (d.gross_profit || 0), 0) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        ₹{productDetailData.reduce((sum, d) => sum + (d.gross_profit || 0), 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right">-</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              ) : (
+                <div className="flex items-center justify-center h-48 text-gray-400">
+                  No data found for this product in the selected date range
+                </div>
+              )}
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="p-3 border-t bg-gray-50 text-center">
+              <Button variant="outline" onClick={() => setSelectedProduct(null)}>
                 Close
               </Button>
             </div>

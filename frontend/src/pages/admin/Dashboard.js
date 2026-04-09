@@ -409,6 +409,10 @@ export default function AdminDashboard() {
           const purchaseQty = suppliedKgFromLineItems > 0 ? suppliedKgFromLineItems : (productData.purchase_qty || 0);
           const wastageAmt = wastageFromLineItems > 0 ? wastageFromLineItems : (productData.wastage || 0);
           
+          // Calculate Gross P/L correctly: Sales - COGS - Wastage
+          const grossProfit = salesAmt - purchaseAmt - wastageAmt;
+          const marginPct = salesAmt > 0 ? (grossProfit / salesAmt) * 100 : 0;
+          
           // Calculate average purchase price per kg (for COGS)
           const avgPurchasePrice = purchaseQty > 0 ? purchaseAmt / purchaseQty : 0;
           
@@ -425,10 +429,8 @@ export default function AdminDashboard() {
             purchase_qty: purchaseQty,      // Now shows supplied Kg
             wastage_amount: wastageAmt,
             wastage_qty: productData.wastage_qty || 0,
-            gross_profit: productData.gross_profit || 0,
-            margin: salesAmt > 0 
-              ? ((productData.gross_profit / salesAmt) * 100).toFixed(1) 
-              : 0,
+            gross_profit: grossProfit,      // Recalculated: Sales - COGS - Wastage
+            margin: marginPct.toFixed(1),
             // Calculated fields
             wastage_pct: wastagePct.toFixed(1),
             avg_purchase_price: avgPurchasePrice.toFixed(2),

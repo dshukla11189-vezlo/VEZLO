@@ -653,19 +653,21 @@ export default function RetailerDashboard() {
       });
       
       // Two-step sorting:
-      // 1. Products with non-zero closing, sorted alphabetically
-      // 2. Products with zero/null/undefined closing, sorted alphabetically
+      // 1. Products with non-zero closing qty first, sorted by descending closing qty
+      // 2. Products with zero/null/undefined closing, sorted by descending closing qty (all show 0)
       inventoryItems.sort((a, b) => {
         // Check if closing_qty is a positive number (not null, undefined, or 0)
-        const aHasClosing = typeof a.closing_qty === 'number' && a.closing_qty > 0;
-        const bHasClosing = typeof b.closing_qty === 'number' && b.closing_qty > 0;
+        const aClosing = typeof a.closing_qty === 'number' ? a.closing_qty : 0;
+        const bClosing = typeof b.closing_qty === 'number' ? b.closing_qty : 0;
+        const aHasClosing = aClosing > 0;
+        const bHasClosing = bClosing > 0;
         
         // Non-zero closing comes first
         if (aHasClosing && !bHasClosing) return -1;
         if (!aHasClosing && bHasClosing) return 1;
         
-        // Within same group, sort alphabetically
-        return (a.product_name || '').localeCompare(b.product_name || '');
+        // Within same group, sort by descending closing qty
+        return bClosing - aClosing;
       });
       
       setInventoryData(inventoryItems);

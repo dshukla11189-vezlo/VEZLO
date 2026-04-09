@@ -83,11 +83,28 @@ export default function StockStatus() {
       const today = new Date().toISOString().split('T')[0];
       const targetDate = date || filterDate;
       
+      // Sort function: non-zero closing first, then by descending closing qty
+      const sortByClosingQty = (data) => {
+        return [...data].sort((a, b) => {
+          const aClosing = typeof a.closing_qty === 'number' ? a.closing_qty : 0;
+          const bClosing = typeof b.closing_qty === 'number' ? b.closing_qty : 0;
+          const aHasClosing = aClosing > 0;
+          const bHasClosing = bClosing > 0;
+          
+          // Non-zero closing comes first
+          if (aHasClosing && !bHasClosing) return -1;
+          if (!aHasClosing && bHasClosing) return 1;
+          
+          // Within same group, sort by descending closing qty
+          return bClosing - aClosing;
+        });
+      };
+      
       // Check if viewing historical data or today
       if (targetDate === today) {
         setIsHistoricalView(false);
         const response = await api.get('/api/stock-status/today');
-        setStockStatus(response.data);
+        setStockStatus(sortByClosingQty(response.data));
         
         // Initialize closing data for products that should be closable
         // Only show items with opening > 0 OR purchase > 0 (had activity)
@@ -101,7 +118,7 @@ export default function StockStatus() {
       } else {
         setIsHistoricalView(true);
         const response = await api.get(`/api/stock-status/history?from_date=${targetDate}&to_date=${targetDate}`);
-        setStockStatus(response.data);
+        setStockStatus(sortByClosingQty(response.data));
       }
     } catch (error) {
       console.error('Load stock status error:', error);

@@ -153,6 +153,16 @@ export default function AdminDashboard() {
   const [loadingCustomerDetail, setLoadingCustomerDetail] = useState(false);
   const [expandedCustomerDates, setExpandedCustomerDates] = useState({}); // For product dropdown
 
+  // Product P&L separate date state  
+  const [productDateFrom, setProductDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [productDateTo, setProductDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [productPnlData, setProductPnlData] = useState([]);
+  const [loadingProductPnl, setLoadingProductPnl] = useState(false);
+
   // Toggle customer date expand
   const toggleCustomerDateExpand = (date) => {
     setExpandedCustomerDates(prev => ({
@@ -276,6 +286,29 @@ export default function AdminDashboard() {
       loadCustomerDetail(selectedCustomer);
     }
   }, [selectedCustomer, loadCustomerDetail]);
+
+  // Load product P&L data (separate from main dashboard)
+  const loadProductPnlData = useCallback(async () => {
+    setLoadingProductPnl(true);
+    try {
+      const response = await api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`);
+      // Sort by margin % descending
+      const products = (response.data?.product_pnl || []).sort((a, b) => (b.margin || 0) - (a.margin || 0));
+      setProductPnlData(products);
+    } catch (error) {
+      console.error('Failed to load product P&L:', error);
+      toast.error('Failed to load product P&L data');
+    } finally {
+      setLoadingProductPnl(false);
+    }
+  }, [productDateFrom, productDateTo]);
+
+  // Load product P&L when tab is products and dates change
+  useEffect(() => {
+    if (activeTab === 'products') {
+      loadProductPnlData();
+    }
+  }, [activeTab, loadProductPnlData]);
 
   const loadPnlData = useCallback(async () => {
     setLoading(true);
@@ -1365,11 +1398,36 @@ export default function AdminDashboard() {
         {activeTab === 'products' && (
           <Card>
             <CardHeader className="py-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Package size={16} /> Product-wise P&L
-              </CardTitle>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Package size={16} /> Product-wise P&L
+                  <span className="text-xs font-normal text-gray-500">(Sorted by Margin %)</span>
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} className="text-gray-400" />
+                  <Input
+                    type="date"
+                    value={productDateFrom}
+                    onChange={(e) => setProductDateFrom(e.target.value)}
+                    className="h-7 w-32 text-xs"
+                  />
+                  <span className="text-gray-400 text-xs">to</span>
+                  <Input
+                    type="date"
+                    value={productDateTo}
+                    onChange={(e) => setProductDateTo(e.target.value)}
+                    className="h-7 w-32 text-xs"
+                  />
+                  {loadingProductPnl && <RefreshCw size={14} className="animate-spin text-gray-400" />}
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
+              {loadingProductPnl ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#14532D]"></div>
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 border-b">
@@ -1386,12 +1444,12 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {productPnl.length === 0 ? (
+                    {productPnlData.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="p-4 text-center text-gray-400">No products</td>
                       </tr>
                     ) : (
-                      productPnl.map((p, idx) => (
+                      productPnlData.map((p, idx) => (
                         <tr key={idx} className="border-b hover:bg-gray-50">
                           <td className="p-2 font-medium">{p.product}</td>
                           <td className="p-2 text-right text-green-600">₹{p.sales_amount.toLocaleString()}</td>
@@ -1421,6 +1479,7 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+              )}
             </CardContent>
           </Card>
         )}

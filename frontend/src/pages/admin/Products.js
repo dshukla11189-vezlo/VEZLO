@@ -539,13 +539,10 @@ export default function Products() {
         <table>
           <thead>
             <tr>
-              <th>NAME</th>
+              <th>PRODUCT NAME</th>
+              <th>TYPE</th>
               <th>CATEGORY</th>
-              <th>UNIT</th>
               <th>LIFECYCLE</th>
-              <th className="text-right">STOCK</th>
-              <th className="text-right">PRICE/KG</th>
-              <th className="text-right">PRICE/PACKET</th>
               <th className="text-center">ACTIONS</th>
             </tr>
           </thead>
@@ -553,8 +550,16 @@ export default function Products() {
             {filteredProducts.map((product) => (
               <tr key={product.id} data-testid={`product-row-${product.id}`}>
                 <td className="font-medium">{product.name}</td>
+                <td>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    product.unit === 'Kg' ? 'bg-green-100 text-green-700' :
+                    product.unit === 'Packet' || product.unit === 'Pcs' ? 'bg-blue-100 text-blue-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {product.unit || '-'}
+                  </span>
+                </td>
                 <td>{product.category}</td>
-                <td>{product.unit}</td>
                 <td>
                   {product.lifecycle_duration ? (
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${
@@ -568,9 +573,6 @@ export default function Products() {
                     </span>
                   ) : '-'}
                 </td>
-                <td className="text-right">{product.current_stock?.toFixed(2)}</td>
-                <td className="text-right">₹{product.price_per_kg?.toFixed(2) || '-'}</td>
-                <td className="text-right">₹{product.price_per_packet?.toFixed(2) || '-'}</td>
                 <td>
                   <div className="flex items-center justify-center gap-2">
                     <Button

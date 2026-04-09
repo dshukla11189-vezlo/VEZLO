@@ -90,20 +90,10 @@ export default function WastageDashboard() {
     return item.product_name || item.name || '';
   }, [productMap, i18n.language]);
   
-  // Top products period selector
-  const [topProductsPeriod, setTopProductsPeriod] = useState(7);
-  const topProductsPeriodOptions = [
-    { value: 7, label: '7 Days' },
-    { value: 15, label: '15 Days' },
-    { value: 30, label: '30 Days' },
-    { value: 90, label: '3 Months' },
-    { value: 180, label: '6 Months' }
-  ];
-  
   // Date range filter
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 7);
+    d.setDate(d.getDate() - 30); // Default to 30 days instead of 7
     return d.toISOString().split('T')[0];
   });
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
@@ -189,9 +179,10 @@ export default function WastageDashboard() {
   const summary = dashboardData?.summary || {};
   const dailyTrend = dashboardData?.daily_trend || [];
   // Sort top products by wastage percentage in descending order
-  const topProducts = [...(dashboardData?.top_wastage_products || [])].sort((a, b) => 
-    (b.wastage_percent || 0) - (a.wastage_percent || 0)
-  );
+  // AND filter to only show products with dispatched qty > 10 kg
+  const topProducts = [...(dashboardData?.top_wastage_products || [])]
+    .filter(p => (p.dispatched_qty || p.total_dispatched || 0) > 10) // Only products with >10kg dispatched
+    .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0));
   const maxDailyWastage = Math.max(...dailyTrend.map(d => d.total_wastage_kg), 1);
 
   return (
@@ -521,30 +512,17 @@ export default function WastageDashboard() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <CardTitle className="flex items-center gap-2">
                 <TrendingDown size={20} /> Top Wastage Products
+                <span className="text-xs font-normal text-gray-500">(Dispatched &gt; 10 Kg)</span>
               </CardTitle>
-              <div className="flex items-center gap-1">
-                {topProductsPeriodOptions.map(opt => (
-                  <Button
-                    key={opt.value}
-                    variant={topProductsPeriod === opt.value ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setTopProductsPeriod(opt.value)}
-                    className={`h-7 text-xs px-2 ${topProductsPeriod === opt.value ? 'bg-red-600 hover:bg-red-700' : ''}`}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
+              <span className="text-xs text-gray-500">
+                {dateFrom} to {dateTo}
+              </span>
             </div>
           </CardHeader>
           <CardContent>
             {(() => {
-              // Filter topProducts based on selected period
-              // We'll recalculate from dashboardData.product_wastage if available
-              const filteredTopProducts = topProducts.filter(p => {
-                // For now, use existing topProducts but filter by days_count
-                return true; // Show all since we're reloading data based on date range
-              }).slice(0, 10);
+              // Use topProducts which is already filtered and sorted
+              const filteredTopProducts = topProducts.slice(0, 10);
               
               return filteredTopProducts.length === 0 ? (
                 <div className="text-center text-gray-500 py-8">

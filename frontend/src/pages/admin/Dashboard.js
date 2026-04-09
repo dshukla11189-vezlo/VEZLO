@@ -391,18 +391,28 @@ export default function AdminDashboard() {
           : products[productName]; // Fallback for dict format
         
         if (productData) {
+          const salesAmt = productData.sales || productData.sales_amount || 0;
+          const salesQty = productData.sales_qty || 0;
+          const purchaseAmt = productData.purchase || productData.purchase_amount || 0;
+          const purchaseQty = productData.purchase_qty || 0;
+          const wastageAmt = productData.wastage || productData.wastage_amount || 0;
+          
           productDailyData.push({
             date: day.date,
-            sales_amount: productData.sales || productData.sales_amount || 0,
-            sales_qty: productData.sales_qty || 0,
-            purchase_amount: productData.purchase || productData.purchase_amount || 0,
-            purchase_qty: productData.purchase_qty || 0,
-            wastage_amount: productData.wastage || productData.wastage_amount || 0,
+            sales_amount: salesAmt,
+            sales_qty: salesQty,
+            purchase_amount: purchaseAmt,
+            purchase_qty: purchaseQty,
+            wastage_amount: wastageAmt,
             wastage_qty: productData.wastage_qty || 0,
             gross_profit: productData.gross_profit || 0,
-            margin: (productData.sales || productData.sales_amount || 0) > 0 
-              ? ((productData.gross_profit / (productData.sales || productData.sales_amount)) * 100).toFixed(1) 
-              : 0
+            margin: salesAmt > 0 
+              ? ((productData.gross_profit / salesAmt) * 100).toFixed(1) 
+              : 0,
+            // New calculated fields
+            wastage_pct: purchaseAmt > 0 ? ((wastageAmt / purchaseAmt) * 100).toFixed(1) : 0,
+            avg_purchase_price: purchaseQty > 0 ? (purchaseAmt / purchaseQty).toFixed(2) : 0,
+            avg_selling_price: salesQty > 0 ? (salesAmt / salesQty).toFixed(2) : 0
           });
         }
       });
@@ -2073,7 +2083,7 @@ export default function AdminDashboard() {
       {/* Product Detail Modal */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedProduct(null)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Modal Header */}
             <div className="p-4 border-b bg-gradient-to-r from-[#14532D] to-green-700 text-white">
               <div className="flex justify-between items-center">
@@ -2105,32 +2115,47 @@ export default function AdminDashboard() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
-                      <th className="p-3 text-left font-medium text-gray-600">DATE</th>
-                      <th className="p-3 text-right font-medium text-gray-600">SALES (₹)</th>
-                      <th className="p-3 text-right font-medium text-gray-600">SALES QTY</th>
-                      <th className="p-3 text-right font-medium text-gray-600">PURCHASE (₹)</th>
-                      <th className="p-3 text-right font-medium text-gray-600">PURCHASE QTY</th>
-                      <th className="p-3 text-right font-medium text-gray-600">WASTAGE</th>
-                      <th className="p-3 text-right font-medium text-gray-600">GROSS P/L</th>
-                      <th className="p-3 text-right font-medium text-gray-600">MARGIN %</th>
+                      <th className="p-2 text-left font-medium text-gray-600 text-xs">DATE</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">SALES (₹)</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">SALES QTY</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">AVG SP</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">PURCHASE (₹)</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">PURCHASE QTY</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">AVG PP</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">WASTAGE</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">WASTAGE %</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">GROSS P/L</th>
+                      <th className="p-2 text-right font-medium text-gray-600 text-xs">MARGIN %</th>
                     </tr>
                   </thead>
                   <tbody>
                     {productDetailData.map((day, idx) => (
                       <tr key={idx} className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                        <td className="p-3 font-medium">
+                        <td className="p-2 font-medium text-xs">
                           {new Date(day.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
                         </td>
-                        <td className="p-3 text-right text-green-600">₹{day.sales_amount?.toLocaleString()}</td>
-                        <td className="p-3 text-right">{day.sales_qty?.toLocaleString()}</td>
-                        <td className="p-3 text-right text-orange-600">₹{day.purchase_amount?.toLocaleString()}</td>
-                        <td className="p-3 text-right">{day.purchase_qty?.toLocaleString()} Kg</td>
-                        <td className="p-3 text-right text-red-600">₹{day.wastage_amount?.toLocaleString()}</td>
-                        <td className={`p-3 text-right font-semibold ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        <td className="p-2 text-right text-green-600 text-xs">₹{day.sales_amount?.toLocaleString()}</td>
+                        <td className="p-2 text-right text-xs">{day.sales_qty?.toLocaleString()}</td>
+                        <td className="p-2 text-right text-green-700 text-xs font-medium">₹{day.avg_selling_price}</td>
+                        <td className="p-2 text-right text-orange-600 text-xs">₹{day.purchase_amount?.toLocaleString()}</td>
+                        <td className="p-2 text-right text-xs">{day.purchase_qty?.toLocaleString()} Kg</td>
+                        <td className="p-2 text-right text-orange-700 text-xs font-medium">₹{day.avg_purchase_price}</td>
+                        <td className="p-2 text-right text-red-600 text-xs">₹{day.wastage_amount?.toLocaleString()}</td>
+                        <td className="p-2 text-right text-xs">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            day.wastage_pct <= 5 ? 'bg-green-100 text-green-700' : 
+                            day.wastage_pct <= 15 ? 'bg-yellow-100 text-yellow-700' : 
+                            day.wastage_pct <= 25 ? 'bg-orange-100 text-orange-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {day.wastage_pct}%
+                          </span>
+                        </td>
+                        <td className={`p-2 text-right font-semibold text-xs ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                           {day.gross_profit >= 0 ? '+' : ''}₹{day.gross_profit?.toLocaleString()}
                         </td>
-                        <td className="p-3 text-right">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        <td className="p-2 text-right text-xs">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                             day.margin >= 20 ? 'bg-green-100 text-green-700' : 
                             day.margin >= 10 ? 'bg-yellow-100 text-yellow-700' : 
                             day.margin >= 0 ? 'bg-orange-100 text-orange-700' :
@@ -2142,29 +2167,58 @@ export default function AdminDashboard() {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-gray-100 font-semibold border-t-2">
-                    <tr>
-                      <td className="p-3">TOTAL</td>
-                      <td className="p-3 text-right text-green-700">
-                        ₹{productDetailData.reduce((sum, d) => sum + (d.sales_amount || 0), 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-right">
-                        {productDetailData.reduce((sum, d) => sum + (d.sales_qty || 0), 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-right text-orange-700">
-                        ₹{productDetailData.reduce((sum, d) => sum + (d.purchase_amount || 0), 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-right">
-                        {productDetailData.reduce((sum, d) => sum + (d.purchase_qty || 0), 0).toLocaleString()} Kg
-                      </td>
-                      <td className="p-3 text-right text-red-700">
-                        ₹{productDetailData.reduce((sum, d) => sum + (d.wastage_amount || 0), 0).toLocaleString()}
-                      </td>
-                      <td className={`p-3 text-right ${productDetailData.reduce((sum, d) => sum + (d.gross_profit || 0), 0) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                        ₹{productDetailData.reduce((sum, d) => sum + (d.gross_profit || 0), 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-right">-</td>
-                    </tr>
+                  <tfoot className="bg-gray-100 font-semibold border-t-2 text-xs">
+                    {(() => {
+                      const totals = productDetailData.reduce((acc, d) => ({
+                        sales: acc.sales + (d.sales_amount || 0),
+                        salesQty: acc.salesQty + (d.sales_qty || 0),
+                        purchase: acc.purchase + (d.purchase_amount || 0),
+                        purchaseQty: acc.purchaseQty + (d.purchase_qty || 0),
+                        wastage: acc.wastage + (d.wastage_amount || 0),
+                        grossProfit: acc.grossProfit + (d.gross_profit || 0)
+                      }), { sales: 0, salesQty: 0, purchase: 0, purchaseQty: 0, wastage: 0, grossProfit: 0 });
+                      
+                      const avgSP = totals.salesQty > 0 ? (totals.sales / totals.salesQty).toFixed(2) : 0;
+                      const avgPP = totals.purchaseQty > 0 ? (totals.purchase / totals.purchaseQty).toFixed(2) : 0;
+                      const wastagePct = totals.purchase > 0 ? ((totals.wastage / totals.purchase) * 100).toFixed(1) : 0;
+                      const marginPct = totals.sales > 0 ? ((totals.grossProfit / totals.sales) * 100).toFixed(1) : 0;
+                      
+                      return (
+                        <tr>
+                          <td className="p-2 font-bold">TOTAL</td>
+                          <td className="p-2 text-right text-green-700">₹{totals.sales.toLocaleString()}</td>
+                          <td className="p-2 text-right">{totals.salesQty.toLocaleString()}</td>
+                          <td className="p-2 text-right text-green-700 font-bold">₹{avgSP}</td>
+                          <td className="p-2 text-right text-orange-700">₹{totals.purchase.toLocaleString()}</td>
+                          <td className="p-2 text-right">{totals.purchaseQty.toLocaleString()} Kg</td>
+                          <td className="p-2 text-right text-orange-700 font-bold">₹{avgPP}</td>
+                          <td className="p-2 text-right text-red-700">₹{totals.wastage.toLocaleString()}</td>
+                          <td className="p-2 text-right">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              wastagePct <= 5 ? 'bg-green-100 text-green-700' : 
+                              wastagePct <= 15 ? 'bg-yellow-100 text-yellow-700' : 
+                              wastagePct <= 25 ? 'bg-orange-100 text-orange-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {wastagePct}%
+                            </span>
+                          </td>
+                          <td className={`p-2 text-right ${totals.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            ₹{totals.grossProfit.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              marginPct >= 20 ? 'bg-green-100 text-green-700' : 
+                              marginPct >= 10 ? 'bg-yellow-100 text-yellow-700' : 
+                              marginPct >= 0 ? 'bg-orange-100 text-orange-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {marginPct}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tfoot>
                 </table>
               ) : (

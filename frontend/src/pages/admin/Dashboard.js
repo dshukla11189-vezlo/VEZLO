@@ -301,7 +301,7 @@ export default function AdminDashboard() {
         api.get('/api/products')
       ]);
       
-      let products = pnlResponse.data?.product_pnl || [];
+      const dailyPnl = pnlResponse.data?.daily_pnl || [];
       
       // Build a map of product aliases: {product_name: alias_product_name}
       const productList = productsResponse.data || [];
@@ -317,44 +317,62 @@ export default function AdminDashboard() {
         }
       });
       
-      // Merge aliased products (e.g., Spinach into Palak)
-      // Find products that should be merged
-      const mergedProducts = {};
-      const processedAliases = new Set();
+      // Aggregate product data from line_items across all days
+      // This gives us correct COGS instead of total procurement
+      const productAggregates = {};
       
-      products.forEach(p => {
-        const productName = p.product;
+      dailyPnl.forEach(day => {
+        const lineItems = day.line_items || [];
         
-        // Check if this product is aliased to another
-        let targetName = productName;
-        for (const [aliasTarget, aliases] of Object.entries(aliasMap)) {
-          if (aliases.includes(productName)) {
-            targetName = aliasTarget;
-            processedAliases.add(productName);
-            break;
+        lineItems.forEach(item => {
+          let productName = item.product;
+          
+          // Check if this product is aliased to another
+          for (const [aliasTarget, aliases] of Object.entries(aliasMap)) {
+            if (aliases.includes(productName)) {
+              productName = aliasTarget;
+              break;
+            }
           }
-        }
-        
-        if (!mergedProducts[targetName]) {
-          mergedProducts[targetName] = { ...p, product: targetName };
-        } else {
-          // Merge: add up all numeric values
-          const existing = mergedProducts[targetName];
-          existing.sales_amount = (existing.sales_amount || 0) + (p.sales_amount || 0);
-          existing.sales_qty = (existing.sales_qty || 0) + (p.sales_qty || 0);
-          existing.purchase_amount = (existing.purchase_amount || 0) + (p.purchase_amount || 0);
-          existing.purchase_qty = (existing.purchase_qty || 0) + (p.purchase_qty || 0);
-          existing.wastage_amount = (existing.wastage_amount || 0) + (p.wastage_amount || 0);
-          existing.profit = (existing.profit || 0) + (p.profit || 0);
-          // Recalculate margin and profit_per_unit
-          existing.margin = existing.sales_amount > 0 ? ((existing.profit / existing.sales_amount) * 100) : 0;
-          existing.profit_per_unit = existing.sales_qty > 0 ? (existing.profit / existing.sales_qty) : 0;
-        }
+          
+          if (!productAggregates[productName]) {
+            productAggregates[productName] = {
+              product: productName,
+              sales_amount: 0,
+              sales_qty: 0,
+              purchase_amount: 0,  // COGS (actual consumed cost)
+              purchase_qty: 0,     // Supplied Kg
+              wastage_amount: 0,
+            };
+          }
+          
+          const agg = productAggregates[productName];
+          agg.sales_amount += item.revenue || 0;
+          agg.sales_qty += item.supplied_qty || 0;
+          agg.purchase_amount += item.cogs || 0;  // Use COGS, not total procurement
+          agg.purchase_qty += item.supplied_kg || 0;
+          agg.wastage_amount += item.wastage_value || 0;
+        });
       });
       
-      // Convert back to array and sort by Gross P/L descending
-      const mergedList = Object.values(mergedProducts).sort((a, b) => (b.profit || 0) - (a.profit || 0));
-      setProductPnlData(mergedList);
+      // Calculate profit, margin, and profit_per_unit for each product
+      const productsWithProfit = Object.values(productAggregates).map(p => {
+        // Gross P/L = Sales - COGS - Wastage
+        const profit = p.sales_amount - p.purchase_amount - p.wastage_amount;
+        const margin = p.sales_amount > 0 ? (profit / p.sales_amount) * 100 : 0;
+        const profit_per_unit = p.sales_qty > 0 ? profit / p.sales_qty : 0;
+        
+        return {
+          ...p,
+          profit,
+          margin,
+          profit_per_unit
+        };
+      });
+      
+      // Sort by Gross P/L descending
+      const sortedProducts = productsWithProfit.sort((a, b) => (b.profit || 0) - (a.profit || 0));
+      setProductPnlData(sortedProducts);
     } catch (error) {
       console.error('Failed to load product P&L:', error);
       toast.error('Failed to load product P&L data');
@@ -377,66 +395,68 @@ export default function AdminDashboard() {
     setLoadingProductDetail(true);
     
     try {
-      const response = await api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`);
-      const dailyPnl = response.data?.daily_pnl || [];
+      const [pnlResponse, productsResponse] = await Promise.all([
+        api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`),
+        api.get('/api/products')
+      ]);
+      const dailyPnl = pnlResponse.data?.daily_pnl || [];
       
-      // Extract date-wise data for this product
+      // Build alias map to find products that alias to this one
+      const productList = productsResponse.data || [];
+      const productIdToName = {};
+      productList.forEach(p => { productIdToName[p.id] = p.name; });
+      
+      // Find products that alias to the selected product
+      const aliasedProducts = [productName];
+      productList.forEach(p => {
+        if (p.cost_alias_product_id && productIdToName[p.cost_alias_product_id] === productName) {
+          aliasedProducts.push(p.name);
+        }
+      });
+      
+      // Extract date-wise data for this product and its aliases
       const productDailyData = [];
       
       dailyPnl.forEach(day => {
-        const products = day.products || [];
         const lineItems = day.line_items || [];
         
-        // Products is a list, find the product by name
-        const productData = Array.isArray(products) 
-          ? products.find(p => p.product === productName)
-          : products[productName]; // Fallback for dict format
+        // Get line items for this product AND any aliased products
+        const productLineItems = lineItems.filter(item => aliasedProducts.includes(item.product));
         
-        if (productData) {
-          const salesAmt = productData.sales || productData.sales_amount || 0;
-          const salesQty = productData.sales_qty || 0;
-          const salesKg = productData.sales_kg || 0;  // Sales in Kg for proper rate calculation
-          
-          // Calculate COGS and wastage from line_items for this product
-          // This gives us the actual consumed cost, not total procurement
-          const productLineItems = lineItems.filter(item => item.product === productName);
-          const cogsFromLineItems = productLineItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
-          const wastageFromLineItems = productLineItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
-          const suppliedKgFromLineItems = productLineItems.reduce((sum, item) => sum + (item.supplied_kg || 0), 0);
-          
-          // Use COGS from line items (actual cost consumed) instead of total procurement
-          const purchaseAmt = cogsFromLineItems > 0 ? cogsFromLineItems : (productData.purchase || 0);
-          const purchaseQty = suppliedKgFromLineItems > 0 ? suppliedKgFromLineItems : (productData.purchase_qty || 0);
-          const wastageAmt = wastageFromLineItems > 0 ? wastageFromLineItems : (productData.wastage || 0);
-          
-          // Calculate Gross P/L correctly: Sales - COGS - Wastage
-          const grossProfit = salesAmt - purchaseAmt - wastageAmt;
-          const marginPct = salesAmt > 0 ? (grossProfit / salesAmt) * 100 : 0;
-          
-          // Calculate average purchase price per kg (for COGS)
-          const avgPurchasePrice = purchaseQty > 0 ? purchaseAmt / purchaseQty : 0;
-          
-          // Wastage % should be relative to total consumed (COGS + Wastage)
-          const totalConsumed = purchaseAmt + wastageAmt;
-          const wastagePct = totalConsumed > 0 ? (wastageAmt / totalConsumed) * 100 : 0;
-          
-          productDailyData.push({
-            date: day.date,
-            sales_amount: salesAmt,
-            sales_qty: salesQty,
-            sales_kg: salesKg,
-            purchase_amount: purchaseAmt,  // Now shows COGS (consumed cost)
-            purchase_qty: purchaseQty,      // Now shows supplied Kg
-            wastage_amount: wastageAmt,
-            wastage_qty: productData.wastage_qty || 0,
-            gross_profit: grossProfit,      // Recalculated: Sales - COGS - Wastage
-            margin: marginPct.toFixed(1),
-            // Calculated fields
-            wastage_pct: wastagePct.toFixed(1),
-            avg_purchase_price: avgPurchasePrice.toFixed(2),
-            avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0
-          });
-        }
+        if (productLineItems.length === 0) return;
+        
+        // Aggregate data from line items
+        const salesAmt = productLineItems.reduce((sum, item) => sum + (item.revenue || 0), 0);
+        const salesQty = productLineItems.reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
+        const salesKg = productLineItems.reduce((sum, item) => sum + (item.supplied_kg || 0), 0);
+        const cogsAmt = productLineItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
+        const wastageAmt = productLineItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
+        
+        // Calculate Gross P/L: Sales - COGS - Wastage
+        const grossProfit = salesAmt - cogsAmt - wastageAmt;
+        const marginPct = salesAmt > 0 ? (grossProfit / salesAmt) * 100 : 0;
+        
+        // Calculate average prices
+        const avgPurchasePrice = salesKg > 0 ? cogsAmt / salesKg : 0;
+        
+        // Wastage % relative to total consumed (COGS + Wastage)
+        const totalConsumed = cogsAmt + wastageAmt;
+        const wastagePct = totalConsumed > 0 ? (wastageAmt / totalConsumed) * 100 : 0;
+        
+        productDailyData.push({
+          date: day.date,
+          sales_amount: salesAmt,
+          sales_qty: salesQty,
+          sales_kg: salesKg,
+          purchase_amount: cogsAmt,  // COGS
+          purchase_qty: salesKg,      // Supplied Kg
+          wastage_amount: wastageAmt,
+          gross_profit: grossProfit,
+          margin: marginPct.toFixed(1),
+          wastage_pct: wastagePct.toFixed(1),
+          avg_purchase_price: avgPurchasePrice.toFixed(2),
+          avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0
+        });
       });
       
       // Sort by date descending (most recent first)
@@ -1628,8 +1648,8 @@ export default function AdminDashboard() {
                       <th className="p-2.5 text-left font-medium text-gray-600">PRODUCT</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">SALES (₹)</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">SALES QTY</th>
-                      <th className="p-2.5 text-right font-medium text-gray-600">PURCHASE (₹)</th>
-                      <th className="p-2.5 text-right font-medium text-gray-600">PURCHASE QTY</th>
+                      <th className="p-2.5 text-right font-medium text-orange-600">COGS (₹)</th>
+                      <th className="p-2.5 text-right font-medium text-gray-600">COGS QTY</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">WASTAGE</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">GROSS P/L</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">MARGIN %</th>

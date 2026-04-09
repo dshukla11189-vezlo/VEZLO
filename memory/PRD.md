@@ -1153,6 +1153,21 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Currently shows ₹2,480 because only Apr 8 has attendance data
   - User needs to use "Copy to Dates" feature to backfill historical attendance
 
+### Fixed Exp Card & Product Detail Modal (COMPLETED - Apr 09, 2026)
+- [x] **FIXED EXP Card on Main Dashboard**:
+  - Added new "Fixed Exp" card in Row 2 of dashboard cards
+  - Positioned next to Variable Exp card
+  - Displays `summary.total_fixed_expenses` value (e.g., ₹75.0K)
+  - Orange gradient styling with Building2 icon
+- [x] **Product Detail Modal**:
+  - Clicking on product name in Products P&L table opens a modal
+  - Modal shows date-wise breakdown: Date, Sales (₹), Sales Qty, Purchase (₹), Purchase Qty, Wastage, Gross P/L, Margin %
+  - TOTAL footer row shows sums for all numeric columns
+  - Close options: X button, Close button, click outside modal
+  - Uses same date range as Products P&L filter
+  - Bug fixed: `products` in `daily_pnl` is a list not dict - now uses `.find()` method
+- [x] **Testing**: 100% pass rate (7/7 features verified) - `/app/test_reports/iteration_25.json`
+
 ---
 
 ## Next Tasks (Upcoming)

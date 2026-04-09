@@ -393,6 +393,7 @@ export default function AdminDashboard() {
         if (productData) {
           const salesAmt = productData.sales || productData.sales_amount || 0;
           const salesQty = productData.sales_qty || 0;
+          const salesKg = productData.sales_kg || 0;  // Sales in Kg for proper rate calculation
           const purchaseAmt = productData.purchase || productData.purchase_amount || 0;
           const purchaseQty = productData.purchase_qty || 0;
           const wastageAmt = productData.wastage || productData.wastage_amount || 0;
@@ -401,6 +402,7 @@ export default function AdminDashboard() {
             date: day.date,
             sales_amount: salesAmt,
             sales_qty: salesQty,
+            sales_kg: salesKg,
             purchase_amount: purchaseAmt,
             purchase_qty: purchaseQty,
             wastage_amount: wastageAmt,
@@ -409,10 +411,10 @@ export default function AdminDashboard() {
             margin: salesAmt > 0 
               ? ((productData.gross_profit / salesAmt) * 100).toFixed(1) 
               : 0,
-            // New calculated fields
+            // Calculated fields - use sales_kg for Avg SP (per Kg)
             wastage_pct: purchaseAmt > 0 ? ((wastageAmt / purchaseAmt) * 100).toFixed(1) : 0,
             avg_purchase_price: purchaseQty > 0 ? (purchaseAmt / purchaseQty).toFixed(2) : 0,
-            avg_selling_price: salesQty > 0 ? (salesAmt / salesQty).toFixed(2) : 0
+            avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0  // Use sales_kg for per-Kg rate
           });
         }
       });
@@ -2172,13 +2174,14 @@ export default function AdminDashboard() {
                       const totals = productDetailData.reduce((acc, d) => ({
                         sales: acc.sales + (d.sales_amount || 0),
                         salesQty: acc.salesQty + (d.sales_qty || 0),
+                        salesKg: acc.salesKg + (d.sales_kg || 0),  // Use sales_kg for avg SP calculation
                         purchase: acc.purchase + (d.purchase_amount || 0),
                         purchaseQty: acc.purchaseQty + (d.purchase_qty || 0),
                         wastage: acc.wastage + (d.wastage_amount || 0),
                         grossProfit: acc.grossProfit + (d.gross_profit || 0)
-                      }), { sales: 0, salesQty: 0, purchase: 0, purchaseQty: 0, wastage: 0, grossProfit: 0 });
+                      }), { sales: 0, salesQty: 0, salesKg: 0, purchase: 0, purchaseQty: 0, wastage: 0, grossProfit: 0 });
                       
-                      const avgSP = totals.salesQty > 0 ? (totals.sales / totals.salesQty).toFixed(2) : 0;
+                      const avgSP = totals.salesKg > 0 ? (totals.sales / totals.salesKg).toFixed(2) : 0;  // Avg SP per Kg
                       const avgPP = totals.purchaseQty > 0 ? (totals.purchase / totals.purchaseQty).toFixed(2) : 0;
                       const wastagePct = totals.purchase > 0 ? ((totals.wastage / totals.purchase) * 100).toFixed(1) : 0;
                       const marginPct = totals.sales > 0 ? ((totals.grossProfit / totals.sales) * 100).toFixed(1) : 0;

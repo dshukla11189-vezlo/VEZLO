@@ -3812,9 +3812,10 @@ async def get_pnl_report(
             
             # Product breakdown per date with customer tracking
             if product not in product_by_date[item_dispatch_date]:
-                product_by_date[item_dispatch_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+                product_by_date[item_dispatch_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
             product_by_date[item_dispatch_date][product]["sales"] += amount
             product_by_date[item_dispatch_date][product]["sales_qty"] += qty
+            product_by_date[item_dispatch_date][product]["sales_kg"] += supplied_kg
             # Track sales by customer for this product on this date
             if customer not in product_by_date[item_dispatch_date][product]["customers"]:
                 product_by_date[item_dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
@@ -4030,9 +4031,10 @@ async def get_pnl_report(
             
             # Product breakdown per date with customer tracking
             if product not in product_by_date[dispatch_date]:
-                product_by_date[dispatch_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+                product_by_date[dispatch_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
             product_by_date[dispatch_date][product]["sales"] += item_value  # Gross MRP
             product_by_date[dispatch_date][product]["sales_qty"] += qty
+            product_by_date[dispatch_date][product]["sales_kg"] += supplied_kg
             if customer not in product_by_date[dispatch_date][product]["customers"]:
                 product_by_date[dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
             product_by_date[dispatch_date][product]["customers"][customer]["sales"] += item_value
@@ -4131,7 +4133,7 @@ async def get_pnl_report(
             
             # Product breakdown per date
             if product not in product_by_date[proc_date]:
-                product_by_date[proc_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+                product_by_date[proc_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
             product_by_date[proc_date][product]["purchase"] += total_item
             product_by_date[proc_date][product]["purchase_qty"] += qty_kg
     
@@ -4163,7 +4165,7 @@ async def get_pnl_report(
         if status_date not in product_by_date:
             product_by_date[status_date] = {}
         if product not in product_by_date[status_date]:
-            product_by_date[status_date][product] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
+            product_by_date[status_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
         product_by_date[status_date][product]["wastage"] += wastage_value
     
     # ========== VARIABLE EXPENSES ==========
@@ -4306,6 +4308,7 @@ async def get_pnl_report(
                     "customers": customers_str,
                     "sales": round(prod_data["sales"], 2),
                     "sales_qty": round(prod_data["sales_qty"], 2),
+                    "sales_kg": round(prod_data.get("sales_kg", 0), 3),
                     "purchase": round(prod_data["purchase"], 2),
                     "purchase_qty": round(prod_data["purchase_qty"], 2),
                     "wastage": round(prod_data["wastage"], 2),

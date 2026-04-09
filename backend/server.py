@@ -3815,7 +3815,7 @@ async def get_pnl_report(
                 product_by_date[item_dispatch_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
             product_by_date[item_dispatch_date][product]["sales"] += amount
             product_by_date[item_dispatch_date][product]["sales_qty"] += qty
-            product_by_date[item_dispatch_date][product]["sales_kg"] += supplied_kg
+            product_by_date[item_dispatch_date][product]["sales_kg"] += grn_qty_kg  # Use GRN kg (accepted qty) for SP/Kg calculation
             # Track sales by customer for this product on this date
             if customer not in product_by_date[item_dispatch_date][product]["customers"]:
                 product_by_date[item_dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
@@ -4427,8 +4427,9 @@ async def get_pnl_report(
                 line_gross_profit = item["revenue"] - cogs - wastage_value - commission_value
                 line_gross_margin = (line_gross_profit / item["revenue"] * 100) if item["revenue"] > 0 else 0
                 
-                # Calculate price/kg metrics
-                selling_price_per_kg = (item["revenue"] / item["supplied_kg"]) if item["supplied_kg"] > 0 else 0
+                # Calculate price/kg metrics using grn_qty_kg (accepted qty) since payment is based on GRN
+                grn_kg_for_calc = item.get("grn_qty_kg", 0) or item.get("supplied_kg", 0) or 0
+                selling_price_per_kg = (item["revenue"] / grn_kg_for_calc) if grn_kg_for_calc > 0 else 0
                 purchase_price_per_kg = cogs_rate
                 profit_per_qty = (line_gross_profit / item["supplied_qty"]) if item["supplied_qty"] > 0 else 0
                 

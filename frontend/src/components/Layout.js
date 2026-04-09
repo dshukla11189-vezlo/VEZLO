@@ -4,7 +4,7 @@ import Sidebar from './Sidebar';
 import LanguageSwitcher from './LanguageSwitcher';
 import { Menu } from 'lucide-react';
 
-export default function Layout({ children, title, hideTitle, hideSidebar }) {
+export default function Layout({ children, title, hideTitle, hideSidebar, statusComponent }) {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -56,8 +56,9 @@ export default function Layout({ children, title, hideTitle, hideSidebar }) {
         )}
         <div className="p-4 md:p-6 lg:p-8">
           {title && !hideTitle && (
-            <div className="mb-4 md:mb-8">
+            <div className="mb-4 md:mb-8 flex flex-col md:flex-row items-center justify-center gap-4">
               <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-[#14532D]" data-testid="page-title">{title}</h1>
+              {statusComponent && statusComponent}
             </div>
           )}
           {children}

@@ -493,11 +493,40 @@ export default function AdminDashboard() {
       <div data-testid="pnl-dashboard">
         {/* Header with Date Filter */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Profit & Loss Dashboard</h1>
-            <p className="text-sm text-gray-500">
-              {formatDate(dateFrom)} - {formatDate(dateTo)}
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Profit & Loss Dashboard</h1>
+              <p className="text-sm text-gray-500">
+                {formatDate(dateFrom)} - {formatDate(dateTo)}
+              </p>
+            </div>
+            
+            {/* Company Status Box */}
+            {pnlData && (
+              <div className="flex items-center gap-2">
+                <div className="px-3 py-1.5 bg-gray-100 border border-gray-300 rounded-lg">
+                  <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Company Status</span>
+                </div>
+                <div className={`px-4 py-1.5 rounded-lg border-2 ${
+                  (summary.net_profit || 0) >= 0 
+                    ? 'bg-green-100 border-green-500' 
+                    : 'bg-red-100 border-red-500'
+                }`}>
+                  <div className="flex flex-col items-center">
+                    <span className={`text-lg font-bold ${
+                      (summary.net_profit || 0) >= 0 ? 'text-green-700' : 'text-red-700'
+                    }`}>
+                      {(summary.net_profit || 0) >= 0 ? '+' : ''}₹{Math.abs(summary.net_profit || 0).toLocaleString()}
+                    </span>
+                    <span className={`text-[10px] font-medium ${
+                      (summary.net_profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {(summary.net_profit || 0) >= 0 ? '✓ Profitable' : '⚠ Cash Burn'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <Input

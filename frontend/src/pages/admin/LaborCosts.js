@@ -8,7 +8,8 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { 
   Users, Plus, Edit2, Trash2, RefreshCw, Calendar, DollarSign, 
-  Clock, User, Phone, Save, X, ChevronDown, ChevronRight, Building2, CalendarDays
+  Clock, User, Phone, Save, X, ChevronDown, ChevronRight, Building2, CalendarDays,
+  Copy, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react';
 import {
   Dialog,
@@ -20,7 +21,8 @@ import {
 
 export default function LaborCosts() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('costs'); // 'costs' or 'labours'
+  const [activeTab, setActiveTab] = useState('costs'); // 'costs', 'attendance', or 'labours'
+  const today = new Date().toISOString().split('T')[0];
   
   // Labours state
   const [labours, setLabours] = useState([]);
@@ -47,6 +49,20 @@ export default function LaborCosts() {
   const [costsSummary, setCostsSummary] = useState(null);
   const [loadingCosts, setLoadingCosts] = useState(false);
   const [expandedDates, setExpandedDates] = useState({});
+
+  // Attendance state (for admin recording)
+  const [attendanceDate, setAttendanceDate] = useState(today);
+  const [attendance, setAttendance] = useState([]);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [savingAttendance, setSavingAttendance] = useState(false);
+  const [hasAttendanceChanges, setHasAttendanceChanges] = useState(false);
+  
+  // Copy attendance modal
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copyFromDate, setCopyFromDate] = useState(today);
+  const [copyToDateStart, setCopyToDateStart] = useState('');
+  const [copyToDateEnd, setCopyToDateEnd] = useState('');
+  const [copying, setCopying] = useState(false);
 
   // Load labours
   const loadLabours = useCallback(async () => {
@@ -83,6 +99,177 @@ export default function LaborCosts() {
       loadCostsSummary();
     }
   }, [activeTab, loadCostsSummary]);
+
+  // Load attendance for a specific date
+  const loadAttendance = useCallback(async () => {
+    setLoadingAttendance(true);
+    try {
+      const response = await api.get(`/api/labour-attendance?date=${attendanceDate}`);
+      setAttendance(response.data);
+      setHasAttendanceChanges(false);
+    } catch (error) {
+      toast.error('Failed to load attendance');
+    } finally {
+      setLoadingAttendance(false);
+    }
+  }, [attendanceDate]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') {
+      loadAttendance();
+    }
+  }, [activeTab, loadAttendance]);
+
+  // Update attendance for a labour
+  const updateAttendance = (labourId, field, value) => {
+    setAttendance(prev => prev.map(record => {
+      if (record.labour_id === labourId) {
+        const updated = { ...record, [field]: value };
+        if (!updated.present) {
+          updated.overtime_hours = 0;
+        }
+        return updated;
+      }
+      return record;
+    }));
+    setHasAttendanceChanges(true);
+  };
+
+  // Toggle present status
+  const togglePresent = (labourId) => {
+    setAttendance(prev => prev.map(record => {
+      if (record.labour_id === labourId) {
+        const newPresent = !record.present;
+        return {
+          ...record,
+          present: newPresent,
+          overtime_hours: newPresent ? record.overtime_hours : 0
+        };
+      }
+      return record;
+    }));
+    setHasAttendanceChanges(true);
+  };
+
+  // Mark all present
+  const markAllPresent = () => {
+    setAttendance(prev => prev.map(record => ({
+      ...record,
+      present: true
+    })));
+    setHasAttendanceChanges(true);
+  };
+
+  // Mark all absent  
+  const markAllAbsent = () => {
+    setAttendance(prev => prev.map(record => ({
+      ...record,
+      present: false,
+      overtime_hours: 0
+    })));
+    setHasAttendanceChanges(true);
+  };
+
+  // Save attendance
+  const saveAttendance = async () => {
+    setSavingAttendance(true);
+    try {
+      const records = attendance.map(a => ({
+        labour_id: a.labour_id,
+        labour_name: a.labour_name,
+        present: a.present,
+        overtime_hours: a.overtime_hours,
+        daily_rate: a.daily_rate,
+        overtime_rate: a.overtime_rate
+      }));
+
+      await api.post('/api/labour-attendance/bulk', {
+        date: attendanceDate,
+        records
+      });
+
+      toast.success('Attendance saved successfully');
+      setHasAttendanceChanges(false);
+      loadAttendance();
+    } catch (error) {
+      toast.error('Failed to save attendance');
+    } finally {
+      setSavingAttendance(false);
+    }
+  };
+
+  // Copy attendance to date range
+  const copyAttendanceToDateRange = async () => {
+    if (!copyFromDate || !copyToDateStart || !copyToDateEnd) {
+      toast.error('Please select all dates');
+      return;
+    }
+    if (copyToDateEnd < copyToDateStart) {
+      toast.error('End date must be after start date');
+      return;
+    }
+
+    setCopying(true);
+    try {
+      // First, get the source attendance
+      const sourceResponse = await api.get(`/api/labour-attendance?date=${copyFromDate}`);
+      const sourceAttendance = sourceResponse.data;
+
+      if (!sourceAttendance.length) {
+        toast.error(`No attendance data found for ${copyFromDate}`);
+        setCopying(false);
+        return;
+      }
+
+      // Generate date range
+      const dates = [];
+      let currentDate = new Date(copyToDateStart);
+      const endDate = new Date(copyToDateEnd);
+      while (currentDate <= endDate) {
+        dates.push(currentDate.toISOString().split('T')[0]);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Copy to each date
+      let successCount = 0;
+      for (const date of dates) {
+        try {
+          const records = sourceAttendance.map(a => ({
+            labour_id: a.labour_id,
+            labour_name: a.labour_name,
+            present: a.present,
+            overtime_hours: a.overtime_hours,
+            daily_rate: a.daily_rate,
+            overtime_rate: a.overtime_rate
+          }));
+
+          await api.post('/api/labour-attendance/bulk', { date, records });
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to copy to ${date}:`, err);
+        }
+      }
+
+      toast.success(`Copied attendance to ${successCount} of ${dates.length} dates`);
+      setShowCopyModal(false);
+      setCopyToDateStart('');
+      setCopyToDateEnd('');
+      
+      // Refresh costs summary if on that tab
+      if (activeTab === 'costs') {
+        loadCostsSummary();
+      }
+    } catch (error) {
+      toast.error('Failed to copy attendance');
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  // Calculate attendance totals
+  const attendancePresentCount = attendance.filter(a => a.present).length;
+  const attendanceAbsentCount = attendance.length - attendancePresentCount;
+  const totalOvertimeHours = attendance.reduce((sum, a) => sum + (a.present ? a.overtime_hours : 0), 0);
 
   // Labour form handlers
   const openAddLabour = () => {
@@ -187,7 +374,7 @@ export default function LaborCosts() {
     <Layout title="Labor Costs">
       <div data-testid="labor-costs-page">
         {/* Tabs */}
-        <div className="flex gap-2 mb-4 border-b pb-2">
+        <div className="flex flex-wrap gap-2 mb-4 border-b pb-2">
           <Button
             variant={activeTab === 'costs' ? 'default' : 'ghost'}
             size="sm"
@@ -196,6 +383,15 @@ export default function LaborCosts() {
             data-testid="tab-costs"
           >
             <DollarSign size={16} className="mr-1" /> Daily Costs
+          </Button>
+          <Button
+            variant={activeTab === 'attendance' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('attendance')}
+            className={activeTab === 'attendance' ? 'bg-[#14532D]' : ''}
+            data-testid="tab-attendance"
+          >
+            <CheckCircle2 size={16} className="mr-1" /> Record Attendance
           </Button>
           <Button
             variant={activeTab === 'labours' ? 'default' : 'ghost'}
@@ -532,6 +728,161 @@ export default function LaborCosts() {
           </div>
         )}
 
+        {/* Record Attendance Tab */}
+        {activeTab === 'attendance' && (
+          <div className="space-y-4">
+            {/* Date Picker & Actions */}
+            <div className="flex flex-wrap gap-3 items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar size={18} className="text-gray-500" />
+                <Input
+                  type="date"
+                  value={attendanceDate}
+                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  className="w-40 h-9"
+                  data-testid="attendance-date-input"
+                />
+                {attendanceDate === today && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Today</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowCopyModal(true)} data-testid="copy-attendance-btn">
+                  <Copy size={14} className="mr-1" /> Copy to Dates
+                </Button>
+                <Button variant="outline" size="sm" onClick={loadAttendance} data-testid="refresh-attendance-btn">
+                  <RefreshCw size={14} className="mr-1" /> Refresh
+                </Button>
+                <Button 
+                  size="sm" 
+                  onClick={saveAttendance} 
+                  disabled={!hasAttendanceChanges || savingAttendance}
+                  className="bg-[#14532D]"
+                  data-testid="save-attendance-btn"
+                >
+                  <Save size={14} className="mr-1" /> {savingAttendance ? 'Saving...' : 'Save Attendance'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={markAllPresent}>
+                <CheckCircle2 size={14} className="mr-1 text-green-600" /> Mark All Present
+              </Button>
+              <Button variant="outline" size="sm" onClick={markAllAbsent}>
+                <XCircle size={14} className="mr-1 text-red-600" /> Mark All Absent
+              </Button>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-3">
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-blue-600 rounded-lg">
+                      <Users className="text-white" size={16} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-blue-800 font-medium uppercase">Total</p>
+                      <p className="text-lg font-bold text-blue-900">{attendance.length}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-green-600 rounded-lg">
+                      <CheckCircle2 className="text-white" size={16} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-green-800 font-medium uppercase">Present</p>
+                      <p className="text-lg font-bold text-green-900">{attendancePresentCount}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-orange-600 rounded-lg">
+                      <Clock className="text-white" size={16} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-orange-800 font-medium uppercase">OT Hours</p>
+                      <p className="text-lg font-bold text-orange-900">{totalOvertimeHours}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Attendance Table */}
+            {loadingAttendance ? (
+              <div className="flex items-center justify-center h-40">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
+              </div>
+            ) : (
+              <div className="data-table overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>LABOURER</th>
+                      <th className="text-center">STATUS</th>
+                      <th className="text-center">OT HOURS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendance.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="text-center text-gray-500 py-8">
+                          No labourers found. Add labourers in "Manage Labourers" tab first.
+                        </td>
+                      </tr>
+                    ) : (
+                      attendance.map((record) => (
+                        <tr key={record.labour_id} className={record.present ? '' : 'bg-gray-50'} data-testid={`attendance-row-${record.labour_id}`}>
+                          <td className="font-medium">{record.labour_name}</td>
+                          <td className="text-center">
+                            <button
+                              onClick={() => togglePresent(record.labour_id)}
+                              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                                record.present 
+                                  ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                                  : 'bg-red-100 text-red-700 hover:bg-red-200'
+                              }`}
+                              data-testid={`toggle-present-${record.labour_id}`}
+                            >
+                              {record.present ? '✓ Present' : '✗ Absent'}
+                            </button>
+                          </td>
+                          <td className="text-center">
+                            {record.present ? (
+                              <Input
+                                type="number"
+                                value={record.overtime_hours}
+                                onChange={(e) => updateAttendance(record.labour_id, 'overtime_hours', parseFloat(e.target.value) || 0)}
+                                min="0"
+                                max="12"
+                                step="0.5"
+                                className="w-20 h-8 text-center mx-auto"
+                                data-testid={`ot-hours-${record.labour_id}`}
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Add/Edit Labour Modal */}
         <Dialog open={showLabourModal} onOpenChange={setShowLabourModal}>
           <DialogContent className="sm:max-w-lg">
@@ -613,6 +964,91 @@ export default function LaborCosts() {
               </Button>
               <Button onClick={handleSaveLabour} className="bg-[#14532D]" data-testid="save-labour-btn">
                 <Save size={16} className="mr-1" /> Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Copy Attendance Modal */}
+        <Dialog open={showCopyModal} onOpenChange={setShowCopyModal}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Copy size={20} /> Copy Attendance to Date Range
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <Card className="bg-blue-50 border-blue-200">
+                <CardContent className="p-3 text-sm text-blue-800">
+                  <AlertCircle size={16} className="inline mr-2" />
+                  This will copy attendance data from the source date to all dates in the selected range. Existing data for those dates will be overwritten.
+                </CardContent>
+              </Card>
+              
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Copy From (Source Date)</label>
+                <Input
+                  type="date"
+                  value={copyFromDate}
+                  onChange={(e) => setCopyFromDate(e.target.value)}
+                  className="w-full"
+                  data-testid="copy-from-date"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Select the date whose attendance you want to copy
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">To Start Date</label>
+                  <Input
+                    type="date"
+                    value={copyToDateStart}
+                    onChange={(e) => setCopyToDateStart(e.target.value)}
+                    className="w-full"
+                    data-testid="copy-to-start-date"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">To End Date</label>
+                  <Input
+                    type="date"
+                    value={copyToDateEnd}
+                    onChange={(e) => setCopyToDateEnd(e.target.value)}
+                    className="w-full"
+                    data-testid="copy-to-end-date"
+                  />
+                </div>
+              </div>
+
+              {copyToDateStart && copyToDateEnd && copyToDateEnd >= copyToDateStart && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                  Will copy to <strong>
+                    {Math.ceil((new Date(copyToDateEnd) - new Date(copyToDateStart)) / (1000 * 60 * 60 * 24)) + 1}
+                  </strong> dates
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCopyModal(false)} disabled={copying}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={copyAttendanceToDateRange} 
+                className="bg-[#14532D]" 
+                disabled={copying || !copyFromDate || !copyToDateStart || !copyToDateEnd}
+                data-testid="confirm-copy-btn"
+              >
+                {copying ? (
+                  <>
+                    <RefreshCw size={16} className="mr-1 animate-spin" /> Copying...
+                  </>
+                ) : (
+                  <>
+                    <Copy size={16} className="mr-1" /> Copy Attendance
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

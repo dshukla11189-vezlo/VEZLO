@@ -1113,6 +1113,20 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Stock status purchase_value is updated to reflect new rate
   - P&L and wastage calculations use the updated values
 
+### Admin Attendance Recording & Copy Feature (COMPLETED - Apr 09, 2026)
+- [x] **Admin Attendance Recording**:
+  - Added "Record Attendance" tab to Admin Labor Costs page
+  - Admin can now record attendance for any date (not restricted to today)
+  - Features: Date picker, Present/Absent toggle, OT hours input
+  - Quick actions: "Mark All Present", "Mark All Absent"
+  - Summary cards: Total, Present, OT Hours
+- [x] **Copy Attendance to Date Range**:
+  - New "Copy to Dates" button opens modal
+  - Select source date (date to copy FROM)
+  - Select target date range (start and end dates)
+  - Copies attendance data to all dates in range
+  - Useful for backfilling historical attendance data before Apr 8
+
 ---
 
 ## Next Tasks (Upcoming)

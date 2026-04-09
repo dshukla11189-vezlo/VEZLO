@@ -1281,25 +1281,43 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
         raise HTTPException(status_code=404, detail="Procurement not found")
     
     old_date = existing.get("date")
+    old_products = existing.get("products", [])
     
-    # Allow updating payment-related fields and date
+    # Build update fields - allow updating all relevant fields
     update_fields = {}
+    
+    # Payment-related fields
     if "paid_amount" in input:
         update_fields["paid_amount"] = input["paid_amount"]
     if "pending_amount" in input:
         update_fields["pending_amount"] = input["pending_amount"]
     if "payment_status" in input:
         update_fields["payment_status"] = input["payment_status"]
+    if "total_amount" in input:
+        update_fields["total_amount"] = input["total_amount"]
+    if "remark" in input:
+        update_fields["remark"] = input["remark"]
+    if "status" in input:
+        update_fields["status"] = input["status"]
+    
+    # Date field
+    new_date = None
     if "date" in input:
-        # Convert date string to ISO format if needed
         new_date = input["date"]
         if isinstance(new_date, str) and len(new_date) == 10:
-            # Simple date like "2026-04-05", add time component
             new_date = f"{new_date}T00:00:00+00:00"
         update_fields["date"] = new_date
     
+    # Products array - this is critical for updating rates and totals
+    if "products" in input:
+        update_fields["products"] = input["products"]
+    
     if not update_fields:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    
+    # Calculate stock status changes if products or date changed
+    products_changed = "products" in update_fields
+    date_changed = "date" in update_fields and old_date != update_fields.get("date")
     
     result = await db.procurements.find_one_and_update(
         {"id": procurement_id},
@@ -1311,44 +1329,74 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
     if not result:
         raise HTTPException(status_code=404, detail="Procurement not found")
     
-    # If date changed, update stock status for both old and new dates
-    if "date" in update_fields and old_date != update_fields["date"]:
+    # Update stock status when products or date changes
+    if products_changed or date_changed:
         old_date_str = str(old_date)[:10] if old_date else None
-        new_date_str = str(update_fields["date"])[:10]
+        new_date_str = str(update_fields.get("date", old_date))[:10] if update_fields.get("date") or old_date else None
+        new_products = update_fields.get("products", old_products)
         
-        # Update stock status for products on both dates
-        for item in existing.get("products", []):
+        # Build maps of old and new product data
+        old_product_map = {}
+        for item in old_products:
             product_id = item.get("product_id")
-            if not product_id:
-                continue
+            if product_id:
+                qty = float(item.get("quantity", 0) or 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                qty_kg = qty
+                if unit == "Bunch" and unit_size:
+                    try:
+                        qty_kg = (qty * float(unit_size)) / 1000
+                    except:
+                        pass
+                total_value = float(item.get("total", 0) or 0)
+                old_product_map[product_id] = {"qty_kg": qty_kg, "total_value": total_value}
+        
+        new_product_map = {}
+        for item in new_products:
+            product_id = item.get("product_id")
+            if product_id:
+                qty = float(item.get("quantity", 0) or 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                qty_kg = qty
+                if unit == "Bunch" and unit_size:
+                    try:
+                        qty_kg = (qty * float(unit_size)) / 1000
+                    except:
+                        pass
+                total_value = float(item.get("total", 0) or 0)
+                new_product_map[product_id] = {"qty_kg": qty_kg, "total_value": total_value}
+        
+        # Get all affected product IDs
+        all_product_ids = set(old_product_map.keys()) | set(new_product_map.keys())
+        
+        for product_id in all_product_ids:
+            old_data = old_product_map.get(product_id, {"qty_kg": 0, "total_value": 0})
+            new_data = new_product_map.get(product_id, {"qty_kg": 0, "total_value": 0})
             
-            qty = float(item.get("quantity", 0) or 0)
-            unit = item.get("unit", "Kg")
-            unit_size = item.get("unit_size", "")
-            
-            # Convert to Kg
-            qty_kg = qty
-            if unit == "Bunch" and unit_size:
-                try:
-                    qty_kg = (qty * float(unit_size)) / 1000
-                except:
-                    pass
-            
-            total_value = float(item.get("total", 0) or 0)
-            
-            # Subtract from old date's stock status
-            if old_date_str:
-                await db.daily_stock_status.update_one(
-                    {"date": old_date_str, "product_id": product_id},
-                    {"$inc": {"purchase_qty": -qty_kg, "purchase_value": -total_value}}
-                )
-            
-            # Add to new date's stock status
-            await db.daily_stock_status.update_one(
-                {"date": new_date_str, "product_id": product_id},
-                {"$inc": {"purchase_qty": qty_kg, "purchase_value": total_value}},
-                upsert=False  # Only update if exists
-            )
+            if date_changed:
+                # Date changed: subtract from old date, add to new date
+                if old_date_str:
+                    await db.daily_stock_status.update_one(
+                        {"date": old_date_str, "product_id": product_id},
+                        {"$inc": {"purchase_qty": -old_data["qty_kg"], "purchase_value": -old_data["total_value"]}}
+                    )
+                if new_date_str:
+                    await db.daily_stock_status.update_one(
+                        {"date": new_date_str, "product_id": product_id},
+                        {"$inc": {"purchase_qty": new_data["qty_kg"], "purchase_value": new_data["total_value"]}},
+                        upsert=False
+                    )
+            elif products_changed and new_date_str:
+                # Only products changed: update the difference on the same date
+                qty_diff = new_data["qty_kg"] - old_data["qty_kg"]
+                value_diff = new_data["total_value"] - old_data["total_value"]
+                if qty_diff != 0 or value_diff != 0:
+                    await db.daily_stock_status.update_one(
+                        {"date": new_date_str, "product_id": product_id},
+                        {"$inc": {"purchase_qty": qty_diff, "purchase_value": value_diff}}
+                    )
     
     return {"message": "Procurement updated successfully", "procurement": result}
 

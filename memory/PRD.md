@@ -1102,6 +1102,17 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Returns product-wise wastage for any selected date
 - [x] **Testing**: 100% pass rate (10/10 features verified) - `/app/test_reports/iteration_24.json`
 
+### Bug Fix - Procurement Rate Update (COMPLETED - Apr 09, 2026)
+- [x] **Issue**: When editing procurement rate, the total wasn't being saved. Old backend only accepted payment fields, not products/rate/total.
+- [x] **Fix**: Updated `update_procurement` endpoint in server.py to:
+  - Accept `products` array with updated rate/total values
+  - Accept `total_amount`, `remark`, `status` fields
+  - Automatically recalculate and update `daily_stock_status.purchase_value` when rate changes
+- [x] **Result**: 
+  - Editing procurement rate now correctly updates the total
+  - Stock status purchase_value is updated to reflect new rate
+  - P&L and wastage calculations use the updated values
+
 ---
 
 ## Next Tasks (Upcoming)

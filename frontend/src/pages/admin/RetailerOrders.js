@@ -3200,6 +3200,63 @@ export default function RetailerOrders() {
                     <Search size={14} className="mr-1" /> Load
                   </Button>
                 </div>
+                <div className="flex items-end">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      if (closingInventoryData.length === 0) {
+                        toast.error('No inventory data to export');
+                        return;
+                      }
+                      
+                      // Build export data
+                      const exportData = closingInventoryData.map(item => ({
+                        'Product Name': item.product_name || '',
+                        'Variant': item.variant_name || 'Kg',
+                        'Opening': item.opening_qty || 0,
+                        'Received': item.received_qty || 0,
+                        'Rejection': item.rejection_qty || 0,
+                        'Items Sold': Math.max(0, (item.opening_qty || 0) + (item.received_qty || 0) - (item.rejection_qty || 0) - (item.closing_qty || 0)),
+                        'Closing': item.closing_qty ?? 0
+                      }));
+                      
+                      // Create CSV content
+                      const headers = ['Product Name', 'Variant', 'Opening', 'Received', 'Rejection', 'Items Sold', 'Closing'];
+                      const csvRows = [
+                        headers.join(','),
+                        ...exportData.map(row => 
+                          headers.map(h => {
+                            const val = row[h];
+                            if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+                              return `"${val.replace(/"/g, '""')}"`;
+                            }
+                            return val;
+                          }).join(',')
+                        )
+                      ];
+                      const csvContent = csvRows.join('\n');
+                      
+                      // Download as CSV
+                      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                      const url = window.URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      const retailerName = retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer';
+                      link.setAttribute('download', `Inventory_${retailerName}_${closingInventoryDate}.csv`);
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                      window.URL.revokeObjectURL(url);
+                      
+                      toast.success('Inventory exported successfully');
+                    }}
+                    className="h-9 text-green-700 border-green-300 hover:bg-green-50"
+                    disabled={closingInventoryData.length === 0}
+                  >
+                    <Download size={14} className="mr-1" /> Export
+                  </Button>
+                </div>
               </div>
 
               {/* Full Inventory Table */}

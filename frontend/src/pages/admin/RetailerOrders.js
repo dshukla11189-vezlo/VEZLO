@@ -345,14 +345,43 @@ export default function RetailerOrders() {
     }
   };
 
-  // Admin: Delete closing inventory item
-  const adminDeleteClosingItem = async (itemId, productName) => {
-    if (!window.confirm(`Delete closing entry for "${productName}"?`)) return;
+  // Admin: Delete closing inventory item - with dispatch linkage check
+  const adminDeleteClosingItem = async (item) => {
+    const { id: itemId, product_name, received_qty, linked_dispatches, opening_qty } = item;
+    
+    // Check if item is linked to any dispatch
+    const hasDispatchLinkage = (received_qty > 0) || (linked_dispatches && linked_dispatches.length > 0);
+    
+    if (hasDispatchLinkage) {
+      // Show dispatch info modal instead of deleting
+      const dispatchDates = linked_dispatches?.map(d => d.dispatch_date) || [];
+      const uniqueDates = [...new Set(dispatchDates)];
+      setDispatchLinkedItemInfo({
+        product_name,
+        variant_name: item.variant_name,
+        linked_dispatches: linked_dispatches || [],
+        opening_qty: opening_qty || 0,
+        received_qty: received_qty || 0,
+        dispatch_dates: uniqueDates
+      });
+      return; // Don't delete - show info instead
+    }
+    
+    // Check if item only has opening_qty (from previous closing, not dispatch)
+    if (!itemId) {
+      toast.error('This item has no database record to delete. It may be derived from previous day closing.');
+      return;
+    }
+    
+    // Not linked to dispatch - proceed with delete confirmation
+    if (!window.confirm(`Delete closing entry for "${product_name}"?`)) return;
+    
     try {
       await api.delete(`/api/retailer-closing-inventory/item/${itemId}`);
-      toast.success('Item deleted');
+      toast.success('Item deleted successfully');
       loadClosingInventory();
     } catch (error) {
+      console.error('Delete error:', error);
       toast.error('Failed to delete item');
     }
   };
@@ -3327,33 +3356,15 @@ export default function RetailerOrders() {
                                       >
                                         <Pencil size={12} />
                                       </Button>
-                                      {item.id ? (
-                                        <Button 
-                                          size="sm" 
-                                          variant="ghost"
-                                          onClick={() => adminDeleteClosingItem(item.id, item.product_name)}
-                                          className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                                          title="Delete"
-                                        >
-                                          <Trash2 size={12} />
-                                        </Button>
-                                      ) : (
-                                        <Button 
-                                          size="sm" 
-                                          variant="ghost"
-                                          onClick={() => setDispatchLinkedItemInfo({
-                                            product_name: item.product_name,
-                                            variant_name: item.variant_name,
-                                            linked_dispatches: item.linked_dispatches || [],
-                                            opening_qty: item.opening_qty,
-                                            received_qty: item.received_qty
-                                          })}
-                                          className="h-7 w-7 p-0 text-amber-600 hover:bg-amber-50"
-                                          title="This item is linked to dispatch - click for details"
-                                        >
-                                          <AlertTriangle size={12} />
-                                        </Button>
-                                      )}
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        onClick={() => adminDeleteClosingItem(item)}
+                                        className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={12} />
+                                      </Button>
                                     </div>
                                   )}
                                 </td>
@@ -3416,7 +3427,7 @@ export default function RetailerOrders() {
               <div className="flex items-center justify-between p-4 border-b bg-amber-50">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="text-amber-600" size={20} />
-                  <h3 className="text-lg font-semibold text-amber-800">Item Linked to Dispatch</h3>
+                  <h3 className="text-lg font-semibold text-amber-800">Cannot Delete - Linked to Dispatch</h3>
                 </div>
                 <button onClick={() => setDispatchLinkedItemInfo(null)} className="p-1 hover:bg-amber-100 rounded">
                   <X size={20} />
@@ -3436,29 +3447,28 @@ export default function RetailerOrders() {
                   </div>
                 </div>
                 
-                <div className="text-sm text-gray-600">
-                  <p className="font-medium text-gray-800 mb-2">This item cannot be deleted because:</p>
-                  <ul className="list-disc list-inside space-y-1 text-gray-600">
-                    <li>It is derived from dispatch/opening data, not from a saved closing record</li>
-                    {dispatchLinkedItemInfo.linked_dispatches?.length > 0 && (
-                      <li>
-                        Linked to dispatches on: {' '}
-                        <span className="font-medium text-gray-800">
-                          {[...new Set(dispatchLinkedItemInfo.linked_dispatches.map(d => d.dispatch_date))].slice(0, 3).join(', ')}
-                          {dispatchLinkedItemInfo.linked_dispatches.length > 3 && ' ...'}
-                        </span>
-                      </li>
-                    )}
-                  </ul>
+                <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
+                  <p className="font-medium text-red-800 mb-2">This item cannot be deleted because:</p>
+                  <p className="text-red-700">
+                    It is linked to dispatch on{' '}
+                    <strong>
+                      {dispatchLinkedItemInfo.dispatch_dates?.length > 0 
+                        ? dispatchLinkedItemInfo.dispatch_dates.slice(0, 3).join(', ')
+                        : dispatchLinkedItemInfo.linked_dispatches?.length > 0
+                          ? [...new Set(dispatchLinkedItemInfo.linked_dispatches.map(d => d.dispatch_date))].slice(0, 3).join(', ')
+                          : 'a previous date'
+                      }
+                    </strong>
+                  </p>
                 </div>
                 
                 <div className="bg-blue-50 p-3 rounded-lg text-sm">
-                  <p className="font-medium text-blue-800 mb-1">How to fix duplicate variants:</p>
+                  <p className="font-medium text-blue-800 mb-1">To remove this item:</p>
                   <ol className="list-decimal list-inside space-y-1 text-blue-700">
                     <li>Go to <strong>Dispatches</strong> tab</li>
-                    <li>Find the dispatch with the incorrect variant</li>
-                    <li>Edit the variant to the correct one</li>
-                    <li>Come back here and <strong>Reload</strong> the inventory</li>
+                    <li>Find the dispatch for the date mentioned above</li>
+                    <li>Remove or edit this product from that dispatch</li>
+                    <li>Come back here and click <strong>Load</strong> to refresh</li>
                   </ol>
                 </div>
                 

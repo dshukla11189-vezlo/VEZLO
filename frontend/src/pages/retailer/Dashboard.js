@@ -642,11 +642,10 @@ export default function RetailerDashboard() {
         }
       });
       
-      // Calculate items sold for each entry: Items Sold = Opening + Received - Closing
-      // Note: Rejection is NOT subtracted from Items Sold formula per user requirement
+      // Calculate items sold for each entry: Items Sold = Opening + Received - Rejection - Closing
       const inventoryItemsRaw = Object.values(inventoryMap).map(item => {
         const calculatedSold = item.closing_qty !== undefined && item.closing_qty !== null
-          ? (item.opening_qty + item.received_qty - item.closing_qty)
+          ? (item.opening_qty + item.received_qty - item.rejection_qty - item.closing_qty)
           : null;
         // Default to 0 if sold items are negative (due to missing earlier data)
         const itemsSold = calculatedSold !== null ? Math.max(0, calculatedSold) : null;

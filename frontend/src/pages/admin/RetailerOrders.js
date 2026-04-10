@@ -3208,13 +3208,13 @@ export default function RetailerOrders() {
                             return bClosing - aClosing;
                           })
                           .map(item => {
-                            // Calculate items sold: Opening + Received - Closing
-                            // Note: Rejection is NOT subtracted from Items Sold formula per user requirement
+                            // Calculate items sold: Opening + Received - Rejection - Closing
                             const openingQty = item.opening_qty || 0;
                             const receivedQty = item.received_qty || 0;
+                            const rejectionQty = item.rejection_qty || 0;
                             const closingQty = item.closing_qty || 0;
                             // Default to 0 if calculated items sold is negative
-                            const itemsSold = Math.max(0, openingQty + receivedQty - closingQty);
+                            const itemsSold = Math.max(0, openingQty + receivedQty - rejectionQty - closingQty);
                             
                             return (
                               <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
@@ -3361,9 +3361,10 @@ export default function RetailerOrders() {
                             {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => {
                               const open = i.opening_qty || 0;
                               const recv = i.received_qty || 0;
+                              const rej = i.rejection_qty || 0;
                               const close = i.closing_qty || 0;
-                              // Items Sold = Opening + Received - Closing (no rejection)
-                              return sum + Math.max(0, open + recv - close);
+                              // Items Sold = Opening + Received - Rejection - Closing
+                              return sum + Math.max(0, open + recv - rej - close);
                             }, 0)}
                           </td>
                           <td className="p-3 text-center text-amber-600">

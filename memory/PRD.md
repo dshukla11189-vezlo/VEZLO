@@ -1184,19 +1184,19 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Added deduplication logic based on `product_id + variant_name`
   - Applied to both `closingItems` (Record Closing modal) and `inventoryData` (Daily Inventory view)
   - Prevents same product+variant from appearing multiple times
-- [x] **Fixed Admin delete not working**:
-  - Delete button now only shows for items that have a valid `id` in the database
-  - Items computed from dispatches/opening (without actual closing record) won't show delete button
-  - This prevents the false "Item deleted" success message
+- [x] **Improved Admin delete handling for dispatch-linked items**:
+  - Items with database `id` show edit (pencil) and delete (trash) buttons
+  - Items derived from dispatches (no `id`) show amber warning button
+  - Clicking warning button opens modal explaining:
+    - Why item cannot be deleted (linked to dispatch)
+    - Which dispatch dates the item is linked to
+    - Step-by-step guide to fix duplicate variants via Dispatches tab
+  - Backend now includes `linked_dispatches` data in summary response
 - [x] **Added Excel Export to Retailer Inventory**:
   - New "Export" button in Daily Inventory tab
   - Exports CSV file with columns: Product Name, Variant, Type, Category, Closing Qty
   - Filename format: `Inventory_YYYY-MM-DD.csv`
-- [x] **Fixed Items Sold formula**:
-  - Changed from: `Opening + Received - Rejection - Closing`
-  - To: `Opening + Received - Closing`
-  - Rejection is now excluded from Items Sold calculation as per user requirement
-  - Applied in both Retailer Dashboard and Admin RetailerOrders pages
+- [x] **Items Sold formula**: `Opening + Received - Rejection - Closing` (unchanged)
 
 ---
 

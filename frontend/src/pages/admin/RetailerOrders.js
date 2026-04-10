@@ -183,7 +183,7 @@ export default function RetailerOrders() {
   const [editingClosingQty, setEditingClosingQty] = useState('');
   const [editingClosingVariant, setEditingClosingVariant] = useState('');
   const [variantSearchTerm, setVariantSearchTerm] = useState('');
-  
+  const [dispatchLinkedItemInfo, setDispatchLinkedItemInfo] = useState(null); // Modal for dispatch-linked items  
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
@@ -3327,7 +3327,7 @@ export default function RetailerOrders() {
                                       >
                                         <Pencil size={12} />
                                       </Button>
-                                      {item.id && (
+                                      {item.id ? (
                                         <Button 
                                           size="sm" 
                                           variant="ghost"
@@ -3336,6 +3336,22 @@ export default function RetailerOrders() {
                                           title="Delete"
                                         >
                                           <Trash2 size={12} />
+                                        </Button>
+                                      ) : (
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost"
+                                          onClick={() => setDispatchLinkedItemInfo({
+                                            product_name: item.product_name,
+                                            variant_name: item.variant_name,
+                                            linked_dispatches: item.linked_dispatches || [],
+                                            opening_qty: item.opening_qty,
+                                            received_qty: item.received_qty
+                                          })}
+                                          className="h-7 w-7 p-0 text-amber-600 hover:bg-amber-50"
+                                          title="This item is linked to dispatch - click for details"
+                                        >
+                                          <AlertTriangle size={12} />
                                         </Button>
                                       )}
                                     </div>
@@ -3391,6 +3407,78 @@ export default function RetailerOrders() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* ==================== DISPATCH-LINKED ITEM INFO MODAL ==================== */}
+        {dispatchLinkedItemInfo && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="flex items-center justify-between p-4 border-b bg-amber-50">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="text-amber-600" size={20} />
+                  <h3 className="text-lg font-semibold text-amber-800">Item Linked to Dispatch</h3>
+                </div>
+                <button onClick={() => setDispatchLinkedItemInfo(null)} className="p-1 hover:bg-amber-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="font-medium text-gray-800">{dispatchLinkedItemInfo.product_name}</p>
+                  <p className="text-sm text-gray-500">{dispatchLinkedItemInfo.variant_name}</p>
+                  <div className="flex gap-4 mt-2 text-sm">
+                    {dispatchLinkedItemInfo.opening_qty > 0 && (
+                      <span className="text-blue-600">Opening: {dispatchLinkedItemInfo.opening_qty}</span>
+                    )}
+                    {dispatchLinkedItemInfo.received_qty > 0 && (
+                      <span className="text-green-600">Received: +{dispatchLinkedItemInfo.received_qty}</span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="text-sm text-gray-600">
+                  <p className="font-medium text-gray-800 mb-2">This item cannot be deleted because:</p>
+                  <ul className="list-disc list-inside space-y-1 text-gray-600">
+                    <li>It is derived from dispatch/opening data, not from a saved closing record</li>
+                    {dispatchLinkedItemInfo.linked_dispatches?.length > 0 && (
+                      <li>
+                        Linked to dispatches on: {' '}
+                        <span className="font-medium text-gray-800">
+                          {[...new Set(dispatchLinkedItemInfo.linked_dispatches.map(d => d.dispatch_date))].slice(0, 3).join(', ')}
+                          {dispatchLinkedItemInfo.linked_dispatches.length > 3 && ' ...'}
+                        </span>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+                
+                <div className="bg-blue-50 p-3 rounded-lg text-sm">
+                  <p className="font-medium text-blue-800 mb-1">How to fix duplicate variants:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                    <li>Go to <strong>Dispatches</strong> tab</li>
+                    <li>Find the dispatch with the incorrect variant</li>
+                    <li>Edit the variant to the correct one</li>
+                    <li>Come back here and <strong>Reload</strong> the inventory</li>
+                  </ol>
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setDispatchLinkedItemInfo(null);
+                      setActiveTab('dispatches');
+                    }}
+                  >
+                    Go to Dispatches
+                  </Button>
+                  <Button onClick={() => setDispatchLinkedItemInfo(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ==================== INDENT MODAL ==================== */}

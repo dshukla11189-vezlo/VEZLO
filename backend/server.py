@@ -9712,9 +9712,11 @@ async def get_retailer_closing_summary(
     
     received_qty = {}
     variant_name_map = {}  # Map to store best variant names from all dispatches
+    dispatch_linkage = {}  # Track which dispatches each product+variant is linked to
     
     for d in dispatches:
         dispatch_date = str(d.get('dispatch_date', ''))[:10]
+        dispatch_id = d.get('id')
         
         for item in d.get('items', []):
             product_id = item.get('product_id')
@@ -9728,6 +9730,15 @@ async def get_retailer_closing_summary(
             elif key not in variant_name_map:
                 variant_name_map[key] = variant_name
             
+            # Track dispatch linkage for all dates
+            if key not in dispatch_linkage:
+                dispatch_linkage[key] = []
+            dispatch_linkage[key].append({
+                'dispatch_id': dispatch_id,
+                'dispatch_date': dispatch_date,
+                'variant_name': variant_name
+            })
+            
             # Only count received qty for the target date
             if dispatch_date == date:
                 if key not in received_qty:
@@ -9735,9 +9746,12 @@ async def get_retailer_closing_summary(
                         'qty': 0,
                         'product_name': item.get('product_name'),
                         'variant_id': variant_id,
-                        'variant_name': variant_name
+                        'variant_name': variant_name,
+                        'dispatch_dates': []
                     }
                 received_qty[key]['qty'] += item.get('supplied_qty', 0) or 0
+                if dispatch_date not in received_qty[key]['dispatch_dates']:
+                    received_qty[key]['dispatch_dates'].append(dispatch_date)
     
     # Get rejections for this date
     rejections = await db.retailer_rejections.find({
@@ -9789,6 +9803,9 @@ async def get_retailer_closing_summary(
             elif map_variant and map_variant != "Kg":
                 final_variant_name = map_variant
         
+        # Get dispatch linkage info
+        linked_dispatches = dispatch_linkage.get(key, [])
+        
         result.append({
             "id": item.get("id"),
             "product_id": product_id,
@@ -9798,7 +9815,8 @@ async def get_retailer_closing_summary(
             "opening_qty": opening,
             "received_qty": recv,
             "rejection_qty": rej if key.endswith('_default') or len(seen_keys) == 1 else 0,
-            "closing_qty": item.get("closing_qty")
+            "closing_qty": item.get("closing_qty"),
+            "linked_dispatches": linked_dispatches[:5] if linked_dispatches else []  # Limit to recent 5
         })
     
     return {

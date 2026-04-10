@@ -6179,6 +6179,10 @@ async def get_closable_products_for_date(
             purchase_qty = round(purchases_by_product.get(product_id, 0), 2)
             dispatch_qty = round(dispatches_by_product.get(product_id, 0), 2)
             
+            # Skip products with no activity (opening=0, purchase=0, dispatch=0)
+            if opening_qty == 0 and purchase_qty == 0 and dispatch_qty == 0:
+                continue
+            
             # Update the stored entry with fresh data
             await db.daily_stock_status.update_one(
                 {"id": existing["id"]},

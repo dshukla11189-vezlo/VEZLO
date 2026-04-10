@@ -937,7 +937,7 @@ export default function AdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="py-2">
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                   <div className="p-1.5 bg-blue-100/50 rounded">
                     <p className="text-[9px] text-blue-600 font-medium">SALES</p>
                     <p className="text-sm font-bold text-blue-900">{formatCurrency(pnlData.vertical_bifurcation.qc.sales)}</p>
@@ -954,6 +954,8 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-pink-600 font-medium">GRN LOSS</p>
                     <p className="text-sm font-bold text-pink-700">{formatCurrency(pnlData.vertical_bifurcation.qc.grn_loss || 0)}</p>
                   </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
                   <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.qc.gross_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
                     <p className="text-[9px] text-gray-600 font-medium">GROSS PROFIT</p>
                     <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -972,12 +974,6 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-gray-600 font-medium">CONTRIBUTION</p>
                     <p className={`text-sm font-bold ${(pnlData.vertical_bifurcation.qc.gross_profit - pnlData.vertical_bifurcation.qc.variable_exp) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                       {formatCurrency(pnlData.vertical_bifurcation.qc.gross_profit - pnlData.vertical_bifurcation.qc.variable_exp)}
-                    </p>
-                  </div>
-                  <div className={`p-1.5 rounded ${dailyAvgProfit.qc >= 0 ? 'bg-indigo-100/50' : 'bg-red-100/50'}`}>
-                    <p className="text-[9px] text-indigo-600 font-medium">DAILY AVG</p>
-                    <p className={`text-sm font-bold ${dailyAvgProfit.qc >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
-                      {formatCurrency(dailyAvgProfit.qc)}
                     </p>
                   </div>
                 </div>
@@ -1000,7 +996,7 @@ export default function AdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="py-2">
-                <div className="grid grid-cols-5 gap-2 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-center">
                   <div className="p-1.5 bg-emerald-100/50 rounded">
                     <p className="text-[9px] text-emerald-600 font-medium">SALES</p>
                     <p className="text-sm font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
@@ -1017,12 +1013,12 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-amber-600 font-medium">COMMISSION</p>
                     <p className="text-sm font-bold text-amber-700">{formatCurrency(pnlData.vertical_bifurcation.retail.commission || 0)}</p>
                   </div>
-                  <div className="p-1.5 bg-rose-100/50 rounded">
+                  <div className="p-1.5 bg-rose-100/50 rounded col-span-2 sm:col-span-1">
                     <p className="text-[9px] text-rose-600 font-medium">REJECTION</p>
                     <p className="text-sm font-bold text-rose-700">{formatCurrency(pnlData.vertical_bifurcation.retail.rejection || 0)}</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-center mt-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
                   <div className={`p-1.5 rounded ${pnlData.vertical_bifurcation.retail.gross_profit >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
                     <p className="text-[9px] text-gray-600 font-medium">GROSS PROFIT</p>
                     <p className={`text-sm font-bold ${pnlData.vertical_bifurcation.retail.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>

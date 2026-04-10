@@ -6036,6 +6036,8 @@ async def get_stock_status_history(
     
     history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     return history
+
+@api_router.get("/stock-status/closable-products")
 async def get_closable_products_for_date(
     date: str,
     current_user: dict = Depends(get_current_user)

@@ -4201,9 +4201,14 @@ async def get_pnl_report(
     
     for status in stock_status:
         wastage_qty = status.get("wastage_qty", 0) or 0
-        wastage_value = status.get("wastage_value", 0) or 0
+        purchase_qty = status.get("purchase_qty", 0) or 0
+        purchase_value = status.get("purchase_value", 0) or 0
         status_date = status.get("date", "")[:10]
         product = status.get("product_name", "Unknown")
+        
+        # Calculate wastage_value dynamically from current procurement rate
+        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+        wastage_value = round(wastage_qty * avg_price, 2)
         
         total_wastage_qty += wastage_qty
         total_wastage_value += wastage_value
@@ -5927,10 +5932,110 @@ async def bulk_update_procurement_rate(
         "updated_procurements": updated_procurements,
         "updated_stock_status": updated_stock_status
     }
+
+
+@api_router.post("/stock-status/fix-all-wastage-values")
+async def fix_all_wastage_values(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fix all historical wastage_value in daily_stock_status based on current avg_price.
+    This recalculates wastage_value = wastage_qty * (purchase_value / purchase_qty)
+    for ALL records in the database.
+    
+    Use this to sync wastage values after any procurement rate changes.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix wastage values")
+    
+    try:
+        # Get all stock status records
+        all_status = await db.daily_stock_status.find({}, {"_id": 0}).to_list(10000)
+        
+        updated_count = 0
+        unchanged_count = 0
+        fixes_by_product = {}
+        
+        for status in all_status:
+            record_id = status.get("id")
+            if not record_id:
+                continue
+                
+            wastage_qty = status.get("wastage_qty", 0) or 0
+            purchase_qty = status.get("purchase_qty", 0) or 0
+            purchase_value = status.get("purchase_value", 0) or 0
+            current_wastage_value = status.get("wastage_value", 0) or 0
+            product_name = status.get("product_name", "Unknown")
+            date = status.get("date", "")
+            
+            # Calculate correct wastage_value
+            avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+            correct_wastage_value = round(wastage_qty * avg_price, 2)
+            
+            # Check if update needed
+            diff = abs(current_wastage_value - correct_wastage_value)
+            if diff > 0.01 and wastage_qty > 0:
+                # Update the record
+                await db.daily_stock_status.update_one(
+                    {"id": record_id},
+                    {"$set": {
+                        "wastage_value": correct_wastage_value,
+                        "avg_price": round(avg_price, 2)
+                    }}
+                )
+                updated_count += 1
+                
+                # Track by product
+                if product_name not in fixes_by_product:
+                    fixes_by_product[product_name] = []
+                fixes_by_product[product_name].append({
+                    "date": date,
+                    "wastage_qty": wastage_qty,
+                    "old_value": current_wastage_value,
+                    "new_value": correct_wastage_value,
+                    "avg_price": round(avg_price, 2)
+                })
+            else:
+                unchanged_count += 1
+        
+        return {
+            "message": f"Fixed {updated_count} records, {unchanged_count} unchanged",
+            "total_fixed": updated_count,
+            "total_unchanged": unchanged_count,
+            "fixes_by_product": {k: v for k, v in list(fixes_by_product.items())[:10]}  # Limit output
+        }
+        
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error in fix_all_wastage_values: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Error fixing wastage values: {str(e)}")
+
+
+@api_router.get("/stock-status/history")
+async def get_stock_status_history(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    product_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get historical stock status data"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if from_date:
+        query["date"] = {"$gte": from_date}
+    if to_date:
+        if "date" in query:
+            query["date"]["$lte"] = to_date
+        else:
+            query["date"] = {"$lte": to_date}
+    if product_id:
+        query["product_id"] = product_id
+    
+    history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     return history
-
-
-@api_router.get("/stock-status/closable-products")
 async def get_closable_products_for_date(
     date: str,
     current_user: dict = Depends(get_current_user)

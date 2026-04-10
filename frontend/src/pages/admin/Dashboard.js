@@ -743,7 +743,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Key P&L Summary Cards - Row 2 (4 cards) */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {/* Variable Expenses */}
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
             <CardContent className="p-3">
@@ -1785,7 +1785,7 @@ export default function AdminDashboard() {
         {activeTab === 'costs' && (
           <div className="space-y-4">
             {/* Summary Cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                 <CardContent className="p-4">
                   <div className="text-xs text-blue-700 font-medium">VARIABLE COSTS</div>

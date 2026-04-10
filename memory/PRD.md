@@ -1168,6 +1168,15 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
   - Bug fixed: `products` in `daily_pnl` is a list not dict - now uses `.find()` method
 - [x] **Testing**: 100% pass rate (7/7 features verified) - `/app/test_reports/iteration_25.json`
 
+### Mobile Responsiveness Fix - Dashboard Tiles (COMPLETED - Apr 10, 2026)
+- [x] **Fixed mobile alignment of dashboard tiles**:
+  - Updated grid classes from hardcoded `grid-cols-4` to responsive `grid-cols-2 md:grid-cols-4`
+  - Updated Costs tab summary cards from `grid-cols-3` to `grid-cols-1 sm:grid-cols-3`
+  - All dashboard tiles now display in 2-column grid on mobile (<768px)
+  - Desktop layout (4-column) preserved at md breakpoint and above
+- [x] **Files Modified**: `/app/frontend/src/pages/admin/Dashboard.js`
+- [x] **Testing**: Screenshot verification at 375px and 1920px widths - both working correctly
+
 ---
 
 ## Next Tasks (Upcoming)

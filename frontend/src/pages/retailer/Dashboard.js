@@ -642,14 +642,26 @@ export default function RetailerDashboard() {
         }
       });
       
-      // Calculate items sold for each entry (default to 0 if negative)
-      const inventoryItems = Object.values(inventoryMap).map(item => {
+      // Calculate items sold for each entry: Items Sold = Opening + Received - Closing
+      // Note: Rejection is NOT subtracted from Items Sold formula per user requirement
+      const inventoryItemsRaw = Object.values(inventoryMap).map(item => {
         const calculatedSold = item.closing_qty !== undefined && item.closing_qty !== null
-          ? (item.opening_qty + item.received_qty - item.rejection_qty - item.closing_qty)
+          ? (item.opening_qty + item.received_qty - item.closing_qty)
           : null;
         // Default to 0 if sold items are negative (due to missing earlier data)
         const itemsSold = calculatedSold !== null ? Math.max(0, calculatedSold) : null;
         return { ...item, items_sold: itemsSold };
+      });
+      
+      // Deduplicate by product_id + variant_name to prevent showing same item twice
+      const seenKeys = new Set();
+      const inventoryItems = inventoryItemsRaw.filter(item => {
+        const key = `${item.product_id}_${item.variant_name || 'Kg'}`;
+        if (seenKeys.has(key)) {
+          return false; // Skip duplicate
+        }
+        seenKeys.add(key);
+        return true;
       });
       
       // Two-step sorting:
@@ -863,20 +875,31 @@ export default function RetailerDashboard() {
         }));
         setClosingItems(allProducts);
       } else {
-        // Convert to list and sort
-        const items = Object.values(allRelevantVariants).map(v => ({
-          product_id: v.product_id,
-          product_name: v.product_name,
-          product_name_hi: v.product_name_hi,
-          variant_id: v.variant_id,
-          variant_name: v.variant_name || 'Kg',
-          unit: v.variant_name && v.variant_name !== 'Kg' ? 'Pcs' : 'Kg',
-          closing_qty: '',
-          has_variants: v.variant_name && v.variant_name !== 'Kg',
-          opening_qty: v.opening_qty || 0,
-          dispatch_qty: v.dispatch_qty || 0,
-          source: v.source
-        }));
+        // Convert to list and deduplicate by product_id + variant_name combination
+        const seenKeys = new Set();
+        const items = Object.values(allRelevantVariants)
+          .map(v => ({
+            product_id: v.product_id,
+            product_name: v.product_name,
+            product_name_hi: v.product_name_hi,
+            variant_id: v.variant_id,
+            variant_name: v.variant_name || 'Kg',
+            unit: v.variant_name && v.variant_name !== 'Kg' ? 'Pcs' : 'Kg',
+            closing_qty: '',
+            has_variants: v.variant_name && v.variant_name !== 'Kg',
+            opening_qty: v.opening_qty || 0,
+            dispatch_qty: v.dispatch_qty || 0,
+            source: v.source
+          }))
+          .filter(item => {
+            // Deduplicate by product_id + variant_name
+            const key = `${item.product_id}_${item.variant_name}`;
+            if (seenKeys.has(key)) {
+              return false; // Skip duplicate
+            }
+            seenKeys.add(key);
+            return true;
+          });
         
         // Sort by product name, then variant name
         items.sort((a, b) => {
@@ -2100,7 +2123,7 @@ export default function RetailerDashboard() {
               {/* Daily Inventory Sub-tab */}
               {closingSubTab === 'daily-inventory' && (
                 <>
-                  {/* Date selector and search */}
+                  {/* Date selector, Excel Export, and search */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4 pb-4 border-b">
                     <div className="flex items-center gap-2">
                       <Calendar size={16} className="text-gray-500" />
@@ -2110,6 +2133,64 @@ export default function RetailerDashboard() {
                         onChange={(e) => setInventoryDate(e.target.value)}
                         className="w-[150px] h-9"
                       />
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => {
+                          // Export inventory data to Excel
+                          if (inventoryData.length === 0) {
+                            toast.error('No inventory data to export');
+                            return;
+                          }
+                          
+                          // Get product details for type and category
+                          const exportData = inventoryData.map(item => {
+                            const product = products.find(p => p.id === item.product_id);
+                            return {
+                              'Product Name': item.product_name || '',
+                              'Variant': item.variant_name || 'Kg',
+                              'Type': product?.product_type || 'N/A',
+                              'Category': product?.category || 'N/A',
+                              'Closing Qty': item.closing_qty ?? 0
+                            };
+                          });
+                          
+                          // Create CSV content
+                          const headers = ['Product Name', 'Variant', 'Type', 'Category', 'Closing Qty'];
+                          const csvRows = [
+                            headers.join(','),
+                            ...exportData.map(row => 
+                              headers.map(h => {
+                                const val = row[h];
+                                // Escape commas and quotes
+                                if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+                                  return `"${val.replace(/"/g, '""')}"`;
+                                }
+                                return val;
+                              }).join(',')
+                            )
+                          ];
+                          const csvContent = csvRows.join('\n');
+                          
+                          // Download as CSV (Excel compatible)
+                          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                          const url = window.URL.createObjectURL(blob);
+                          const link = document.createElement('a');
+                          link.href = url;
+                          link.setAttribute('download', `Inventory_${inventoryDate}.csv`);
+                          document.body.appendChild(link);
+                          link.click();
+                          link.remove();
+                          window.URL.revokeObjectURL(url);
+                          
+                          toast.success('Inventory exported successfully');
+                        }}
+                        className="h-9 px-3 text-green-700 border-green-300 hover:bg-green-50"
+                        title="Export to Excel"
+                      >
+                        <Download size={14} className="mr-1" />
+                        <span className="hidden sm:inline">Export</span>
+                      </Button>
                       <Button 
                         size="sm" 
                         variant="outline" 

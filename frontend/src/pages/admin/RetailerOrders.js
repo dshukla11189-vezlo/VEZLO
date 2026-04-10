@@ -3208,13 +3208,13 @@ export default function RetailerOrders() {
                             return bClosing - aClosing;
                           })
                           .map(item => {
-                            // Calculate items sold (Opening + Received - Rejection - Closing)
+                            // Calculate items sold: Opening + Received - Closing
+                            // Note: Rejection is NOT subtracted from Items Sold formula per user requirement
                             const openingQty = item.opening_qty || 0;
                             const receivedQty = item.received_qty || 0;
-                            const rejectionQty = item.rejection_qty || 0;
                             const closingQty = item.closing_qty || 0;
                             // Default to 0 if calculated items sold is negative
-                            const itemsSold = Math.max(0, openingQty + receivedQty - rejectionQty - closingQty);
+                            const itemsSold = Math.max(0, openingQty + receivedQty - closingQty);
                             
                             return (
                               <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
@@ -3323,18 +3323,21 @@ export default function RetailerOrders() {
                                         }}
                                         className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
                                         title="Edit Closing Qty & Variant"
+                                        disabled={!item.id}
                                       >
                                         <Pencil size={12} />
                                       </Button>
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost"
-                                        onClick={() => adminDeleteClosingItem(item.id, item.product_name)}
-                                        className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                                        title="Delete"
-                                      >
-                                        <Trash2 size={12} />
-                                      </Button>
+                                      {item.id && (
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost"
+                                          onClick={() => adminDeleteClosingItem(item.id, item.product_name)}
+                                          className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                                          title="Delete"
+                                        >
+                                          <Trash2 size={12} />
+                                        </Button>
+                                      )}
                                     </div>
                                   )}
                                 </td>
@@ -3358,9 +3361,9 @@ export default function RetailerOrders() {
                             {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => {
                               const open = i.opening_qty || 0;
                               const recv = i.received_qty || 0;
-                              const rej = i.rejection_qty || 0;
                               const close = i.closing_qty || 0;
-                              return sum + (open + recv - rej - close);
+                              // Items Sold = Opening + Received - Closing (no rejection)
+                              return sum + Math.max(0, open + recv - close);
                             }, 0)}
                           </td>
                           <td className="p-3 text-center text-amber-600">

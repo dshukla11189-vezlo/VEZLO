@@ -1382,12 +1382,41 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                         {"date": old_date_str, "product_id": product_id},
                         {"$inc": {"purchase_qty": -old_data["qty_kg"], "purchase_value": -old_data["total_value"]}}
                     )
+                    # Recalculate wastage_value for old date
+                    old_stock = await db.daily_stock_status.find_one(
+                        {"date": old_date_str, "product_id": product_id},
+                        {"_id": 0}
+                    )
+                    if old_stock and old_stock.get("wastage_qty", 0) > 0:
+                        old_pq = old_stock.get("purchase_qty", 0) - old_data["qty_kg"]
+                        old_pv = old_stock.get("purchase_value", 0) - old_data["total_value"]
+                        old_avg = old_pv / old_pq if old_pq > 0 else 0
+                        new_wv = round(old_stock.get("wastage_qty", 0) * old_avg, 2)
+                        await db.daily_stock_status.update_one(
+                            {"date": old_date_str, "product_id": product_id},
+                            {"$set": {"wastage_value": new_wv}}
+                        )
+                        
                 if new_date_str:
                     await db.daily_stock_status.update_one(
                         {"date": new_date_str, "product_id": product_id},
                         {"$inc": {"purchase_qty": new_data["qty_kg"], "purchase_value": new_data["total_value"]}},
                         upsert=False
                     )
+                    # Recalculate wastage_value for new date
+                    new_stock = await db.daily_stock_status.find_one(
+                        {"date": new_date_str, "product_id": product_id},
+                        {"_id": 0}
+                    )
+                    if new_stock and new_stock.get("wastage_qty", 0) > 0:
+                        new_pq = new_stock.get("purchase_qty", 0) + new_data["qty_kg"]
+                        new_pv = new_stock.get("purchase_value", 0) + new_data["total_value"]
+                        new_avg = new_pv / new_pq if new_pq > 0 else 0
+                        new_wv = round(new_stock.get("wastage_qty", 0) * new_avg, 2)
+                        await db.daily_stock_status.update_one(
+                            {"date": new_date_str, "product_id": product_id},
+                            {"$set": {"wastage_value": new_wv}}
+                        )
             elif products_changed and new_date_str:
                 # Only products changed: update the difference on the same date
                 qty_diff = new_data["qty_kg"] - old_data["qty_kg"]
@@ -1396,6 +1425,30 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                     await db.daily_stock_status.update_one(
                         {"date": new_date_str, "product_id": product_id},
                         {"$inc": {"purchase_qty": qty_diff, "purchase_value": value_diff}}
+                    )
+                
+                # Also recalculate wastage_value based on new avg_price
+                # Get the current stock status to recalculate wastage
+                stock_status = await db.daily_stock_status.find_one(
+                    {"date": new_date_str, "product_id": product_id},
+                    {"_id": 0}
+                )
+                if stock_status and stock_status.get("wastage_qty", 0) > 0:
+                    # Get updated purchase values (after the increment above)
+                    updated_purchase_qty = stock_status.get("purchase_qty", 0) + qty_diff
+                    updated_purchase_value = stock_status.get("purchase_value", 0) + value_diff
+                    
+                    # Calculate new avg_price
+                    new_avg_price = updated_purchase_value / updated_purchase_qty if updated_purchase_qty > 0 else 0
+                    
+                    # Recalculate wastage_value
+                    wastage_qty = stock_status.get("wastage_qty", 0)
+                    new_wastage_value = round(wastage_qty * new_avg_price, 2)
+                    
+                    # Update wastage_value
+                    await db.daily_stock_status.update_one(
+                        {"date": new_date_str, "product_id": product_id},
+                        {"$set": {"wastage_value": new_wastage_value}}
                     )
     
     return {"message": "Procurement updated successfully", "procurement": result}

@@ -38,8 +38,16 @@ export default function WastageDashboard() {
   const [dashboardData, setDashboardData] = useState(null);
   const [yesterdayWastage, setYesterdayWastage] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedPeriod, setSelectedPeriod] = useState(7);
+  const [selectedPeriod, setSelectedPeriod] = useState(() => {
+    const saved = localStorage.getItem('wastage_selectedPeriod');
+    return saved ? parseInt(saved) : 7;
+  });
   const [products, setProducts] = useState([]);
+  
+  // Persist selected period
+  useEffect(() => {
+    localStorage.setItem('wastage_selectedPeriod', selectedPeriod.toString());
+  }, [selectedPeriod]);
   
   // Build a map of products for quick lookup (by id and name)
   const productMap = useMemo(() => {
@@ -90,22 +98,44 @@ export default function WastageDashboard() {
     return item.product_name || item.name || '';
   }, [productMap, i18n.language]);
   
-  // Date range filter
+  // Date range filter - persist in localStorage
   const [dateFrom, setDateFrom] = useState(() => {
+    const saved = localStorage.getItem('wastage_dateFrom');
+    if (saved) return saved;
     const d = new Date();
     d.setDate(d.getDate() - 30); // Default to 30 days instead of 7
     return d.toISOString().split('T')[0];
   });
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [dateTo, setDateTo] = useState(() => {
+    const saved = localStorage.getItem('wastage_dateTo');
+    if (saved) return saved;
+    return new Date().toISOString().split('T')[0];
+  });
   
-  // Selected date for detailed wastage view (default: yesterday)
+  // Persist date filters
+  useEffect(() => {
+    localStorage.setItem('wastage_dateFrom', dateFrom);
+  }, [dateFrom]);
+  
+  useEffect(() => {
+    localStorage.setItem('wastage_dateTo', dateTo);
+  }, [dateTo]);
+  
+  // Selected date for detailed wastage view - persist in localStorage
   const [selectedWastageDate, setSelectedWastageDate] = useState(() => {
+    const saved = localStorage.getItem('wastage_selectedDate');
+    if (saved) return saved;
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     return yesterday.toISOString().split('T')[0];
   });
   const [selectedDateWastage, setSelectedDateWastage] = useState(null);
   const [loadingSelectedDate, setLoadingSelectedDate] = useState(false);
+  
+  // Persist selected wastage date
+  useEffect(() => {
+    localStorage.setItem('wastage_selectedDate', selectedWastageDate);
+  }, [selectedWastageDate]);
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true);

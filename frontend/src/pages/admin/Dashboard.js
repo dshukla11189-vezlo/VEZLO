@@ -29,16 +29,40 @@ export default function AdminDashboard() {
   const [pnlData, setPnlData] = useState(null);
   const [todaySummary, setTodaySummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // Initialize dates from localStorage or default to current month
   const [dateFrom, setDateFrom] = useState(() => {
+    const saved = localStorage.getItem('dashboard_dateFrom');
+    if (saved) return saved;
     const d = new Date();
     d.setDate(1); // First day of current month
     return d.toISOString().split('T')[0];
   });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [dateTo, setDateTo] = useState(() => {
+    const saved = localStorage.getItem('dashboard_dateTo');
+    if (saved) return saved;
+    return new Date().toISOString().split('T')[0];
+  });
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = localStorage.getItem('dashboard_activeTab');
+    return saved || 'overview';
+  });
   const [populatingHindi, setPopulatingHindi] = useState(false);
   const [populatingReferrals, setPopulatingReferrals] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  
+  // Persist filters to localStorage
+  useEffect(() => {
+    localStorage.setItem('dashboard_dateFrom', dateFrom);
+  }, [dateFrom]);
+  
+  useEffect(() => {
+    localStorage.setItem('dashboard_dateTo', dateTo);
+  }, [dateTo]);
+  
+  useEffect(() => {
+    localStorage.setItem('dashboard_activeTab', activeTab);
+  }, [activeTab]);
   
   // Calculate number of days and daily average profit
   const daysInRange = useMemo(() => calculateDaysBetween(dateFrom, dateTo), [dateFrom, dateTo]);
@@ -141,27 +165,57 @@ export default function AdminDashboard() {
     }));
   };
 
-  // Customer detail modal state
+  // Customer detail modal state - persist date filters
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerDetailDateFrom, setCustomerDetailDateFrom] = useState(() => {
+    const saved = localStorage.getItem('dashboard_customerDateFrom');
+    if (saved) return saved;
     const d = new Date();
     d.setDate(1);
     return d.toISOString().split('T')[0];
   });
-  const [customerDetailDateTo, setCustomerDetailDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [customerDetailDateTo, setCustomerDetailDateTo] = useState(() => {
+    const saved = localStorage.getItem('dashboard_customerDateTo');
+    if (saved) return saved;
+    return new Date().toISOString().split('T')[0];
+  });
   const [customerDetailData, setCustomerDetailData] = useState(null);
   const [loadingCustomerDetail, setLoadingCustomerDetail] = useState(false);
   const [expandedCustomerDates, setExpandedCustomerDates] = useState({}); // For product dropdown
+  
+  // Persist customer date filters
+  useEffect(() => {
+    localStorage.setItem('dashboard_customerDateFrom', customerDetailDateFrom);
+  }, [customerDetailDateFrom]);
+  
+  useEffect(() => {
+    localStorage.setItem('dashboard_customerDateTo', customerDetailDateTo);
+  }, [customerDetailDateTo]);
 
-  // Product P&L separate date state  
+  // Product P&L separate date state - persist in localStorage
   const [productDateFrom, setProductDateFrom] = useState(() => {
+    const saved = localStorage.getItem('dashboard_productDateFrom');
+    if (saved) return saved;
     const d = new Date();
     d.setDate(1);
     return d.toISOString().split('T')[0];
   });
-  const [productDateTo, setProductDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [productDateTo, setProductDateTo] = useState(() => {
+    const saved = localStorage.getItem('dashboard_productDateTo');
+    if (saved) return saved;
+    return new Date().toISOString().split('T')[0];
+  });
   const [productPnlData, setProductPnlData] = useState([]);
   const [loadingProductPnl, setLoadingProductPnl] = useState(false);
+  
+  // Persist product date filters
+  useEffect(() => {
+    localStorage.setItem('dashboard_productDateFrom', productDateFrom);
+  }, [productDateFrom]);
+  
+  useEffect(() => {
+    localStorage.setItem('dashboard_productDateTo', productDateTo);
+  }, [productDateTo]);
 
   // Product detail modal state
   const [selectedProduct, setSelectedProduct] = useState(null);

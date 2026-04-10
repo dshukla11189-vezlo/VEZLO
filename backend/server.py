@@ -5722,14 +5722,25 @@ async def fix_all_purchase_quantities(
                         correct_purchase_qty = round(product_purchase['qty_kg'], 2)
                         correct_purchase_value = round(product_purchase['total_value'], 2)
                         
-                        # Check if update needed
-                        diff = abs(current_purchase_qty - correct_purchase_qty)
+                        # Get current purchase_value
+                        try:
+                            current_purchase_value = float(entry.get('purchase_value', 0) or 0)
+                        except (ValueError, TypeError):
+                            current_purchase_value = 0
                         
-                        if diff > 0.01:  # Significant difference
+                        # Check if update needed (compare both qty and value)
+                        qty_diff = abs(current_purchase_qty - correct_purchase_qty)
+                        value_diff = abs(current_purchase_value - correct_purchase_value)
+                        
+                        if qty_diff > 0.01 or value_diff > 0.01:  # Significant difference in qty OR value
                             # Calculate new avg_price
                             avg_price = 0
                             if correct_purchase_qty > 0:
                                 avg_price = round(correct_purchase_value / correct_purchase_qty, 2)
+                            
+                            # Recalculate wastage_value based on new avg_price
+                            wastage_qty = float(entry.get('wastage_qty', 0) or 0)
+                            new_wastage_value = round(wastage_qty * avg_price, 2)
                             
                             # Update record
                             await db.daily_stock_status.update_one(
@@ -5737,14 +5748,16 @@ async def fix_all_purchase_quantities(
                                 {"$set": {
                                     "purchase_qty": correct_purchase_qty,
                                     "purchase_value": correct_purchase_value,
-                                    "avg_price": avg_price
+                                    "avg_price": avg_price,
+                                    "wastage_value": new_wastage_value
                                 }}
                             )
                             
                             date_fixes.append({
                                 "product": product_name,
                                 "old": current_purchase_qty,
-                                "new": correct_purchase_qty
+                                "new": correct_purchase_qty,
+                                "new_wastage_value": new_wastage_value
                             })
                             total_fixed += 1
                         else:
@@ -5795,6 +5808,125 @@ async def get_stock_status_history(
         query["product_id"] = product_id
     
     history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+
+
+@api_router.post("/procurement/bulk-update-rate")
+async def bulk_update_procurement_rate(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Bulk update procurement rate for a product across multiple dates.
+    This updates both procurement and daily_stock_status (including wastage_value).
+    
+    Input:
+    {
+        "product_name": "Curry Leaves",
+        "new_rate": 75,
+        "from_date": "2026-04-01",  // Optional, defaults to all time
+        "to_date": "2026-04-08"     // Optional, defaults to today
+    }
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can bulk update rates")
+    
+    product_name = input.get("product_name")
+    new_rate = input.get("new_rate")
+    from_date = input.get("from_date")
+    to_date = input.get("to_date")
+    
+    if not product_name or new_rate is None:
+        raise HTTPException(status_code=400, detail="product_name and new_rate are required")
+    
+    try:
+        new_rate = float(new_rate)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="new_rate must be a number")
+    
+    # Find procurements with this product
+    proc_query = {}
+    if from_date:
+        proc_query["date"] = {"$gte": from_date}
+    if to_date:
+        if "date" in proc_query:
+            proc_query["date"]["$lte"] = to_date + "T23:59:59Z"
+        else:
+            proc_query["date"] = {"$lte": to_date + "T23:59:59Z"}
+    
+    procurements = await db.procurements.find(proc_query, {"_id": 0}).to_list(1000)
+    
+    updated_procurements = 0
+    updated_stock_status = 0
+    
+    for proc in procurements:
+        products = proc.get("products", [])
+        proc_updated = False
+        
+        for product in products:
+            if product.get("product_name") == product_name:
+                # Update rate and total
+                old_total = product.get("total", 0)
+                qty = product.get("quantity", 0)
+                new_total = round(qty * new_rate, 2)
+                
+                product["rate"] = new_rate
+                product["total"] = new_total
+                proc_updated = True
+        
+        if proc_updated:
+            # Update procurement in database
+            await db.procurements.update_one(
+                {"id": proc["id"]},
+                {"$set": {"products": products}}
+            )
+            updated_procurements += 1
+            
+            # Also update daily_stock_status
+            proc_date = proc.get("date", "")[:10]  # Extract date part
+            
+            # Find product_id
+            product_doc = await db.products.find_one({"name": product_name}, {"_id": 0})
+            if product_doc:
+                product_id = product_doc.get("id")
+                
+                # Calculate new purchase_value from updated procurement
+                new_purchase_value = 0
+                new_purchase_qty = 0
+                for product in products:
+                    if product.get("product_name") == product_name:
+                        new_purchase_qty += product.get("quantity", 0)
+                        new_purchase_value += product.get("total", 0)
+                
+                # Calculate new avg_price and wastage_value
+                avg_price = new_purchase_value / new_purchase_qty if new_purchase_qty > 0 else 0
+                
+                # Get wastage_qty from current stock status
+                stock_status = await db.daily_stock_status.find_one(
+                    {"date": proc_date, "product_id": product_id},
+                    {"_id": 0}
+                )
+                
+                if stock_status:
+                    wastage_qty = stock_status.get("wastage_qty", 0) or 0
+                    new_wastage_value = round(wastage_qty * avg_price, 2)
+                    
+                    await db.daily_stock_status.update_one(
+                        {"date": proc_date, "product_id": product_id},
+                        {"$set": {
+                            "purchase_value": new_purchase_value,
+                            "avg_price": avg_price,
+                            "wastage_value": new_wastage_value
+                        }}
+                    )
+                    updated_stock_status += 1
+    
+    return {
+        "message": f"Updated {updated_procurements} procurements and {updated_stock_status} stock status records",
+        "product_name": product_name,
+        "new_rate": new_rate,
+        "updated_procurements": updated_procurements,
+        "updated_stock_status": updated_stock_status
+    }
     return history
 
 
@@ -6022,10 +6154,15 @@ async def get_wastage_dashboard(
         date = record["date"]
         product_name = record["product_name"]
         wastage_qty = record.get("wastage_qty", 0)
-        wastage_value = record.get("wastage_value", 0)
         wastage_percent = record.get("wastage_percent", 0)
         opening_qty = record.get("opening_qty", 0)
         purchase_qty = record.get("purchase_qty", 0)
+        purchase_value = record.get("purchase_value", 0)
+        
+        # Calculate wastage_value dynamically based on current avg_price
+        # This ensures wastage value reflects latest procurement rate
+        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+        wastage_value = round(wastage_qty * avg_price, 2)
         
         # Daily totals
         if date not in daily_totals:
@@ -6125,12 +6262,18 @@ async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
         
         # Get values
         wastage_qty = record.get("wastage_qty", 0) or 0
-        wastage_value = record.get("wastage_value", 0) or 0
         opening_qty = record.get("opening_qty", 0) or 0
         purchase_qty = record.get("purchase_qty", 0) or 0
+        purchase_value = record.get("purchase_value", 0) or 0
         dispatch_qty = record.get("dispatch_qty", 0) or 0
         closing_qty = record.get("closing_qty", 0) or 0
         status = record.get("status", "pending")
+        
+        # Calculate avg_price from current procurement data
+        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+        
+        # Calculate wastage_value dynamically based on current avg_price
+        wastage_value = round(wastage_qty * avg_price, 2)
         
         # For pending entries, calculate potential wastage if not closed
         if status != "closed" and wastage_qty == 0:
@@ -6140,8 +6283,7 @@ async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
             if available > 0 and closing_qty == 0:
                 wastage_qty = max(0, available - dispatch_qty)
                 # Estimate value using average procurement price
-                avg_price = record.get("avg_price", 0) or 0
-                wastage_value = wastage_qty * avg_price
+                wastage_value = round(wastage_qty * avg_price, 2)
         
         if wastage_qty > 0:
             if product_name not in product_wastage:
@@ -6226,20 +6368,25 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
         
         # Get values
         wastage_qty = record.get("wastage_qty", 0) or 0
-        wastage_value = record.get("wastage_value", 0) or 0
         opening_qty = record.get("opening_qty", 0) or 0
         purchase_qty = record.get("purchase_qty", 0) or 0
+        purchase_value = record.get("purchase_value", 0) or 0
         dispatch_qty = record.get("dispatch_qty", 0) or 0
         closing_qty = record.get("closing_qty", 0) or 0
         status = record.get("status", "pending")
+        
+        # Calculate avg_price from current procurement data
+        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+        
+        # Calculate wastage_value dynamically based on current avg_price
+        wastage_value = round(wastage_qty * avg_price, 2)
         
         # For pending entries, calculate potential wastage if not closed
         if status != "closed" and wastage_qty == 0:
             available = opening_qty + purchase_qty
             if available > 0 and closing_qty == 0:
                 wastage_qty = max(0, available - dispatch_qty)
-                avg_price = record.get("avg_price", 0) or 0
-                wastage_value = wastage_qty * avg_price
+                wastage_value = round(wastage_qty * avg_price, 2)
         
         if wastage_qty > 0:
             if product_name not in product_wastage:

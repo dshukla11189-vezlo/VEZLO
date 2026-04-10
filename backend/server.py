@@ -9765,9 +9765,10 @@ async def get_retailer_closing_summary(
         key = f"{product_id}_default"  # Rejections may not have variants
         rejection_qty[key] = rejection_qty.get(key, 0) + (r.get('quantity', 0) or 0)
     
-    # Build comprehensive result - deduplicate by product_id + variant_id
+    # Build comprehensive result - deduplicate by product_id + variant_name (not variant_id)
+    # This prevents duplicates when same variant name has different IDs
     result = []
-    seen_keys = {}  # Changed to dict to track the best entry for each key
+    seen_product_variants = {}  # Track by product_id + variant_name for deduplication
     
     # First add all closing items with full data
     for item in closing_items:
@@ -9775,22 +9776,7 @@ async def get_retailer_closing_summary(
         variant_id = item.get('variant_id')
         key = f"{product_id}_{variant_id or 'default'}"
         
-        # Skip if we already have this key (deduplication)
-        if key in seen_keys:
-            continue
-        seen_keys[key] = True
-        
-        # Get opening from previous day - try exact key match first, then product-only fallback
-        opening = prev_closing.get(key, 0)
-        if opening == 0 and product_id in prev_closing_product_only:
-            # Fallback: use product-level previous closing if variant key didn't match
-            # This handles cases where previous day had no variant but today has variant
-            opening = prev_closing_product_only.get(product_id, 0)
-        
-        recv = received_qty.get(key, {}).get('qty', 0)
-        rej = rejection_qty.get(f"{product_id}_default", 0)  # Apply rejection at product level
-        
-        # Get better variant_name from dispatches if available
+        # Get variant name for deduplication
         stored_variant = item.get("variant_name", "Kg")
         dispatch_variant = received_qty.get(key, {}).get('variant_name')
         map_variant = variant_name_map.get(key)
@@ -9803,6 +9789,38 @@ async def get_retailer_closing_summary(
             elif map_variant and map_variant != "Kg":
                 final_variant_name = map_variant
         
+        # Deduplicate by product_id + variant_name
+        dedup_key = f"{product_id}_{final_variant_name}"
+        if dedup_key in seen_product_variants:
+            # Merge data with existing entry - sum quantities and keep the one with id
+            existing_idx = seen_product_variants[dedup_key]
+            existing = result[existing_idx]
+            
+            # Keep the entry with an id (deletable one)
+            if item.get("id") and not existing.get("id"):
+                existing["id"] = item.get("id")
+            
+            # Sum the quantities
+            existing["opening_qty"] = (existing.get("opening_qty") or 0) + (prev_closing.get(key, 0) or 0)
+            existing["received_qty"] = (existing.get("received_qty") or 0) + (received_qty.get(key, {}).get('qty', 0) or 0)
+            existing["closing_qty"] = (existing.get("closing_qty") or 0) + (item.get("closing_qty") or 0)
+            
+            # Merge linked dispatches
+            linked = dispatch_linkage.get(key, [])
+            if linked:
+                existing["linked_dispatches"] = (existing.get("linked_dispatches") or []) + linked
+            continue
+        
+        # Get opening from previous day - try exact key match first, then product-only fallback
+        opening = prev_closing.get(key, 0)
+        if opening == 0 and product_id in prev_closing_product_only:
+            # Fallback: use product-level previous closing if variant key didn't match
+            # This handles cases where previous day had no variant but today has variant
+            opening = prev_closing_product_only.get(product_id, 0)
+        
+        recv = received_qty.get(key, {}).get('qty', 0)
+        rej = rejection_qty.get(f"{product_id}_default", 0)  # Apply rejection at product level
+        
         # Get dispatch linkage info
         linked_dispatches = dispatch_linkage.get(key, [])
         
@@ -9814,11 +9832,11 @@ async def get_retailer_closing_summary(
             "variant_name": final_variant_name,
             "opening_qty": opening,
             "received_qty": recv,
-            "rejection_qty": rej if key.endswith('_default') or len(seen_keys) == 1 else 0,
+            "rejection_qty": rej,
             "closing_qty": item.get("closing_qty"),
             "linked_dispatches": linked_dispatches[:5] if linked_dispatches else []  # Limit to recent 5
         })
-    
+        seen_product_variants[dedup_key] = len(result) - 1  # Track index for merging
     return {
         "closing_date": date,
         "items": result,

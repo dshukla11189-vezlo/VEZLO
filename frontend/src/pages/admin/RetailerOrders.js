@@ -394,15 +394,16 @@ export default function RetailerOrders() {
   };
 
   // Load unpaid invoices for selected retailer
-  const loadUnpaidInvoices = async () => {
-    if (!closingInventoryRetailer) {
+  const loadUnpaidInvoices = async (retailerId = null) => {
+    const targetRetailerId = retailerId || closingInventoryRetailer;
+    if (!targetRetailerId) {
       toast.error('Please select a retailer first');
       return;
     }
     
     setPaymentSummaryLoading(true);
     try {
-      const response = await api.get(`/api/retailer-invoices?retailer_id=${closingInventoryRetailer}`);
+      const response = await api.get(`/api/retailer-invoices?retailer_id=${targetRetailerId}`);
       // Filter unpaid invoices (status not 'paid')
       const unpaid = response.data.filter(inv => inv.status !== 'paid');
       setUnpaidInvoices(unpaid);
@@ -2878,6 +2879,22 @@ export default function RetailerOrders() {
                   <Button size="sm" variant="outline" onClick={exportInvoices} title="Export to Excel">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      if (!invoiceForm.retailer_id) {
+                        toast.error('Please select a retailer first');
+                        return;
+                      }
+                      setClosingInventoryRetailer(invoiceForm.retailer_id);
+                      loadUnpaidInvoices(invoiceForm.retailer_id);
+                    }}
+                    className="text-purple-700 border-purple-300 hover:bg-purple-50"
+                    disabled={paymentSummaryLoading}
+                  >
+                    <FileText size={14} className="mr-1" /> Payment Summary
+                  </Button>
                   <select
                     value={invoiceForm.retailer_id}
                     onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
@@ -3368,17 +3385,6 @@ export default function RetailerOrders() {
                     disabled={closingInventoryData.length === 0}
                   >
                     <Download size={14} className="mr-1" /> Export
-                  </Button>
-                </div>
-                <div className="flex items-end">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={loadUnpaidInvoices}
-                    className="h-9 text-purple-700 border-purple-300 hover:bg-purple-50"
-                    disabled={!closingInventoryRetailer || paymentSummaryLoading}
-                  >
-                    <FileText size={14} className="mr-1" /> Payment Summary
                   </Button>
                 </div>
               </div>

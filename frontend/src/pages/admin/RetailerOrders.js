@@ -187,6 +187,7 @@ export default function RetailerOrders() {
   
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
+  const [showPaymentSummaryPreview, setShowPaymentSummaryPreview] = useState(false); // Preview popup
   const [unpaidInvoices, setUnpaidInvoices] = useState([]);
   const [selectedInvoicesForSummary, setSelectedInvoicesForSummary] = useState({});
   const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
@@ -3824,11 +3825,124 @@ export default function RetailerOrders() {
                   Close
                 </Button>
                 <Button 
-                  onClick={exportPaymentSummary}
+                  onClick={() => {
+                    if (!Object.values(selectedInvoicesForSummary).some(v => v)) {
+                      toast.error('Please select at least one invoice');
+                      return;
+                    }
+                    setShowPaymentSummaryPreview(true);
+                  }}
                   disabled={!Object.values(selectedInvoicesForSummary).some(v => v)}
                   className="bg-purple-600 hover:bg-purple-700 text-white"
                 >
-                  <Download size={14} className="mr-1" /> Export Summary
+                  <FileText size={14} className="mr-1" /> View Summary
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT SUMMARY PREVIEW MODAL ==================== */}
+        {showPaymentSummaryPreview && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b bg-green-50">
+                <div className="flex items-center gap-2">
+                  <FileText className="text-green-600" size={20} />
+                  <h3 className="text-lg font-semibold text-green-800">Payment Summary - Preview</h3>
+                </div>
+                <button onClick={() => setShowPaymentSummaryPreview(false)} className="p-1 hover:bg-green-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-4 flex-1 overflow-y-auto">
+                {/* Retailer Info */}
+                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                  <p className="font-medium text-gray-800">
+                    {retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer'}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {Object.values(selectedInvoicesForSummary).filter(v => v).length} invoice(s) selected
+                  </p>
+                </div>
+                
+                {/* Summary Table */}
+                <div className="border rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-3 text-center text-gray-600 font-semibold">S.No</th>
+                        <th className="p-3 text-left text-gray-600 font-semibold">Indent Date</th>
+                        <th className="p-3 text-left text-gray-600 font-semibold">Dispatch Date</th>
+                        <th className="p-3 text-left text-gray-600 font-semibold">Invoice #</th>
+                        <th className="p-3 text-right text-gray-600 font-semibold">Gross Value</th>
+                        <th className="p-3 text-right text-red-600 font-semibold">Rejections</th>
+                        <th className="p-3 text-right text-blue-600 font-semibold">Total MRP</th>
+                        <th className="p-3 text-right text-orange-600 font-semibold">Commission</th>
+                        <th className="p-3 text-right text-green-600 font-semibold">Amount Payable</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getSelectedInvoicesData().map((inv, idx) => (
+                        <tr key={idx} className="border-t hover:bg-gray-50">
+                          <td className="p-3 text-center text-gray-600">{inv.serialNum}</td>
+                          <td className="p-3 text-left text-gray-700">{inv.indentDate}</td>
+                          <td className="p-3 text-left text-gray-700">{inv.dispatchDate}</td>
+                          <td className="p-3 text-left font-medium text-gray-800">{inv.invoiceNumber}</td>
+                          <td className="p-3 text-right text-gray-700">₹{inv.grossValue.toFixed(2)}</td>
+                          <td className="p-3 text-right text-red-600">-₹{inv.rejections.toFixed(2)}</td>
+                          <td className="p-3 text-right text-blue-600">₹{inv.totalMrpValue.toFixed(2)}</td>
+                          <td className="p-3 text-right text-orange-600">-₹{inv.commission.toFixed(2)}</td>
+                          <td className="p-3 text-right font-semibold text-green-600">₹{inv.amountPayable.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-green-100 font-bold">
+                      <tr>
+                        <td colSpan={4} className="p-3 text-right text-green-800">TOTAL:</td>
+                        <td className="p-3 text-right text-gray-800">
+                          ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.grossValue, 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right text-red-700">
+                          -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.rejections, 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right text-blue-700">
+                          ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.totalMrpValue, 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right text-orange-700">
+                          -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.commission, 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right text-green-800 text-base">
+                          ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                
+                {/* Grand Total Highlight */}
+                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
+                  <span className="text-lg font-semibold text-green-800">Total Amount Payable:</span>
+                  <span className="text-2xl font-bold text-green-700">
+                    ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowPaymentSummaryPreview(false)}>
+                  Back
+                </Button>
+                <Button 
+                  onClick={() => {
+                    exportPaymentSummary();
+                    setShowPaymentSummaryPreview(false);
+                    setShowPaymentSummaryModal(false);
+                  }}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Download size={14} className="mr-1" /> Download CSV
                 </Button>
               </div>
             </div>

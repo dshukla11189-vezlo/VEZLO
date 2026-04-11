@@ -2729,6 +2729,31 @@ export default function RetailerOrders() {
                                         );
                                       })}
                                     </tbody>
+                                    <tfoot className="bg-blue-100 font-semibold">
+                                      <tr>
+                                        <td colSpan={2} className="p-2 text-right">TOTAL:</td>
+                                        <td className="p-2 text-right">
+                                          {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+                                        </td>
+                                        {showDispatchColumns && (
+                                          <>
+                                            <td className="p-2 text-right text-green-700">
+                                              {indent.items?.reduce((sum, item) => {
+                                                const key = `${item.product_id}|${item.variant_id || ''}`;
+                                                return sum + (dispatchedQtys[key] || 0);
+                                              }, 0)}
+                                            </td>
+                                            <td className="p-2 text-right text-amber-700">
+                                              {indent.items?.reduce((sum, item) => {
+                                                const key = `${item.product_id}|${item.variant_id || ''}`;
+                                                const dispatched = dispatchedQtys[key] || 0;
+                                                return sum + Math.max(0, (item.quantity || 0) - dispatched);
+                                              }, 0)}
+                                            </td>
+                                          </>
+                                        )}
+                                      </tr>
+                                    </tfoot>
                                   </table>
                                 );
                               })()}
@@ -2853,6 +2878,21 @@ export default function RetailerOrders() {
                                       </tr>
                                     ))}
                                   </tbody>
+                                  <tfoot className="bg-green-100 font-semibold">
+                                    <tr>
+                                      <td colSpan={2} className="p-2 text-right">TOTAL:</td>
+                                      <td className="p-2 text-center">
+                                        {dispatch.items?.reduce((sum, item) => sum + (item.indent_qty || 0), 0) || '-'}
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        {dispatch.items?.reduce((sum, item) => sum + (item.supplied_qty || 0), 0)}
+                                      </td>
+                                      <td className="p-2 text-right">-</td>
+                                      <td className="p-2 text-right text-green-700">
+                                        ₹{dispatch.items?.reduce((sum, item) => sum + (item.total_value || 0), 0).toFixed(2)}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
                                 </table>
                               </div>
                             </td>
@@ -4576,15 +4616,15 @@ export default function RetailerOrders() {
 
         {/* ==================== REJECTION MODAL ==================== */}
         {showRejectionModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="text-lg font-semibold">Record Rejection</h3>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-3 sm:p-4 border-b">
+                <h3 className="text-base sm:text-lg font-semibold">Record Rejection</h3>
                 <button onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleCreateRejections} className="p-4 space-y-4">
+              <form onSubmit={handleCreateRejections} className="p-3 sm:p-4 space-y-3 sm:space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
                   <select
@@ -4620,18 +4660,18 @@ export default function RetailerOrders() {
                         No dispatches found for this date
                       </div>
                     ) : (
-                      <div className="border rounded overflow-hidden max-h-60 overflow-y-auto">
-                        <table className="w-full text-sm">
+                      <div className="border rounded overflow-hidden max-h-60 overflow-auto">
+                        <table className="w-full text-xs sm:text-sm min-w-[500px]">
                           <thead className="bg-gray-50 sticky top-0">
                             <tr>
                               <th className="p-2 text-center w-8">
                                 <Check size={14} />
                               </th>
-                              <th className="p-2 text-left">Product</th>
-                              <th className="p-2 text-center">Supplied</th>
-                              <th className="p-2 text-center">Reject Qty</th>
-                              <th className="p-2 text-center">MRP</th>
-                              <th className="p-2 text-left">Reason</th>
+                              <th className="p-2 text-left min-w-[120px]">Product</th>
+                              <th className="p-2 text-center w-16">Supplied</th>
+                              <th className="p-2 text-center w-20">Reject Qty</th>
+                              <th className="p-2 text-center w-16">MRP</th>
+                              <th className="p-2 text-left min-w-[130px]">Reason</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4646,10 +4686,10 @@ export default function RetailerOrders() {
                                   />
                                 </td>
                                 <td className="p-2">
-                                  <div className="font-medium">{getProductName(item)}</div>
+                                  <div className="font-medium text-sm">{getProductName(item)}</div>
                                   {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                                 </td>
-                                <td className="p-2 text-center text-gray-600">{item.supplied_qty}</td>
+                                <td className="p-2 text-center text-gray-600 text-sm">{item.supplied_qty}</td>
                                 <td className="p-2 text-center">
                                   <Input
                                     type="number"
@@ -4665,19 +4705,19 @@ export default function RetailerOrders() {
                                       updateRejectionItem(idx, 'rejection_qty', val);
                                       if (val > 0) updateRejectionItem(idx, 'selected', true);
                                     }}
-                                    className="w-16 h-7 text-center"
+                                    className="w-16 h-7 text-center text-sm"
                                     disabled={!item.selected && !item.rejection_qty}
                                   />
                                 </td>
-                                <td className="p-2 text-center text-gray-600">₹{item.mrp}</td>
+                                <td className="p-2 text-center text-gray-600 text-sm">₹{item.mrp}</td>
                                 <td className="p-2">
                                   <select
                                     value={item.reason || ''}
                                     onChange={(e) => updateRejectionItem(idx, 'reason', e.target.value)}
-                                    className="w-full h-7 px-1 rounded border text-xs"
+                                    className="w-full min-w-[110px] h-8 px-2 rounded border text-sm"
                                     disabled={!item.selected}
                                   >
-                                    <option value="">Reason</option>
+                                    <option value="">Select Reason</option>
                                     <option value="Rotten">Rotten</option>
                                     <option value="Damaged">Damaged</option>
                                     <option value="Quality Issue">Quality Issue</option>

@@ -3845,105 +3845,95 @@ export default function RetailerOrders() {
         {/* ==================== PAYMENT SUMMARY PREVIEW MODAL ==================== */}
         {showPaymentSummaryPreview && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b bg-green-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-4 py-2 border-b bg-green-50">
                 <div className="flex items-center gap-2">
-                  <FileText className="text-green-600" size={20} />
-                  <h3 className="text-lg font-semibold text-green-800">Payment Summary - Preview</h3>
+                  <FileText className="text-green-600" size={18} />
+                  <h3 className="text-base font-semibold text-green-800">Payment Summary - Preview</h3>
+                  <span className="text-xs text-gray-500 ml-2">
+                    ({Object.values(selectedInvoicesForSummary).filter(v => v).length} invoices)
+                  </span>
                 </div>
                 <button onClick={() => setShowPaymentSummaryPreview(false)} className="p-1 hover:bg-green-100 rounded">
-                  <X size={20} />
+                  <X size={18} />
                 </button>
               </div>
               
-              <div className="p-4 flex-1 overflow-y-auto">
-                {/* Retailer Info */}
-                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <p className="font-medium text-gray-800">
-                    {retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer'}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {Object.values(selectedInvoicesForSummary).filter(v => v).length} invoice(s) selected
-                  </p>
-                </div>
-                
-                {/* Summary Table */}
-                <div className="border rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="p-3 text-center text-gray-600 font-semibold">S.No</th>
-                        <th className="p-3 text-left text-gray-600 font-semibold">Indent Date</th>
-                        <th className="p-3 text-left text-gray-600 font-semibold">Dispatch Date</th>
-                        <th className="p-3 text-left text-gray-600 font-semibold">Invoice #</th>
-                        <th className="p-3 text-right text-gray-600 font-semibold">Gross Value</th>
-                        <th className="p-3 text-right text-red-600 font-semibold">Rejections</th>
-                        <th className="p-3 text-right text-blue-600 font-semibold">Total MRP</th>
-                        <th className="p-3 text-right text-orange-600 font-semibold">Commission</th>
-                        <th className="p-3 text-right text-green-600 font-semibold">Amount Payable</th>
+              <div className="flex-1 overflow-y-auto">
+                {/* Compact Summary Table */}
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-1.5 text-center text-gray-600 font-semibold w-10">#</th>
+                      <th className="px-2 py-1.5 text-left text-gray-600 font-semibold">Date</th>
+                      <th className="px-2 py-1.5 text-left text-gray-600 font-semibold">Invoice #</th>
+                      <th className="px-2 py-1.5 text-right text-gray-600 font-semibold">Gross</th>
+                      <th className="px-2 py-1.5 text-right text-red-600 font-semibold">Reject</th>
+                      <th className="px-2 py-1.5 text-right text-blue-600 font-semibold">MRP</th>
+                      <th className="px-2 py-1.5 text-right text-orange-600 font-semibold">Comm.</th>
+                      <th className="px-2 py-1.5 text-right text-green-600 font-semibold">Payable</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getSelectedInvoicesData().map((inv, idx) => (
+                      <tr key={idx} className="border-t hover:bg-gray-50">
+                        <td className="px-2 py-1 text-center text-gray-500">{inv.serialNum}</td>
+                        <td className="px-2 py-1 text-left text-gray-700 whitespace-nowrap">{inv.dispatchDate}</td>
+                        <td className="px-2 py-1 text-left font-medium text-gray-800 whitespace-nowrap">{inv.invoiceNumber}</td>
+                        <td className="px-2 py-1 text-right text-gray-700">₹{inv.grossValue.toFixed(0)}</td>
+                        <td className="px-2 py-1 text-right text-red-600">-₹{inv.rejections.toFixed(0)}</td>
+                        <td className="px-2 py-1 text-right text-blue-600">₹{inv.totalMrpValue.toFixed(0)}</td>
+                        <td className="px-2 py-1 text-right text-orange-600">-₹{inv.commission.toFixed(0)}</td>
+                        <td className="px-2 py-1 text-right font-semibold text-green-600">₹{inv.amountPayable.toFixed(0)}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {getSelectedInvoicesData().map((inv, idx) => (
-                        <tr key={idx} className="border-t hover:bg-gray-50">
-                          <td className="p-3 text-center text-gray-600">{inv.serialNum}</td>
-                          <td className="p-3 text-left text-gray-700">{inv.indentDate}</td>
-                          <td className="p-3 text-left text-gray-700">{inv.dispatchDate}</td>
-                          <td className="p-3 text-left font-medium text-gray-800">{inv.invoiceNumber}</td>
-                          <td className="p-3 text-right text-gray-700">₹{inv.grossValue.toFixed(2)}</td>
-                          <td className="p-3 text-right text-red-600">-₹{inv.rejections.toFixed(2)}</td>
-                          <td className="p-3 text-right text-blue-600">₹{inv.totalMrpValue.toFixed(2)}</td>
-                          <td className="p-3 text-right text-orange-600">-₹{inv.commission.toFixed(2)}</td>
-                          <td className="p-3 text-right font-semibold text-green-600">₹{inv.amountPayable.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-green-100 font-bold">
-                      <tr>
-                        <td colSpan={4} className="p-3 text-right text-green-800">TOTAL:</td>
-                        <td className="p-3 text-right text-gray-800">
-                          ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.grossValue, 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 text-right text-red-700">
-                          -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.rejections, 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 text-right text-blue-700">
-                          ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.totalMrpValue, 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 text-right text-orange-700">
-                          -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.commission, 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 text-right text-green-800 text-base">
-                          ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toFixed(2)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-                
-                {/* Grand Total Highlight */}
-                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
-                  <span className="text-lg font-semibold text-green-800">Total Amount Payable:</span>
-                  <span className="text-2xl font-bold text-green-700">
-                    ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                  </span>
-                </div>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-green-100 font-bold sticky bottom-0">
+                    <tr>
+                      <td colSpan={3} className="px-2 py-1.5 text-right text-green-800 text-xs">TOTAL:</td>
+                      <td className="px-2 py-1.5 text-right text-gray-800">
+                        ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.grossValue, 0).toFixed(0)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-red-700">
+                        -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.rejections, 0).toFixed(0)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-blue-700">
+                        ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.totalMrpValue, 0).toFixed(0)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-orange-700">
+                        -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.commission, 0).toFixed(0)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-green-800 text-sm font-bold">
+                        ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
               
-              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setShowPaymentSummaryPreview(false)}>
-                  Back
-                </Button>
-                <Button 
-                  onClick={() => {
-                    exportPaymentSummary();
-                    setShowPaymentSummaryPreview(false);
-                    setShowPaymentSummaryModal(false);
-                  }}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <Download size={14} className="mr-1" /> Download CSV
-                </Button>
+              <div className="px-4 py-2 border-t bg-gray-50 flex items-center justify-between">
+                <div className="text-sm">
+                  <span className="text-gray-600">Total Payable: </span>
+                  <span className="text-lg font-bold text-green-700">
+                    ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setShowPaymentSummaryPreview(false)}>
+                    Back
+                  </Button>
+                  <Button 
+                    size="sm"
+                    onClick={() => {
+                      exportPaymentSummary();
+                      setShowPaymentSummaryPreview(false);
+                      setShowPaymentSummaryModal(false);
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Download size={14} className="mr-1" /> Download CSV
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

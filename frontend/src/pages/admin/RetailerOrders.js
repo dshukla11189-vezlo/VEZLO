@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle
 } from 'lucide-react';
 
 // Export utility function
@@ -183,7 +183,14 @@ export default function RetailerOrders() {
   const [editingClosingQty, setEditingClosingQty] = useState('');
   const [editingClosingVariant, setEditingClosingVariant] = useState('');
   const [variantSearchTerm, setVariantSearchTerm] = useState('');
-  const [dispatchLinkedItemInfo, setDispatchLinkedItemInfo] = useState(null); // Modal for dispatch-linked items  
+  const [dispatchLinkedItemInfo, setDispatchLinkedItemInfo] = useState(null); // Modal for dispatch-linked items
+  
+  // Payment Summary state
+  const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
+  const [unpaidInvoices, setUnpaidInvoices] = useState([]);
+  const [selectedInvoicesForSummary, setSelectedInvoicesForSummary] = useState({});
+  const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
+  
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
@@ -384,6 +391,112 @@ export default function RetailerOrders() {
       console.error('Delete error:', error);
       toast.error('Failed to delete item');
     }
+  };
+
+  // Load unpaid invoices for selected retailer
+  const loadUnpaidInvoices = async () => {
+    if (!closingInventoryRetailer) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    
+    setPaymentSummaryLoading(true);
+    try {
+      const response = await api.get(`/api/retailer-invoices?retailer_id=${closingInventoryRetailer}`);
+      // Filter unpaid invoices (status not 'paid')
+      const unpaid = response.data.filter(inv => inv.status !== 'paid');
+      setUnpaidInvoices(unpaid);
+      setSelectedInvoicesForSummary({});
+      setShowPaymentSummaryModal(true);
+    } catch (error) {
+      console.error('Failed to load invoices:', error);
+      toast.error('Failed to load invoices');
+    } finally {
+      setPaymentSummaryLoading(false);
+    }
+  };
+
+  // Toggle invoice selection for summary
+  const toggleInvoiceForSummary = (invoiceId) => {
+    setSelectedInvoicesForSummary(prev => ({
+      ...prev,
+      [invoiceId]: !prev[invoiceId]
+    }));
+  };
+
+  // Select all unpaid invoices
+  const selectAllInvoicesForSummary = () => {
+    const allSelected = {};
+    unpaidInvoices.forEach(inv => {
+      allSelected[inv.id] = true;
+    });
+    setSelectedInvoicesForSummary(allSelected);
+  };
+
+  // Get selected invoices data for summary
+  const getSelectedInvoicesData = () => {
+    return unpaidInvoices
+      .filter(inv => selectedInvoicesForSummary[inv.id])
+      .map((inv, idx) => ({
+        serialNum: idx + 1,
+        indentDate: inv.indent_date || inv.invoice_date || '-',
+        dispatchDate: inv.dispatch_date || inv.invoice_date || '-',
+        invoiceNumber: inv.invoice_number,
+        grossValue: inv.gross_value || 0,
+        rejections: inv.rejection_amount || 0,
+        totalMrpValue: inv.total_mrp_value || 0,
+        commission: inv.commission_amount || 0,
+        amountPayable: inv.net_payable || 0,
+        rowTotal: (inv.gross_value || 0) + (inv.rejection_amount || 0) + (inv.total_mrp_value || 0) + (inv.commission_amount || 0) + (inv.net_payable || 0)
+      }));
+  };
+
+  // Export payment summary to CSV
+  const exportPaymentSummary = () => {
+    const data = getSelectedInvoicesData();
+    if (data.length === 0) {
+      toast.error('Please select at least one invoice');
+      return;
+    }
+    
+    const headers = ['S.No', 'Indent Date', 'Dispatch Date', 'Invoice Number', 'Gross Value', 'Rejections', 'Total MRP Value', 'Commission', 'Amount Payable', 'Row Total'];
+    const rows = data.map(d => [
+      d.serialNum,
+      d.indentDate,
+      d.dispatchDate,
+      d.invoiceNumber,
+      d.grossValue.toFixed(2),
+      d.rejections.toFixed(2),
+      d.totalMrpValue.toFixed(2),
+      d.commission.toFixed(2),
+      d.amountPayable.toFixed(2),
+      d.rowTotal.toFixed(2)
+    ]);
+    
+    // Add totals row
+    const totals = data.reduce((acc, d) => ({
+      grossValue: acc.grossValue + d.grossValue,
+      rejections: acc.rejections + d.rejections,
+      totalMrpValue: acc.totalMrpValue + d.totalMrpValue,
+      commission: acc.commission + d.commission,
+      amountPayable: acc.amountPayable + d.amountPayable,
+      rowTotal: acc.rowTotal + d.rowTotal
+    }), { grossValue: 0, rejections: 0, totalMrpValue: 0, commission: 0, amountPayable: 0, rowTotal: 0 });
+    
+    rows.push(['', '', '', 'TOTAL', totals.grossValue.toFixed(2), totals.rejections.toFixed(2), totals.totalMrpValue.toFixed(2), totals.commission.toFixed(2), totals.amountPayable.toFixed(2), totals.rowTotal.toFixed(2)]);
+    
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const retailerName = retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer';
+    link.setAttribute('download', `Payment_Summary_${retailerName}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    toast.success('Payment summary exported');
   };
 
   // Build a map of products for quick lookup (by id and name)
@@ -3257,6 +3370,17 @@ export default function RetailerOrders() {
                     <Download size={14} className="mr-1" /> Export
                   </Button>
                 </div>
+                <div className="flex items-end">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={loadUnpaidInvoices}
+                    className="h-9 text-purple-700 border-purple-300 hover:bg-purple-50"
+                    disabled={!closingInventoryRetailer || paymentSummaryLoading}
+                  >
+                    <FileText size={14} className="mr-1" /> Payment Summary
+                  </Button>
+                </div>
               </div>
 
               {/* Full Inventory Table */}
@@ -3543,6 +3667,156 @@ export default function RetailerOrders() {
                     Close
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT SUMMARY MODAL ==================== */}
+        {showPaymentSummaryModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b bg-purple-50">
+                <div className="flex items-center gap-2">
+                  <FileText className="text-purple-600" size={20} />
+                  <h3 className="text-lg font-semibold text-purple-800">Payment Summary</h3>
+                </div>
+                <button onClick={() => setShowPaymentSummaryModal(false)} className="p-1 hover:bg-purple-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-4 flex-1 overflow-y-auto">
+                {unpaidInvoices.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileText size={40} className="mx-auto mb-3 opacity-50" />
+                    <p>No unpaid invoices found for this retailer</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm text-gray-600">
+                        Select invoices to generate payment summary. <span className="font-medium text-purple-600">{unpaidInvoices.length} unpaid invoice(s)</span>
+                      </p>
+                      <Button variant="outline" size="sm" onClick={selectAllInvoicesForSummary}>
+                        Select All
+                      </Button>
+                    </div>
+                    
+                    {/* Invoice Selection Table */}
+                    <div className="border rounded-lg overflow-x-auto mb-4">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100 sticky top-0">
+                          <tr>
+                            <th className="p-2 w-10 text-center">
+                              <CheckCircle size={14} />
+                            </th>
+                            <th className="p-2 text-center text-gray-600">S.No</th>
+                            <th className="p-2 text-left text-gray-600">Indent Date</th>
+                            <th className="p-2 text-left text-gray-600">Dispatch Date</th>
+                            <th className="p-2 text-left text-gray-600">Invoice #</th>
+                            <th className="p-2 text-right text-gray-600">Gross Value</th>
+                            <th className="p-2 text-right text-red-600">Rejections</th>
+                            <th className="p-2 text-right text-blue-600">Total MRP</th>
+                            <th className="p-2 text-right text-orange-600">Commission</th>
+                            <th className="p-2 text-right text-green-600">Payable</th>
+                            <th className="p-2 text-right text-purple-600">Row Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {unpaidInvoices.map((inv, idx) => {
+                            const isSelected = selectedInvoicesForSummary[inv.id];
+                            const grossValue = inv.gross_value || 0;
+                            const rejections = inv.rejection_amount || 0;
+                            const totalMrp = inv.total_mrp_value || 0;
+                            const commission = inv.commission_amount || 0;
+                            const payable = inv.net_payable || 0;
+                            const rowTotal = grossValue + rejections + totalMrp + commission + payable;
+                            
+                            return (
+                              <tr 
+                                key={inv.id} 
+                                className={`border-t cursor-pointer hover:bg-gray-50 ${isSelected ? 'bg-purple-50' : ''}`}
+                                onClick={() => toggleInvoiceForSummary(inv.id)}
+                              >
+                                <td className="p-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected || false}
+                                    onChange={() => toggleInvoiceForSummary(inv.id)}
+                                    className="w-4 h-4"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </td>
+                                <td className="p-2 text-center text-gray-600">{idx + 1}</td>
+                                <td className="p-2 text-left text-gray-700">
+                                  {inv.indent_date ? new Date(inv.indent_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}
+                                </td>
+                                <td className="p-2 text-left text-gray-700">
+                                  {inv.dispatch_date ? new Date(inv.dispatch_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}
+                                </td>
+                                <td className="p-2 text-left font-medium text-gray-800">{inv.invoice_number}</td>
+                                <td className="p-2 text-right text-gray-700">₹{grossValue.toFixed(2)}</td>
+                                <td className="p-2 text-right text-red-600">₹{rejections.toFixed(2)}</td>
+                                <td className="p-2 text-right text-blue-600">₹{totalMrp.toFixed(2)}</td>
+                                <td className="p-2 text-right text-orange-600">₹{commission.toFixed(2)}</td>
+                                <td className="p-2 text-right font-medium text-green-600">₹{payable.toFixed(2)}</td>
+                                <td className="p-2 text-right font-semibold text-purple-600">₹{rowTotal.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        {Object.values(selectedInvoicesForSummary).some(v => v) && (
+                          <tfoot className="bg-purple-100 font-semibold">
+                            <tr>
+                              <td colSpan={5} className="p-2 text-right text-purple-800">
+                                Selected Total ({Object.values(selectedInvoicesForSummary).filter(v => v).length} invoices):
+                              </td>
+                              <td className="p-2 text-right text-gray-800">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.gross_value || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-red-700">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.rejection_amount || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-blue-700">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.total_mrp_value || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-orange-700">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.commission_amount || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-green-700">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.net_payable || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-purple-800">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => {
+                                  const grossValue = inv.gross_value || 0;
+                                  const rejections = inv.rejection_amount || 0;
+                                  const totalMrp = inv.total_mrp_value || 0;
+                                  const commission = inv.commission_amount || 0;
+                                  const payable = inv.net_payable || 0;
+                                  return sum + grossValue + rejections + totalMrp + commission + payable;
+                                }, 0).toFixed(2)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowPaymentSummaryModal(false)}>
+                  Close
+                </Button>
+                <Button 
+                  onClick={exportPaymentSummary}
+                  disabled={!Object.values(selectedInvoicesForSummary).some(v => v)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  <Download size={14} className="mr-1" /> Export Summary
+                </Button>
               </div>
             </div>
           </div>

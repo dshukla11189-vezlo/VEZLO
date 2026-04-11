@@ -436,19 +436,29 @@ export default function RetailerOrders() {
 
   // Get selected invoices data for summary
   const getSelectedInvoicesData = () => {
+    // Helper function to format date as DD-MM-YYYY
+    const formatDate = (dateStr) => {
+      if (!dateStr) return '-';
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '-';
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
+    };
+    
     return unpaidInvoices
       .filter(inv => selectedInvoicesForSummary[inv.id])
       .map((inv, idx) => ({
         serialNum: idx + 1,
-        indentDate: inv.indent_date || inv.invoice_date || '-',
-        dispatchDate: inv.dispatch_date || inv.invoice_date || '-',
+        indentDate: formatDate(inv.indent_date || inv.invoice_date),
+        dispatchDate: formatDate(inv.dispatch_date || inv.invoice_date),
         invoiceNumber: inv.invoice_number,
         grossValue: inv.gross_value || 0,
         rejections: inv.rejection_amount || 0,
         totalMrpValue: inv.total_mrp_value || 0,
         commission: inv.commission_amount || 0,
-        amountPayable: inv.net_payable || 0,
-        rowTotal: (inv.gross_value || 0) + (inv.rejection_amount || 0) + (inv.total_mrp_value || 0) + (inv.commission_amount || 0) + (inv.net_payable || 0)
+        amountPayable: inv.net_payable || 0
       }));
   };
 
@@ -460,18 +470,18 @@ export default function RetailerOrders() {
       return;
     }
     
-    const headers = ['S.No', 'Indent Date', 'Dispatch Date', 'Invoice Number', 'Gross Value', 'Rejections', 'Total MRP Value', 'Commission', 'Amount Payable', 'Row Total'];
+    // Headers without Row Total
+    const headers = ['S.No', 'Indent Date', 'Dispatch Date', 'Invoice Number', 'Gross Value', 'Rejections', 'Total MRP Value', 'Commission', 'Amount Payable'];
     const rows = data.map(d => [
       d.serialNum,
       d.indentDate,
       d.dispatchDate,
       d.invoiceNumber,
       d.grossValue.toFixed(2),
-      d.rejections.toFixed(2),
+      (-d.rejections).toFixed(2),  // Negative sign for rejections
       d.totalMrpValue.toFixed(2),
-      d.commission.toFixed(2),
-      d.amountPayable.toFixed(2),
-      d.rowTotal.toFixed(2)
+      (-d.commission).toFixed(2),  // Negative sign for commission
+      d.amountPayable.toFixed(2)
     ]);
     
     // Add totals row
@@ -480,11 +490,10 @@ export default function RetailerOrders() {
       rejections: acc.rejections + d.rejections,
       totalMrpValue: acc.totalMrpValue + d.totalMrpValue,
       commission: acc.commission + d.commission,
-      amountPayable: acc.amountPayable + d.amountPayable,
-      rowTotal: acc.rowTotal + d.rowTotal
-    }), { grossValue: 0, rejections: 0, totalMrpValue: 0, commission: 0, amountPayable: 0, rowTotal: 0 });
+      amountPayable: acc.amountPayable + d.amountPayable
+    }), { grossValue: 0, rejections: 0, totalMrpValue: 0, commission: 0, amountPayable: 0 });
     
-    rows.push(['', '', '', 'TOTAL', totals.grossValue.toFixed(2), totals.rejections.toFixed(2), totals.totalMrpValue.toFixed(2), totals.commission.toFixed(2), totals.amountPayable.toFixed(2), totals.rowTotal.toFixed(2)]);
+    rows.push(['', '', '', 'TOTAL', totals.grossValue.toFixed(2), (-totals.rejections).toFixed(2), totals.totalMrpValue.toFixed(2), (-totals.commission).toFixed(2), totals.amountPayable.toFixed(2)]);
     
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -3726,7 +3735,6 @@ export default function RetailerOrders() {
                             <th className="p-2 text-right text-blue-600">Total MRP</th>
                             <th className="p-2 text-right text-orange-600">Commission</th>
                             <th className="p-2 text-right text-green-600">Payable</th>
-                            <th className="p-2 text-right text-purple-600">Row Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -3737,7 +3745,17 @@ export default function RetailerOrders() {
                             const totalMrp = inv.total_mrp_value || 0;
                             const commission = inv.commission_amount || 0;
                             const payable = inv.net_payable || 0;
-                            const rowTotal = grossValue + rejections + totalMrp + commission + payable;
+                            
+                            // Format date as DD-MM-YYYY
+                            const formatDate = (dateStr) => {
+                              if (!dateStr) return '-';
+                              const date = new Date(dateStr);
+                              if (isNaN(date.getTime())) return '-';
+                              const day = String(date.getDate()).padStart(2, '0');
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const year = date.getFullYear();
+                              return `${day}-${month}-${year}`;
+                            };
                             
                             return (
                               <tr 
@@ -3756,18 +3774,17 @@ export default function RetailerOrders() {
                                 </td>
                                 <td className="p-2 text-center text-gray-600">{idx + 1}</td>
                                 <td className="p-2 text-left text-gray-700">
-                                  {inv.indent_date ? new Date(inv.indent_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}
+                                  {formatDate(inv.indent_date || inv.invoice_date)}
                                 </td>
                                 <td className="p-2 text-left text-gray-700">
-                                  {inv.dispatch_date ? new Date(inv.dispatch_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}
+                                  {formatDate(inv.dispatch_date || inv.invoice_date)}
                                 </td>
                                 <td className="p-2 text-left font-medium text-gray-800">{inv.invoice_number}</td>
                                 <td className="p-2 text-right text-gray-700">₹{grossValue.toFixed(2)}</td>
-                                <td className="p-2 text-right text-red-600">₹{rejections.toFixed(2)}</td>
+                                <td className="p-2 text-right text-red-600">-₹{rejections.toFixed(2)}</td>
                                 <td className="p-2 text-right text-blue-600">₹{totalMrp.toFixed(2)}</td>
-                                <td className="p-2 text-right text-orange-600">₹{commission.toFixed(2)}</td>
+                                <td className="p-2 text-right text-orange-600">-₹{commission.toFixed(2)}</td>
                                 <td className="p-2 text-right font-medium text-green-600">₹{payable.toFixed(2)}</td>
-                                <td className="p-2 text-right font-semibold text-purple-600">₹{rowTotal.toFixed(2)}</td>
                               </tr>
                             );
                           })}
@@ -3782,26 +3799,16 @@ export default function RetailerOrders() {
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.gross_value || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-red-700">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.rejection_amount || 0), 0).toFixed(2)}
+                                -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.rejection_amount || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-blue-700">
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.total_mrp_value || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-orange-700">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.commission_amount || 0), 0).toFixed(2)}
+                                -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.commission_amount || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-green-700">
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.net_payable || 0), 0).toFixed(2)}
-                              </td>
-                              <td className="p-2 text-right text-purple-800">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => {
-                                  const grossValue = inv.gross_value || 0;
-                                  const rejections = inv.rejection_amount || 0;
-                                  const totalMrp = inv.total_mrp_value || 0;
-                                  const commission = inv.commission_amount || 0;
-                                  const payable = inv.net_payable || 0;
-                                  return sum + grossValue + rejections + totalMrp + commission + payable;
-                                }, 0).toFixed(2)}
                               </td>
                             </tr>
                           </tfoot>

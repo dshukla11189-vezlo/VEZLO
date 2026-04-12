@@ -1876,18 +1876,14 @@ export default function RetailerOrders() {
         return dispatchDate === dateStr;
       });
       
-      // Get existing items from form (for edit mode)
-      const existingItems = rejectionForm.items || [];
-      
       // Flatten all items from dispatches for that day
       const items = [];
       dayDispatches.forEach(dispatch => {
         dispatch.items?.forEach(item => {
-          // Check if this item matches any existing rejection being edited
-          const existingItem = existingItems.find(ei => 
-            ei.product_id === item.product_id && 
-            (ei.variant_id === item.variant_id || (!ei.variant_id && !item.variant_id))
-          );
+          // Check if this item matches the rejection being edited
+          const isEditingItem = editingRejection && 
+            editingRejection.product_id === item.product_id && 
+            (editingRejection.variant_id === item.variant_id || (!editingRejection.variant_id && !item.variant_id));
           
           items.push({
             dispatch_id: dispatch.id,
@@ -1897,10 +1893,10 @@ export default function RetailerOrders() {
             variant_name: item.variant_name,
             supplied_qty: item.supplied_qty,
             mrp: item.mrp,
-            rejection_qty: existingItem ? existingItem.quantity : 0,
-            reason: existingItem ? existingItem.reason : '',
-            remarks: existingItem ? existingItem.remarks : '',
-            selected: existingItem ? true : false
+            rejection_qty: isEditingItem ? editingRejection.quantity : 0,
+            reason: isEditingItem ? (editingRejection.reason || '') : '',
+            remarks: isEditingItem ? (editingRejection.remarks || '') : '',
+            selected: isEditingItem ? true : false
           });
         });
       });
@@ -1910,13 +1906,13 @@ export default function RetailerOrders() {
       console.error('Failed to load dispatch items:', error);
       setRejectionDispatchItems([]);
     }
-  }, [rejectionForm.retailer_id, rejectionForm.rejection_date, rejectionForm.items]);
+  }, [rejectionForm.retailer_id, rejectionForm.rejection_date, editingRejection]);
 
   useEffect(() => {
     if (showRejectionModal && rejectionForm.retailer_id && rejectionForm.rejection_date) {
       loadRejectionDispatchItems();
     }
-  }, [showRejectionModal, loadRejectionDispatchItems, rejectionForm.retailer_id, rejectionForm.rejection_date]);
+  }, [showRejectionModal, loadRejectionDispatchItems, rejectionForm.retailer_id, rejectionForm.rejection_date, editingRejection]);
 
   const updateRejectionItem = (index, field, value) => {
     setRejectionDispatchItems(prev => {

@@ -131,7 +131,8 @@ export default function Procurement() {
     fromDate: today,
     toDate: today,
     farmerName: '',
-    productName: ''
+    productName: '',
+    status: '' // '', 'paid', 'pending', 'partial'
   });
 
   // Procurement form - farmer info is now stored per product
@@ -278,6 +279,24 @@ export default function Procurement() {
         )
       );
     }
+    
+    // Apply status filter
+    if (filters.status) {
+      filtered = filtered.filter(p => {
+        const pending = p.pending_amount || 0;
+        const paid = p.paid_amount || 0;
+        const total = p.total_amount || 0;
+        
+        if (filters.status === 'paid') {
+          return pending === 0 && paid >= total;
+        } else if (filters.status === 'pending') {
+          return paid === 0 && pending > 0;
+        } else if (filters.status === 'partial') {
+          return paid > 0 && pending > 0;
+        }
+        return true;
+      });
+    }
 
     setFilteredProcurements(filtered);
   }, [filters, procurements]);
@@ -287,7 +306,8 @@ export default function Procurement() {
       fromDate: '',
       toDate: '',
       farmerName: '',
-      productName: ''
+      productName: '',
+      status: ''
     });
   };
 
@@ -958,6 +978,24 @@ export default function Procurement() {
       filtered = filtered.filter(p => p.date <= filters.toDate);
     }
     
+    // Apply status filter
+    if (filters.status) {
+      filtered = filtered.filter(p => {
+        const pending = p.pending_amount || 0;
+        const paid = p.paid_amount || 0;
+        const total = p.total_amount || 0;
+        
+        if (filters.status === 'paid') {
+          return pending === 0 && paid >= total;
+        } else if (filters.status === 'pending') {
+          return paid === 0 && pending > 0;
+        } else if (filters.status === 'partial') {
+          return paid > 0 && pending > 0;
+        }
+        return true;
+      });
+    }
+    
     // Get unique farmer IDs in filtered procurements
     const uniqueFarmerIds = new Set(filtered.map(p => p.farmer_id));
     
@@ -973,7 +1011,7 @@ export default function Procurement() {
       paidAmount: totalPaidAmount,
       pendingAmount: totalPendingAmount
     };
-  }, [procurements, filters.fromDate, filters.toDate]);
+  }, [procurements, filters.fromDate, filters.toDate, filters.status]);
 
   // Compute farmer-wise pending amounts with filters
   const getFarmerWisePending = () => {
@@ -1946,7 +1984,7 @@ export default function Procurement() {
         </Card>
         <Card className="stat-card">
           <CardContent className="p-6">
-            <div className="flex items-start justify-between">
+            <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 uppercase">Paid</p>
                 <p className="text-3xl font-bold text-green-700">₹{getFilteredStats.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -1954,7 +1992,7 @@ export default function Procurement() {
                   <p className="text-xs text-gray-400">for filtered period</p>
                 )}
               </div>
-              <div className="bg-green-50 p-3 rounded-lg">
+              <div className="bg-green-50 p-3 rounded-lg flex-shrink-0">
                 <DollarSign className="text-green-700" size={24} />
               </div>
             </div>
@@ -1962,7 +2000,7 @@ export default function Procurement() {
         </Card>
         <Card className="stat-card">
           <CardContent className="p-6">
-            <div className="flex items-start justify-between">
+            <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">{t('procurement.pending')}</p>
                 <p className="text-3xl font-bold text-red-700">₹{getFilteredStats.pendingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -1970,7 +2008,7 @@ export default function Procurement() {
                   <p className="text-xs text-gray-400">for filtered period</p>
                 )}
               </div>
-              <div className="bg-red-50 p-3 rounded-lg">
+              <div className="bg-red-50 p-3 rounded-lg flex-shrink-0">
                 <IndianRupee className="text-red-700" size={24} />
               </div>
             </div>
@@ -2001,7 +2039,7 @@ export default function Procurement() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 <div>
                   <Label htmlFor="filter-from-date" className="text-xs">{t('procurement.fromDate')}</Label>
                   <Input
@@ -2043,6 +2081,21 @@ export default function Procurement() {
                     onChange={(e) => setFilters({ ...filters, productName: e.target.value })}
                     data-testid="filter-product-name"
                   />
+                </div>
+                <div>
+                  <Label htmlFor="filter-status" className="text-xs">Status</Label>
+                  <select
+                    id="filter-status"
+                    value={filters.status}
+                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    data-testid="filter-status"
+                  >
+                    <option value="">All</option>
+                    <option value="paid">Paid</option>
+                    <option value="partial">Partial</option>
+                    <option value="pending">Pending</option>
+                  </select>
                 </div>
               </div>
               <div className="mt-3 text-xs text-gray-600">

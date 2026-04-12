@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -1993,7 +1993,7 @@ export default function Procurement() {
                 )}
               </div>
               <div className="bg-green-50 p-3 rounded-lg flex-shrink-0">
-                <DollarSign className="text-green-700" size={24} />
+                <Check className="text-green-700" size={24} />
               </div>
             </div>
           </CardContent>
@@ -2009,7 +2009,7 @@ export default function Procurement() {
                 )}
               </div>
               <div className="bg-red-50 p-3 rounded-lg flex-shrink-0">
-                <IndianRupee className="text-red-700" size={24} />
+                <Clock className="text-red-700" size={24} />
               </div>
             </div>
           </CardContent>

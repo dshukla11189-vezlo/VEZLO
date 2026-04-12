@@ -330,7 +330,19 @@ export default function RetailerOrders() {
     try {
       const res = await api.get(`/api/retailer-closing-inventory/summary/${closingInventoryRetailer}?date=${closingInventoryDate}`);
       const items = res.data.items || [];
-      const hasClosingData = res.data.has_closing_data || false;
+      
+      // Check if there's actual closing data - use the flag if available, otherwise check items
+      const hasAnyClosingRecorded = items.some(item => item.closing_qty !== null && item.closing_qty !== undefined);
+      const hasClosingData = res.data.has_closing_data !== undefined 
+        ? res.data.has_closing_data 
+        : hasAnyClosingRecorded;
+      
+      console.log('Closing inventory loaded:', { 
+        date: closingInventoryDate, 
+        totalItems: items.length, 
+        hasClosingData, 
+        itemsWithClosing: items.filter(i => i.closing_qty != null).length 
+      });
       
       setClosingInventoryData(items);
       setClosingHasData(hasClosingData);
@@ -3437,7 +3449,8 @@ export default function RetailerOrders() {
 
               {/* Full Inventory Table */}
               {closingInventoryRetailer && closingInventoryDate ? (
-                closingInventoryData.length > 0 ? (
+                closingHasData ? (
+                  /* Normal view - has closing data recorded */
                   <div className="overflow-x-auto border rounded-lg">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-100">

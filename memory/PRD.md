@@ -1235,6 +1235,29 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 
 ---
 
+### Yesterday's Closing Reminder & Admin Entry Feature (COMPLETED - Apr 12, 2026)
+- [x] **Retailer Portal - Yesterday's Closing Reminder**:
+  - On page load, checks if yesterday's closing inventory was recorded
+  - Shows amber banner notification if missing: "Yesterday's Closing Not Recorded"
+  - Includes "Dismiss" and "Update Now" buttons
+  - "Update Now" opens closing modal pre-filled for yesterday's date
+  - Banner can be dismissed and won't reappear until page reload
+- [x] **Admin Portal - Enter Closing for Missing Dates**:
+  - When no closing data exists for selected date, shows opening data from previous day
+  - Displays amber banner: "No closing recorded - showing opening data from previous day's closing"
+  - Includes "Enter Closing" button to activate admin entry mode
+  - Admin can enter closing quantities for each product in-line
+  - Save button bulk-saves all entered closing values
+- [x] **Backend Changes**:
+  - New endpoint: `GET /api/retailer-closing-inventory/check-yesterday/{retailer_id}` - returns `has_closing` status
+  - Updated `get_retailer_closing_summary` to include `has_closing_data` flag
+- [x] **Files Modified**:
+  - Backend: `/app/backend/server.py` - Added check-yesterday endpoint and has_closing_data flag
+  - Frontend: `/app/frontend/src/pages/retailer/Dashboard.js` - Added yesterday banner and `openRecordClosingModalForDate` function
+  - Frontend: `/app/frontend/src/pages/admin/RetailerOrders.js` - Added admin closing entry mode and UI
+
+---
+
 ## Next Tasks (Upcoming)
 
 ### P1 - High Priority
@@ -1243,7 +1266,7 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [ ] OCR QC Order Processing workflow in UI
 
 ### P2 - Medium Priority
-- [ ] Codebase Refactoring Phase 2 (server.py ~10,800 lines → modular routes)
+- [ ] Codebase Refactoring Phase 2 (server.py ~10,900 lines → modular routes)
 - [ ] APScheduler reliability improvements (persistent job store)
 
 ### Future/Backlog

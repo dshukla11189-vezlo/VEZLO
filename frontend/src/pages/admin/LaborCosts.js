@@ -127,6 +127,7 @@ export default function LaborCosts() {
         const updated = { ...record, [field]: value };
         if (!updated.present) {
           updated.overtime_hours = 0;
+          updated.working_hours = 0;
         }
         return updated;
       }
@@ -143,6 +144,7 @@ export default function LaborCosts() {
         return {
           ...record,
           present: newPresent,
+          working_hours: newPresent ? (record.working_hours || 9) : 0,
           overtime_hours: newPresent ? record.overtime_hours : 0
         };
       }
@@ -178,6 +180,7 @@ export default function LaborCosts() {
         labour_id: a.labour_id,
         labour_name: a.labour_name,
         present: a.present,
+        working_hours: a.working_hours || 9,
         overtime_hours: a.overtime_hours,
         daily_rate: a.daily_rate,
         overtime_rate: a.overtime_rate
@@ -646,6 +649,7 @@ export default function LaborCosts() {
                     <th>NAME</th>
                     <th>PHONE</th>
                     <th className="text-right">DAILY RATE</th>
+                    <th className="text-right">HOURLY RATE</th>
                     <th className="text-right">OT RATE/HR</th>
                     <th>JOINING DATE</th>
                     <th>BANK INFO</th>
@@ -665,6 +669,7 @@ export default function LaborCosts() {
                         ) : '-'}
                       </td>
                       <td className="text-right font-semibold text-green-700">₹{labour.default_daily_rate || 0}</td>
+                      <td className="text-right font-medium text-blue-600">₹{((labour.default_daily_rate || 0) / 9).toFixed(1)}</td>
                       <td className="text-right font-medium text-orange-600">₹{labour.default_overtime_rate || 0}</td>
                       <td className="text-gray-600 text-sm">
                         {labour.joining_date ? (
@@ -830,13 +835,14 @@ export default function LaborCosts() {
                     <tr>
                       <th>LABOURER</th>
                       <th className="text-center">STATUS</th>
+                      <th className="text-center">WORKING HRS</th>
                       <th className="text-center">OT HOURS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {attendance.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="text-center text-gray-500 py-8">
+                        <td colSpan={4} className="text-center text-gray-500 py-8">
                           No labourers found. Add labourers in "Manage Labourers" tab first.
                         </td>
                       </tr>
@@ -856,6 +862,22 @@ export default function LaborCosts() {
                             >
                               {record.present ? '✓ Present' : '✗ Absent'}
                             </button>
+                          </td>
+                          <td className="text-center">
+                            {record.present ? (
+                              <Input
+                                type="number"
+                                value={record.working_hours || 9}
+                                onChange={(e) => updateAttendance(record.labour_id, 'working_hours', parseFloat(e.target.value) || 0)}
+                                min="0"
+                                max="12"
+                                step="0.5"
+                                className="w-20 h-8 text-center mx-auto"
+                                data-testid={`working-hours-${record.labour_id}`}
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
                           </td>
                           <td className="text-center">
                             {record.present ? (

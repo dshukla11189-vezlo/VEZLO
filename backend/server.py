@@ -10387,17 +10387,23 @@ async def get_labour_attendance(
             record = attendance_map[labour["id"]]
             # Ensure labour_name is updated (in case labour name changed)
             record["labour_name"] = labour["name"]
+            # Ensure working_hours has a default
+            if "working_hours" not in record:
+                record["working_hours"] = 9 if record.get("present") else 0
             result.append(record)
         else:
             # Return default attendance entry (not saved yet)
+            daily_rate = labour.get("default_daily_rate", 0)
             result.append({
                 "id": None,  # Not saved yet
                 "date": date,
                 "labour_id": labour["id"],
                 "labour_name": labour["name"],
                 "present": False,
+                "working_hours": 9,  # Default 9 hours
                 "overtime_hours": 0,
-                "daily_rate": labour.get("default_daily_rate", 0),
+                "daily_rate": daily_rate,
+                "hourly_rate": round(daily_rate / 9, 2) if daily_rate > 0 else 0,
                 "overtime_rate": labour.get("default_overtime_rate", 0),
                 "total_payment": 0,
                 "remarks": None
@@ -10482,15 +10488,20 @@ async def save_bulk_labour_attendance(
         labour_id = record.get("labour_id")
         labour_name = record.get("labour_name")
         present = record.get("present", False)
+        working_hours = float(record.get("working_hours", 9))  # Default 9 hours
         overtime_hours = float(record.get("overtime_hours", 0))
         daily_rate = float(record.get("daily_rate", 0))
         overtime_rate = float(record.get("overtime_rate", 0))
         remarks = record.get("remarks")
         
-        # Calculate total payment
+        # Calculate hourly rate (daily rate / 9 hours standard)
+        hourly_rate = daily_rate / 9 if daily_rate > 0 else 0
+        
+        # Calculate total payment based on working hours
         total_payment = 0
         if present:
-            total_payment = daily_rate + (overtime_hours * overtime_rate)
+            # Payment = (hourly rate * working hours) + (overtime rate * overtime hours)
+            total_payment = (hourly_rate * working_hours) + (overtime_hours * overtime_rate)
         
         # Upsert attendance record
         await db.labour_attendance.update_one(
@@ -10498,10 +10509,12 @@ async def save_bulk_labour_attendance(
             {"$set": {
                 "labour_name": labour_name,
                 "present": present,
+                "working_hours": working_hours,
                 "overtime_hours": overtime_hours,
                 "daily_rate": daily_rate,
+                "hourly_rate": round(hourly_rate, 2),
                 "overtime_rate": overtime_rate,
-                "total_payment": total_payment,
+                "total_payment": round(total_payment, 2),
                 "remarks": remarks,
                 "recorded_by": current_user.get("user_id"),
                 "updated_at": datetime.now(timezone.utc).isoformat()

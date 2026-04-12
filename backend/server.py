@@ -9776,7 +9776,40 @@ async def get_retailer_closing_summary(
     result = []
     seen_product_variants = {}  # Track by product_id + variant_name for deduplication
     
-    # First add all closing items with full data
+    # Get ALL products to include in the result
+    all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+    
+    # First: Add all products from the product list (even those without activity)
+    for product in all_products:
+        product_id = product.get('id')
+        key = f"{product_id}_default"
+        dedup_key = f"{product_id}_Kg"
+        
+        # Get opening from previous day
+        opening = prev_closing.get(key, 0)
+        if opening == 0 and product_id in prev_closing_product_only:
+            opening = prev_closing_product_only.get(product_id, 0)
+        
+        recv = received_qty.get(key, {}).get('qty', 0)
+        rej = rejection_qty.get(f"{product_id}_default", 0)
+        linked_dispatches = dispatch_linkage.get(key, [])
+        
+        result.append({
+            "id": None,  # No closing record yet for products without activity
+            "product_id": product_id,
+            "product_name": product.get("name"),
+            "product_name_hi": product.get("name_hi"),
+            "variant_id": None,
+            "variant_name": "Kg",
+            "opening_qty": opening,
+            "received_qty": recv,
+            "rejection_qty": rej,
+            "closing_qty": None,
+            "linked_dispatches": linked_dispatches[:5] if linked_dispatches else []
+        })
+        seen_product_variants[dedup_key] = len(result) - 1
+    
+    # Then: Update/add closing items with actual recorded closing data
     for item in closing_items:
         product_id = item.get('product_id')
         variant_id = item.get('variant_id')
@@ -9798,36 +9831,42 @@ async def get_retailer_closing_summary(
         # Deduplicate by product_id + variant_name
         dedup_key = f"{product_id}_{final_variant_name}"
         if dedup_key in seen_product_variants:
-            # Merge data with existing entry - sum quantities and keep the one with id
+            # Update existing entry with closing data
             existing_idx = seen_product_variants[dedup_key]
             existing = result[existing_idx]
             
-            # Keep the entry with an id (deletable one)
-            if item.get("id") and not existing.get("id"):
+            # Update with the closing record ID
+            if item.get("id"):
                 existing["id"] = item.get("id")
             
-            # Sum the quantities
-            existing["opening_qty"] = (existing.get("opening_qty") or 0) + (prev_closing.get(key, 0) or 0)
-            existing["received_qty"] = (existing.get("received_qty") or 0) + (received_qty.get(key, {}).get('qty', 0) or 0)
-            existing["closing_qty"] = (existing.get("closing_qty") or 0) + (item.get("closing_qty") or 0)
+            # Update quantities from closing record
+            existing["closing_qty"] = item.get("closing_qty")
+            
+            # Update received_qty and opening_qty if different
+            recv = received_qty.get(key, {}).get('qty', 0)
+            if recv > 0:
+                existing["received_qty"] = recv
+            
+            opening = prev_closing.get(key, 0)
+            if opening == 0 and product_id in prev_closing_product_only:
+                opening = prev_closing_product_only.get(product_id, 0)
+            if opening > 0:
+                existing["opening_qty"] = opening
             
             # Merge linked dispatches
             linked = dispatch_linkage.get(key, [])
             if linked:
-                existing["linked_dispatches"] = (existing.get("linked_dispatches") or []) + linked
+                existing_linked = existing.get("linked_dispatches") or []
+                existing["linked_dispatches"] = (existing_linked + linked)[:5]
             continue
         
         # Get opening from previous day - try exact key match first, then product-only fallback
         opening = prev_closing.get(key, 0)
         if opening == 0 and product_id in prev_closing_product_only:
-            # Fallback: use product-level previous closing if variant key didn't match
-            # This handles cases where previous day had no variant but today has variant
             opening = prev_closing_product_only.get(product_id, 0)
         
         recv = received_qty.get(key, {}).get('qty', 0)
-        rej = rejection_qty.get(f"{product_id}_default", 0)  # Apply rejection at product level
-        
-        # Get dispatch linkage info
+        rej = rejection_qty.get(f"{product_id}_default", 0)
         linked_dispatches = dispatch_linkage.get(key, [])
         
         result.append({
@@ -9840,9 +9879,22 @@ async def get_retailer_closing_summary(
             "received_qty": recv,
             "rejection_qty": rej,
             "closing_qty": item.get("closing_qty"),
-            "linked_dispatches": linked_dispatches[:5] if linked_dispatches else []  # Limit to recent 5
+            "linked_dispatches": linked_dispatches[:5] if linked_dispatches else []
         })
         seen_product_variants[dedup_key] = len(result) - 1  # Track index for merging
+    
+    # Sort result: items with activity (closing_qty not null, or opening > 0, or received > 0) first
+    def sort_key(item):
+        has_closing = item.get("closing_qty") is not None
+        has_opening = (item.get("opening_qty") or 0) > 0
+        has_received = (item.get("received_qty") or 0) > 0
+        has_activity = has_closing or has_opening or has_received
+        # Primary: activity items first (0 for activity, 1 for no activity)
+        # Secondary: closing_qty descending (use negative for descending)
+        return (0 if has_activity else 1, -(item.get("closing_qty") or 0), item.get("product_name", ""))
+    
+    result.sort(key=sort_key)
+    
     return {
         "closing_date": date,
         "items": result,

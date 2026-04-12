@@ -545,6 +545,35 @@ export default function RetailerDashboard() {
         prevClosingByProduct[productId] += data.closing_qty || 0;
       });
       
+      // NEW LOGIC: Start by adding ALL products from the products list
+      // This ensures every product is shown, even those without activity
+      products.forEach(product => {
+        const productId = product.id;
+        const key = `${productId}_default`;
+        
+        // Get opening qty from previous closing if available
+        let openingQty = 0;
+        if (prevClosingMap[key]) {
+          openingQty = prevClosingMap[key].closing_qty || 0;
+        } else if (prevClosingByProduct[productId]) {
+          openingQty = prevClosingByProduct[productId];
+        }
+        
+        inventoryMap[key] = {
+          product_id: productId,
+          product_name: product.name,
+          product_name_hi: product.name_hi,
+          variant_id: null,
+          variant_name: 'Kg',
+          unit: 'Kg',
+          opening_qty: openingQty,
+          received_qty: 0,
+          rejection_qty: 0,
+          items_sold: null,
+          closing_qty: undefined
+        };
+      });
+      
       // Add items from received dispatches - now can use prevClosingByProduct for opening
       Object.entries(receivedMap).forEach(([key, data]) => {
         const [productId, variantId] = key.split('_');
@@ -858,57 +887,80 @@ export default function RetailerDashboard() {
         }
       });
       
-      // If no variants found from opening or dispatch, fallback to products with Kg
-      if (Object.keys(allRelevantVariants).length === 0) {
-        const allProducts = products.map(p => ({
+      // NEW LOGIC: Start with ALL products, then merge activity data
+      // This ensures every product is shown, even those without activity
+      const allProductsMap = {};
+      products.forEach(p => {
+        const key = `${p.id}_default`;
+        allProductsMap[key] = {
           product_id: p.id,
           product_name: p.name,
           product_name_hi: p.name_hi,
           variant_id: null,
           variant_name: 'Kg',
-          unit: p.unit || 'Kg',
-          closing_qty: '',
-          has_variants: false,
           opening_qty: 0,
-          dispatch_qty: 0
-        }));
-        setClosingItems(allProducts);
-      } else {
-        // Convert to list and deduplicate by product_id + variant_name combination
-        const seenKeys = new Set();
-        const items = Object.values(allRelevantVariants)
-          .map(v => ({
-            product_id: v.product_id,
-            product_name: v.product_name,
-            product_name_hi: v.product_name_hi,
-            variant_id: v.variant_id,
-            variant_name: v.variant_name || 'Kg',
-            unit: v.variant_name && v.variant_name !== 'Kg' ? 'Pcs' : 'Kg',
-            closing_qty: '',
-            has_variants: v.variant_name && v.variant_name !== 'Kg',
-            opening_qty: v.opening_qty || 0,
-            dispatch_qty: v.dispatch_qty || 0,
-            source: v.source
-          }))
-          .filter(item => {
-            // Deduplicate by product_id + variant_name
-            const key = `${item.product_id}_${item.variant_name}`;
-            if (seenKeys.has(key)) {
-              return false; // Skip duplicate
-            }
-            seenKeys.add(key);
-            return true;
-          });
-        
-        // Sort by product name, then variant name
-        items.sort((a, b) => {
-          const nameCompare = (a.product_name || '').localeCompare(b.product_name || '');
-          if (nameCompare !== 0) return nameCompare;
-          return (a.variant_name || '').localeCompare(b.variant_name || '');
+          dispatch_qty: 0,
+          source: 'product_list'
+        };
+      });
+      
+      // Merge activity data (opening/dispatch) into the products map
+      Object.entries(allRelevantVariants).forEach(([key, data]) => {
+        if (allProductsMap[key]) {
+          // Update existing product entry with activity data
+          allProductsMap[key].variant_id = data.variant_id || allProductsMap[key].variant_id;
+          allProductsMap[key].variant_name = data.variant_name || allProductsMap[key].variant_name;
+          allProductsMap[key].opening_qty = data.opening_qty || 0;
+          allProductsMap[key].dispatch_qty = data.dispatch_qty || 0;
+          allProductsMap[key].source = data.source;
+        } else {
+          // Add new variant entry (variant-specific that didn't match default key)
+          allProductsMap[key] = data;
+        }
+      });
+      
+      // Convert to list and deduplicate by product_id + variant_name combination
+      const seenKeys = new Set();
+      const items = Object.values(allProductsMap)
+        .map(v => ({
+          product_id: v.product_id,
+          product_name: v.product_name,
+          product_name_hi: v.product_name_hi,
+          variant_id: v.variant_id,
+          variant_name: v.variant_name || 'Kg',
+          unit: v.variant_name && v.variant_name !== 'Kg' ? 'Pcs' : 'Kg',
+          closing_qty: '',
+          has_variants: v.variant_name && v.variant_name !== 'Kg',
+          opening_qty: v.opening_qty || 0,
+          dispatch_qty: v.dispatch_qty || 0,
+          source: v.source
+        }))
+        .filter(item => {
+          // Deduplicate by product_id + variant_name
+          const key = `${item.product_id}_${item.variant_name}`;
+          if (seenKeys.has(key)) {
+            return false; // Skip duplicate
+          }
+          seenKeys.add(key);
+          return true;
         });
+      
+      // Sort: products with activity (opening_qty > 0 OR dispatch_qty > 0) first, then by name
+      items.sort((a, b) => {
+        const aHasActivity = (a.opening_qty > 0 || a.dispatch_qty > 0);
+        const bHasActivity = (b.opening_qty > 0 || b.dispatch_qty > 0);
         
-        setClosingItems(items);
-      }
+        // Products with activity come first
+        if (aHasActivity && !bHasActivity) return -1;
+        if (!aHasActivity && bHasActivity) return 1;
+        
+        // Within same group, sort by product name
+        const nameCompare = (a.product_name || '').localeCompare(b.product_name || '');
+        if (nameCompare !== 0) return nameCompare;
+        return (a.variant_name || '').localeCompare(b.variant_name || '');
+      });
+      
+      setClosingItems(items);
       
       setClosingDate(today);
       setEditingClosingDate(null);

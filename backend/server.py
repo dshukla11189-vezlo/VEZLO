@@ -7312,6 +7312,40 @@ async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depe
     
     return {"message": "Rejection deleted successfully"}
 
+
+@api_router.put("/retailer-rejections/{rejection_id}")
+async def update_retailer_rejection(rejection_id: str, rejection: RetailerRejection, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update rejections")
+    
+    # Check if rejection exists
+    existing = await db.retailer_rejections.find_one({"id": rejection_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rejection not found")
+    
+    # Update the rejection
+    update_data = {
+        "retailer_id": rejection.retailer_id,
+        "rejection_date": rejection.rejection_date,
+        "product_id": rejection.product_id,
+        "product_name": rejection.product_name,
+        "variant_id": rejection.variant_id,
+        "variant_name": rejection.variant_name,
+        "quantity": rejection.quantity,
+        "mrp": rejection.mrp,
+        "reason": rejection.reason,
+        "remarks": rejection.remarks,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.retailer_rejections.update_one(
+        {"id": rejection_id},
+        {"$set": update_data}
+    )
+    
+    return {"id": rejection_id, "message": "Rejection updated successfully"}
+
+
 # ------------ RETAILER PAYMENTS ------------
 @api_router.get("/retailer-payments")
 async def get_retailer_payments(

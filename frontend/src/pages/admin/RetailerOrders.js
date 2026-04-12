@@ -1977,26 +1977,60 @@ export default function RetailerOrders() {
     }
 
     try {
-      // Create rejections for each selected item
+      let createdCount = 0;
+      let updatedCount = 0;
+      
+      // Process each selected item - update if has rejection_id, create if new
       for (const item of selectedItems) {
-        await api.post('/api/retailer-rejections', {
+        const rejectionData = {
           retailer_id: rejectionForm.retailer_id,
           rejection_date: new Date(rejectionForm.rejection_date).toISOString(),
           product_id: item.product_id,
           product_name: item.product_name,
+          variant_id: item.variant_id || null,
           variant_name: item.variant_name,
           quantity: item.rejection_qty,
           mrp: item.mrp,
           reason: item.reason,
           remarks: item.remarks || ''
-        });
+        };
+        
+        if (item.rejection_id) {
+          // Update existing rejection
+          await api.put(`/api/retailer-rejections/${item.rejection_id}`, rejectionData);
+          updatedCount++;
+        } else {
+          // Create new rejection
+          await api.post('/api/retailer-rejections', rejectionData);
+          createdCount++;
+        }
       }
-      toast.success(`${selectedItems.length} rejection(s) recorded`);
+      
+      // Check for items that were previously selected but now unselected (to delete)
+      if (editingRejection) {
+        const allPreviousRejections = rejectionForm.items || [];
+        for (const prevItem of allPreviousRejections) {
+          if (prevItem.id) {
+            // Check if this rejection is no longer selected
+            const stillSelected = selectedItems.find(si => si.rejection_id === prevItem.id);
+            if (!stillSelected) {
+              // Delete the rejection since it was unselected
+              await api.delete(`/api/retailer-rejections/${prevItem.id}`);
+            }
+          }
+        }
+      }
+      
+      const messages = [];
+      if (createdCount > 0) messages.push(`${createdCount} created`);
+      if (updatedCount > 0) messages.push(`${updatedCount} updated`);
+      toast.success(`Rejections: ${messages.join(', ')}`);
+      
       setShowRejectionModal(false);
       resetRejectionForm();
       loadRejections();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to record rejections');
+      toast.error(error.response?.data?.detail || 'Failed to save rejections');
     }
   };
 
@@ -2012,31 +2046,44 @@ export default function RetailerOrders() {
   };
 
   const handleEditRejection = async (rejection) => {
-    // Set editing state first
+    // Set editing state
     setEditingRejection(rejection);
     
     const retailerId = rejection.retailer_id;
     const rejectionDate = rejection.rejection_date?.split('T')[0] || rejection.rejection_date;
     
-    // Set form data
+    // Fetch ALL rejections for this retailer + date
+    let allRejectionsForDate = [];
+    try {
+      const rejectionsRes = await api.get(`/api/retailer-rejections?retailer_id=${retailerId}`);
+      allRejectionsForDate = rejectionsRes.data.filter(r => {
+        const rDate = r.rejection_date?.split('T')[0] || r.rejection_date;
+        return rDate === rejectionDate;
+      });
+    } catch (error) {
+      console.error('Failed to fetch rejections:', error);
+    }
+    
+    // Set form data with all rejections as items
     setRejectionForm({
       retailer_id: retailerId,
       rejection_date: rejectionDate,
       remarks: rejection.remarks || '',
-      items: [{
-        dispatch_id: rejection.dispatch_id || '',
-        product_id: rejection.product_id,
-        product_name: rejection.product_name,
-        variant_id: rejection.variant_id || '',
-        variant_name: rejection.variant_name || '',
-        quantity: rejection.quantity,
-        mrp: rejection.mrp,
-        reason: rejection.reason || '',
-        remarks: rejection.remarks || ''
-      }]
+      items: allRejectionsForDate.map(r => ({
+        id: r.id,
+        dispatch_id: r.dispatch_id || '',
+        product_id: r.product_id,
+        product_name: r.product_name,
+        variant_id: r.variant_id || '',
+        variant_name: r.variant_name || '',
+        quantity: r.quantity,
+        mrp: r.mrp,
+        reason: r.reason || '',
+        remarks: r.remarks || ''
+      }))
     });
     
-    // Load dispatch items directly with the rejection data
+    // Load dispatch items and match ALL existing rejections
     try {
       const response = await api.get(`/api/retailer-dispatches?retailer_id=${retailerId}`);
       const dayDispatches = response.data.filter(d => {
@@ -2047,14 +2094,16 @@ export default function RetailerOrders() {
       const items = [];
       dayDispatches.forEach(dispatch => {
         dispatch.items?.forEach(item => {
-          // Match by product_id or product_name
-          const productMatch = rejection.product_id === item.product_id;
-          const nameMatch = rejection.product_name === item.product_name;
-          const variantMatch = (rejection.variant_id === item.variant_id) || 
-            (!rejection.variant_id && !item.variant_id) ||
-            (rejection.variant_name === item.variant_name);
-          
-          const isEditingItem = (productMatch || nameMatch) && variantMatch;
+          // Find matching rejection from ALL rejections for this date
+          const matchingRejection = allRejectionsForDate.find(r => {
+            const productMatch = r.product_id === item.product_id;
+            const nameMatch = r.product_name === item.product_name;
+            const variantMatch = (r.variant_id === item.variant_id) || 
+              (!r.variant_id && !item.variant_id) ||
+              (r.variant_name === item.variant_name);
+            
+            return (productMatch || nameMatch) && variantMatch;
+          });
           
           items.push({
             dispatch_id: dispatch.id,
@@ -2064,10 +2113,11 @@ export default function RetailerOrders() {
             variant_name: item.variant_name,
             supplied_qty: item.supplied_qty,
             mrp: item.mrp,
-            rejection_qty: isEditingItem ? rejection.quantity : 0,
-            reason: isEditingItem ? (rejection.reason || '') : '',
-            remarks: isEditingItem ? (rejection.remarks || '') : '',
-            selected: isEditingItem
+            rejection_id: matchingRejection?.id || null, // Store rejection ID for update
+            rejection_qty: matchingRejection ? matchingRejection.quantity : 0,
+            reason: matchingRejection ? (matchingRejection.reason || '') : '',
+            remarks: matchingRejection ? (matchingRejection.remarks || '') : '',
+            selected: matchingRejection ? true : false
           });
         });
       });

@@ -9895,11 +9895,41 @@ async def get_retailer_closing_summary(
     
     result.sort(key=sort_key)
     
+    # Determine if there's actual closing data for this date
+    has_closing_data = len(closing_items) > 0
+    
     return {
         "closing_date": date,
         "items": result,
-        "recorded_items": len(closing_items)
+        "recorded_items": len(closing_items),
+        "has_closing_data": has_closing_data
     }
+
+
+@app.get("/api/retailer-closing-inventory/check-yesterday/{retailer_id}")
+async def check_yesterday_closing(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Check if yesterday's closing inventory was recorded for this retailer"""
+    from datetime import datetime, timedelta
+    
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    yesterday_str = yesterday.strftime("%Y-%m-%d")
+    
+    # Check if yesterday's closing exists
+    yesterday_closing = await db.retailer_closing_inventory.find_one({
+        "retailer_id": retailer_id,
+        "closing_date": yesterday_str
+    })
+    
+    return {
+        "yesterday_date": yesterday_str,
+        "has_closing": yesterday_closing is not None,
+        "today_date": today.strftime("%Y-%m-%d")
+    }
+
 
 @app.delete("/api/retailer-closing-inventory/{retailer_id}/{closing_date}")
 async def delete_retailer_closing_inventory(

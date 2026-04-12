@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save
 } from 'lucide-react';
 
 // Export utility function
@@ -184,6 +184,9 @@ export default function RetailerOrders() {
   const [editingClosingVariant, setEditingClosingVariant] = useState('');
   const [variantSearchTerm, setVariantSearchTerm] = useState('');
   const [dispatchLinkedItemInfo, setDispatchLinkedItemInfo] = useState(null); // Modal for dispatch-linked items
+  const [closingHasData, setClosingHasData] = useState(true); // Track if the selected date has closing data
+  const [adminEnteringClosing, setAdminEnteringClosing] = useState(false); // Admin entering new closing data
+  const [adminClosingInputs, setAdminClosingInputs] = useState({}); // Admin input values for new closing
   
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
@@ -321,14 +324,25 @@ export default function RetailerOrders() {
   const loadClosingInventory = useCallback(async () => {
     if (!closingInventoryRetailer || !closingInventoryDate) {
       setClosingInventoryData([]);
+      setClosingHasData(true);
       return;
     }
     try {
       const res = await api.get(`/api/retailer-closing-inventory/summary/${closingInventoryRetailer}?date=${closingInventoryDate}`);
-      setClosingInventoryData(res.data.items || []);
+      const items = res.data.items || [];
+      const hasClosingData = res.data.has_closing_data || false;
+      
+      setClosingInventoryData(items);
+      setClosingHasData(hasClosingData);
+      
+      // Reset admin entering mode
+      setAdminEnteringClosing(false);
+      setAdminClosingInputs({});
+      
     } catch (error) {
       console.error('Failed to load closing inventory:', error);
       setClosingInventoryData([]);
+      setClosingHasData(false);
     }
   }, [closingInventoryRetailer, closingInventoryDate]);
 
@@ -391,6 +405,49 @@ export default function RetailerOrders() {
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Failed to delete item');
+    }
+  };
+  
+  // Admin: Save closing inventory entries for a date that has no closing data
+  const handleAdminSaveClosing = async () => {
+    if (!closingInventoryRetailer || !closingInventoryDate) {
+      toast.error('Please select a retailer and date');
+      return;
+    }
+    
+    // Filter items that have closing qty entered
+    const itemsToSave = closingInventoryData
+      .filter(item => {
+        const inputValue = adminClosingInputs[item.product_id];
+        return inputValue !== undefined && inputValue !== '' && !isNaN(parseFloat(inputValue));
+      })
+      .map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id || null,
+        variant_name: item.variant_name || 'Kg',
+        closing_qty: parseFloat(adminClosingInputs[item.product_id])
+      }));
+    
+    if (itemsToSave.length === 0) {
+      toast.error('Please enter closing quantities for at least one item');
+      return;
+    }
+    
+    try {
+      await api.post('/api/retailer-closing-inventory/bulk', {
+        retailer_id: closingInventoryRetailer,
+        closing_date: closingInventoryDate,
+        items: itemsToSave
+      });
+      
+      toast.success(`Saved closing inventory for ${itemsToSave.length} items`);
+      setAdminEnteringClosing(false);
+      setAdminClosingInputs({});
+      loadClosingInventory();
+    } catch (error) {
+      console.error('Failed to save closing:', error);
+      toast.error('Failed to save closing inventory');
     }
   };
 
@@ -3580,10 +3637,114 @@ export default function RetailerOrders() {
                       </tfoot>
                     </table>
                   </div>
+                ) : closingInventoryData.length > 0 ? (
+                  /* No closing recorded but has opening data - show with admin entry option */
+                  <div className="space-y-4">
+                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle className="text-amber-600" size={20} />
+                        <div>
+                          <p className="font-medium text-amber-800">No closing recorded for {closingInventoryDate}</p>
+                          <p className="text-sm text-amber-700">Showing opening data from previous day's closing. You can enter closing values below.</p>
+                        </div>
+                      </div>
+                      {!adminEnteringClosing ? (
+                        <Button 
+                          size="sm" 
+                          onClick={() => setAdminEnteringClosing(true)}
+                          className="bg-amber-600 hover:bg-amber-700 text-white"
+                        >
+                          <Edit size={14} className="mr-1" />
+                          Enter Closing
+                        </Button>
+                      ) : (
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => { setAdminEnteringClosing(false); setAdminClosingInputs({}); }}
+                            className="border-amber-300 text-amber-700"
+                          >
+                            Cancel
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            onClick={handleAdminSaveClosing}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            <Save size={14} className="mr-1" />
+                            Save Closing
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="overflow-x-auto border rounded-lg">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-gray-100 border-b">
+                            <th className="p-3 text-left w-8">#</th>
+                            <th className="p-3 text-left">Product</th>
+                            <th className="p-3 text-left">Variant</th>
+                            <th className="p-3 text-center">Opening</th>
+                            <th className="p-3 text-center">Received</th>
+                            <th className="p-3 text-center">Rejection</th>
+                            {adminEnteringClosing && <th className="p-3 text-center bg-amber-50">Enter Closing</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {closingInventoryData
+                            .filter(item => (item.opening_qty || 0) > 0 || (item.received_qty || 0) > 0)
+                            .map((item, idx) => (
+                            <tr key={item.product_id + (item.variant_id || '')} className="border-b hover:bg-gray-50">
+                              <td className="p-3 text-center text-gray-500">{idx + 1}</td>
+                              <td className="p-3 font-medium">{item.product_name}</td>
+                              <td className="p-3 text-gray-600">{item.variant_name || 'Kg'}</td>
+                              <td className="p-3 text-center text-blue-600">{item.opening_qty || 0}</td>
+                              <td className="p-3 text-center text-green-600">+{item.received_qty || 0}</td>
+                              <td className="p-3 text-center text-red-600">-{item.rejection_qty || 0}</td>
+                              {adminEnteringClosing && (
+                                <td className="p-3 text-center bg-amber-50">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    value={adminClosingInputs[item.product_id] || ''}
+                                    onChange={(e) => setAdminClosingInputs(prev => ({
+                                      ...prev,
+                                      [item.product_id]: e.target.value
+                                    }))}
+                                    placeholder="0"
+                                    className="w-20 px-2 py-1 border rounded text-center focus:ring-2 focus:ring-amber-300 focus:border-amber-400"
+                                  />
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-gray-100 font-semibold">
+                            <td colSpan={3} className="p-3 text-right">TOTAL</td>
+                            <td className="p-3 text-center text-blue-600">
+                              {closingInventoryData.filter(i => (i.opening_qty || 0) > 0 || (i.received_qty || 0) > 0).reduce((sum, i) => sum + (i.opening_qty || 0), 0)}
+                            </td>
+                            <td className="p-3 text-center text-green-600">
+                              +{closingInventoryData.filter(i => (i.opening_qty || 0) > 0 || (i.received_qty || 0) > 0).reduce((sum, i) => sum + (i.received_qty || 0), 0)}
+                            </td>
+                            <td className="p-3 text-center text-red-600">
+                              -{closingInventoryData.filter(i => (i.opening_qty || 0) > 0 || (i.received_qty || 0) > 0).reduce((sum, i) => sum + (i.rejection_qty || 0), 0)}
+                            </td>
+                            {adminEnteringClosing && <td className="p-3 bg-amber-50"></td>}
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
                 ) : (
                   <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
                     <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
                     <p>No closing inventory recorded for this date</p>
+                    <p className="text-sm mt-2">No opening or received data available for this date.</p>
                   </div>
                 )
               ) : (

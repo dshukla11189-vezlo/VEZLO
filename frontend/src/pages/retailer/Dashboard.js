@@ -64,6 +64,11 @@ export default function RetailerDashboard() {
   const [editingItemQty, setEditingItemQty] = useState(''); // Temp value for inline edit
   const [closingSubTab, setClosingSubTab] = useState('closing-history'); // Sub-tab for Closing section
   
+  // Yesterday's closing check
+  const [yesterdayClosingMissing, setYesterdayClosingMissing] = useState(false);
+  const [yesterdayDate, setYesterdayDate] = useState('');
+  const [showYesterdayBanner, setShowYesterdayBanner] = useState(true); // Track if banner is dismissed
+  
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
     const map = new Map();
@@ -171,9 +176,32 @@ export default function RetailerDashboard() {
     }
   }, []);
 
+  // Check if yesterday's closing is missing
+  const checkYesterdayClosing = useCallback(async () => {
+    if (!dashboardData?.retailer?.id) return;
+    try {
+      const res = await api.get(`/api/retailer-closing-inventory/check-yesterday/${dashboardData.retailer.id}`);
+      if (!res.data.has_closing) {
+        setYesterdayClosingMissing(true);
+        setYesterdayDate(res.data.yesterday_date);
+      } else {
+        setYesterdayClosingMissing(false);
+      }
+    } catch (error) {
+      console.error('Failed to check yesterday closing:', error);
+    }
+  }, [dashboardData?.retailer?.id]);
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+  
+  // Check yesterday's closing after dashboard data is loaded
+  useEffect(() => {
+    if (dashboardData?.retailer?.id) {
+      checkYesterdayClosing();
+    }
+  }, [dashboardData?.retailer?.id, checkYesterdayClosing]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -757,6 +785,199 @@ export default function RetailerDashboard() {
   };
 
   // Open Record Closing modal - show only variants with opening qty OR in today's dispatch
+  // Open closing modal for a specific date (used for yesterday's closing)
+  const openRecordClosingModalForDate = async (targetDate) => {
+    if (!dashboardData?.retailer?.id) {
+      toast.error('Retailer ID not found');
+      return;
+    }
+    
+    const prevDate = new Date(targetDate);
+    prevDate.setDate(prevDate.getDate() - 1);
+    const prevDateStr = prevDate.toISOString().split('T')[0];
+    
+    // Set the closing date to the target date
+    setClosingDate(targetDate);
+    
+    try {
+      // Build a map of actual variant names from ALL dispatch history
+      const variantInfoFromDispatches = {};
+      dispatches.forEach(d => {
+        (d.items || []).forEach(item => {
+          const variantId = item.variant_id || item.packaging_id;
+          const variantName = item.variant_name || item.packaging_name;
+          
+          if (variantName && variantName !== 'Kg') {
+            const key = `${item.product_id}_${variantId || 'default'}`;
+            if (!variantInfoFromDispatches[key]) {
+              variantInfoFromDispatches[key] = {
+                variant_id: variantId,
+                variant_name: variantName
+              };
+            }
+          }
+          
+          if (variantName && variantName !== 'Kg' && !variantInfoFromDispatches[item.product_id]) {
+            variantInfoFromDispatches[item.product_id] = {
+              variant_id: variantId,
+              variant_name: variantName
+            };
+          }
+        });
+      });
+      
+      // Get previous day closing (for opening qty)
+      let openingVariants = {};
+      try {
+        const prevRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${prevDateStr}`);
+        (prevRes.data.items || []).forEach(item => {
+          if (item.closing_qty !== null && item.closing_qty !== undefined && item.closing_qty > 0) {
+            const key = `${item.product_id}_${item.variant_id || 'default'}`;
+            
+            let actualVariantName = item.variant_name;
+            let actualVariantId = item.variant_id;
+            
+            const dispatchInfo = variantInfoFromDispatches[key] || variantInfoFromDispatches[item.product_id];
+            if (dispatchInfo && actualVariantName === 'Kg') {
+              actualVariantName = dispatchInfo.variant_name;
+              actualVariantId = dispatchInfo.variant_id;
+            }
+            
+            openingVariants[key] = {
+              product_id: item.product_id,
+              product_name: item.product_name,
+              product_name_hi: item.product_name_hi,
+              variant_id: actualVariantId,
+              variant_name: actualVariantName || 'Kg',
+              opening_qty: item.closing_qty || 0,
+              source: 'opening'
+            };
+          }
+        });
+      } catch (err) {
+        console.log('No previous closing data');
+      }
+      
+      // Get dispatches for the target date
+      const targetDispatches = dispatches.filter(d => {
+        const dispatchDate = d.dispatch_date?.split('T')[0];
+        return dispatchDate === targetDate;
+      });
+      
+      // Build map of variants from target day dispatches
+      const targetDispatchVariants = {};
+      targetDispatches.forEach(d => {
+        (d.items || []).forEach(item => {
+          const variantId = item.variant_id || item.packaging_id;
+          const variantName = item.variant_name || item.packaging_name || 'Kg';
+          const key = `${item.product_id}_${variantId || 'default'}`;
+          
+          if (!targetDispatchVariants[key]) {
+            const product = products.find(p => p.id === item.product_id);
+            targetDispatchVariants[key] = {
+              product_id: item.product_id,
+              product_name: item.product_name,
+              product_name_hi: product?.name_hi,
+              variant_id: variantId,
+              variant_name: variantName,
+              dispatch_qty: 0,
+              source: 'dispatch'
+            };
+          }
+          targetDispatchVariants[key].dispatch_qty += item.supplied_qty || 0;
+        });
+      });
+      
+      // Merge opening and dispatch variants
+      const allRelevantVariants = { ...openingVariants };
+      Object.entries(targetDispatchVariants).forEach(([key, data]) => {
+        if (allRelevantVariants[key]) {
+          allRelevantVariants[key].dispatch_qty = data.dispatch_qty;
+          allRelevantVariants[key].source = 'both';
+          if (allRelevantVariants[key].variant_name === 'Kg' && data.variant_name !== 'Kg') {
+            allRelevantVariants[key].variant_name = data.variant_name;
+            allRelevantVariants[key].variant_id = data.variant_id;
+          }
+        } else {
+          allRelevantVariants[key] = data;
+        }
+      });
+      
+      // Start with ALL products
+      const allProductsMap = {};
+      products.forEach(p => {
+        const key = `${p.id}_default`;
+        allProductsMap[key] = {
+          product_id: p.id,
+          product_name: p.name,
+          product_name_hi: p.name_hi,
+          variant_id: null,
+          variant_name: 'Kg',
+          opening_qty: 0,
+          dispatch_qty: 0,
+          source: 'product_list'
+        };
+      });
+      
+      // Merge activity data
+      Object.entries(allRelevantVariants).forEach(([key, data]) => {
+        if (allProductsMap[key]) {
+          allProductsMap[key].variant_id = data.variant_id || allProductsMap[key].variant_id;
+          allProductsMap[key].variant_name = data.variant_name || allProductsMap[key].variant_name;
+          allProductsMap[key].opening_qty = data.opening_qty || 0;
+          allProductsMap[key].dispatch_qty = data.dispatch_qty || 0;
+          allProductsMap[key].source = data.source;
+        } else {
+          allProductsMap[key] = data;
+        }
+      });
+      
+      // Convert to list and sort
+      const seenKeys = new Set();
+      const items = Object.values(allProductsMap)
+        .map(v => ({
+          product_id: v.product_id,
+          product_name: v.product_name,
+          product_name_hi: v.product_name_hi,
+          variant_id: v.variant_id,
+          variant_name: v.variant_name || 'Kg',
+          unit: v.variant_name && v.variant_name !== 'Kg' ? 'Pcs' : 'Kg',
+          closing_qty: '',
+          has_variants: v.variant_name && v.variant_name !== 'Kg',
+          opening_qty: v.opening_qty || 0,
+          dispatch_qty: v.dispatch_qty || 0,
+          source: v.source
+        }))
+        .filter(item => {
+          const key = `${item.product_id}_${item.variant_name}`;
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+          return true;
+        });
+      
+      // Sort: products with activity first
+      items.sort((a, b) => {
+        const aHasActivity = (a.opening_qty > 0 || a.dispatch_qty > 0);
+        const bHasActivity = (b.opening_qty > 0 || b.dispatch_qty > 0);
+        if (aHasActivity && !bHasActivity) return -1;
+        if (!aHasActivity && bHasActivity) return 1;
+        const nameCompare = (a.product_name || '').localeCompare(b.product_name || '');
+        if (nameCompare !== 0) return nameCompare;
+        return (a.variant_name || '').localeCompare(b.variant_name || '');
+      });
+      
+      setClosingItems(items);
+      setShowRecordClosingModal(true);
+      
+      // Hide the banner after opening
+      setShowYesterdayBanner(false);
+      
+    } catch (error) {
+      console.error('Failed to prepare closing modal:', error);
+      toast.error('Failed to load closing data');
+    }
+  };
+
   const openRecordClosingModal = async () => {
     if (!dashboardData?.retailer?.id) {
       toast.error('Retailer ID not found');
@@ -1259,6 +1480,41 @@ export default function RetailerDashboard() {
               {t('retailer.welcome')}, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
             </h1>
           </div>
+
+          {/* Yesterday's Closing Missing Banner */}
+          {yesterdayClosingMissing && showYesterdayBanner && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 rounded-full">
+                  <AlertTriangle className="text-amber-600" size={20} />
+                </div>
+                <div>
+                  <p className="font-semibold text-amber-800">Yesterday's Closing Not Recorded</p>
+                  <p className="text-sm text-amber-700">
+                    You haven't recorded closing inventory for {new Date(yesterdayDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 ml-auto">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowYesterdayBanner(false)}
+                  className="text-amber-700 border-amber-300 hover:bg-amber-100"
+                >
+                  Dismiss
+                </Button>
+                <Button 
+                  size="sm" 
+                  onClick={() => openRecordClosingModalForDate(yesterdayDate)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  <ClipboardList size={16} className="mr-1" />
+                  Update Now
+                </Button>
+              </div>
+            </div>
+          )}
 
         {/* ==================== DASHBOARD TAB ==================== */}
         {activeTab === 'dashboard' && (

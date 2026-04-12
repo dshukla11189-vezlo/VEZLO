@@ -1876,10 +1876,19 @@ export default function RetailerOrders() {
         return dispatchDate === dateStr;
       });
       
+      // Get existing items from form (for edit mode)
+      const existingItems = rejectionForm.items || [];
+      
       // Flatten all items from dispatches for that day
       const items = [];
       dayDispatches.forEach(dispatch => {
         dispatch.items?.forEach(item => {
+          // Check if this item matches any existing rejection being edited
+          const existingItem = existingItems.find(ei => 
+            ei.product_id === item.product_id && 
+            (ei.variant_id === item.variant_id || (!ei.variant_id && !item.variant_id))
+          );
+          
           items.push({
             dispatch_id: dispatch.id,
             product_id: item.product_id,
@@ -1888,10 +1897,10 @@ export default function RetailerOrders() {
             variant_name: item.variant_name,
             supplied_qty: item.supplied_qty,
             mrp: item.mrp,
-            rejection_qty: 0,
-            reason: '',
-            remarks: '',
-            selected: false
+            rejection_qty: existingItem ? existingItem.quantity : 0,
+            reason: existingItem ? existingItem.reason : '',
+            remarks: existingItem ? existingItem.remarks : '',
+            selected: existingItem ? true : false
           });
         });
       });
@@ -1901,7 +1910,7 @@ export default function RetailerOrders() {
       console.error('Failed to load dispatch items:', error);
       setRejectionDispatchItems([]);
     }
-  }, [rejectionForm.retailer_id, rejectionForm.rejection_date]);
+  }, [rejectionForm.retailer_id, rejectionForm.rejection_date, rejectionForm.items]);
 
   useEffect(() => {
     if (showRejectionModal && rejectionForm.retailer_id && rejectionForm.rejection_date) {
@@ -1982,6 +1991,7 @@ export default function RetailerOrders() {
     setRejectionForm({
       retailer_id: rejection.retailer_id,
       rejection_date: rejection.rejection_date?.split('T')[0] || rejection.rejection_date,
+      remarks: rejection.remarks || '',
       items: [{
         dispatch_id: rejection.dispatch_id || '',
         product_id: rejection.product_id,
@@ -1990,7 +2000,8 @@ export default function RetailerOrders() {
         variant_name: rejection.variant_name || '',
         quantity: rejection.quantity,
         mrp: rejection.mrp,
-        reason: rejection.reason || ''
+        reason: rejection.reason || '',
+        remarks: rejection.remarks || ''
       }]
     });
     setShowRejectionModal(true);

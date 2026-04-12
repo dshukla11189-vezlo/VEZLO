@@ -1200,6 +1200,23 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 
 ---
 
+### Show All Products in Inventory Lists (COMPLETED - Apr 12, 2026)
+- [x] **Updated Closing and Inventory lists to show ALL products**:
+  - Previously only products with activity (opening, received, or closing) were shown
+  - Now ALL products from the product catalog are displayed
+  - Products with activity (opening > 0, received > 0, or closing recorded) are sorted to the top
+  - Products without activity are shown below with zero quantities
+  - Sorting preserved: activity items first, then by product name alphabetically
+- [x] **Files Modified**:
+  - Backend: `/app/backend/server.py` - Updated `get_retailer_closing_summary` endpoint to include all products
+  - Frontend: `/app/frontend/src/pages/retailer/Dashboard.js` - Updated `loadInventoryData` and "Record Closing Stock" modal logic
+- [x] **API Changes**:
+  - `GET /api/retailer-closing-inventory/summary/{retailer_id}` now returns all 48 products instead of only active items
+  - Maintains sorting: products with activity first, then by product name
+- [x] **Testing**: API endpoint verified via curl - returns all 48 products from product catalog
+
+---
+
 ## Next Tasks (Upcoming)
 
 ### P1 - High Priority
@@ -1208,7 +1225,7 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [ ] OCR QC Order Processing workflow in UI
 
 ### P2 - Medium Priority
-- [ ] Codebase Refactoring Phase 2 (server.py ~10,400 lines → modular routes)
+- [ ] Codebase Refactoring Phase 2 (server.py ~10,600 lines → modular routes)
 - [ ] APScheduler reliability improvements (persistent job store)
 
 ### Future/Backlog

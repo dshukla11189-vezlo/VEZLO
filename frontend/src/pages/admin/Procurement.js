@@ -945,6 +945,35 @@ export default function Procurement() {
   const getTotalPending = () => {
     return procurements.reduce((sum, p) => sum + (p.pending_amount || 0), 0);
   };
+  
+  // Computed stats based on date filter
+  const getFilteredStats = useMemo(() => {
+    let filtered = procurements;
+    
+    // Apply date filters if set
+    if (filters.fromDate) {
+      filtered = filtered.filter(p => p.date >= filters.fromDate);
+    }
+    if (filters.toDate) {
+      filtered = filtered.filter(p => p.date <= filters.toDate);
+    }
+    
+    // Get unique farmer IDs in filtered procurements
+    const uniqueFarmerIds = new Set(filtered.map(p => p.farmer_id));
+    
+    // Calculate totals for filtered procurements
+    const totalPurchaseAmount = filtered.reduce((sum, p) => sum + (p.total_amount || 0), 0);
+    const totalPaidAmount = filtered.reduce((sum, p) => sum + (p.paid_amount || 0), 0);
+    const totalPendingAmount = filtered.reduce((sum, p) => sum + (p.pending_amount || 0), 0);
+    
+    return {
+      farmersCount: uniqueFarmerIds.size,
+      purchasesCount: filtered.length,
+      totalAmount: totalPurchaseAmount,
+      paidAmount: totalPaidAmount,
+      pendingAmount: totalPendingAmount
+    };
+  }, [procurements, filters.fromDate, filters.toDate]);
 
   // Compute farmer-wise pending amounts with filters
   const getFarmerWisePending = () => {
@@ -1882,13 +1911,16 @@ export default function Procurement() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Card className="stat-card">
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-gray-600">{t('procurement.farmers')}</p>
-                <p className="text-3xl font-bold text-gray-900">{farmers.length}</p>
+                <p className="text-3xl font-bold text-gray-900">{getFilteredStats.farmersCount}</p>
+                {getFilteredStats.farmersCount !== farmers.length && (
+                  <p className="text-xs text-gray-400">of {farmers.length} total</p>
+                )}
               </div>
               <div className="bg-green-50 p-3 rounded-lg">
                 <UserPlus className="text-green-700" size={24} />
@@ -1901,7 +1933,10 @@ export default function Procurement() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-gray-600">{t('procurement.purchases')}</p>
-                <p className="text-3xl font-bold text-gray-900">{procurements.length}</p>
+                <p className="text-3xl font-bold text-gray-900">{getFilteredStats.purchasesCount}</p>
+                {getFilteredStats.purchasesCount !== procurements.length && (
+                  <p className="text-xs text-gray-400">of {procurements.length} total</p>
+                )}
               </div>
               <div className="bg-blue-50 p-3 rounded-lg">
                 <Plus className="text-blue-700" size={24} />
@@ -1913,8 +1948,27 @@ export default function Procurement() {
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
               <div>
+                <p className="text-sm text-gray-600 uppercase">Paid</p>
+                <p className="text-3xl font-bold text-green-700">₹{getFilteredStats.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {getFilteredStats.purchasesCount !== procurements.length && (
+                  <p className="text-xs text-gray-400">for filtered period</p>
+                )}
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg">
+                <DollarSign className="text-green-700" size={24} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-card">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between">
+              <div>
                 <p className="text-sm text-gray-600">{t('procurement.pending')}</p>
-                <p className="text-3xl font-bold text-red-700">₹{getTotalPending().toFixed(2)}</p>
+                <p className="text-3xl font-bold text-red-700">₹{getFilteredStats.pendingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {getFilteredStats.purchasesCount !== procurements.length && (
+                  <p className="text-xs text-gray-400">for filtered period</p>
+                )}
               </div>
               <div className="bg-red-50 p-3 rounded-lg">
                 <IndianRupee className="text-red-700" size={24} />

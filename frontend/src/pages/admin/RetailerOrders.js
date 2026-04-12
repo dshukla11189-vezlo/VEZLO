@@ -1876,14 +1876,43 @@ export default function RetailerOrders() {
         return dispatchDate === dateStr;
       });
       
+      // Debug: log editing rejection details
+      if (editingRejection) {
+        console.log('Editing rejection:', {
+          product_id: editingRejection.product_id,
+          product_name: editingRejection.product_name,
+          variant_id: editingRejection.variant_id,
+          variant_name: editingRejection.variant_name,
+          quantity: editingRejection.quantity,
+          reason: editingRejection.reason
+        });
+      }
+      
       // Flatten all items from dispatches for that day
       const items = [];
       dayDispatches.forEach(dispatch => {
         dispatch.items?.forEach(item => {
           // Check if this item matches the rejection being edited
-          const isEditingItem = editingRejection && 
-            editingRejection.product_id === item.product_id && 
-            (editingRejection.variant_id === item.variant_id || (!editingRejection.variant_id && !item.variant_id));
+          // Try multiple matching strategies
+          let isEditingItem = false;
+          if (editingRejection) {
+            // Strategy 1: Match by product_id and variant_id
+            const productMatch = editingRejection.product_id === item.product_id;
+            const variantMatch = editingRejection.variant_id === item.variant_id || 
+              (!editingRejection.variant_id && !item.variant_id) ||
+              (editingRejection.variant_id === '' && !item.variant_id) ||
+              (!editingRejection.variant_id && item.variant_id === '');
+            
+            // Strategy 2: Match by product_name and variant_name (fallback)
+            const nameMatch = editingRejection.product_name === item.product_name;
+            const variantNameMatch = (editingRejection.variant_name || '') === (item.variant_name || '');
+            
+            isEditingItem = (productMatch && variantMatch) || (nameMatch && variantNameMatch);
+            
+            if (isEditingItem) {
+              console.log('Found matching item:', item.product_name, item.variant_name);
+            }
+          }
           
           items.push({
             dispatch_id: dispatch.id,
@@ -1982,11 +2011,17 @@ export default function RetailerOrders() {
     }
   };
 
-  const handleEditRejection = (rejection) => {
+  const handleEditRejection = async (rejection) => {
+    // Set editing state first
     setEditingRejection(rejection);
+    
+    const retailerId = rejection.retailer_id;
+    const rejectionDate = rejection.rejection_date?.split('T')[0] || rejection.rejection_date;
+    
+    // Set form data
     setRejectionForm({
-      retailer_id: rejection.retailer_id,
-      rejection_date: rejection.rejection_date?.split('T')[0] || rejection.rejection_date,
+      retailer_id: retailerId,
+      rejection_date: rejectionDate,
       remarks: rejection.remarks || '',
       items: [{
         dispatch_id: rejection.dispatch_id || '',
@@ -2000,6 +2035,48 @@ export default function RetailerOrders() {
         remarks: rejection.remarks || ''
       }]
     });
+    
+    // Load dispatch items directly with the rejection data
+    try {
+      const response = await api.get(`/api/retailer-dispatches?retailer_id=${retailerId}`);
+      const dayDispatches = response.data.filter(d => {
+        const dispatchDate = d.dispatch_date?.split('T')[0];
+        return dispatchDate === rejectionDate;
+      });
+      
+      const items = [];
+      dayDispatches.forEach(dispatch => {
+        dispatch.items?.forEach(item => {
+          // Match by product_id or product_name
+          const productMatch = rejection.product_id === item.product_id;
+          const nameMatch = rejection.product_name === item.product_name;
+          const variantMatch = (rejection.variant_id === item.variant_id) || 
+            (!rejection.variant_id && !item.variant_id) ||
+            (rejection.variant_name === item.variant_name);
+          
+          const isEditingItem = (productMatch || nameMatch) && variantMatch;
+          
+          items.push({
+            dispatch_id: dispatch.id,
+            product_id: item.product_id,
+            product_name: item.product_name,
+            variant_id: item.variant_id,
+            variant_name: item.variant_name,
+            supplied_qty: item.supplied_qty,
+            mrp: item.mrp,
+            rejection_qty: isEditingItem ? rejection.quantity : 0,
+            reason: isEditingItem ? (rejection.reason || '') : '',
+            remarks: isEditingItem ? (rejection.remarks || '') : '',
+            selected: isEditingItem
+          });
+        });
+      });
+      
+      setRejectionDispatchItems(items);
+    } catch (error) {
+      console.error('Failed to load dispatch items for edit:', error);
+    }
+    
     setShowRejectionModal(true);
   };
 

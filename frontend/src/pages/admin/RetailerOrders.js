@@ -4730,14 +4730,14 @@ export default function RetailerOrders() {
         {/* ==================== REJECTION MODAL ==================== */}
         {showRejectionModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between p-3 sm:p-4 border-b">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-3 sm:p-4 border-b flex-shrink-0">
                 <h3 className="text-base sm:text-lg font-semibold">Record Rejection</h3>
                 <button onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleCreateRejections} className="p-3 sm:p-4 space-y-3 sm:space-y-4">
+              <div className="p-3 sm:p-4 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
                   <select
@@ -4773,7 +4773,7 @@ export default function RetailerOrders() {
                         No dispatches found for this date
                       </div>
                     ) : (
-                      <div className="border rounded overflow-hidden max-h-60 overflow-auto">
+                      <div className="border rounded overflow-x-auto">
                         <table className="w-full text-xs sm:text-sm min-w-[500px]">
                           <thead className="bg-gray-50 sticky top-0">
                             <tr>
@@ -4864,20 +4864,22 @@ export default function RetailerOrders() {
                     placeholder="Enter remarks for rejections"
                   />
                 </div>
-
-                <div className="flex gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="flex-1">
-                    Cancel
-                  </Button>
-                  <Button 
-                    type="submit" 
-                    className="flex-1 bg-red-600 hover:bg-red-700"
-                    disabled={!rejectionDispatchItems.some(i => i.selected && i.rejection_qty > 0)}
-                  >
-                    Record Rejections ({rejectionDispatchItems.filter(i => i.selected && i.rejection_qty > 0).length})
-                  </Button>
-                </div>
-              </form>
+              </div>
+              
+              {/* Sticky footer buttons */}
+              <div className="flex gap-2 p-3 sm:p-4 border-t bg-white flex-shrink-0">
+                <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="flex-1">
+                  Cancel
+                </Button>
+                <Button 
+                  type="button"
+                  className="flex-1 bg-red-600 hover:bg-red-700"
+                  disabled={!rejectionDispatchItems.some(i => i.selected && i.rejection_qty > 0)}
+                  onClick={handleCreateRejections}
+                >
+                  Record Rejections ({rejectionDispatchItems.filter(i => i.selected && i.rejection_qty > 0).length})
+                </Button>
+              </div>
             </div>
           </div>
         )}

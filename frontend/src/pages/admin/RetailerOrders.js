@@ -1937,8 +1937,10 @@ export default function RetailerOrders() {
     }
   }, [rejectionForm.retailer_id, rejectionForm.rejection_date, editingRejection]);
 
+  // Only auto-load dispatch items when NOT in edit mode (new rejection)
+  // In edit mode, handleEditRejection already loads the items with all rejections pre-filled
   useEffect(() => {
-    if (showRejectionModal && rejectionForm.retailer_id && rejectionForm.rejection_date) {
+    if (showRejectionModal && rejectionForm.retailer_id && rejectionForm.rejection_date && !editingRejection) {
       loadRejectionDispatchItems();
     }
   }, [showRejectionModal, loadRejectionDispatchItems, rejectionForm.retailer_id, rejectionForm.rejection_date, editingRejection]);

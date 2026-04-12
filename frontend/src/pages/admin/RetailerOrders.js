@@ -1008,120 +1008,53 @@ export default function RetailerOrders() {
     setDailyReqSaved(false);
     
     try {
-      // Load wastage averages - fetch fresh and use returned data directly
-      const currentWastageAverages = await loadRetailWastageAverages();
-      
-      // Fetch indents for the selected date
-      let url = `/api/retailer-indents?date=${dailyReqDate}`;
+      // Call the new backend endpoint that calculates based on same-weekday historical data
+      let url = `/api/retailer-daily-requirement/calculate?target_date=${dailyReqDate}`;
       if (dailyReqRetailer) {
         url += `&retailer_id=${dailyReqRetailer}`;
       }
-      const response = await api.get(url);
-      const dateIndents = response.data;
       
-      if (!dateIndents || dateIndents.length === 0) {
-        setDailyReqError('Sorry, there is no Indent for this date. Select Another date.');
+      const response = await api.get(url);
+      const result = response.data;
+      
+      if (!result.success) {
+        setDailyReqError(result.message || 'Failed to calculate daily requirement');
         return;
       }
       
-      // Helper to extract weight from variant name (e.g., "100 gm", "240-260 gm", "500 gm")
-      const extractWeightFromName = (name) => {
-        if (!name || name === '-') return 0;
-        // Try to find patterns like "100 gm", "240-260 gm", "500 gm Packet"
-        const rangeMatch = name.match(/(\d+)\s*-\s*(\d+)\s*g/i);
-        if (rangeMatch) {
-          return (parseInt(rangeMatch[1]) + parseInt(rangeMatch[2])) / 2;
-        }
-        const singleMatch = name.match(/(\d+)\s*g/i);
-        if (singleMatch) {
-          return parseInt(singleMatch[1]);
-        }
-        return 0;
-      };
-      
-      // Aggregate all items from all indents
-      const productMap = new Map();
-      
-      for (const indent of dateIndents) {
-        for (const item of (indent.items || [])) {
-          // Normalize variant_id to handle null/undefined consistently
-          const variantId = item.variant_id || '';
-          const key = `${item.product_id}-${variantId}`;
-          
-          // Get variant info to calculate kg
-          const variant = packagings.find(p => p.id === item.variant_id);
-          
-          // Try multiple sources for weight
-          let variantWeight = variant?.weight_gm || variant?.weight || 0; // weight in grams
-          if (variantWeight === 0 && item.variant_name) {
-            variantWeight = extractWeightFromName(item.variant_name);
-          }
-          if (variantWeight === 0 && variant?.name) {
-            variantWeight = extractWeightFromName(variant.name);
-          }
-          
-          const variantUnit = variant?.unit || 'pcs';
-          
-          // Calculate kg required
-          let kgRequired = 0;
-          const qty = item.quantity || 0;
-          
-          if (variantWeight > 0) {
-            // If we have weight in grams, convert to kg
-            kgRequired = (qty * variantWeight) / 1000;
-          } else if (variantUnit === 'kg' || variantUnit === 'Kg') {
-            kgRequired = qty;
-          } else {
-            // For items without weight info, use quantity as-is (assume 1 unit = 1 kg)
-            kgRequired = qty;
-          }
-          
-          // Get wastage average for this product from 30-day data
-          const wastageInfo = currentWastageAverages.find(w => 
-            w.product_id === item.product_id || w.product_name === item.product_name
-          );
-          const avgWastageKg = wastageInfo?.avg_wastage_kg || 0;
-          
-          if (productMap.has(key)) {
-            const existing = productMap.get(key);
-            existing.indentQty += qty;
-            existing.kgRequired += kgRequired;
-          } else {
-            productMap.set(key, {
-              productId: item.product_id,
-              productName: item.product_name,
-              variantId: item.variant_id || null,
-              variantName: item.variant_name || variant?.name || '-',
-              indentQty: qty,
-              kgRequired: parseFloat(kgRequired.toFixed(2)),
-              estWastageKg: avgWastageKg,
-              totalKgRequired: 0, // Will be calculated
-              ratePerKg: '',
-              amountPaid: '',
-              remarks: ''
-            });
-          }
-        }
+      if (!result.items || result.items.length === 0) {
+        setDailyReqError(`No sales data found for ${result.weekday || 'this day'}. Please ensure closing inventory is recorded.`);
+        return;
       }
       
-      // Convert to array, calculate total kg, sort by product name
-      const requirementData = Array.from(productMap.values())
-        .map(item => ({
-          ...item,
-          kgRequired: parseFloat(item.kgRequired.toFixed(2)),
-          totalKgRequired: parseFloat((item.kgRequired + item.estWastageKg).toFixed(2))
-        }))
-        .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
+      // Transform backend data to frontend format
+      const requirementData = result.items.map(item => ({
+        productId: item.product_id,
+        productName: item.product_name,
+        variantId: null,  // Aggregated by product, not variant
+        variantName: item.variant_name || 'Kg',
+        indentQty: item.indent_qty,
+        kgRequired: item.kg_required,
+        estWastageKg: item.est_wastage_kg,
+        totalKgRequired: item.total_kg_required,
+        weekdaysWithData: item.weekdays_with_sales_data,
+        ratePerKg: item.rate_per_kg || '',
+        amountPaid: item.amount_paid || '',
+        remarks: item.remarks || ''
+      }));
       
       setDailyReqData(requirementData);
       
+      // Show info about the calculation
+      toast.success(`Calculated based on ${result.weekdays_analyzed} ${result.weekday}(s) of sales data`);
+      
     } catch (error) {
       console.error('Failed to calculate daily requirement:', error);
-      setDailyReqError('Failed to fetch indents. Please try again.');
+      setDailyReqError('Failed to calculate. Please try again.');
     } finally {
       setDailyReqLoading(false);
     }
-  }, [dailyReqDate, dailyReqRetailer, packagings, loadRetailWastageAverages]);
+  }, [dailyReqDate, dailyReqRetailer]);
 
   // Print daily requirement
   const printDailyRequirement = () => {
@@ -1137,6 +1070,7 @@ export default function RetailerOrders() {
             body { font-family: Arial, sans-serif; padding: 20px; }
             h1 { text-align: center; margin-bottom: 5px; }
             h2 { text-align: center; color: #666; margin-top: 0; }
+            p.info { text-align: center; font-size: 12px; color: #888; margin: 5px 0; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
             th, td { border: 1px solid #333; padding: 8px; text-align: left; }
             th { background-color: #f0f0f0; font-weight: bold; }
@@ -1153,17 +1087,19 @@ export default function RetailerOrders() {
           <h1>Daily Purchase Requirement</h1>
           <h2>Date: ${new Date(dailyReqDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>
           ${dailyReqRetailer ? `<p style="text-align:center;">Retailer: ${retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || 'All'}</p>` : '<p style="text-align:center;">All Retailers</p>'}
+          <p class="info">Calculated from average sales of same weekdays + average wastage</p>
           <table>
             <thead>
               <tr>
                 <th style="width:5%">#</th>
                 <th style="width:25%">Product Name</th>
-                <th style="width:15%">Packaging</th>
-                <th style="width:10%" class="text-center">Indent Qty</th>
+                <th style="width:10%">Unit</th>
+                <th style="width:10%" class="text-center">Avg Sold</th>
                 <th style="width:10%" class="text-right">Kg Required</th>
+                <th style="width:10%" class="text-right">Avg Wastage</th>
+                <th style="width:10%" class="text-right">Total Kg</th>
                 <th style="width:10%" class="text-right">Rate/Kg</th>
                 <th style="width:10%" class="text-right">Amount</th>
-                <th style="width:15%">Remarks</th>
               </tr>
             </thead>
             <tbody>
@@ -1171,21 +1107,23 @@ export default function RetailerOrders() {
                 <tr>
                   <td class="text-center">${idx + 1}</td>
                   <td>${getProductName(item)}</td>
-                  <td>${item.variantName || '-'}</td>
-                  <td class="text-center">${item.indentQty}</td>
-                  <td class="text-right">${item.kgRequired.toFixed(2)}</td>
-                  <td class="text-right"></td>
-                  <td class="text-right"></td>
-                  <td></td>
+                  <td>${item.variantName || 'Kg'}</td>
+                  <td class="text-center">${(item.indentQty || 0).toFixed(2)}</td>
+                  <td class="text-right">${(item.kgRequired || 0).toFixed(2)}</td>
+                  <td class="text-right">${(item.estWastageKg || 0).toFixed(2)}</td>
+                  <td class="text-right">${(item.totalKgRequired || item.kgRequired || 0).toFixed(2)}</td>
+                  <td class="text-right">${item.ratePerKg || ''}</td>
+                  <td class="text-right">${item.amountPaid || ''}</td>
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
                 <td colspan="3">TOTAL</td>
-                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + item.indentQty, 0)}</td>
-                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + item.kgRequired, 0).toFixed(2)} Kg</td>
+                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.indentQty) || 0), 0).toFixed(2)}</td>
+                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
+                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.estWastageKg) || 0), 0).toFixed(2)} Kg</td>
+                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalKgRequired) || 0), 0).toFixed(2)} Kg</td>
                 <td></td>
-                <td></td>
-                <td></td>
+                <td class="text-right">₹${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0).toFixed(2)}</td>
               </tr>
             </tbody>
           </table>
@@ -2359,7 +2297,7 @@ export default function RetailerOrders() {
                     <ShoppingCart size={16} className="text-green-600" />
                     Daily Purchase Requirement
                   </CardTitle>
-                  <p className="text-xs text-gray-500 mt-1">Select date to find its purchase requirement</p>
+                  <p className="text-xs text-gray-500 mt-1">Calculates based on average sales of same weekdays (up to 7 weeks)</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <select
@@ -2440,22 +2378,23 @@ export default function RetailerOrders() {
               {!dailyReqError && dailyReqData.length === 0 && !dailyReqLoading && (
                 <div className="text-center py-12 text-gray-500">
                   <ShoppingCart size={48} className="mx-auto mb-4 opacity-30" />
-                  <p>Select a date and click "Calculate" to view purchase requirements</p>
+                  <p>Select a date and click "Calculate" to view purchase requirements based on historical sales</p>
+                  <p className="text-xs mt-2">Uses average of items sold on same weekdays (e.g., last 7 Mondays for a Monday)</p>
                 </div>
               )}
               
               {dailyReqData.length > 0 && (
                 <div className="overflow-x-auto">
-                  <p className="text-xs text-gray-500 mb-2">Calculate requirement from indents + estimated wastage (30-day avg)</p>
+                  <p className="text-xs text-gray-500 mb-2">Calculated from average sales of same weekdays (up to 7 weeks) + average wastage</p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">
                         <th className="p-3 text-left w-8">#</th>
                         <th className="p-3 text-left">Product Name</th>
-                        <th className="p-3 text-left">Packaging/Variant</th>
-                        <th className="p-3 text-center">Indent Qty</th>
+                        <th className="p-3 text-left">Unit</th>
+                        <th className="p-3 text-center">Avg Sold</th>
                         <th className="p-3 text-center w-24">Kg Required</th>
-                        <th className="p-3 text-center w-24">Est Wastage (Kg)</th>
+                        <th className="p-3 text-center w-24">Avg Wastage (Kg)</th>
                         <th className="p-3 text-center w-24">Total Kg</th>
                         <th className="p-3 text-right w-24">Rate/Kg (₹)</th>
                         <th className="p-3 text-right w-24">Amount (₹)</th>
@@ -2550,7 +2489,7 @@ export default function RetailerOrders() {
                     <tfoot>
                       <tr className="bg-gray-100 font-semibold">
                         <td colSpan={3} className="p-3 text-right">TOTAL</td>
-                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.indentQty, 0)}</td>
+                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.indentQty) || 0), 0).toFixed(2)}</td>
                         <td className="p-3 text-center text-green-700">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
                         <td className="p-3 text-center text-amber-600">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.estWastageKg) || 0), 0).toFixed(2)} Kg</td>
                         <td className="p-3 text-center text-blue-700 font-bold">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalKgRequired) || parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>

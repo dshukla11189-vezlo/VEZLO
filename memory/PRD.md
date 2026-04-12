@@ -1217,6 +1217,24 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 
 ---
 
+### Daily Purchase Requirement Logic Fix (COMPLETED - Apr 12, 2026)
+- [x] **Fixed Daily Purchase Requirement calculation logic**:
+  - Previous: Pulled indents for selected date and showed duplicate product+variant combinations
+  - Now: Calculates based on average sales of same weekdays (up to 7 weeks)
+  - Example: For a Monday, analyzes last 7 Mondays' closing inventory data
+  - If only 2 weekdays have data, divides total by 2 (not 7)
+- [x] **Fixed duplicate products issue**: Now aggregates by product_id only (not variant) to prevent multiple rows for same product
+- [x] **Wastage calculation**: Average of rejection quantities for same weekdays
+- [x] **New backend endpoint**: `GET /api/retailer-daily-requirement/calculate?target_date=YYYY-MM-DD&retailer_id=optional`
+- [x] **Updated UI labels**: "Indent Qty" → "Avg Sold", "Est Wastage" → "Avg Wastage"
+- [x] **Updated helper text**: Explains the "7 same weekdays" logic to users
+- [x] **Files Modified**:
+  - Backend: `/app/backend/server.py` - Added new endpoint with proper weekday-based averaging
+  - Frontend: `/app/frontend/src/pages/admin/RetailerOrders.js` - Updated `calculateDailyRequirement` function and table headers
+- [x] **Testing**: API endpoint verified via curl - correctly finds weekday matches and calculates averages
+
+---
+
 ## Next Tasks (Upcoming)
 
 ### P1 - High Priority
@@ -1225,7 +1243,7 @@ The monolithic `server.py` (7600+ lines) is being refactored into modular route 
 - [ ] OCR QC Order Processing workflow in UI
 
 ### P2 - Medium Priority
-- [ ] Codebase Refactoring Phase 2 (server.py ~10,600 lines → modular routes)
+- [ ] Codebase Refactoring Phase 2 (server.py ~10,800 lines → modular routes)
 - [ ] APScheduler reliability improvements (persistent job store)
 
 ### Future/Backlog

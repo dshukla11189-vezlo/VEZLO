@@ -9970,6 +9970,224 @@ async def update_closing_inventory_item(
 
 # ==================== DAILY REQUIREMENT ENDPOINTS ====================
 
+@app.get("/api/retailer-daily-requirement/calculate")
+async def calculate_daily_purchase_requirement(
+    target_date: str,
+    retailer_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate daily purchase requirement based on historical same-weekday sales data.
+    
+    Logic:
+    1. Find the last 7 occurrences of the same weekday (e.g., if target is Monday, find last 7 Mondays)
+    2. For each product, calculate average items sold across those weekdays
+    3. For wastage, calculate average rejection qty across those weekdays
+    4. Only divide by the number of weekdays with data (not always 7)
+    5. Aggregate by product_id (not variant) to avoid duplicates
+    """
+    from datetime import datetime, timedelta
+    
+    try:
+        target = datetime.strptime(target_date, "%Y-%m-%d").date()
+        target_weekday = target.weekday()  # 0=Monday, 6=Sunday
+        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        # Build retailer filter
+        retailer_filter = {}
+        retailer_name = "All Retailers"
+        if retailer_id:
+            retailer_filter["retailer_id"] = retailer_id
+            retailer = await db.users.find_one({"id": retailer_id})
+            if retailer:
+                retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
+        
+        # Get all closing inventory records (source of items sold data)
+        closing_records = await db.retailer_closing_inventory.find(
+            retailer_filter, {"_id": 0}
+        ).sort("closing_date", -1).to_list(500)
+        
+        # Filter to only include same weekday (last 7 occurrences before target date)
+        same_weekday_records = []
+        seen_dates = set()
+        for record in closing_records:
+            try:
+                record_date_str = record.get("closing_date")
+                if not record_date_str:
+                    continue
+                record_date = datetime.strptime(record_date_str, "%Y-%m-%d").date()
+                if record_date.weekday() == target_weekday and record_date < target:
+                    date_key = f"{record_date}_{record.get('retailer_id', 'all')}"
+                    if date_key not in seen_dates:
+                        same_weekday_records.append(record)
+                        seen_dates.add(date_key)
+                        # Stop after 7 unique dates
+                        if len(seen_dates) >= 7:
+                            break
+            except:
+                continue
+        
+        # Get rejections for the same weekdays for wastage calculation
+        rejection_filter = {}
+        if retailer_id:
+            rejection_filter["retailer_id"] = retailer_id
+        
+        all_rejections = await db.retailer_rejections.find(
+            rejection_filter, {"_id": 0}
+        ).sort("rejection_date", -1).to_list(500)
+        
+        # Filter rejections to same weekdays
+        same_weekday_rejections = []
+        rejection_seen_dates = set()
+        for rejection in all_rejections:
+            try:
+                rej_date_str = str(rejection.get("rejection_date", ""))[:10]
+                if not rej_date_str:
+                    continue
+                rej_date = datetime.strptime(rej_date_str, "%Y-%m-%d").date()
+                if rej_date.weekday() == target_weekday and rej_date < target:
+                    same_weekday_rejections.append(rejection)
+                    rejection_seen_dates.add(rej_date_str)
+            except:
+                continue
+        
+        # Calculate number of unique weekday dates found
+        unique_closing_dates = set()
+        for record in same_weekday_records:
+            unique_closing_dates.add(record.get("closing_date"))
+        num_weekdays_with_data = len(unique_closing_dates)
+        
+        if num_weekdays_with_data == 0:
+            return {
+                "success": False,
+                "message": f"No historical sales data found for {weekday_names[target_weekday]}s. Please record closing inventory for at least one {weekday_names[target_weekday]}.",
+                "items": [],
+                "target_date": target_date,
+                "weekday": weekday_names[target_weekday],
+                "weekdays_analyzed": 0
+            }
+        
+        # Aggregate items sold by PRODUCT_ID only (not variant to avoid duplicates)
+        product_sales = {}  # product_id -> {total_sold, occurrences, product_name}
+        
+        for record in same_weekday_records:
+            product_id = record.get("product_id")
+            product_name = record.get("product_name", "Unknown")
+            
+            # Calculate items sold for this record
+            # Items Sold = Opening + Received - Rejection - Closing
+            opening = record.get("opening_qty", 0) or 0
+            received = record.get("received_qty", 0) or 0
+            closing = record.get("closing_qty", 0) or 0
+            rejection = record.get("rejection_qty", 0) or 0
+            items_sold = max(0, opening + received - rejection - closing)
+            
+            if product_id:
+                if product_id not in product_sales:
+                    product_sales[product_id] = {
+                        "product_name": product_name,
+                        "total_sold": 0,
+                        "occurrences": 0,
+                        "dates_with_data": set()
+                    }
+                product_sales[product_id]["total_sold"] += items_sold
+                product_sales[product_id]["dates_with_data"].add(record.get("closing_date"))
+        
+        # Update occurrences count based on unique dates with data
+        for product_id, data in product_sales.items():
+            data["occurrences"] = len(data["dates_with_data"])
+        
+        # Aggregate wastage by product from rejections
+        product_wastage = {}  # product_id -> {total_wastage, occurrences}
+        
+        unique_rejection_dates = set()
+        for rejection in same_weekday_rejections:
+            unique_rejection_dates.add(str(rejection.get("rejection_date", ""))[:10])
+        num_rejection_weekdays = len(unique_rejection_dates)
+        
+        for rejection in same_weekday_rejections:
+            product_id = rejection.get("product_id")
+            qty = rejection.get("quantity", 0) or 0
+            rej_date = str(rejection.get("rejection_date", ""))[:10]
+            
+            if product_id:
+                if product_id not in product_wastage:
+                    product_wastage[product_id] = {
+                        "total_wastage": 0,
+                        "dates_with_data": set()
+                    }
+                product_wastage[product_id]["total_wastage"] += qty
+                product_wastage[product_id]["dates_with_data"].add(rej_date)
+        
+        # Get all products to fill in names if missing
+        all_products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "name_hi": 1}).to_list(500)
+        product_name_map = {p["id"]: p.get("name", "Unknown") for p in all_products}
+        
+        # Build result items
+        result_items = []
+        seen_products = set()
+        
+        for product_id, data in product_sales.items():
+            if product_id in seen_products:
+                continue
+            seen_products.add(product_id)
+            
+            # Calculate averages - divide by number of weekdays that had data for this product
+            num_occurrences = data["occurrences"]
+            avg_sold = data["total_sold"] / num_occurrences if num_occurrences > 0 else 0
+            
+            # Get wastage average
+            wastage_data = product_wastage.get(product_id, {})
+            wastage_occurrences = len(wastage_data.get("dates_with_data", set())) or 1
+            avg_wastage = wastage_data.get("total_wastage", 0) / wastage_occurrences if wastage_data else 0
+            
+            # Round to 2 decimal places
+            avg_sold = round(avg_sold, 2)
+            avg_wastage = round(avg_wastage, 2)
+            total_required = round(avg_sold + avg_wastage, 2)
+            
+            product_name = product_name_map.get(product_id, data["product_name"])
+            
+            result_items.append({
+                "product_id": product_id,
+                "product_name": product_name,
+                "variant_name": "Kg",  # Aggregate view, no specific variant
+                "indent_qty": avg_sold,  # Average items sold
+                "kg_required": avg_sold,  # Same as indent qty for aggregate view
+                "est_wastage_kg": avg_wastage,
+                "total_kg_required": total_required,
+                "weekdays_with_sales_data": num_occurrences,
+                "rate_per_kg": "",
+                "amount_paid": "",
+                "remarks": ""
+            })
+        
+        # Sort by product name
+        result_items.sort(key=lambda x: x["product_name"])
+        
+        return {
+            "success": True,
+            "target_date": target_date,
+            "weekday": weekday_names[target_weekday],
+            "weekdays_analyzed": num_weekdays_with_data,
+            "rejection_weekdays_analyzed": num_rejection_weekdays,
+            "retailer_name": retailer_name,
+            "items": result_items,
+            "total_indent_qty": sum(item["indent_qty"] for item in result_items),
+            "total_kg_required": sum(item["total_kg_required"] for item in result_items),
+            "message": f"Calculated based on {num_weekdays_with_data} {weekday_names[target_weekday]}(s) of sales data"
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Error calculating requirement: {str(e)}",
+            "items": []
+        }
+
+
 @app.post("/api/retailer-daily-requirement")
 async def save_retailer_daily_requirement(
     data: dict,

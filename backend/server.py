@@ -4199,16 +4199,33 @@ async def get_pnl_report(
     total_wastage_qty = 0
     total_wastage_value = 0
     
+    # Build a map of most recent prices by product for fallback
+    product_recent_prices = {}
+    
     for status in stock_status:
         wastage_qty = status.get("wastage_qty", 0) or 0
         purchase_qty = status.get("purchase_qty", 0) or 0
         purchase_value = status.get("purchase_value", 0) or 0
         status_date = status.get("date", "")[:10]
         product = status.get("product_name", "Unknown")
+        product_id = status.get("product_id")
         
         # Calculate wastage_value dynamically from current procurement rate
         avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
-        wastage_value = round(wastage_qty * avg_price, 2)
+        
+        # Store this price for future fallback
+        if avg_price > 0 and product_id:
+            product_recent_prices[product_id] = avg_price
+        
+        # If no purchase today, use the most recent price we've seen
+        if avg_price == 0 and product_id:
+            avg_price = product_recent_prices.get(product_id, 0)
+        
+        # If still no price, use the stored wastage_value from stock status
+        if avg_price == 0:
+            wastage_value = status.get("wastage_value", 0) or 0
+        else:
+            wastage_value = round(wastage_qty * avg_price, 2)
         
         total_wastage_qty += wastage_qty
         total_wastage_value += wastage_value
@@ -5128,6 +5145,20 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
         if alias_id:
             cost_alias_id_map[product["id"]] = alias_id
     
+    # Build historical price map for products (fallback when no purchase today)
+    # Get recent stock status with non-zero avg_price
+    historical_prices = await db.daily_stock_status.find(
+        {"avg_price": {"$gt": 0}},
+        {"_id": 0, "product_id": 1, "date": 1, "avg_price": 1}
+    ).sort("date", -1).to_list(5000)
+    
+    # Build map: product_id -> most recent avg_price
+    product_historical_price = {}
+    for h in historical_prices:
+        pid = h.get("product_id")
+        if pid and pid not in product_historical_price:
+            product_historical_price[pid] = h.get("avg_price", 0)
+    
     # Calculate dispatches by product (convert units to Kg)
     # Use cost_alias_id_map to combine aliased products
     dispatches_by_product = {}
@@ -5194,6 +5225,10 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 else:
                     avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
                 
+                # Fallback to historical price if avg_price is still 0
+                if avg_price == 0:
+                    avg_price = product_historical_price.get(product_id, 0)
+                
                 # Update the status with fresh data
                 update_data = {
                     "purchase_qty": round(purchase_data["qty"], 2),
@@ -5227,6 +5262,10 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 avg_price = (opening_value + purchase_data["value"]) / total_qty
             else:
                 avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
+            
+            # Fallback to historical price if avg_price is still 0
+            if avg_price == 0:
+                avg_price = product_historical_price.get(product_id, 0)
             
             status = {
                 "id": str(uuid.uuid4()),
@@ -5295,6 +5334,36 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
         purchase_qty = status.get("purchase_qty", 0)
         dispatch_qty = status.get("dispatch_qty", 0)
         avg_price = status.get("avg_price", 0)
+        
+        # If no purchase today (avg_price = 0), get the most recent purchase price for this product
+        if avg_price == 0:
+            # Look for the most recent stock status with a non-zero avg_price
+            recent_status = await db.daily_stock_status.find_one(
+                {
+                    "product_id": entry.product_id,
+                    "date": {"$lt": target_date},
+                    "avg_price": {"$gt": 0}
+                },
+                {"_id": 0},
+                sort=[("date", -1)]
+            )
+            if recent_status:
+                avg_price = recent_status.get("avg_price", 0)
+            else:
+                # Fallback: check procurements directly
+                recent_proc = await db.procurements.find(
+                    {},
+                    {"_id": 0}
+                ).sort("date", -1).to_list(100)
+                
+                for proc in recent_proc:
+                    for prod in proc.get("products", []):
+                        if prod.get("product_id") == entry.product_id or prod.get("product_name") == status.get("product_name"):
+                            if prod.get("quantity", 0) > 0:
+                                avg_price = prod.get("rate_per_kg", 0) or (prod.get("total_value", 0) / prod.get("quantity", 1))
+                                break
+                    if avg_price > 0:
+                        break
         
         # Calculate wastage: Opening + Purchase - Dispatch - Closing
         total_available = opening_qty + purchase_qty - dispatch_qty
@@ -5449,6 +5518,86 @@ async def recalculate_stock_dispatches(
     
     return {
         "message": f"Recalculated {updated_count} entries for {date}",
+        "updates": updates
+    }
+
+
+@api_router.post("/stock-status/recalculate-wastage-values")
+async def recalculate_wastage_values(
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recalculate wastage values for stock status entries where wastage_qty > 0 but wastage_value = 0.
+    Uses the most recent purchase price for that product.
+    If date is provided, only recalculates for that date. Otherwise, recalculates all.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can recalculate wastage values")
+    
+    # Build query
+    query = {"wastage_qty": {"$gt": 0}, "wastage_value": {"$in": [0, None]}}
+    if date:
+        query["date"] = date
+    
+    # Get entries with wastage but no value
+    entries_to_fix = await db.daily_stock_status.find(query, {"_id": 0}).to_list(1000)
+    
+    if not entries_to_fix:
+        return {"message": "No entries need fixing", "updated_count": 0}
+    
+    # Get all historical stock status to build price history
+    all_status = await db.daily_stock_status.find(
+        {"avg_price": {"$gt": 0}},
+        {"_id": 0, "product_id": 1, "date": 1, "avg_price": 1}
+    ).sort("date", -1).to_list(5000)
+    
+    # Build price history map: product_id -> list of {date, price} sorted by date desc
+    price_history = {}
+    for status in all_status:
+        pid = status.get("product_id")
+        if pid not in price_history:
+            price_history[pid] = []
+        price_history[pid].append({
+            "date": status.get("date"),
+            "price": status.get("avg_price", 0)
+        })
+    
+    updated_count = 0
+    updates = []
+    
+    for entry in entries_to_fix:
+        product_id = entry.get("product_id")
+        entry_date = entry.get("date")
+        wastage_qty = entry.get("wastage_qty", 0)
+        
+        # Find the most recent price for this product before or on this date
+        avg_price = 0
+        if product_id in price_history:
+            for price_entry in price_history[product_id]:
+                if price_entry["date"] <= entry_date:
+                    avg_price = price_entry["price"]
+                    break
+        
+        if avg_price > 0:
+            wastage_value = round(wastage_qty * avg_price, 2)
+            
+            await db.daily_stock_status.update_one(
+                {"date": entry_date, "product_id": product_id},
+                {"$set": {"wastage_value": wastage_value, "avg_price": avg_price}}
+            )
+            
+            updates.append({
+                "product_name": entry.get("product_name"),
+                "date": entry_date,
+                "wastage_qty": wastage_qty,
+                "avg_price": avg_price,
+                "wastage_value": wastage_value
+            })
+            updated_count += 1
+    
+    return {
+        "message": f"Recalculated wastage values for {updated_count} entries",
         "updates": updates
     }
 

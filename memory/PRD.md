@@ -668,6 +668,27 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
   - [x] Improved visual design with ranked badges (1-gold, 2-silver, 3-bronze)
   - [x] Shows wastage %, value, and days of data
 
+### Mandatory Stock Closing Validation (COMPLETED - Apr 13, 2026)
+- [x] **Data Sanctity Enforcement for Staff/Admin Stock Closing**:
+  - [x] When closing stock status for a day, ALL products with opening stock OR purchases MUST have closing values entered
+  - [x] Users cannot leave any product blank and save - validation blocks partial closes
+  - [x] Error toast displays all missing product names: "Cannot save! Please enter closing values for ALL products. Missing: [product names]"
+  - [x] Backend API validation at `/api/stock-status/close` also rejects partial closes with 400 status
+- [x] **Quick Fill Buttons** for convenience:
+  - [x] "Fill All with Available (0 Wastage)" - Auto-fills all products with their available qty (opening + purchase - dispatch)
+  - [x] "Fill All with 0" - Auto-fills all products with 0 (100% wastage scenario)
+- [x] **Visual Indicators in Closing Dialog**:
+  - [x] Red asterisks (*) on product names indicate mandatory fields
+  - [x] Input fields show "Required" placeholder
+  - [x] Status column: "Pending" (amber) for unfilled, "Ready" (blue) for filled, "Closed" (green) for already closed
+  - [x] Row highlighting: Red background for missing values, Green background for filled values
+- [x] **Summary Bar**:
+  - [x] Shows "Filled: X / Y products (Z remaining)" with progress
+  - [x] When all filled: "All X products ready to close" with green checkmark
+- [x] **Important Notice Banner**:
+  - [x] Yellow warning banner at top: "You must enter closing values for ALL products with opening stock or purchases. No item can be left blank."
+- [x] **Removed checkbox-based selection** - All products with activity are now mandatory, no selective closing allowed
+
 ### Daily Purchase Requirement Feature (COMPLETED - Apr 2026)
 - [x] **Retailer Daily Purchase Requirement Tab** (Apr 05, 2026):
   - [x] New "Daily Requirement" tab in Admin Retailer Orders page (first tab position)
@@ -738,7 +759,8 @@ Build an end-to-end system for a fruits and vegetables retail and quick commerce
 - `daily_stock_status`: {date, product_id, product_name, opening_qty, avg_price, purchase_qty, dispatch_qty, closing_qty, wastage_qty, wastage_percent, status}
 
 ## Test Credentials
-- Admin: admin@mrorganix.com / admin123
+- Admin: admin@freshflow.com / admin123
+- Staff: samrat@freshflow.com / admin123
 - Retailer: tamannamart08@gmail.com / admin123
 
 ---

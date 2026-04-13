@@ -52,6 +52,8 @@ export default function BackupPage() {
     }
   };
 
+  const [directSyncLoading, setDirectSyncLoading] = useState(false);
+
   const syncFromProduction = async () => {
     if (!prodUrl) {
       toast.error('Please enter the production URL');
@@ -68,8 +70,8 @@ export default function BackupPage() {
         default_password: 'admin123'
       });
       
-      if (response.data.success) {
-        toast.success(`Synced ${response.data.total_records} records from production!`);
+      if (response.data.message) {
+        toast.success(response.data.message);
         loadSyncStatus();
       }
     } catch (error) {
@@ -79,6 +81,39 @@ export default function BackupPage() {
       setProdSyncLoading(false);
     }
   };
+
+  // Direct API sync for collections not in Excel backup
+  const syncDirectFromAPI = async () => {
+    if (!prodUrl) {
+      toast.error('Please enter the production URL');
+      return;
+    }
+    
+    setDirectSyncLoading(true);
+    try {
+      const response = await api.post('/api/sync-from-production-direct', {
+        production_url: prodUrl,
+        admin_email: prodEmail,
+        admin_password: prodPassword,
+        reset_passwords: false // Don't reset passwords on direct sync
+      });
+      
+      if (response.data.message) {
+        toast.success(response.data.message);
+        // Show detailed results
+        const results = response.data.collections || {};
+        const syncedCount = Object.values(results).filter(r => r.status === 'synced').length;
+        toast.info(`Direct sync: ${syncedCount} collections updated`);
+        loadSyncStatus();
+      }
+    } catch (error) {
+      console.error('Failed to direct sync from production:', error);
+      toast.error(error.response?.data?.detail || 'Failed to direct sync');
+    } finally {
+      setDirectSyncLoading(false);
+    }
+  };
+
 
   const loadGmailStatus = async () => {
     try {
@@ -463,7 +498,7 @@ export default function BackupPage() {
             <div className="flex items-center gap-4">
               <Button 
                 onClick={syncFromProduction}
-                disabled={prodSyncLoading || !prodUrl}
+                disabled={prodSyncLoading || directSyncLoading || !prodUrl}
                 className="bg-purple-600 hover:bg-purple-700"
               >
                 {prodSyncLoading ? (
@@ -475,6 +510,20 @@ export default function BackupPage() {
               </Button>
               
               <Button 
+                onClick={syncDirectFromAPI}
+                disabled={prodSyncLoading || directSyncLoading || !prodUrl}
+                variant="outline"
+                className="border-orange-400 text-orange-700 hover:bg-orange-50"
+              >
+                {directSyncLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                {directSyncLoading ? 'Syncing...' : 'Direct API Sync'}
+              </Button>
+              
+              <Button 
                 onClick={loadSyncStatus}
                 variant="outline"
                 size="sm"
@@ -482,6 +531,18 @@ export default function BackupPage() {
                 <RefreshCw className="h-4 w-4 mr-1" />
                 Refresh Status
               </Button>
+            </div>
+            
+            {/* Direct Sync Info */}
+            <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg text-sm">
+              <p className="font-medium text-orange-800 flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Direct API Sync (for missing data)
+              </p>
+              <p className="text-orange-700 mt-1">
+                Use this if some collections (like Packaging, Units, Labours) are not syncing properly. 
+                This pulls data directly from production API endpoints instead of the Excel backup.
+              </p>
             </div>
             
             {syncStatus && (

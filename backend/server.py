@@ -8452,6 +8452,219 @@ async def sync_from_production(
         )
 
 
+@api_router.post("/sync-from-production-direct")
+async def sync_from_production_direct(
+    request: SyncFromProductionRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Direct API sync from production - bypasses Excel backup.
+    Pulls data directly from production API endpoints for 100% data sync.
+    Use this when Excel backup doesn't include all collections.
+    """
+    import httpx
+    
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can sync from production")
+    
+    try:
+        production_url = request.production_url.rstrip('/')
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # Step 1: Login to production
+            login_response = await client.post(
+                f"{production_url}/api/auth/login",
+                json={
+                    "email": request.admin_email,
+                    "password": request.admin_password
+                }
+            )
+            
+            if login_response.status_code != 200:
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Failed to login to production: {login_response.text}"
+                )
+            
+            token = login_response.json().get("token")
+            if not token:
+                raise HTTPException(status_code=401, detail="No token received from production login")
+            
+            headers = {"Authorization": f"Bearer {token}"}
+            
+            # Define API endpoints for each collection
+            api_endpoints = {
+                'qc_packaging': '/api/qc-packaging',
+                'products': '/api/products',
+                'units': '/api/units',
+                'farmers': '/api/farmers',
+                'labours': '/api/labours',
+                'qc_customers': '/api/qc-customers',
+                'retailers': '/api/retailers',
+            }
+            
+            # Endpoints that need date range params (fetch last 6 months)
+            from_date = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%d')
+            to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            date_range_endpoints = {
+                'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
+                'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
+                # Note: labour_attendance requires per-day queries - handled by Excel backup sync
+            }
+            
+            sync_results = {}
+            total_synced = 0
+            
+            for collection_name, endpoint in api_endpoints.items():
+                try:
+                    # Fetch data from production API
+                    response = await client.get(
+                        f"{production_url}{endpoint}",
+                        headers=headers,
+                        timeout=60.0
+                    )
+                    
+                    if response.status_code != 200:
+                        sync_results[collection_name] = {
+                            "status": "error",
+                            "error": f"API returned {response.status_code}",
+                            "count": 0
+                        }
+                        continue
+                    
+                    data = response.json()
+                    
+                    # Handle different response formats
+                    if isinstance(data, list):
+                        records = data
+                    elif isinstance(data, dict) and 'items' in data:
+                        records = data['items']
+                    elif isinstance(data, dict) and collection_name in data:
+                        records = data[collection_name]
+                    else:
+                        records = [data] if data else []
+                    
+                    if not records:
+                        sync_results[collection_name] = {
+                            "status": "empty",
+                            "count": 0
+                        }
+                        continue
+                    
+                    # Clear existing and insert new
+                    await db[collection_name].delete_many({})
+                    
+                    # Clean records (remove any _id fields)
+                    cleaned_records = []
+                    for record in records:
+                        if isinstance(record, dict):
+                            clean_record = {k: v for k, v in record.items() if k != '_id'}
+                            cleaned_records.append(clean_record)
+                    
+                    if cleaned_records:
+                        await db[collection_name].insert_many(cleaned_records)
+                    
+                    sync_results[collection_name] = {
+                        "status": "synced",
+                        "count": len(cleaned_records)
+                    }
+                    total_synced += len(cleaned_records)
+                    
+                except Exception as e:
+                    sync_results[collection_name] = {
+                        "status": "error",
+                        "error": str(e),
+                        "count": 0
+                    }
+            
+            # Also sync collections that need date range params
+            for collection_name, endpoint in date_range_endpoints.items():
+                try:
+                    response = await client.get(
+                        f"{production_url}{endpoint}",
+                        headers=headers,
+                        timeout=60.0
+                    )
+                    
+                    if response.status_code != 200:
+                        sync_results[collection_name] = {
+                            "status": "error",
+                            "error": f"API returned {response.status_code}",
+                            "count": 0
+                        }
+                        continue
+                    
+                    data = response.json()
+                    
+                    if isinstance(data, list):
+                        records = data
+                    elif isinstance(data, dict) and 'records' in data:
+                        records = data['records']
+                    elif isinstance(data, dict) and 'items' in data:
+                        records = data['items']
+                    else:
+                        records = [data] if data else []
+                    
+                    if not records:
+                        sync_results[collection_name] = {
+                            "status": "empty",
+                            "count": 0
+                        }
+                        continue
+                    
+                    # Clear existing and insert new
+                    await db[collection_name].delete_many({})
+                    
+                    cleaned_records = []
+                    for record in records:
+                        if isinstance(record, dict):
+                            clean_record = {k: v for k, v in record.items() if k != '_id'}
+                            cleaned_records.append(clean_record)
+                    
+                    if cleaned_records:
+                        await db[collection_name].insert_many(cleaned_records)
+                    
+                    sync_results[collection_name] = {
+                        "status": "synced",
+                        "count": len(cleaned_records)
+                    }
+                    total_synced += len(cleaned_records)
+                    
+                except Exception as e:
+                    sync_results[collection_name] = {
+                        "status": "error",
+                        "error": str(e),
+                        "count": 0
+                    }
+            
+            # Reset passwords if requested
+            if request.reset_passwords:
+                await db.users.update_many(
+                    {},
+                    {"$set": {"password": pwd_context.hash(request.default_password)}}
+                )
+            
+            return {
+                "message": f"Direct API sync completed. {total_synced} records synced.",
+                "method": "direct_api",
+                "production_url": production_url,
+                "collections": sync_results
+            }
+        
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Connection to production timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to sync from production: {str(e)}"
+        )
+
+
+
+
 @api_router.get("/sync-status")
 async def get_sync_status(current_user: dict = Depends(get_current_user)):
     """Get current database record counts for sync verification"""

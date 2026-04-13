@@ -473,18 +473,27 @@ export default function AdminDashboard() {
       
       dailyPnl.forEach(day => {
         const lineItems = day.line_items || [];
+        const unsoldWastage = day.unsold_wastage || [];
         
         // Get line items for this product AND any aliased products
         const productLineItems = lineItems.filter(item => aliasedProducts.includes(item.product));
         
-        if (productLineItems.length === 0) return;
+        // Also check for unsold wastage for this product
+        const productUnsoldWastage = unsoldWastage.filter(item => aliasedProducts.includes(item.product));
         
-        // Aggregate data from line items
+        // If no line items AND no unsold wastage, skip this day
+        if (productLineItems.length === 0 && productUnsoldWastage.length === 0) return;
+        
+        // Aggregate data from line items (sales data)
         const salesAmt = productLineItems.reduce((sum, item) => sum + (item.revenue || 0), 0);
         const salesQty = productLineItems.reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
         const salesKg = productLineItems.reduce((sum, item) => sum + (item.supplied_kg || 0), 0);
         const cogsAmt = productLineItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
-        const wastageAmt = productLineItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
+        let wastageAmt = productLineItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
+        
+        // Add unsold wastage (products with wastage but no sales)
+        const unsoldWastageAmt = productUnsoldWastage.reduce((sum, item) => sum + (item.value || 0), 0);
+        wastageAmt += unsoldWastageAmt;
         
         // Calculate Gross P/L: Sales - COGS - Wastage
         const grossProfit = salesAmt - cogsAmt - wastageAmt;
@@ -509,7 +518,8 @@ export default function AdminDashboard() {
           margin: marginPct.toFixed(1),
           wastage_pct: wastagePct.toFixed(1),
           avg_purchase_price: avgPurchasePrice.toFixed(2),
-          avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0
+          avg_selling_price: salesKg > 0 ? (salesAmt / salesKg).toFixed(2) : 0,
+          is_wastage_only: productLineItems.length === 0 && productUnsoldWastage.length > 0  // Flag for wastage-only days
         });
       });
       
@@ -1453,8 +1463,37 @@ export default function AdminDashboard() {
                                     </>
                                   )}
                                   
+                                  {/* Cumulative Unsold Wastage - Products with wastage but no sales */}
+                                  {day.unsold_wastage && day.unsold_wastage.length > 0 && (
+                                    <>
+                                      <tr className="bg-amber-50 border-t border-amber-200">
+                                        <td className="p-2 pl-6 font-medium text-amber-800 text-xs" colSpan={6}>
+                                          Cumulative Unsold Wastage (Products with no sales)
+                                        </td>
+                                        <td className="p-2 text-right text-amber-700 font-medium text-xs">
+                                          ₹{day.unsold_wastage_total?.toLocaleString()}
+                                        </td>
+                                        <td colSpan={5}></td>
+                                      </tr>
+                                      {day.unsold_wastage.map((item, widx) => (
+                                        <tr key={`uw-${widx}`} className="bg-amber-50/50 border-t border-amber-100">
+                                          <td className="p-2 pl-10 text-xs text-amber-700" colSpan={5}>
+                                            {item.product}
+                                          </td>
+                                          <td className="p-2 text-right text-xs text-amber-600">
+                                            {item.qty} Kg @ ₹{item.avg_price}/Kg
+                                          </td>
+                                          <td className="p-2 text-right text-xs text-amber-700 font-medium">
+                                            ₹{item.value?.toLocaleString()}
+                                          </td>
+                                          <td colSpan={5}></td>
+                                        </tr>
+                                      ))}
+                                    </>
+                                  )}
+                                  
                                   {/* No data message */}
-                                  {qcItems.length === 0 && retailItems.length === 0 && (
+                                  {qcItems.length === 0 && retailItems.length === 0 && (!day.unsold_wastage || day.unsold_wastage.length === 0) && (
                                     <tr className="bg-gray-50">
                                       <td colSpan={13} className="p-2 pl-8 text-xs text-gray-400 italic">
                                         No detailed line items available for this date
@@ -1476,7 +1515,8 @@ export default function AdminDashboard() {
                       }, 0);
                       const totalWastageFromItems = dailyPnl.reduce((sum, day) => {
                         const lineItems = day.line_items || [];
-                        return sum + lineItems.reduce((s, i) => s + (i.wastage_value || 0), 0);
+                        const unsoldWastage = day.unsold_wastage_total || 0;
+                        return sum + lineItems.reduce((s, i) => s + (i.wastage_value || 0), 0) + unsoldWastage;
                       }, 0);
                       const totalRejection = dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0);
                       const totalCommission = dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0);

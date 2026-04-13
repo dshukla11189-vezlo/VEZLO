@@ -4202,10 +4202,14 @@ async def get_pnl_report(
     # Build a map of most recent prices by product for fallback
     product_recent_prices = {}
     
+    # Track unsold wastage by date (products with wastage but no dispatch)
+    unsold_wastage_by_date = {}  # date -> {product_name: {qty, value, avg_price}}
+    
     for status in stock_status:
         wastage_qty = status.get("wastage_qty", 0) or 0
         purchase_qty = status.get("purchase_qty", 0) or 0
         purchase_value = status.get("purchase_value", 0) or 0
+        dispatch_qty = status.get("dispatch_qty", 0) or 0
         status_date = status.get("date", "")[:10]
         product = status.get("product_name", "Unknown")
         product_id = status.get("product_id")
@@ -4224,6 +4228,9 @@ async def get_pnl_report(
         # If still no price, use the stored wastage_value from stock status
         if avg_price == 0:
             wastage_value = status.get("wastage_value", 0) or 0
+            # Try to get avg_price from the stored value
+            if wastage_qty > 0 and wastage_value > 0:
+                avg_price = wastage_value / wastage_qty
         else:
             wastage_value = round(wastage_qty * avg_price, 2)
         
@@ -4242,6 +4249,16 @@ async def get_pnl_report(
         if product not in product_by_date[status_date]:
             product_by_date[status_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
         product_by_date[status_date][product]["wastage"] += wastage_value
+        
+        # Track unsold wastage (products with wastage but NO dispatch on this day)
+        if wastage_qty > 0 and dispatch_qty == 0:
+            if status_date not in unsold_wastage_by_date:
+                unsold_wastage_by_date[status_date] = {}
+            unsold_wastage_by_date[status_date][product] = {
+                "qty": wastage_qty,
+                "value": wastage_value,
+                "avg_price": avg_price
+            }
     
     # ========== VARIABLE EXPENSES ==========
     variable_expenses = await db.variable_expenses.find({
@@ -4527,6 +4544,19 @@ async def get_pnl_report(
                     "profit_per_qty": round(profit_per_qty, 2)
                 })
         
+        # Get unsold wastage for this date (products with wastage but no dispatch)
+        date_unsold_wastage = unsold_wastage_by_date.get(date_key, {})
+        unsold_wastage_items = []
+        unsold_wastage_total = 0
+        for prod_name, wastage_data in date_unsold_wastage.items():
+            unsold_wastage_items.append({
+                "product": prod_name,
+                "qty": round(wastage_data["qty"], 2),
+                "value": round(wastage_data["value"], 2),
+                "avg_price": round(wastage_data["avg_price"], 2)
+            })
+            unsold_wastage_total += wastage_data["value"]
+        
         daily_pnl.append({
             "date": date_key,
             "sales": round(day_data["sales"], 2),
@@ -4548,7 +4578,9 @@ async def get_pnl_report(
             "labour_cost": round(day_data.get("labour_cost", 0), 2),
             "net_profit": round(day_net, 2),
             "products": products_detail,
-            "line_items": detailed_line_items  # NEW: Customer→Product breakdown
+            "line_items": detailed_line_items,  # Customer→Product breakdown
+            "unsold_wastage": unsold_wastage_items,  # Products with wastage but no sales
+            "unsold_wastage_total": round(unsold_wastage_total, 2)
         })
     
     # Customer P&L - calculate GRN loss later after we have total_grn_loss

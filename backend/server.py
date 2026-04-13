@@ -949,6 +949,58 @@ async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: fl
     return {"message": "Packaging updated"}
 
 
+@api_router.delete("/qc-packaging/{packaging_id}")
+async def delete_qc_packaging(packaging_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a packaging variant. Checks for references in indents/dispatches before allowing deletion."""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if packaging exists
+    packaging = await db.qc_packaging.find_one({"id": packaging_id}, {"_id": 0})
+    if not packaging:
+        raise HTTPException(status_code=404, detail="Packaging not found")
+    
+    packaging_name = packaging.get("name", "")
+    
+    # Check if packaging is referenced in QC indents
+    indent_ref = await db.qc_indents.find_one({
+        "items.packaging_name": packaging_name
+    })
+    if indent_ref:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete: Packaging '{packaging_name}' is used in QC indents"
+        )
+    
+    # Check if packaging is referenced in QC dispatches
+    dispatch_ref = await db.qc_dispatches.find_one({
+        "items.packaging_name": packaging_name
+    })
+    if dispatch_ref:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete: Packaging '{packaging_name}' is used in QC dispatches"
+        )
+    
+    # Check if packaging is referenced in retailer orders
+    retailer_indent_ref = await db.retailer_indents.find_one({
+        "items.variant_name": packaging_name
+    })
+    if retailer_indent_ref:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete: Packaging '{packaging_name}' is used in retailer indents"
+        )
+    
+    # Safe to delete
+    result = await db.qc_packaging.delete_one({"id": packaging_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Packaging not found")
+    
+    return {"message": f"Packaging '{packaging_name}' deleted successfully"}
+
+
+
 def extract_weight_from_packaging_name(name: str) -> float:
     """Extract weight in grams from packaging name like '500 gm', '240-260 gm', '200 gm Packet', 'With Roots (100 gm Pack)'"""
     if not name:

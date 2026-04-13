@@ -146,7 +146,8 @@ export default function Products() {
       toast.success('Packaging deleted successfully');
       loadPackaging();
     } catch (error) {
-      toast.error('Failed to delete packaging');
+      const errorMsg = error.response?.data?.detail || 'Failed to delete packaging';
+      toast.error(errorMsg);
     }
   };
 

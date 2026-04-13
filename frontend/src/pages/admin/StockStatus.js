@@ -286,28 +286,36 @@ export default function StockStatus() {
   };
 
   const handleSaveClosing = async () => {
-    // Get entries that are selected AND have a closing value
-    const entries = Object.keys(closingData)
-      .filter(productId => selectedForClosing[productId] && closingData[productId] !== '' && closingData[productId] !== null)
-      .map(productId => ({
-        product_id: productId,
-        closing_qty: parseFloat(closingData[productId]) || 0
-      }));
+    // Get all OPEN products that need closing (with activity: opening > 0 OR purchase > 0)
+    const openProductsRequiringClosing = closableProductsForDate.filter(p => 
+      p.status === 'open' && (p.opening_qty > 0 || p.purchase_qty > 0)
+    );
 
-    if (entries.length === 0) {
-      toast.error('Select products and enter closing quantities');
+    // Check if ALL required products have closing values entered
+    const productsWithMissingClosing = openProductsRequiringClosing.filter(p => {
+      const closingValue = closingData[p.product_id];
+      return closingValue === '' || closingValue === null || closingValue === undefined;
+    });
+
+    // VALIDATION: Block save if any product is missing closing value
+    if (productsWithMissingClosing.length > 0) {
+      const missingNames = productsWithMissingClosing.map(p => p.product_name).join(', ');
+      toast.error(
+        `Cannot save! Please enter closing values for ALL products with stock.\n\nMissing: ${missingNames}`,
+        { duration: 6000 }
+      );
       return;
     }
 
-    // Check if any open product is not selected
-    const openProductsForSave = closableProductsForDate.filter(p => p.status === 'open');
-    const unselectedProducts = openProductsForSave.filter(p => !selectedForClosing[p.product_id] || closingData[p.product_id] === '' || closingData[p.product_id] === null);
-    
-    if (unselectedProducts.length > 0) {
-      const proceed = window.confirm(
-        `${unselectedProducts.length} product(s) are not selected or don't have closing values. Do you want to proceed with only the selected products?`
-      );
-      if (!proceed) return;
+    // Build entries for ALL open products with closing values
+    const entries = openProductsRequiringClosing.map(p => ({
+      product_id: p.product_id,
+      closing_qty: parseFloat(closingData[p.product_id]) || 0
+    }));
+
+    if (entries.length === 0) {
+      toast.error('No products to close for this date');
+      return;
     }
 
     setSavingClosing(true);
@@ -318,7 +326,8 @@ export default function StockStatus() {
       setShowClosingDialog(false);
     } catch (error) {
       console.error('Save closing error:', error);
-      toast.error('Failed to save closing data');
+      const errorMsg = error.response?.data?.detail || 'Failed to save closing data';
+      toast.error(errorMsg);
     } finally {
       setSavingClosing(false);
     }
@@ -729,7 +738,7 @@ export default function StockStatus() {
           </CardContent>
         </Card>
 
-        {/* Closing Entry Dialog - With checkboxes for multi-select */}
+        {/* Closing Entry Dialog - ALL products must have closing values */}
         <Dialog open={showClosingDialog} onOpenChange={setShowClosingDialog}>
           <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
@@ -737,16 +746,51 @@ export default function StockStatus() {
             </DialogHeader>
             
             <div className="py-4">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-sm text-gray-500">
-                  Select products and enter closing quantities (in Kg). Wastage will be auto-calculated.
+              {/* Mandatory Entry Notice */}
+              <div className="flex items-center gap-2 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <AlertTriangle size={18} className="text-amber-600 flex-shrink-0" />
+                <p className="text-sm text-amber-800">
+                  <strong>Important:</strong> You must enter closing values for <strong>ALL</strong> products with opening stock or purchases. No item can be left blank.
                 </p>
-                {closableProductsForDate.filter(p => p.status === 'open').length > 0 && (
-                  <Button variant="outline" size="sm" onClick={selectAllForClosing}>
-                    Select All Open
-                  </Button>
-                )}
               </div>
+              
+              {/* Quick Fill Buttons */}
+              {closableProductsForDate.filter(p => p.status === 'open').length > 0 && (
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-sm text-gray-600">Quick fill:</span>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      // Auto-fill with available qty (zero wastage)
+                      const newClosingData = { ...closingData };
+                      closableProductsForDate.filter(p => p.status === 'open').forEach(item => {
+                        const available = item.opening_qty + item.purchase_qty - item.dispatch_qty;
+                        newClosingData[item.product_id] = Math.max(0, available).toFixed(2);
+                      });
+                      setClosingData(newClosingData);
+                    }}
+                    className="text-xs"
+                  >
+                    Fill All with Available (0 Wastage)
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      // Auto-fill with zeros
+                      const newClosingData = { ...closingData };
+                      closableProductsForDate.filter(p => p.status === 'open').forEach(item => {
+                        newClosingData[item.product_id] = '0';
+                      });
+                      setClosingData(newClosingData);
+                    }}
+                    className="text-xs"
+                  >
+                    Fill All with 0
+                  </Button>
+                </div>
+              )}
               
               {closableProductsForDate.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -757,15 +801,12 @@ export default function StockStatus() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100 sticky top-0">
                       <tr>
-                        <th className="p-2 w-10 text-center">
-                          <CheckCircle size={14} />
-                        </th>
                         <th className="p-2 text-left">Product</th>
                         <th className="p-2 text-right">Opening</th>
                         <th className="p-2 text-right">Purchase</th>
                         <th className="p-2 text-right">Dispatch</th>
                         <th className="p-2 text-right">Available</th>
-                        <th className="p-2 text-center w-28">Closing</th>
+                        <th className="p-2 text-center w-28">Closing *</th>
                         <th className="p-2 text-right">Wastage</th>
                         <th className="p-2 text-center">Status</th>
                       </tr>
@@ -775,21 +816,17 @@ export default function StockStatus() {
                         const available = item.opening_qty + item.purchase_qty - item.dispatch_qty;
                         const closingQty = closingData[item.product_id] !== '' && closingData[item.product_id] !== undefined ? parseFloat(closingData[item.product_id]) : null;
                         const wastage = closingQty !== null ? Math.max(0, available - closingQty) : null;
-                        const isSelected = selectedForClosing[item.product_id];
                         const isClosed = item.status === 'closed';
+                        const hasValue = closingData[item.product_id] !== '' && closingData[item.product_id] !== undefined && closingData[item.product_id] !== null;
+                        const needsValue = !isClosed && (item.opening_qty > 0 || item.purchase_qty > 0);
+                        const isMissing = needsValue && !hasValue;
                         
                         return (
-                          <tr key={item.product_id} className={`border-t ${isSelected ? 'bg-green-50' : ''} ${isClosed ? 'bg-gray-50 opacity-60' : ''}`}>
-                            <td className="p-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected || false}
-                                onChange={() => toggleClosingSelection(item.product_id)}
-                                disabled={isClosed}
-                                className="w-4 h-4"
-                              />
+                          <tr key={item.product_id} className={`border-t ${isClosed ? 'bg-gray-50 opacity-60' : hasValue ? 'bg-green-50' : isMissing ? 'bg-red-50' : ''}`}>
+                            <td className="p-2 font-medium">
+                              {item.product_name}
+                              {isMissing && <span className="text-red-500 ml-1">*</span>}
                             </td>
-                            <td className="p-2 font-medium">{item.product_name}</td>
                             <td className="p-2 text-right">{item.opening_qty.toFixed(2)}</td>
                             <td className="p-2 text-right text-green-700">{item.purchase_qty > 0 ? `+${item.purchase_qty.toFixed(2)}` : '-'}</td>
                             <td className="p-2 text-right text-red-700">{item.dispatch_qty > 0 ? `-${item.dispatch_qty.toFixed(2)}` : '-'}</td>
@@ -802,16 +839,10 @@ export default function StockStatus() {
                                   type="number"
                                   step="0.01"
                                   min="0"
-                                  placeholder="0.00"
+                                  placeholder="Required"
                                   value={closingData[item.product_id] || ''}
-                                  onChange={(e) => {
-                                    handleClosingQtyChange(item.product_id, e.target.value);
-                                    // Auto-select when entering value
-                                    if (e.target.value && !isSelected) {
-                                      toggleClosingSelection(item.product_id);
-                                    }
-                                  }}
-                                  className="w-24 h-8 text-right text-sm"
+                                  onChange={(e) => handleClosingQtyChange(item.product_id, e.target.value)}
+                                  className={`w-24 h-8 text-right text-sm ${isMissing ? 'border-red-400 bg-red-50' : ''}`}
                                   data-testid={`closing-input-${item.product_id}`}
                                 />
                               )}
@@ -830,8 +861,10 @@ export default function StockStatus() {
                             <td className="p-2 text-center">
                               {isClosed ? (
                                 <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Closed</span>
+                              ) : hasValue ? (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">Ready</span>
                               ) : (
-                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">Open</span>
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">Pending</span>
                               )}
                             </td>
                           </tr>
@@ -843,17 +876,34 @@ export default function StockStatus() {
               )}
               
               {/* Summary */}
-              {closableProductsForDate.length > 0 && (
-                <div className="mt-4 p-3 bg-gray-50 rounded-lg flex justify-between items-center">
-                  <div className="text-sm text-gray-600">
-                    <span className="font-medium">{closableProductsForDate.filter(p => p.status === 'open').length}</span> open, 
-                    <span className="font-medium ml-2">{closableProductsForDate.filter(p => p.status === 'closed').length}</span> closed
+              {closableProductsForDate.length > 0 && (() => {
+                const openProducts = closableProductsForDate.filter(p => p.status === 'open' && (p.opening_qty > 0 || p.purchase_qty > 0));
+                const filledCount = openProducts.filter(p => 
+                  closingData[p.product_id] !== '' && closingData[p.product_id] !== undefined && closingData[p.product_id] !== null
+                ).length;
+                const totalRequired = openProducts.length;
+                const allFilled = filledCount === totalRequired;
+                
+                return (
+                  <div className={`mt-4 p-3 rounded-lg flex justify-between items-center ${allFilled ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                    <div className="text-sm">
+                      {allFilled ? (
+                        <span className="text-green-700 font-medium flex items-center gap-1">
+                          <CheckCircle size={16} /> All {totalRequired} products ready to close
+                        </span>
+                      ) : (
+                        <span className="text-amber-700">
+                          Filled: <span className="font-bold">{filledCount}</span> / {totalRequired} products
+                          <span className="ml-2 text-red-600">({totalRequired - filledCount} remaining)</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Already closed: <span className="font-medium">{closableProductsForDate.filter(p => p.status === 'closed').length}</span>
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-600">
-                    Selected: <span className="font-bold text-green-700">{Object.values(selectedForClosing).filter(Boolean).length}</span>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
 
             <DialogFooter>
@@ -862,7 +912,7 @@ export default function StockStatus() {
               </Button>
               <Button 
                 onClick={handleSaveClosing} 
-                disabled={savingClosing || Object.values(selectedForClosing).filter(Boolean).length === 0}
+                disabled={savingClosing}
                 className="bg-[#14532D] hover:bg-[#166534]"
                 data-testid="save-closing-btn"
               >
@@ -872,7 +922,7 @@ export default function StockStatus() {
                   </>
                 ) : (
                   <>
-                    <Save size={16} className="mr-2" /> Save Closing ({Object.values(selectedForClosing).filter(Boolean).length})
+                    <Save size={16} className="mr-2" /> Close All Products
                   </>
                 )}
               </Button>

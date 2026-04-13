@@ -5331,11 +5331,98 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
 
 @api_router.post("/stock-status/close")
 async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str] = None, current_user: dict = Depends(get_current_user)):
-    """Staff enters closing quantities for products. Accepts optional date parameter for historical closes."""
+    """Staff enters closing quantities for products. Accepts optional date parameter for historical closes.
+    VALIDATION: All products with opening stock OR purchases MUST have closing values - no partial closes allowed."""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     target_date = date if date else datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    yesterday = (datetime.strptime(target_date, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Get all products
+    all_products = await db.products.find({}, {"_id": 0}).to_list(1000)
+    product_map = {p["id"]: p for p in all_products}
+    
+    # Get yesterday's closing (for opening stock)
+    yesterday_status = await db.daily_stock_status.find(
+        {"date": yesterday, "status": "closed"},
+        {"_id": 0}
+    ).to_list(1000)
+    yesterday_map = {s["product_id"]: s for s in yesterday_status}
+    
+    # Get existing status for target date
+    existing_status = await db.daily_stock_status.find(
+        {"date": target_date},
+        {"_id": 0}
+    ).to_list(1000)
+    existing_map = {s["product_id"]: s for s in existing_status}
+    
+    # Get procurements for target date
+    procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
+    purchases_by_product = {}
+    for proc in procurements:
+        proc_date = proc.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str == target_date:
+            for item in proc.get("products", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                
+                # Convert to Kg
+                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
+                else:
+                    qty_kg = qty
+                
+                purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
+    
+    # Build list of all products that REQUIRE closing (opening > 0 OR purchase > 0, and not already closed)
+    products_requiring_closing = []
+    
+    for product in all_products:
+        product_id = product["id"]
+        existing = existing_map.get(product_id, {})
+        
+        # Skip if already closed
+        if existing.get("status") == "closed":
+            continue
+        
+        opening_qty = existing.get("opening_qty", 0)
+        if opening_qty == 0:
+            # Check yesterday's closing for opening
+            opening_qty = yesterday_map.get(product_id, {}).get("closing_qty", 0)
+        
+        purchase_qty = purchases_by_product.get(product_id, 0)
+        
+        # If has opening OR purchase, it requires closing
+        if opening_qty > 0 or purchase_qty > 0:
+            products_requiring_closing.append({
+                "product_id": product_id,
+                "product_name": product.get("name", "Unknown")
+            })
+    
+    # Validate: All required products must be in the entries
+    submitted_product_ids = {e.product_id for e in entries.entries}
+    required_product_ids = {p["product_id"] for p in products_requiring_closing}
+    
+    missing_products = required_product_ids - submitted_product_ids
+    if missing_products:
+        missing_names = [p["product_name"] for p in products_requiring_closing if p["product_id"] in missing_products]
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot save! Missing closing values for: {', '.join(missing_names)}"
+        )
+    
     updated = []
     
     for entry in entries.entries:
@@ -5994,6 +6081,7 @@ async def get_stock_status_history(
         query["product_id"] = product_id
     
     history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    return history
 
 
 @api_router.post("/procurement/bulk-update-rate")
@@ -6192,31 +6280,6 @@ async def fix_all_wastage_values(
         print(f"Error in fix_all_wastage_values: {error_trace}")
         raise HTTPException(status_code=500, detail=f"Error fixing wastage values: {str(e)}")
 
-
-@api_router.get("/stock-status/history")
-async def get_stock_status_history(
-    from_date: Optional[str] = None,
-    to_date: Optional[str] = None,
-    product_id: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get historical stock status data"""
-    if current_user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    query = {}
-    if from_date:
-        query["date"] = {"$gte": from_date}
-    if to_date:
-        if "date" in query:
-            query["date"]["$lte"] = to_date
-        else:
-            query["date"] = {"$lte": to_date}
-    if product_id:
-        query["product_id"] = product_id
-    
-    history = await db.daily_stock_status.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
-    return history
 
 @api_router.get("/stock-status/closable-products")
 async def get_closable_products_for_date(

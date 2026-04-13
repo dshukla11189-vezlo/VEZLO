@@ -8161,11 +8161,23 @@ async def get_backup_status(current_user: dict = Depends(get_current_user)):
         "next_backup_time": "11:59 PM IST (18:29 UTC)",
         "recipients": ["dshukla11189@gmail.com"],
         "collections_backed_up": [
-            "users", "products", "farmers", "procurements",
-            "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
-            "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+            # Core
+            "users", "products", "units",
+            # Procurement
+            "farmers", "procurements", "procurement_templates",
+            # Quick Commerce
+            "qc_packaging", "qc_customers", "qc_indents", "qc_dispatches", 
+            "qc_invoices", "qc_grns", "qc_daily_requirements",
+            # Retailer
+            "retailers", "retailer_indents", "retailer_dispatches", "retailer_invoices", 
             "retailer_grn", "retailer_rejections", "retailer_payments",
-            "daily_stock_status", "variable_expenses", "fixed_expenses"
+            "retailer_closing_inventory", "retailer_inventory", "retailer_daily_requirements",
+            # Stock & Expenses
+            "daily_stock_status", "variable_expenses", "fixed_expenses",
+            # Labour
+            "labours", "labour_attendance",
+            # Payments
+            "payments"
         ]
     }
 
@@ -8179,11 +8191,23 @@ async def reset_all_data(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only admin can reset data")
     
     collections_to_clear = [
-        "products", "farmers", "procurements",
-        "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
-        "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+        # Core (keep users separately handled)
+        "products", "units",
+        # Procurement
+        "farmers", "procurements", "procurement_templates",
+        # Quick Commerce
+        "qc_packaging", "qc_customers", "qc_indents", "qc_dispatches", 
+        "qc_invoices", "qc_grns", "qc_daily_requirements",
+        # Retailer
+        "retailers", "retailer_indents", "retailer_dispatches", "retailer_invoices", 
         "retailer_grn", "retailer_rejections", "retailer_payments",
-        "daily_stock_status", "variable_expenses", "fixed_expenses"
+        "retailer_closing_inventory", "retailer_inventory", "retailer_daily_requirements",
+        # Stock & Expenses
+        "daily_stock_status", "variable_expenses", "fixed_expenses",
+        # Labour
+        "labours", "labour_attendance",
+        # Payments
+        "payments"
     ]
     
     deleted_counts = {}
@@ -8285,12 +8309,17 @@ async def sync_from_production(
                     pass
                 return value
             
-            # Map sheet names to collection names
+            # Map sheet names to collection names - COMPREHENSIVE list
             sheet_to_collection = {
+                # Core
                 'users': 'users',
                 'products': 'products',
+                'units': 'units',
+                # Procurement
                 'farmers': 'farmers',
                 'procurements': 'procurements',
+                'procurement_templates': 'procurement_templates',
+                # Quick Commerce
                 'qc_packaging': 'qc_packaging',
                 'qc_customers': 'qc_customers',
                 'qc_indents': 'qc_indents',
@@ -8298,6 +8327,8 @@ async def sync_from_production(
                 'qc_invoices': 'qc_invoices',
                 'qc_grns': 'qc_grns',
                 'qc_daily_requirements': 'qc_daily_requirements',
+                # Retailer
+                'retailers': 'retailers',
                 'retailer_indents': 'retailer_indents',
                 'retailer_dispatches': 'retailer_dispatches',
                 'retailer_invoices': 'retailer_invoices',
@@ -8305,12 +8336,20 @@ async def sync_from_production(
                 'retailer_rejections': 'retailer_rejections',
                 'retailer_payments': 'retailer_payments',
                 'retailer_closing_inventory': 'retailer_closing_inventory',
+                'retailer_inventory': 'retailer_inventory',
+                'retailer_daily_requirements': 'retailer_daily_requirements',
+                # Stock & Expenses
                 'daily_stock_status': 'daily_stock_status',
                 'variable_expenses': 'variable_expenses',
                 'fixed_expenses': 'fixed_expenses',
+                # Labour
+                'labours': 'labours',
+                'labour_attendance': 'labour_attendance',
+                # Payments
+                'payments': 'payments',
             }
             
-            # JSON fields per collection
+            # JSON fields per collection (fields that contain lists/objects)
             json_fields_map = {
                 'procurements': ['products'],
                 'qc_indents': ['items'],
@@ -8324,6 +8363,10 @@ async def sync_from_production(
                 'retailer_grn': ['items'],
                 'retailer_rejections': ['items'],
                 'retailer_closing_inventory': ['items'],
+                'retailer_inventory': ['items'],
+                'retailer_daily_requirements': ['items'],
+                'procurement_templates': ['products'],
+                'farmers': ['materials_supplied'],
             }
             
             sync_results = {}
@@ -8416,11 +8459,23 @@ async def get_sync_status(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only admin can view sync status")
     
     collections = [
-        "users", "products", "farmers", "procurements", "qc_packaging",
-        "qc_customers", "qc_indents", "qc_dispatches", "qc_invoices", "qc_grns",
-        "retailer_indents", "retailer_dispatches", "retailer_invoices", 
+        # Core
+        "users", "products", "units",
+        # Procurement
+        "farmers", "procurements", "procurement_templates",
+        # Quick Commerce
+        "qc_packaging", "qc_customers", "qc_indents", "qc_dispatches", 
+        "qc_invoices", "qc_grns", "qc_daily_requirements",
+        # Retailer
+        "retailers", "retailer_indents", "retailer_dispatches", "retailer_invoices", 
         "retailer_grn", "retailer_rejections", "retailer_payments",
-        "daily_stock_status", "variable_expenses", "fixed_expenses"
+        "retailer_closing_inventory", "retailer_inventory", "retailer_daily_requirements",
+        # Stock & Expenses
+        "daily_stock_status", "variable_expenses", "fixed_expenses",
+        # Labour
+        "labours", "labour_attendance",
+        # Payments
+        "payments"
     ]
     
     counts = {}
@@ -8431,7 +8486,7 @@ async def get_sync_status(current_user: dict = Depends(get_current_user)):
         total += count
     
     return {
-        "database": DB_NAME,
+        "database": os.environ.get('DB_NAME', 'unknown'),
         "total_records": total,
         "collections": counts,
         "last_checked": datetime.now(timezone.utc).isoformat()

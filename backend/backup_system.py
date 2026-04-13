@@ -23,18 +23,26 @@ BACKUP_RECIPIENTS = [
     "dshukla11189@gmail.com"
 ]
 
-# Collections to backup
+# Collections to backup - COMPREHENSIVE list of ALL collections
 COLLECTIONS_TO_BACKUP = [
+    # Core
     "users",
-    "products", 
+    "products",
+    "units",
+    # Procurement
     "farmers",
     "procurements",
+    "procurement_templates",
+    # Quick Commerce
+    "qc_packaging",
     "qc_customers",
     "qc_indents",
     "qc_dispatches",
     "qc_invoices",
     "qc_grns",
     "qc_daily_requirements",
+    # Retailer
+    "retailers",
     "retailer_indents",
     "retailer_dispatches",
     "retailer_invoices",
@@ -42,9 +50,17 @@ COLLECTIONS_TO_BACKUP = [
     "retailer_rejections",
     "retailer_payments",
     "retailer_closing_inventory",
+    "retailer_inventory",
+    "retailer_daily_requirements",
+    # Stock & Expenses
     "daily_stock_status",
     "variable_expenses",
-    "fixed_expenses"
+    "fixed_expenses",
+    # Labour
+    "labours",
+    "labour_attendance",
+    # Payments
+    "payments",
 ]
 
 # Sensitive fields to exclude from backup

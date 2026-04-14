@@ -133,6 +133,12 @@ export default function Products() {
     }
   };
 
+  // State for packaging migration dialog
+  const [showPackagingMigrationDialog, setShowPackagingMigrationDialog] = useState(false);
+  const [packagingToDelete, setPackagingToDelete] = useState(null);
+  const [packagingUsageInfo, setPackagingUsageInfo] = useState(null);
+  const [replacementPackagingId, setReplacementPackagingId] = useState('');
+
   const handleEditPackaging = (pkg) => {
     setEditingPackaging(pkg);
     setPackagingForm({ name: pkg.name, weight_gm: pkg.weight_gm?.toString() || '' });
@@ -142,11 +148,41 @@ export default function Products() {
   const handleDeletePackaging = async (packagingId) => {
     if (!window.confirm('Are you sure you want to delete this packaging?')) return;
     try {
-      await api.delete(`/api/qc-packaging/${packagingId}`);
-      toast.success('Packaging deleted successfully');
+      const response = await api.delete(`/api/qc-packaging/${packagingId}`);
+      
+      // Check if migration is required
+      if (response.data.requires_migration) {
+        setPackagingToDelete(packagingId);
+        setPackagingUsageInfo(response.data);
+        setReplacementPackagingId('');
+        setShowPackagingMigrationDialog(true);
+        return;
+      }
+      
+      toast.success(response.data.message || 'Packaging deleted successfully');
       loadPackaging();
     } catch (error) {
       const errorMsg = error.response?.data?.detail || 'Failed to delete packaging';
+      toast.error(errorMsg);
+    }
+  };
+
+  const handlePackagingMigrationDelete = async () => {
+    if (!replacementPackagingId) {
+      toast.error('Please select a replacement packaging');
+      return;
+    }
+    
+    try {
+      const response = await api.delete(`/api/qc-packaging/${packagingToDelete}?replacement_id=${replacementPackagingId}`);
+      toast.success(response.data.message || 'Packaging deleted and migrated successfully');
+      setShowPackagingMigrationDialog(false);
+      setPackagingToDelete(null);
+      setPackagingUsageInfo(null);
+      setReplacementPackagingId('');
+      loadPackaging();
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || 'Failed to migrate and delete packaging';
       toast.error(errorMsg);
     }
   };
@@ -1021,6 +1057,80 @@ export default function Products() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Packaging Migration Dialog */}
+      {showPackagingMigrationDialog && packagingUsageInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-amber-700">
+              ⚠️ Packaging In Use
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              The packaging "<strong>{packagingUsageInfo.packaging_name}</strong>" is used in:
+            </p>
+            <ul className="text-sm mb-4 space-y-1">
+              {packagingUsageInfo.usage?.qc_indents > 0 && (
+                <li className="flex justify-between">
+                  <span>QC Indents:</span>
+                  <span className="font-medium">{packagingUsageInfo.usage.qc_indents}</span>
+                </li>
+              )}
+              {packagingUsageInfo.usage?.qc_dispatches > 0 && (
+                <li className="flex justify-between">
+                  <span>QC Dispatches:</span>
+                  <span className="font-medium">{packagingUsageInfo.usage.qc_dispatches}</span>
+                </li>
+              )}
+              {packagingUsageInfo.usage?.retailer_indents > 0 && (
+                <li className="flex justify-between">
+                  <span>Retailer Indents:</span>
+                  <span className="font-medium">{packagingUsageInfo.usage.retailer_indents}</span>
+                </li>
+              )}
+              <li className="flex justify-between border-t pt-1 mt-1">
+                <span className="font-medium">Total Records:</span>
+                <span className="font-bold text-amber-700">{packagingUsageInfo.usage?.total}</span>
+              </li>
+            </ul>
+            <p className="text-sm text-gray-600 mb-4">
+              Please select a replacement packaging to migrate these entries:
+            </p>
+            <select
+              value={replacementPackagingId}
+              onChange={(e) => setReplacementPackagingId(e.target.value)}
+              className="w-full border rounded-md px-3 py-2 mb-4 text-sm"
+            >
+              <option value="">-- Select Replacement Packaging --</option>
+              {packagingVariants
+                .filter(p => p.id !== packagingToDelete)
+                .map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.weight_gm}gm)
+                  </option>
+                ))}
+            </select>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowPackagingMigrationDialog(false);
+                  setPackagingToDelete(null);
+                  setPackagingUsageInfo(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700"
+                onClick={handlePackagingMigrationDelete}
+                disabled={!replacementPackagingId}
+              >
+                Migrate & Delete
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </Layout>

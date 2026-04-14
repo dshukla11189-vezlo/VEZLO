@@ -950,8 +950,12 @@ async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: fl
 
 
 @api_router.delete("/qc-packaging/{packaging_id}")
-async def delete_qc_packaging(packaging_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a packaging variant. Checks for references in indents/dispatches before allowing deletion."""
+async def delete_qc_packaging(packaging_id: str, replacement_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """
+    Delete a packaging variant. If it's used in indents/dispatches:
+    - Without replacement_id: Returns usage count and asks for migration
+    - With replacement_id: Migrates all references to the replacement, then deletes
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -962,40 +966,75 @@ async def delete_qc_packaging(packaging_id: str, current_user: dict = Depends(ge
     
     packaging_name = packaging.get("name", "")
     
-    # Check if packaging is referenced in QC indents
-    indent_ref = await db.qc_indents.find_one({
-        "items.packaging_name": packaging_name
-    })
-    if indent_ref:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Cannot delete: Packaging '{packaging_name}' is used in QC indents"
-        )
+    # Count references in different collections
+    qc_indent_count = await db.qc_indents.count_documents({"items.packaging_name": packaging_name})
+    qc_dispatch_count = await db.qc_dispatches.count_documents({"items.packaging_name": packaging_name})
+    retailer_indent_count = await db.retailer_indents.count_documents({"items.variant_name": packaging_name})
     
-    # Check if packaging is referenced in QC dispatches
-    dispatch_ref = await db.qc_dispatches.find_one({
-        "items.packaging_name": packaging_name
-    })
-    if dispatch_ref:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Cannot delete: Packaging '{packaging_name}' is used in QC dispatches"
-        )
+    total_usage = qc_indent_count + qc_dispatch_count + retailer_indent_count
     
-    # Check if packaging is referenced in retailer orders
-    retailer_indent_ref = await db.retailer_indents.find_one({
-        "items.variant_name": packaging_name
-    })
-    if retailer_indent_ref:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Cannot delete: Packaging '{packaging_name}' is used in retailer indents"
-        )
+    if total_usage > 0 and not replacement_id:
+        # Return usage info and ask user to select replacement
+        return {
+            "requires_migration": True,
+            "packaging_name": packaging_name,
+            "usage": {
+                "qc_indents": qc_indent_count,
+                "qc_dispatches": qc_dispatch_count,
+                "retailer_indents": retailer_indent_count,
+                "total": total_usage
+            },
+            "message": f"Packaging '{packaging_name}' is used in {total_usage} records. Please select a replacement packaging."
+        }
     
-    # Safe to delete
+    if total_usage > 0 and replacement_id:
+        # Get replacement packaging
+        replacement = await db.qc_packaging.find_one({"id": replacement_id}, {"_id": 0})
+        if not replacement:
+            raise HTTPException(status_code=404, detail="Replacement packaging not found")
+        
+        replacement_name = replacement.get("name", "")
+        
+        # Migrate QC indents
+        if qc_indent_count > 0:
+            await db.qc_indents.update_many(
+                {"items.packaging_name": packaging_name},
+                {"$set": {"items.$[elem].packaging_name": replacement_name}},
+                array_filters=[{"elem.packaging_name": packaging_name}]
+            )
+        
+        # Migrate QC dispatches
+        if qc_dispatch_count > 0:
+            await db.qc_dispatches.update_many(
+                {"items.packaging_name": packaging_name},
+                {"$set": {"items.$[elem].packaging_name": replacement_name}},
+                array_filters=[{"elem.packaging_name": packaging_name}]
+            )
+            # Also update packaging_items array
+            await db.qc_dispatches.update_many(
+                {"packaging_items.packaging_name": packaging_name},
+                {"$set": {"packaging_items.$[elem].packaging_name": replacement_name}},
+                array_filters=[{"elem.packaging_name": packaging_name}]
+            )
+        
+        # Migrate retailer indents
+        if retailer_indent_count > 0:
+            await db.retailer_indents.update_many(
+                {"items.variant_name": packaging_name},
+                {"$set": {"items.$[elem].variant_name": replacement_name}},
+                array_filters=[{"elem.variant_name": packaging_name}]
+            )
+    
+    # Now safe to delete
     result = await db.qc_packaging.delete_one({"id": packaging_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Packaging not found")
+    
+    if total_usage > 0:
+        return {
+            "message": f"Packaging '{packaging_name}' deleted. Migrated {total_usage} references to '{replacement_name}'.",
+            "migrated": total_usage
+        }
     
     return {"message": f"Packaging '{packaging_name}' deleted successfully"}
 
@@ -4487,6 +4526,7 @@ async def get_pnl_report(
             
             # Now calculate COGS and wastage allocation per line item
             # Get product-level COGS rate (purchase_amount / purchase_qty)
+            # If no purchase on this day, fallback to avg_price_by_product (overall average)
             product_cogs_rate = {}
             if date_key in product_by_date:
                 for prod_name, prod_data in product_by_date[date_key].items():
@@ -4495,7 +4535,8 @@ async def get_pnl_report(
                     if purch_qty > 0:
                         product_cogs_rate[prod_name] = purch_amt / purch_qty
                     else:
-                        product_cogs_rate[prod_name] = 0
+                        # Fallback to average price across all dates (same as dispatch-level COGS)
+                        product_cogs_rate[prod_name] = avg_price_by_product.get(prod_name, 0)
             
             # Calculate total supplied kg per product for proportional wastage allocation
             # For aliased products, we need combined totals for proper wastage distribution

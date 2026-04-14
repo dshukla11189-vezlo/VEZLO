@@ -4761,19 +4761,57 @@ async def get_pnl_report(
     customer_pnl = []
     for cust_data in customer_pnl_data:
         customer_entry = cust_data.copy()
-        if cust_data["type"] == "QC" and total_qc_sales > 0:
-            # Allocate GRN loss proportionally based on this customer's sales share of QC
-            customer_qc_share = cust_data["sales_amount"] / total_qc_sales
-            customer_entry["grn_loss_share"] = round(total_grn_loss * customer_qc_share, 2)
+        customer_sales = cust_data["sales_amount"]
+        customer_type = cust_data["type"]
+        
+        # Calculate proportional share of expenses and losses
+        if customer_type == "QC" and total_qc_sales > 0:
+            customer_share = customer_sales / total_qc_sales
+            # Allocate QC-specific costs proportionally
+            customer_entry["grn_loss_share"] = round(total_grn_loss * customer_share, 2)
             customer_entry["rejection_share"] = 0  # QC doesn't have rejection
-        elif cust_data["type"] == "Retail" and total_retail_sales > 0:
-            # Allocate Rejection loss proportionally based on this customer's sales share of Retail
-            customer_retail_share = cust_data["sales_amount"] / total_retail_sales
+            customer_entry["commission"] = 0  # QC doesn't have commission
+            # Allocate variable expenses for QC
+            customer_entry["variable_expenses"] = round(qc_variable_exp * customer_share, 2)
+            # Allocate fixed expenses for QC
+            customer_entry["fixed_expenses"] = round(qc_fixed_exp * customer_share, 2)
+            # Calculate customer's COGS share and wastage share
+            customer_entry["cogs_share"] = round(actual_qc_cogs * customer_share, 2)
+            customer_entry["wastage_share"] = round(actual_qc_wastage * customer_share, 2)
+        elif customer_type == "Retail" and total_retail_sales > 0:
+            customer_share = customer_sales / total_retail_sales
+            # Allocate Retail-specific costs proportionally
             customer_entry["grn_loss_share"] = 0  # Retail doesn't have GRN loss
-            customer_entry["rejection_share"] = round(total_retail_rejection * customer_retail_share, 2)
+            customer_entry["rejection_share"] = round(total_retail_rejection * customer_share, 2)
+            customer_entry["commission"] = round(total_retail_commission * customer_share, 2)
+            # Allocate variable expenses for Retail
+            customer_entry["variable_expenses"] = round(retail_variable_exp * customer_share, 2)
+            # Allocate fixed expenses for Retail
+            customer_entry["fixed_expenses"] = round(retail_fixed_exp * customer_share, 2)
+            # Calculate customer's COGS share and wastage share
+            customer_entry["cogs_share"] = round(actual_retail_cogs * customer_share, 2)
+            customer_entry["wastage_share"] = round(actual_retail_wastage * customer_share, 2)
         else:
             customer_entry["grn_loss_share"] = 0
             customer_entry["rejection_share"] = 0
+            customer_entry["commission"] = 0
+            customer_entry["variable_expenses"] = 0
+            customer_entry["fixed_expenses"] = 0
+            customer_entry["cogs_share"] = 0
+            customer_entry["wastage_share"] = 0
+        
+        # Calculate Gross Profit = Sales - COGS
+        gross_profit = customer_sales - customer_entry["cogs_share"]
+        customer_entry["gross_profit"] = round(gross_profit, 2)
+        customer_entry["gross_margin_pct"] = round((gross_profit / customer_sales * 100) if customer_sales > 0 else 0, 1)
+        
+        # Calculate Net Profit = Gross - GRN Loss - Rejection - Commission - Variable - Fixed
+        net_profit = (gross_profit - customer_entry["grn_loss_share"] - 
+                      customer_entry["rejection_share"] - customer_entry["commission"] -
+                      customer_entry["variable_expenses"] - customer_entry["fixed_expenses"])
+        customer_entry["net_profit"] = round(net_profit, 2)
+        customer_entry["net_margin_pct"] = round((net_profit / customer_sales * 100) if customer_sales > 0 else 0, 1)
+        
         customer_pnl.append(customer_entry)
     
     return {
@@ -6260,25 +6298,44 @@ async def fix_all_wastage_values(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Fix all historical wastage_value in daily_stock_status based on current avg_price.
-    This recalculates wastage_value = wastage_qty * (purchase_value / purchase_qty)
-    for ALL records in the database.
+    Fix all historical wastage_value in daily_stock_status based on avg_price.
+    If no purchase exists for that day, uses historical price from recent purchases.
     
-    Use this to sync wastage values after any procurement rate changes.
+    Use this to sync wastage values after any procurement rate changes or to fix
+    past records where wastage_value was incorrectly set to 0.
     """
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can fix wastage values")
     
     try:
-        # Get all stock status records
-        all_status = await db.daily_stock_status.find({}, {"_id": 0}).to_list(10000)
+        # Get all stock status records sorted by date
+        all_status = await db.daily_stock_status.find({}, {"_id": 0}).sort("date", 1).to_list(10000)
+        
+        # Build historical price cache per product (most recent purchase price)
+        historical_prices = {}  # product_id -> {price, date}
+        
+        # First pass: collect all prices from records with purchases
+        for status in all_status:
+            product_id = status.get("product_id", "")
+            purchase_qty = status.get("purchase_qty", 0) or 0
+            purchase_value = status.get("purchase_value", 0) or 0
+            date = status.get("date", "")
+            
+            if purchase_qty > 0 and product_id:
+                avg_price = purchase_value / purchase_qty
+                # Always update to track the most recent
+                historical_prices[product_id] = {"price": avg_price, "date": date}
         
         updated_count = 0
         unchanged_count = 0
         fixes_by_product = {}
         
+        # Build a running historical price tracker for fallback
+        running_prices = {}  # product_id -> most recent price up to current date
+        
         for status in all_status:
             record_id = status.get("id")
+            product_id = status.get("product_id", "")
             if not record_id:
                 continue
                 
@@ -6289,8 +6346,22 @@ async def fix_all_wastage_values(
             product_name = status.get("product_name", "Unknown")
             date = status.get("date", "")
             
-            # Calculate correct wastage_value
-            avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+            # Update running prices if this record has purchases
+            if purchase_qty > 0 and product_id:
+                running_prices[product_id] = purchase_value / purchase_qty
+            
+            # Calculate avg_price - use current day's price or fallback to historical
+            if purchase_qty > 0:
+                avg_price = purchase_value / purchase_qty
+            elif product_id in running_prices:
+                # Fallback to most recent historical price
+                avg_price = running_prices[product_id]
+            elif product_id in historical_prices:
+                # Fallback to any known historical price
+                avg_price = historical_prices[product_id]["price"]
+            else:
+                avg_price = 0
+            
             correct_wastage_value = round(wastage_qty * avg_price, 2)
             
             # Check if update needed
@@ -6314,7 +6385,8 @@ async def fix_all_wastage_values(
                     "wastage_qty": wastage_qty,
                     "old_value": current_wastage_value,
                     "new_value": correct_wastage_value,
-                    "avg_price": round(avg_price, 2)
+                    "avg_price": round(avg_price, 2),
+                    "used_historical": purchase_qty == 0
                 })
             else:
                 unchanged_count += 1
@@ -6766,6 +6838,24 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
         {"_id": 0}
     ).to_list(500)
     
+    # Build historical price cache from recent dates (last 30 days)
+    historical_prices = {}
+    historical_records = await db.daily_stock_status.find(
+        {
+            "date": {"$lte": date},
+            "purchase_qty": {"$gt": 0}
+        },
+        {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
+    ).sort("date", -1).to_list(2000)
+    
+    for rec in historical_records:
+        pid = rec.get("product_id")
+        if pid and pid not in historical_prices:
+            pqty = rec.get("purchase_qty", 0) or 0
+            pval = rec.get("purchase_value", 0) or 0
+            if pqty > 0:
+                historical_prices[pid] = pval / pqty
+    
     # Aggregate wastage by product
     product_wastage = {}
     
@@ -6782,10 +6872,14 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
         closing_qty = record.get("closing_qty", 0) or 0
         status = record.get("status", "pending")
         
-        # Calculate avg_price from current procurement data
+        # Calculate avg_price from current procurement data, or fallback to historical
         avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
         
-        # Calculate wastage_value dynamically based on current avg_price
+        # FALLBACK: Use historical price if no purchases today
+        if avg_price == 0 and product_id:
+            avg_price = historical_prices.get(product_id, 0)
+        
+        # Calculate wastage_value dynamically based on avg_price
         wastage_value = round(wastage_qty * avg_price, 2)
         
         # For pending entries, calculate potential wastage if not closed

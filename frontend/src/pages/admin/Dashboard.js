@@ -240,13 +240,19 @@ export default function AdminDashboard() {
       const dailyPnl = response.data?.daily_pnl || [];
       const customerPnlList = response.data?.customer_pnl || [];
       
-      // Find this customer's data from the customer_pnl list to get GRN loss share and type
+      // Find this customer's data from the customer_pnl list to get all financial details
       const customerPnlEntry = customerPnlList.find(c => 
         c.customer?.toLowerCase() === customerName.toLowerCase()
       );
       const customerType = customerPnlEntry?.type || 'QC';
       const grnLossShare = customerPnlEntry?.grn_loss_share || 0;
       const rejectionShare = customerPnlEntry?.rejection_share || 0;
+      // NEW: Get variable expenses, fixed expenses, and commission from customer_pnl
+      const variableExpenses = customerPnlEntry?.variable_expenses || 0;
+      const fixedExpenses = customerPnlEntry?.fixed_expenses || 0;
+      const commissionFromPnl = customerPnlEntry?.commission || 0;
+      const customerNetProfit = customerPnlEntry?.net_profit || 0;
+      const customerNetMargin = customerPnlEntry?.net_margin_pct || 0;
       
       // Filter daily data for the selected customer
       const customerDailyData = dailyPnl.map(day => {
@@ -305,13 +311,16 @@ export default function AdminDashboard() {
       totals.customerType = customerType;
       totals.grnLossShare = grnLossShare;
       totals.rejectionShare = rejectionShare;
+      // NEW: Add variable expenses, fixed expenses, and commission from customer_pnl
+      totals.variableExpenses = variableExpenses;
+      totals.fixedExpenses = fixedExpenses;
+      totals.commissionFromPnl = commissionFromPnl;
       // Store the adjusted gross profit
       totals.grossProfit = adjustedGrossProfit;
-      // For QC customers, Net Profit = Gross Profit - GRN Loss Share
-      // For Retail, Net Profit = Gross Profit (already has rejection deducted)
-      totals.netProfit = customerType === 'QC' 
-        ? adjustedGrossProfit - grnLossShare 
-        : adjustedGrossProfit;
+      // Use net profit from customer_pnl which includes all deductions
+      // Net Profit = Gross - GRN Loss - Rejection - Commission - Variable Expenses - Fixed Expenses
+      totals.netProfit = customerNetProfit;
+      totals.netMarginPct = customerNetMargin;
       
       // Calculate period days for Daily Avg (use total calendar days, not active days)
       // This ensures customer Daily Avgs sum up to match dashboard Daily Avg
@@ -2068,7 +2077,7 @@ export default function AdminDashboard() {
             
             {/* Totals Summary */}
             {customerDetailData?.totals && (
-              <div className="grid grid-cols-4 md:grid-cols-9 gap-2 p-4 bg-blue-50 border-b">
+              <div className="grid grid-cols-4 md:grid-cols-12 gap-2 p-4 bg-blue-50 border-b">
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">SALES</p>
                   <p className="text-sm font-bold text-green-600">₹{customerDetailData.totals.sales.toLocaleString()}</p>
@@ -2093,6 +2102,20 @@ export default function AdminDashboard() {
                       : customerDetailData.totals.rejectionShare.toLocaleString()}
                   </p>
                 </div>
+                {customerDetailData.totals.customerType === 'Retail' && (
+                  <div className="text-center p-2 bg-white rounded shadow-sm">
+                    <p className="text-[10px] text-gray-500 font-medium">COMMISSION</p>
+                    <p className="text-sm font-bold text-purple-600">₹{(customerDetailData.totals.commissionFromPnl || 0).toLocaleString()}</p>
+                  </div>
+                )}
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">VAR EXP</p>
+                  <p className="text-sm font-bold text-pink-600">₹{(customerDetailData.totals.variableExpenses || 0).toLocaleString()}</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded shadow-sm">
+                  <p className="text-[10px] text-gray-500 font-medium">FIXED EXP</p>
+                  <p className="text-sm font-bold text-gray-600">₹{(customerDetailData.totals.fixedExpenses || 0).toLocaleString()}</p>
+                </div>
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">GROSS P/L</p>
                   <p className={`text-sm font-bold ${customerDetailData.totals.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -2105,10 +2128,10 @@ export default function AdminDashboard() {
                     {customerDetailData.totals.grossMargin.toFixed(1)}%
                   </p>
                 </div>
-                <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">₹/UNIT</p>
-                  <p className={`text-sm font-bold ${customerDetailData.totals.profitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                    ₹{customerDetailData.totals.profitPerUnit.toFixed(2)}
+                <div className="text-center p-2 bg-green-50 rounded shadow-sm border border-green-200">
+                  <p className="text-[10px] text-green-600 font-medium">NET P/L</p>
+                  <p className={`text-sm font-bold ${customerDetailData.totals.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    ₹{customerDetailData.totals.netProfit.toLocaleString()}
                   </p>
                 </div>
                 <div className="text-center p-2 bg-indigo-50 rounded shadow-sm">

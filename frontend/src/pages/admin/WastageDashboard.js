@@ -244,6 +244,29 @@ export default function WastageDashboard() {
     .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0));
   const maxDailyWastage = Math.max(...dailyTrend.map(d => d.total_wastage_kg), 1);
 
+  // Fix historical wastage values - useful when wastage_value is 0 for items without purchases
+  const [fixingWastage, setFixingWastage] = useState(false);
+  const fixHistoricalWastageValues = async () => {
+    if (!window.confirm('This will recalculate wastage values for ALL historical records using historical purchase prices. Continue?')) {
+      return;
+    }
+    
+    setFixingWastage(true);
+    try {
+      const response = await api.post('/api/stock-status/fix-all-wastage-values');
+      const data = response.data;
+      toast.success(data.message || `Fixed ${data.total_fixed} records`);
+      // Reload data
+      loadDashboardData();
+      loadSelectedDateWastage(selectedWastageDate);
+    } catch (error) {
+      console.error('Fix wastage error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to fix wastage values');
+    } finally {
+      setFixingWastage(false);
+    }
+  };
+
   return (
     <Layout>
       <div data-testid="wastage-dashboard-page">
@@ -265,6 +288,21 @@ export default function WastageDashboard() {
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={exportWastageData} title="Export to Excel">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={fixHistoricalWastageValues}
+                    disabled={fixingWastage}
+                    className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                    title="Fix wastage values for items without purchases using historical prices"
+                  >
+                    {fixingWastage ? (
+                      <RefreshCw size={14} className="mr-1 animate-spin" />
+                    ) : (
+                      <RefreshCw size={14} className="mr-1" />
+                    )}
+                    Fix Historical Values
                   </Button>
                   {[7, 15, 30].map(days => (
                     <Button

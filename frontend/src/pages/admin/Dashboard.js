@@ -2077,7 +2077,7 @@ export default function AdminDashboard() {
             
             {/* Totals Summary */}
             {customerDetailData?.totals && (
-              <div className="grid grid-cols-4 md:grid-cols-12 gap-2 p-4 bg-blue-50 border-b">
+              <div className="grid grid-cols-4 md:grid-cols-11 gap-2 p-4 bg-blue-50 border-b">
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">SALES</p>
                   <p className="text-sm font-bold text-green-600">₹{customerDetailData.totals.sales.toLocaleString()}</p>
@@ -2108,13 +2108,9 @@ export default function AdminDashboard() {
                     <p className="text-sm font-bold text-purple-600">₹{(customerDetailData.totals.commissionFromPnl || 0).toLocaleString()}</p>
                   </div>
                 )}
-                <div className="text-center p-2 bg-white rounded shadow-sm">
+                <div className="text-center p-2 bg-white rounded shadow-sm" title="Only vertical-specific expenses (excludes shared 'All' expenses)">
                   <p className="text-[10px] text-gray-500 font-medium">VAR EXP</p>
                   <p className="text-sm font-bold text-pink-600">₹{(customerDetailData.totals.variableExpenses || 0).toLocaleString()}</p>
-                </div>
-                <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">FIXED EXP</p>
-                  <p className="text-sm font-bold text-gray-600">₹{(customerDetailData.totals.fixedExpenses || 0).toLocaleString()}</p>
                 </div>
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">GROSS P/L</p>

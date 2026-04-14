@@ -4771,10 +4771,10 @@ async def get_pnl_report(
             customer_entry["grn_loss_share"] = round(total_grn_loss * customer_share, 2)
             customer_entry["rejection_share"] = 0  # QC doesn't have rejection
             customer_entry["commission"] = 0  # QC doesn't have commission
-            # Allocate variable expenses for QC
-            customer_entry["variable_expenses"] = round(qc_variable_exp * customer_share, 2)
-            # Allocate fixed expenses for QC
-            customer_entry["fixed_expenses"] = round(qc_fixed_exp * customer_share, 2)
+            # Allocate ONLY QC-specific variable expenses (NOT including "all" expenses)
+            customer_entry["variable_expenses"] = round(variable_qc * customer_share, 2)
+            # NOTE: Fixed expenses removed from customer-level P&L as per user request
+            customer_entry["fixed_expenses"] = 0
             # Calculate customer's COGS share and wastage share
             customer_entry["cogs_share"] = round(actual_qc_cogs * customer_share, 2)
             customer_entry["wastage_share"] = round(actual_qc_wastage * customer_share, 2)
@@ -4784,10 +4784,10 @@ async def get_pnl_report(
             customer_entry["grn_loss_share"] = 0  # Retail doesn't have GRN loss
             customer_entry["rejection_share"] = round(total_retail_rejection * customer_share, 2)
             customer_entry["commission"] = round(total_retail_commission * customer_share, 2)
-            # Allocate variable expenses for Retail
-            customer_entry["variable_expenses"] = round(retail_variable_exp * customer_share, 2)
-            # Allocate fixed expenses for Retail
-            customer_entry["fixed_expenses"] = round(retail_fixed_exp * customer_share, 2)
+            # Allocate ONLY Retail-specific variable expenses (NOT including "all" expenses)
+            customer_entry["variable_expenses"] = round(variable_retail * customer_share, 2)
+            # NOTE: Fixed expenses removed from customer-level P&L as per user request
+            customer_entry["fixed_expenses"] = 0
             # Calculate customer's COGS share and wastage share
             customer_entry["cogs_share"] = round(actual_retail_cogs * customer_share, 2)
             customer_entry["wastage_share"] = round(actual_retail_wastage * customer_share, 2)
@@ -4805,10 +4805,11 @@ async def get_pnl_report(
         customer_entry["gross_profit"] = round(gross_profit, 2)
         customer_entry["gross_margin_pct"] = round((gross_profit / customer_sales * 100) if customer_sales > 0 else 0, 1)
         
-        # Calculate Net Profit = Gross - GRN Loss - Rejection - Commission - Variable - Fixed
+        # Calculate Net Profit = Gross - GRN Loss - Rejection - Commission - Variable Expenses
+        # NOTE: Fixed expenses NOT included in customer-level Net P/L
         net_profit = (gross_profit - customer_entry["grn_loss_share"] - 
                       customer_entry["rejection_share"] - customer_entry["commission"] -
-                      customer_entry["variable_expenses"] - customer_entry["fixed_expenses"])
+                      customer_entry["variable_expenses"])
         customer_entry["net_profit"] = round(net_profit, 2)
         customer_entry["net_margin_pct"] = round((net_profit / customer_sales * 100) if customer_sales > 0 else 0, 1)
         

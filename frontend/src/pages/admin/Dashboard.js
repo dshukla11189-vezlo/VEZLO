@@ -311,16 +311,17 @@ export default function AdminDashboard() {
       totals.customerType = customerType;
       totals.grnLossShare = grnLossShare;
       totals.rejectionShare = rejectionShare;
-      // NEW: Add variable expenses, fixed expenses, and commission from customer_pnl
+      // Add variable expenses and commission from customer_pnl
       totals.variableExpenses = variableExpenses;
-      totals.fixedExpenses = fixedExpenses;
       totals.commissionFromPnl = commissionFromPnl;
-      // Store the adjusted gross profit
-      totals.grossProfit = adjustedGrossProfit;
-      // Use net profit from customer_pnl which includes all deductions
-      // Net Profit = Gross - GRN Loss - Rejection - Commission - Variable Expenses - Fixed Expenses
-      totals.netProfit = customerNetProfit;
-      totals.netMarginPct = customerNetMargin;
+      
+      // CORRECT FORMULA for Retail customers:
+      // Gross P/L = Sales - Purchase - Wastage - Rejection
+      totals.grossProfit = Math.round((totals.sales - totals.purchase - totals.wastage - rejectionShare) * 100) / 100;
+      
+      // Net P/L = Gross P/L - Commission - Variable Expenses
+      totals.netProfit = Math.round((totals.grossProfit - commissionFromPnl - variableExpenses) * 100) / 100;
+      totals.netMarginPct = totals.sales > 0 ? Math.round((totals.netProfit / totals.sales * 100) * 10) / 10 : 0;
       
       // Calculate period days for Daily Avg (use total calendar days, not active days)
       // This ensures customer Daily Avgs sum up to match dashboard Daily Avg
@@ -2077,61 +2078,59 @@ export default function AdminDashboard() {
             
             {/* Totals Summary */}
             {customerDetailData?.totals && (
-              <div className="grid grid-cols-4 md:grid-cols-11 gap-2 p-4 bg-blue-50 border-b">
+              <div className="grid grid-cols-5 md:grid-cols-10 gap-2 p-4 bg-blue-50 border-b">
+                {/* 1. SALES */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">SALES</p>
                   <p className="text-sm font-bold text-green-600">₹{customerDetailData.totals.sales.toLocaleString()}</p>
                 </div>
+                {/* 2. QTY */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">QTY</p>
                   <p className="text-sm font-bold">{customerDetailData.totals.qty.toLocaleString()}</p>
                 </div>
+                {/* 3. PURCHASE */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">PURCHASE</p>
                   <p className="text-sm font-bold text-orange-600">₹{customerDetailData.totals.purchase.toLocaleString()}</p>
                 </div>
+                {/* 4. WASTAGE */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">WASTAGE</p>
                   <p className="text-sm font-bold text-red-600">₹{customerDetailData.totals.wastage.toLocaleString()}</p>
                 </div>
+                {/* 5. REJECTION */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">{customerDetailData.totals.customerType === 'QC' ? 'GRN LOSS' : 'REJECTION'}</p>
-                  <p className="text-sm font-bold text-amber-600">
-                    ₹{customerDetailData.totals.customerType === 'QC' 
-                      ? customerDetailData.totals.grnLossShare.toLocaleString() 
-                      : customerDetailData.totals.rejectionShare.toLocaleString()}
-                  </p>
+                  <p className="text-[10px] text-gray-500 font-medium">REJECTION</p>
+                  <p className="text-sm font-bold text-amber-600">₹{(customerDetailData.totals.rejectionShare || 0).toLocaleString()}</p>
                 </div>
-                {customerDetailData.totals.customerType === 'Retail' && (
-                  <div className="text-center p-2 bg-white rounded shadow-sm">
-                    <p className="text-[10px] text-gray-500 font-medium">COMMISSION</p>
-                    <p className="text-sm font-bold text-purple-600">₹{(customerDetailData.totals.commissionFromPnl || 0).toLocaleString()}</p>
-                  </div>
-                )}
-                <div className="text-center p-2 bg-white rounded shadow-sm" title="Only vertical-specific expenses (excludes shared 'All' expenses)">
-                  <p className="text-[10px] text-gray-500 font-medium">VAR EXP</p>
-                  <p className="text-sm font-bold text-pink-600">₹{(customerDetailData.totals.variableExpenses || 0).toLocaleString()}</p>
-                </div>
+                {/* 6. GROSS P/L = Sales - Purchase - Wastage - Rejection */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">GROSS P/L</p>
                   <p className={`text-sm font-bold ${customerDetailData.totals.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                     ₹{customerDetailData.totals.grossProfit.toLocaleString()}
                   </p>
                 </div>
+                {/* 7. COMMISSION */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">GM %</p>
-                  <p className={`text-sm font-bold ${customerDetailData.totals.grossMargin >= 20 ? 'text-green-700' : customerDetailData.totals.grossMargin >= 0 ? 'text-amber-600' : 'text-red-700'}`}>
-                    {customerDetailData.totals.grossMargin.toFixed(1)}%
-                  </p>
+                  <p className="text-[10px] text-gray-500 font-medium">COMMISSION</p>
+                  <p className="text-sm font-bold text-purple-600">₹{(customerDetailData.totals.commissionFromPnl || 0).toLocaleString()}</p>
                 </div>
+                {/* 8. VAR EXP */}
+                <div className="text-center p-2 bg-white rounded shadow-sm" title="Only vertical-specific expenses (excludes shared 'All' expenses)">
+                  <p className="text-[10px] text-gray-500 font-medium">VAR EXP</p>
+                  <p className="text-sm font-bold text-pink-600">₹{(customerDetailData.totals.variableExpenses || 0).toLocaleString()}</p>
+                </div>
+                {/* 9. NET P/L = Gross P/L - Commission - Variable Expense */}
                 <div className="text-center p-2 bg-green-50 rounded shadow-sm border border-green-200">
                   <p className="text-[10px] text-green-600 font-medium">NET P/L</p>
                   <p className={`text-sm font-bold ${customerDetailData.totals.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                     ₹{customerDetailData.totals.netProfit.toLocaleString()}
                   </p>
                 </div>
+                {/* 10. AVG/DAY = Net P/L / Num of days */}
                 <div className="text-center p-2 bg-indigo-50 rounded shadow-sm">
-                  <p className="text-[10px] text-indigo-600 font-medium">DAILY AVG</p>
+                  <p className="text-[10px] text-indigo-600 font-medium">AVG/DAY</p>
                   <p className={`text-sm font-bold ${(customerDetailData.totals.netProfit / (customerDetailData.periodDays || 1)) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
                     ₹{(customerDetailData.totals.netProfit / (customerDetailData.periodDays || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </p>

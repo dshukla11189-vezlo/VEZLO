@@ -319,8 +319,14 @@ export default function AdminDashboard() {
       // Gross P/L = Sales - Purchase - Wastage - Rejection
       totals.grossProfit = Math.round((totals.sales - totals.purchase - totals.wastage - rejectionShare) * 100) / 100;
       
-      // Net P/L = Gross P/L - Commission - Variable Expenses
-      totals.netProfit = Math.round((totals.grossProfit - commissionFromPnl - variableExpenses) * 100) / 100;
+      // Net P/L calculation differs by customer type:
+      // For Retail: Net P/L = Gross P/L - Commission - Variable Expenses
+      // For QC: Net P/L = Gross P/L - GRN Loss - Variable Expenses
+      if (customerType === 'QC') {
+        totals.netProfit = Math.round((totals.grossProfit - grnLossShare - variableExpenses) * 100) / 100;
+      } else {
+        totals.netProfit = Math.round((totals.grossProfit - commissionFromPnl - variableExpenses) * 100) / 100;
+      }
       totals.netMarginPct = totals.sales > 0 ? Math.round((totals.netProfit / totals.sales * 100) * 10) / 10 : 0;
       
       // Calculate period days for Daily Avg (use total calendar days, not active days)
@@ -2099,29 +2105,38 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-gray-500 font-medium">WASTAGE</p>
                   <p className="text-sm font-bold text-red-600">₹{customerDetailData.totals.wastage.toLocaleString()}</p>
                 </div>
-                {/* 5. REJECTION */}
+                {/* 5. REJECTION (for Retail) or GRN LOSS placeholder (for QC - shown in slot 7) */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">REJECTION</p>
                   <p className="text-sm font-bold text-amber-600">₹{(customerDetailData.totals.rejectionShare || 0).toLocaleString()}</p>
                 </div>
-                {/* 6. GROSS P/L = Sales - Purchase - Wastage - Rejection */}
+                {/* 6. GROSS P/L with GM% = Sales - Purchase - Wastage - Rejection */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
                   <p className="text-[10px] text-gray-500 font-medium">GROSS P/L</p>
                   <p className={`text-sm font-bold ${customerDetailData.totals.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                     ₹{customerDetailData.totals.grossProfit.toLocaleString()}
                   </p>
+                  <p className={`text-[9px] ${customerDetailData.totals.grossProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    ({customerDetailData.totals.sales > 0 ? ((customerDetailData.totals.grossProfit / customerDetailData.totals.sales) * 100).toFixed(1) : 0}%)
+                  </p>
                 </div>
-                {/* 7. COMMISSION */}
+                {/* 7. COMMISSION (for Retail) or GRN LOSS (for QC) */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">COMMISSION</p>
-                  <p className="text-sm font-bold text-purple-600">₹{(customerDetailData.totals.commissionFromPnl || 0).toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-500 font-medium">
+                    {customerDetailData.totals.customerType === 'QC' ? 'GRN LOSS' : 'COMMISSION'}
+                  </p>
+                  <p className="text-sm font-bold text-purple-600">
+                    ₹{customerDetailData.totals.customerType === 'QC' 
+                      ? (customerDetailData.totals.grnLossShare || 0).toLocaleString()
+                      : (customerDetailData.totals.commissionFromPnl || 0).toLocaleString()}
+                  </p>
                 </div>
                 {/* 8. VAR EXP */}
                 <div className="text-center p-2 bg-white rounded shadow-sm" title="Only vertical-specific expenses (excludes shared 'All' expenses)">
                   <p className="text-[10px] text-gray-500 font-medium">VAR EXP</p>
                   <p className="text-sm font-bold text-pink-600">₹{(customerDetailData.totals.variableExpenses || 0).toLocaleString()}</p>
                 </div>
-                {/* 9. NET P/L = Gross P/L - Commission - Variable Expense */}
+                {/* 9. NET P/L = Gross P/L - Commission/GRN Loss - Variable Expense */}
                 <div className="text-center p-2 bg-green-50 rounded shadow-sm border border-green-200">
                   <p className="text-[10px] text-green-600 font-medium">NET P/L</p>
                   <p className={`text-sm font-bold ${customerDetailData.totals.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>

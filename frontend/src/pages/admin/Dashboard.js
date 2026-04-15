@@ -518,9 +518,21 @@ export default function AdminDashboard() {
         // Calculate average prices
         const avgPurchasePrice = salesKg > 0 ? cogsAmt / salesKg : 0;
         
-        // Wastage % relative to total consumed (COGS + Wastage)
-        const totalConsumed = cogsAmt + wastageAmt;
-        const wastagePct = totalConsumed > 0 ? (wastageAmt / totalConsumed) * 100 : 0;
+        // Get wastage % from product_wastage_summary if available (matches Wastage Dashboard formula)
+        // product_wastage_summary has pre-calculated wastage_pct = wastage_kg / (dispatch_kg + wastage_kg) * 100
+        const productWastageSummary = selectedDayPnl?.product_wastage_summary || {};
+        const productWastageData = productWastageSummary[product] || {};
+        
+        // Use pre-calculated wastage_pct from backend, or calculate as fallback
+        let wastagePct = productWastageData.wastage_pct || 0;
+        if (wastagePct === 0 && wastageAmt > 0) {
+          // Fallback: calculate from line item data
+          const wastageKg = productLineItems.reduce((sum, item) => sum + (item.wastage_kg || 0), 0);
+          const unsoldWastageKg = productUnsoldWastage.reduce((sum, item) => sum + (item.qty || 0), 0);
+          const totalWastageKg = wastageKg + unsoldWastageKg;
+          const totalAvailableKg = salesKg + totalWastageKg;
+          wastagePct = totalAvailableKg > 0 ? (totalWastageKg / totalAvailableKg) * 100 : 0;
+        }
         
         productDailyData.push({
           date: day.date,

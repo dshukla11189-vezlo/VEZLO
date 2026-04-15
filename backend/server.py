@@ -4650,6 +4650,36 @@ async def get_pnl_report(
             })
             unsold_wastage_total += wastage_data["value"]
         
+        # Build product-level wastage summary with correct wastage % calculation
+        # Get wastage data from daily_stock_status which has opening, purchase, wastage, and wastage_percent
+        product_wastage_summary = {}
+        date_stock_statuses = [s for s in stock_status if s.get("date") == date_key]
+        
+        for stock in date_stock_statuses:
+            prod_name = stock.get("product_name", "")
+            if not prod_name:
+                continue
+            
+            opening_qty = stock.get("opening_qty", 0) or 0
+            purchase_qty = stock.get("purchase_qty", 0) or 0
+            wastage_qty = stock.get("wastage_qty", 0) or 0
+            wastage_value = stock.get("wastage_value", 0) or 0
+            dispatch_qty = stock.get("dispatch_qty", 0) or 0
+            
+            # Wastage % = Wastage / (Opening + Purchase) - matches Wastage Dashboard
+            total_input = opening_qty + purchase_qty
+            wastage_pct = (wastage_qty / total_input * 100) if total_input > 0 else 0
+            
+            product_wastage_summary[prod_name] = {
+                "opening_qty": round(opening_qty, 3),
+                "purchase_qty": round(purchase_qty, 3),
+                "dispatch_qty": round(dispatch_qty, 3),
+                "wastage_qty": round(wastage_qty, 3),
+                "wastage_value": round(wastage_value, 2),
+                "total_input": round(total_input, 3),
+                "wastage_pct": round(wastage_pct, 1)
+            }
+        
         daily_pnl.append({
             "date": date_key,
             "sales": round(day_data["sales"], 2),
@@ -4662,6 +4692,7 @@ async def get_pnl_report(
             "retail_commission": round(day_data.get("retail_commission", 0), 2),
             "retail_cogs": round(day_data.get("retail_cogs", 0), 2),
             "purchase": round(day_data["purchase"], 2),
+            "purchase_qty": round(day_data.get("purchase_qty", 0), 2),
             "wastage": round(day_data["wastage"], 2),
             "gross_profit": round(day_gross, 2),
             "gross_margin": round(day_gross_margin, 1),
@@ -4672,6 +4703,7 @@ async def get_pnl_report(
             "net_profit": round(day_net, 2),
             "products": products_detail,
             "line_items": detailed_line_items,  # Customer→Product breakdown
+            "product_wastage_summary": product_wastage_summary,  # Product-level wastage with correct %
             "unsold_wastage": unsold_wastage_items,  # Products with wastage but no sales
             "unsold_wastage_total": round(unsold_wastage_total, 2)
         })

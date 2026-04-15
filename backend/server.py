@@ -5938,6 +5938,72 @@ async def recalculate_wastage_from_procurement(
     }
 
 
+@api_router.post("/stock-status/recalculate-wastage")
+async def recalculate_wastage(
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recalculate wastage_qty for all closed stock status entries on a specific date
+    based on current stock status values (Opening + Purchase - Dispatch - Closing).
+    
+    Use this when stock status was updated directly but wastage wasn't recalculated.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all closed stock status for this date
+    stock_entries = await db.daily_stock_status.find({
+        "date": date,
+        "status": "closed"
+    }, {"_id": 0}).to_list(500)
+    
+    updated = []
+    for entry in stock_entries:
+        record_id = entry.get("id")
+        if not record_id:
+            continue
+        
+        opening_qty = entry.get("opening_qty", 0) or 0
+        purchase_qty = entry.get("purchase_qty", 0) or 0
+        dispatch_qty = entry.get("dispatch_qty", 0) or 0
+        closing_qty = entry.get("closing_qty", 0) or 0
+        old_wastage_qty = entry.get("wastage_qty", 0) or 0
+        avg_price = entry.get("avg_price", 0) or 0
+        
+        # Recalculate wastage: Opening + Purchase - Dispatch - Closing
+        new_wastage_qty = max(0, opening_qty + purchase_qty - dispatch_qty - closing_qty)
+        total_input = opening_qty + purchase_qty
+        new_wastage_pct = (new_wastage_qty / total_input * 100) if total_input > 0 else 0
+        new_wastage_value = round(new_wastage_qty * avg_price, 2)
+        
+        # Only update if there's a change
+        if abs(new_wastage_qty - old_wastage_qty) > 0.001:
+            await db.daily_stock_status.update_one(
+                {"id": record_id},
+                {"$set": {
+                    "wastage_qty": round(new_wastage_qty, 2),
+                    "wastage_value": new_wastage_value,
+                    "wastage_percent": round(new_wastage_pct, 2)
+                }}
+            )
+            updated.append({
+                "product": entry.get("product_name"),
+                "opening": round(opening_qty, 2),
+                "purchase": round(purchase_qty, 2),
+                "dispatch": round(dispatch_qty, 2),
+                "closing": round(closing_qty, 2),
+                "old_wastage": round(old_wastage_qty, 2),
+                "new_wastage": round(new_wastage_qty, 2)
+            })
+    
+    return {
+        "message": f"Recalculated {len(updated)} stock entries for {date}",
+        "updates": updated
+    }
+
+
+
 
 @api_router.post("/stock-status/recalculate-wastage-values")
 async def recalculate_wastage_values(
@@ -7169,6 +7235,39 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
     updates.pop("date", None)
     updates.pop("product_id", None)
     
+    # Get the current record to check if wastage needs recalculation
+    current = await db.daily_stock_status.find_one({"id": status_id}, {"_id": 0})
+    if not current:
+        raise HTTPException(status_code=404, detail="Stock status not found")
+    
+    # Check if this is a closed entry and purchase/dispatch/closing changed
+    fields_affecting_wastage = ['purchase_qty', 'dispatch_qty', 'closing_qty', 'opening_qty']
+    needs_wastage_recalc = current.get("status") == "closed" and any(f in updates for f in fields_affecting_wastage)
+    
+    if needs_wastage_recalc:
+        # Get the updated values (use new value if provided, else keep current)
+        opening_qty = updates.get("opening_qty", current.get("opening_qty", 0)) or 0
+        purchase_qty = updates.get("purchase_qty", current.get("purchase_qty", 0)) or 0
+        dispatch_qty = updates.get("dispatch_qty", current.get("dispatch_qty", 0)) or 0
+        closing_qty = updates.get("closing_qty", current.get("closing_qty", 0)) or 0
+        purchase_value = updates.get("purchase_value", current.get("purchase_value", 0)) or 0
+        
+        # Calculate new average price
+        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else current.get("avg_price", 0)
+        
+        # Recalculate wastage: Opening + Purchase - Dispatch - Closing
+        new_wastage_qty = max(0, opening_qty + purchase_qty - dispatch_qty - closing_qty)
+        total_input = opening_qty + purchase_qty
+        new_wastage_pct = (new_wastage_qty / total_input * 100) if total_input > 0 else 0
+        new_wastage_value = round(new_wastage_qty * avg_price, 2)
+        
+        # Add wastage fields to updates
+        updates["wastage_qty"] = round(new_wastage_qty, 2)
+        updates["wastage_value"] = new_wastage_value
+        updates["wastage_percent"] = round(new_wastage_pct, 2)
+        if avg_price > 0:
+            updates["avg_price"] = round(avg_price, 2)
+    
     result = await db.daily_stock_status.update_one(
         {"id": status_id},
         {"$set": updates}
@@ -7177,7 +7276,7 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Stock status not found")
     
-    return {"message": "Stock status updated"}
+    return {"message": "Stock status updated", "wastage_recalculated": needs_wastage_recalc}
 
 @api_router.delete("/stock-status/{status_id}")
 async def delete_stock_status(status_id: str, current_user: dict = Depends(get_current_user)):

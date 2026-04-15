@@ -244,6 +244,33 @@ export default function WastageDashboard() {
     .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0));
   const maxDailyWastage = Math.max(...dailyTrend.map(d => d.total_wastage_kg), 1);
 
+  // Recalculate wastage quantities for selected date
+  const [recalculating, setRecalculating] = useState(false);
+  const recalculateWastage = async () => {
+    if (!window.confirm(`This will recalculate wastage quantities for ${selectedWastageDate} based on current stock values (Opening + Purchase - Dispatch - Closing). Continue?`)) {
+      return;
+    }
+    
+    setRecalculating(true);
+    try {
+      const response = await api.post(`/api/stock-status/recalculate-wastage?date=${selectedWastageDate}`);
+      const data = response.data;
+      if (data.updates && data.updates.length > 0) {
+        toast.success(`Recalculated ${data.updates.length} products`);
+      } else {
+        toast.info('No wastage changes needed');
+      }
+      // Reload data
+      loadDashboardData();
+      loadSelectedDateWastage(selectedWastageDate);
+    } catch (error) {
+      console.error('Recalculate wastage error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to recalculate wastage');
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
   // Fix historical wastage values - useful when wastage_value is 0 for items without purchases
   const [fixingWastage, setFixingWastage] = useState(false);
   const fixHistoricalWastageValues = async () => {
@@ -417,6 +444,21 @@ export default function WastageDashboard() {
                 onChange={(e) => setSelectedWastageDate(e.target.value)}
                 className="h-8 w-36 text-sm"
               />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={recalculateWastage}
+                disabled={recalculating || loadingSelectedDate}
+                className="border-blue-300 text-blue-700 hover:bg-blue-50 h-8 text-xs"
+                title="Recalculate wastage based on current stock values"
+              >
+                {recalculating ? (
+                  <RefreshCw size={12} className="mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw size={12} className="mr-1" />
+                )}
+                Recalculate
+              </Button>
               {selectedDateWastage && (
                 <span className="text-sm text-red-600 font-semibold">
                   Total: ₹{selectedDateWastage.total_wastage_value?.toLocaleString()}

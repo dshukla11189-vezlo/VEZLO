@@ -519,19 +519,31 @@ export default function AdminDashboard() {
         const avgPurchasePrice = salesKg > 0 ? cogsAmt / salesKg : 0;
         
         // Get wastage % from product_wastage_summary if available (matches Wastage Dashboard formula)
-        // product_wastage_summary has pre-calculated wastage_pct = wastage_kg / (dispatch_kg + wastage_kg) * 100
-        const productWastageSummary = selectedDayPnl?.product_wastage_summary || {};
-        const productWastageData = productWastageSummary[product] || {};
+        // product_wastage_summary has pre-calculated wastage_pct = Wastage / (Opening + Purchase) * 100
+        const productWastageSummary = day.product_wastage_summary || {};
+        
+        // Check for the product (try exact name and aliased products)
+        let productWastageData = productWastageSummary[productName] || {};
+        if (!productWastageData.wastage_pct && aliasedProducts.length > 1) {
+          // Try to find any aliased product's wastage data
+          for (const alias of aliasedProducts) {
+            if (productWastageSummary[alias]?.wastage_pct) {
+              productWastageData = productWastageSummary[alias];
+              break;
+            }
+          }
+        }
         
         // Use pre-calculated wastage_pct from backend, or calculate as fallback
         let wastagePct = productWastageData.wastage_pct || 0;
         if (wastagePct === 0 && wastageAmt > 0) {
-          // Fallback: calculate from line item data
+          // Fallback: calculate from line item data using correct formula: Wastage / (Opening + Purchase)
           const wastageKg = productLineItems.reduce((sum, item) => sum + (item.wastage_kg || 0), 0);
           const unsoldWastageKg = productUnsoldWastage.reduce((sum, item) => sum + (item.qty || 0), 0);
           const totalWastageKg = wastageKg + unsoldWastageKg;
-          const totalAvailableKg = salesKg + totalWastageKg;
-          wastagePct = totalAvailableKg > 0 ? (totalWastageKg / totalAvailableKg) * 100 : 0;
+          // Use total_input from backend if available, otherwise estimate
+          const totalInput = productWastageData.total_input || (salesKg + totalWastageKg);
+          wastagePct = totalInput > 0 ? (totalWastageKg / totalInput) * 100 : 0;
         }
         
         productDailyData.push({

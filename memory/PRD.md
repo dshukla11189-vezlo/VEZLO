@@ -25,9 +25,11 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Historical wastage value fix mechanism
 - Dual language support (English/Hindi)
 - Excel export functionality
+- **Size field for Bunch, Packet, Piece units in Procurement**
+- **Auto-recalculate wastage when procurement is updated for closed days**
 
 ### In Progress
-- Codebase refactoring (server.py >11,600 lines)
+- Codebase refactoring (server.py >11,700 lines)
 - Labor "Inactive" UI clarity improvements
 
 ### Blocked
@@ -60,24 +62,24 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 ## Recent Changes (April 2026)
 
 ### Session Completed
-1. Fixed Wastage % consistency across dashboards
-   - Backend now returns `product_wastage_summary` with pre-calculated `wastage_pct`
-   - Frontend `Dashboard.js` fixed to use correct variable scope
+1. Fixed Size field in Procurement to work for Packet and Piece (not just Bunch)
+   - Updated `Procurement.js` unit selection logic
+   - Extended validation to require size for Bunch/Packet/Piece
+   - Updated unit label display function
+
+2. Fixed wastage not updating when procurement changes
+   - `update_procurement` endpoint now recalculates wastage_qty for closed days
+   - Added new `POST /api/stock-status/recalculate-wastage-from-procurement` endpoint
+   - Wastage formula: `max(0, Opening + Purchase - Dispatch - Closing)`
+
+3. Previous session: Fixed Wastage % consistency across dashboards
    - Both use formula: `Wastage / (Opening + Purchase) * 100`
-
-2. Customer P&L improvements
-   - Excluded fixed expenses
-   - Isolated variable expenses by vertical
-   - Added Gross Margin %
-   - Replaced Commission with GRN Loss for QC
-
-3. Backup system expanded to 29 collections
-4. Direct API Sync feature for production data
-5. Mandatory stock closing validation
 
 ## Key API Endpoints
 - `GET /api/reports/pnl` - P&L with product_wastage_summary
 - `GET /api/stock-status/wastage-dashboard` - Wastage analytics
+- `PUT /api/procurement/{id}` - Updates procurement (now recalculates wastage)
+- `POST /api/stock-status/recalculate-wastage-from-procurement` - Manual wastage recalc
 - `POST /api/backup/sync-direct-api` - Production sync
 - `DELETE /api/qc-packaging/{id}` - Variant deletion with migration
 

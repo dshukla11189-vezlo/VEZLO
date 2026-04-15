@@ -429,8 +429,9 @@ export default function Procurement() {
       }
     } else if (field === 'unit') {
       newProducts[index][field] = value;
-      // Reset unit_size if not Bunch
-      if (value !== 'Bunch') {
+      // Reset unit_size if not a unit that supports sizing
+      const unitsWithSize = ['Bunch', 'Packet', 'Piece'];
+      if (!unitsWithSize.includes(value)) {
         newProducts[index].unit_size = '';
       }
     } else if (field === 'quantity') {
@@ -535,10 +536,11 @@ export default function Procurement() {
       return;
     }
     
-    // Validate bunches have unit_size
-    const invalidBunches = validProducts.filter(p => p.unit === 'Bunch' && !p.unit_size);
-    if (invalidBunches.length > 0) {
-      toast.error('Please specify bunch size for all bunch items');
+    // Validate Bunch, Packet, Piece have unit_size
+    const unitsRequiringSize = ['Bunch', 'Packet', 'Piece'];
+    const invalidSizeUnits = validProducts.filter(p => unitsRequiringSize.includes(p.unit) && !p.unit_size);
+    if (invalidSizeUnits.length > 0) {
+      toast.error('Please specify size (gm) for Bunch, Packet, and Piece items');
       return;
     }
     
@@ -946,8 +948,10 @@ export default function Procurement() {
   };
 
   const getUnitLabel = (unit, unitSize) => {
-    if (unit === 'Bunch' && unitSize) {
-      return `${unit} (${unitSize})`;
+    // Show unit size for Bunch, Packet, and Piece
+    const unitsWithSize = ['Bunch', 'Packet', 'Piece'];
+    if (unitsWithSize.includes(unit) && unitSize) {
+      return `${unit} (${unitSize}gm)`;
     }
     return unit;
   };
@@ -1789,14 +1793,14 @@ export default function Procurement() {
                             </SelectContent>
                           </Select>
                         </td>
-                        {/* Size (for Bunch) */}
+                        {/* Size (for Bunch, Packet, Piece) */}
                         <td className="p-2">
-                          {product.unit === 'Bunch' ? (
+                          {['Bunch', 'Packet', 'Piece'].includes(product.unit) ? (
                             <Input
                               type="text"
                               placeholder="gm"
                               className="h-7 text-xs text-center"
-                              data-testid={`bunch-size-input-${index}`}
+                              data-testid={`size-input-${index}`}
                               value={product.unit_size || ''}
                               onChange={(e) => handleProductChange(index, 'unit_size', e.target.value)}
                             />

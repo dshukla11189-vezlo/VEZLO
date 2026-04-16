@@ -1314,6 +1314,18 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
         product = await db.products.find_one({"id": item.product_id}, {"_id": 0})
         if not product:
             continue
+        
+        # Convert quantity to kg based on unit type
+        qty_kg = item.quantity
+        unit = getattr(item, 'unit', 'Kg')
+        unit_size = getattr(item, 'unit_size', '')
+        
+        # Convert Bunch, Packet, Piece to kg using unit_size (in grams)
+        if unit in ["Bunch", "Packet", "Piece"] and unit_size:
+            try:
+                qty_kg = (item.quantity * float(unit_size)) / 1000
+            except (ValueError, TypeError):
+                pass  # Keep original quantity if conversion fails
             
         # Check if stock status entry exists for this product/date
         existing = await db.daily_stock_status.find_one({
@@ -1323,14 +1335,23 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
         
         # Use rate as the price per kg
         item_price = item.rate if hasattr(item, 'rate') else 0
+        item_total = getattr(item, 'total', qty_kg * item_price)
+        
+        # Calculate avg_price per kg
+        avg_price_per_kg = item_total / qty_kg if qty_kg > 0 else item_price
         
         if existing:
-            # Update existing entry - add to purchase_qty
-            new_purchase = existing.get("purchase_qty", 0) + item.quantity
-            new_avg_price = item_price if item_price else existing.get("avg_price", 0)
+            # Update existing entry - add to purchase_qty (in kg)
+            new_purchase = existing.get("purchase_qty", 0) + qty_kg
+            new_purchase_value = existing.get("purchase_value", 0) + item_total
+            new_avg_price = new_purchase_value / new_purchase if new_purchase > 0 else avg_price_per_kg
             await db.daily_stock_status.update_one(
                 {"id": existing["id"]},
-                {"$set": {"purchase_qty": new_purchase, "avg_price": new_avg_price}}
+                {"$set": {
+                    "purchase_qty": round(new_purchase, 2),
+                    "purchase_value": round(new_purchase_value, 2),
+                    "avg_price": round(new_avg_price, 2)
+                }}
             )
         else:
             # Create new stock status entry
@@ -1349,11 +1370,12 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
                 "product_id": item.product_id,
                 "product_name": product["name"],
                 "opening_qty": opening_qty,
-                "purchase_qty": item.quantity,
+                "purchase_qty": round(qty_kg, 2),
+                "purchase_value": round(item_total, 2),
                 "dispatch_qty": 0,
                 "wastage_qty": 0,
                 "wastage_value": 0,
-                "avg_price": item_price,
+                "avg_price": round(avg_price_per_kg, 2),
                 "status": "open",
                 "closed_at": None
             }
@@ -6003,6 +6025,204 @@ async def recalculate_wastage(
     }
 
 
+
+@api_router.post("/stock-status/recalculate-purchase-from-procurement")
+async def recalculate_purchase_from_procurement(
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recalculate purchase_qty for all stock status entries on a specific date
+    by applying proper unit conversion (Bunch/Packet/Piece to kg) from procurement records.
+    
+    Use this to fix historical data where purchase was stored in units instead of kg.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all procurements for this date
+    procurements = await db.procurements.find({
+        "date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(100)
+    
+    # Build purchase totals per product with proper unit conversion
+    purchase_by_product = {}  # product_id -> {qty_kg, value}
+    
+    for proc in procurements:
+        for item in proc.get("items", []):
+            product_id = item.get("product_id")
+            if not product_id:
+                continue
+            
+            qty = float(item.get("quantity", 0) or 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            total_value = float(item.get("total", 0) or 0)
+            rate = float(item.get("rate", 0) or 0)
+            
+            # Convert to kg based on unit type
+            qty_kg = qty
+            if unit in ["Bunch", "Packet", "Piece"] and unit_size:
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000
+                except (ValueError, TypeError):
+                    pass  # Keep original if conversion fails
+            
+            # Recalculate total value if not provided
+            if total_value == 0 and rate > 0:
+                total_value = qty_kg * rate
+            
+            if product_id not in purchase_by_product:
+                purchase_by_product[product_id] = {"qty_kg": 0, "value": 0}
+            purchase_by_product[product_id]["qty_kg"] += qty_kg
+            purchase_by_product[product_id]["value"] += total_value
+    
+    # Update stock status records
+    stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)
+    
+    updated = []
+    for entry in stock_entries:
+        product_id = entry.get("product_id")
+        record_id = entry.get("id")
+        product_name = entry.get("product_name")
+        
+        if not record_id or not product_id:
+            continue
+        
+        # Get procurement data for this product
+        proc_data = purchase_by_product.get(product_id)
+        if not proc_data:
+            continue  # Skip if no procurement for this product
+        
+        current_purchase_qty = entry.get("purchase_qty", 0) or 0
+        new_purchase_qty = proc_data["qty_kg"]
+        new_purchase_value = proc_data["value"]
+        
+        # Skip if no significant change
+        if abs(new_purchase_qty - current_purchase_qty) < 0.01:
+            continue
+        
+        # Calculate new average price
+        new_avg_price = new_purchase_value / new_purchase_qty if new_purchase_qty > 0 else entry.get("avg_price", 0)
+        
+        # Also recalculate wastage if status is closed
+        opening_qty = entry.get("opening_qty", 0) or 0
+        dispatch_qty = entry.get("dispatch_qty", 0) or 0
+        closing_qty = entry.get("closing_qty", 0) or 0
+        status = entry.get("status")
+        
+        update_data = {
+            "purchase_qty": round(new_purchase_qty, 2),
+            "purchase_value": round(new_purchase_value, 2),
+            "avg_price": round(new_avg_price, 2)
+        }
+        
+        if status == "closed" and closing_qty is not None:
+            new_wastage_qty = max(0, opening_qty + new_purchase_qty - dispatch_qty - closing_qty)
+            total_input = opening_qty + new_purchase_qty
+            new_wastage_pct = (new_wastage_qty / total_input * 100) if total_input > 0 else 0
+            new_wastage_value = round(new_wastage_qty * new_avg_price, 2)
+            
+            update_data.update({
+                "wastage_qty": round(new_wastage_qty, 2),
+                "wastage_value": new_wastage_value,
+                "wastage_percent": round(new_wastage_pct, 2)
+            })
+        
+        await db.daily_stock_status.update_one(
+            {"id": record_id},
+            {"$set": update_data}
+        )
+        
+        updated.append({
+            "product": product_name,
+            "old_purchase": round(current_purchase_qty, 2),
+            "new_purchase_kg": round(new_purchase_qty, 2)
+        })
+    
+    return {
+        "message": f"Recalculated {len(updated)} purchase quantities for {date}",
+        "updates": updated
+    }
+
+@api_router.post("/stock-status/convert-purchase-to-kg")
+async def convert_purchase_to_kg(
+    date: str,
+    product_name: str,
+    unit_size_gm: float,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Convert a product's purchase quantity from units (bunches/packets/pieces) to kg.
+    
+    Example: If purchase shows 150 (bunches) and unit_size is 500gm:
+    New purchase = 150 * 500 / 1000 = 75 kg
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        product_name: Name of the product
+        unit_size_gm: Size of each unit in grams
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Find the stock status record
+    record = await db.daily_stock_status.find_one({
+        "date": date,
+        "product_name": product_name
+    }, {"_id": 0})
+    
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Stock status not found for {product_name} on {date}")
+    
+    record_id = record.get("id")
+    current_purchase = record.get("purchase_qty", 0) or 0
+    current_purchase_value = record.get("purchase_value", 0) or 0
+    
+    # Convert to kg
+    new_purchase_kg = (current_purchase * unit_size_gm) / 1000
+    
+    # Recalculate avg_price (value stays same, qty changes)
+    new_avg_price = current_purchase_value / new_purchase_kg if new_purchase_kg > 0 else record.get("avg_price", 0)
+    
+    # Also recalculate wastage if status is closed
+    opening_qty = record.get("opening_qty", 0) or 0
+    dispatch_qty = record.get("dispatch_qty", 0) or 0
+    closing_qty = record.get("closing_qty", 0) or 0
+    status = record.get("status")
+    
+    update_data = {
+        "purchase_qty": round(new_purchase_kg, 2),
+        "avg_price": round(new_avg_price, 2)
+    }
+    
+    new_wastage_qty = 0
+    if status == "closed" and closing_qty is not None:
+        new_wastage_qty = max(0, opening_qty + new_purchase_kg - dispatch_qty - closing_qty)
+        total_input = opening_qty + new_purchase_kg
+        new_wastage_pct = (new_wastage_qty / total_input * 100) if total_input > 0 else 0
+        new_wastage_value = round(new_wastage_qty * new_avg_price, 2)
+        
+        update_data.update({
+            "wastage_qty": round(new_wastage_qty, 2),
+            "wastage_value": new_wastage_value,
+            "wastage_percent": round(new_wastage_pct, 2)
+        })
+    
+    await db.daily_stock_status.update_one(
+        {"id": record_id},
+        {"$set": update_data}
+    )
+    
+    return {
+        "message": f"Converted {product_name} purchase from {current_purchase} units to {round(new_purchase_kg, 2)} kg",
+        "product": product_name,
+        "date": date,
+        "old_purchase_units": round(current_purchase, 2),
+        "new_purchase_kg": round(new_purchase_kg, 2),
+        "unit_size_gm": unit_size_gm,
+        "new_wastage_kg": round(new_wastage_qty, 2) if status == "closed" else None
+    }
 
 
 @api_router.post("/stock-status/recalculate-wastage-values")

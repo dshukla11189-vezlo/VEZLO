@@ -51,7 +51,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 import bcrypt
 import jwt
+from passlib.context import CryptContext
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+# Password hashing context
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 import io
 import csv
 import uuid

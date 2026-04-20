@@ -25,12 +25,18 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Historical wastage value fix mechanism
 - Dual language support (English/Hindi)
 - Excel export functionality
-- **Size field for Bunch, Packet, Piece units in Procurement**
-- **Auto-recalculate wastage when procurement is updated for closed days**
+- Size field for Bunch, Packet, Piece units in Procurement
+- Auto-recalculate wastage when procurement is updated for closed days
+- **Unified GRN Loss calculation across QC Dashboard and P&L** (shared helper function)
+- **Date-wise Retail Rejection tracking with historical display**
+- **Paid By filters with employee dropdown in Variable Expenses**
+- **Unit conversion: Bunches/Packets/Pieces to kg for stock tracking**
 
 ### In Progress
-- Codebase refactoring (server.py >11,700 lines)
-- Labor "Inactive" UI clarity improvements
+- **Codebase refactoring Phase 2** (server.py ~11,850 lines, reduced from 12,200+)
+  - ✅ Labour Management routes moved to `/app/backend/routes/labour.py`
+  - Pending: More route extractions to reach target <8,000 lines
+- Labor "Inactive" UI clarity improvements (soft-delete confusion)
 
 ### Blocked
 - WhatsApp Integration (awaiting credentials)
@@ -47,6 +53,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - FastAPI with MongoDB
 - APScheduler for cron jobs (reliability issues noted)
 - Resend for email notifications
+- **Modular routes in `/app/backend/routes/`** (partial - labour.py active)
 
 ### Frontend
 - React with Shadcn/UI components
@@ -56,34 +63,46 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 ### Key Data Models
 - `daily_stock_status`: Opening, Purchase, Wastage, Dispatch, Closing
 - `qc_packaging`: QC variants
-- `variable_expenses`: Vertical field (qc/retail/all)
+- `variable_expenses`: Vertical field (qc/retail/all), paid_by field
 - `labours`: Soft delete with `is_active` flag
+- `retailer_rejections`: Date-wise rejection tracking with `rejection_date`
 
 ## Recent Changes (April 2026)
 
-### Session Completed
-1. Fixed Size field in Procurement to work for Packet and Piece (not just Bunch)
-   - Updated `Procurement.js` unit selection logic
-   - Extended validation to require size for Bunch/Packet/Piece
-   - Updated unit label display function
+### Current Session (20 Apr 2026)
+1. **Verified GRN Loss Unification** - P&L Dashboard loads correctly with shared calculation
+2. **Started Codebase Refactoring Phase 2**
+   - Extracted Labour Management routes to `/app/backend/routes/labour.py` (~357 lines)
+   - Updated `dependencies.py` with `get_db()` helper
+   - server.py reduced from 12,207 to 11,850 lines
 
-2. Fixed wastage not updating when procurement changes
-   - `update_procurement` endpoint now recalculates wastage_qty for closed days
-   - Added new `POST /api/stock-status/recalculate-wastage-from-procurement` endpoint
-   - Wastage formula: `max(0, Opening + Purchase - Dispatch - Closing)`
-
-3. Previous session: Fixed Wastage % consistency across dashboards
-   - Both use formula: `Wastage / (Opening + Purchase) * 100`
+### Previous Session
+1. Unified GRN Loss calculation using `calculate_grn_loss()` helper
+2. Implemented Date-wise Retail Rejection tracking
+3. Added Paid By filters with employee dropdown to Variable Expenses
+4. Fixed unit conversion (bunches to kg)
+5. Updated Invoice phone number
+6. Fixed Wastage % consistency across dashboards
 
 ## Key API Endpoints
-- `GET /api/reports/pnl` - P&L with product_wastage_summary
+- `GET /api/reports/pnl` - P&L with unified GRN Loss calculation
+- `GET /api/qc-grn/summary` - QC GRN Loss summary (uses shared helper)
 - `GET /api/stock-status/wastage-dashboard` - Wastage analytics
-- `PUT /api/procurement/{id}` - Updates procurement (now recalculates wastage)
-- `POST /api/stock-status/recalculate-wastage-from-procurement` - Manual wastage recalc
-- `POST /api/backup/sync-direct-api` - Production sync
-- `DELETE /api/qc-packaging/{id}` - Variant deletion with migration
+- `GET /api/labours` - Labour list (modular route)
+- `GET /api/labour-attendance` - Attendance tracking (modular route)
+- `GET /api/labour-costs/summary` - Labour costs summary (modular route)
+- `GET /api/rejections` - Historical date-wise rejections
 
 ## Test Credentials
 - Admin: admin@freshflow.com / admin123
 - Retailer: tamannamart08@gmail.com / admin123
 - Staff: samrat@freshflow.com / admin123
+
+## Refactoring Status
+| File | Original Lines | Current Lines | Target | Status |
+|------|---------------|---------------|--------|--------|
+| server.py | 12,207 | 11,850 | <8,000 | In Progress |
+| RetailerOrders.js | 5,400+ | - | <2,000 | Not Started |
+
+## Active Modular Routes
+- `/app/backend/routes/labour.py` - Labour Management (ACTIVE)

@@ -119,3 +119,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 def generate_referral_code() -> str:
     """Generate a unique 5-digit referral code"""
     return ''.join(random.choices(string.digits, k=5))
+
+
+def get_db():
+    """Dependency that returns the database instance"""
+    return db

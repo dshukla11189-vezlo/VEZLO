@@ -13,7 +13,7 @@ COMPANY_ADDRESS = """MR ORGANIX M.NO. 1638,
 Taleranwadi, Kesnand Taluka - Haveli
 Pune - 412207
 Maharashtra"""
-COMPANY_PHONE = "8530418069"
+COMPANY_PHONE = "9145000250"
 COMPANY_EMAIL = "mrorganixmushroom@gmail.com"
 COMPANY_STATE = "27-Maharashtra"
 

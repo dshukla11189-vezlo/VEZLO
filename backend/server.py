@@ -7526,6 +7526,7 @@ async def get_variable_expenses(
     to_date: str = None,
     category: str = None,
     settled: str = None,
+    paid_by: str = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get variable expenses with optional filters"""
@@ -7545,6 +7546,8 @@ async def get_variable_expenses(
         query["category"] = category
     if settled:
         query["is_settled"] = settled.lower() == "true"
+    if paid_by:
+        query["paid_by"] = paid_by
     
     expenses = await db.variable_expenses.find(query, {"_id": 0}).sort("date", -1).to_list(500)
     return expenses
@@ -8232,6 +8235,44 @@ async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depe
         raise HTTPException(status_code=404, detail="Rejection not found")
     
     return {"message": "Rejection deleted successfully"}
+
+@api_router.get("/retailer-rejections/history")
+async def get_rejection_history(
+    dispatch_id: str = None,
+    product_id: str = None,
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get rejection history for a specific dispatch/product/retailer combination.
+    Returns all previous rejections with dates to show cumulative history.
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if dispatch_id:
+        query["dispatch_id"] = dispatch_id
+    if product_id:
+        query["product_id"] = product_id
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Get all rejections matching the criteria, sorted by date
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", 1).to_list(100)
+    
+    # Calculate total rejection
+    total_qty = sum(r.get("quantity", 0) for r in rejections)
+    total_value = sum(r.get("rejection_value", 0) for r in rejections)
+    
+    return {
+        "rejections": rejections,
+        "total_quantity": round(total_qty, 2),
+        "total_value": round(total_value, 2),
+        "count": len(rejections)
+    }
+
+
 
 
 @api_router.put("/retailer-rejections/{rejection_id}")

@@ -43,6 +43,7 @@ const VERTICAL_OPTIONS = [
 export default function VariableExpenses() {
   const [expenses, setExpenses] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [staffUsers, setStaffUsers] = useState([]); // Admin and Staff users
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showSettlementDialog, setShowSettlementDialog] = useState(false);
@@ -53,6 +54,7 @@ export default function VariableExpenses() {
   const [filterDateTo, setFilterDateTo] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterSettled, setFilterSettled] = useState('all');
+  const [filterPaidBy, setFilterPaidBy] = useState('all'); // New filter for Paid By
   
   // Form data
   const [formData, setFormData] = useState({
@@ -88,6 +90,7 @@ export default function VariableExpenses() {
       if (filterDateTo) params.append('to_date', filterDateTo);
       if (filterCategory !== 'all') params.append('category', filterCategory);
       if (filterSettled !== 'all') params.append('settled', filterSettled);
+      if (filterPaidBy !== 'all') params.append('paid_by', filterPaidBy);
       
       if (params.toString()) url += '?' + params.toString();
       
@@ -99,7 +102,7 @@ export default function VariableExpenses() {
     } finally {
       setLoading(false);
     }
-  }, [filterDateFrom, filterDateTo, filterCategory, filterSettled]);
+  }, [filterDateFrom, filterDateTo, filterCategory, filterSettled, filterPaidBy]);
 
   const loadEmployees = async () => {
     try {
@@ -111,9 +114,25 @@ export default function VariableExpenses() {
     }
   };
 
+  // Load Admin and Staff users for Paid By dropdown
+  const loadStaffUsers = async () => {
+    try {
+      const response = await api.get('/api/users');
+      // Filter only admin and staff users
+      const adminStaff = (response.data || []).filter(u => 
+        u.role === 'admin' || u.role === 'staff'
+      );
+      setStaffUsers(adminStaff);
+    } catch (error) {
+      console.error('Failed to load staff users:', error);
+      setStaffUsers([]);
+    }
+  };
+
   useEffect(() => {
     loadExpenses();
     loadEmployees();
+    loadStaffUsers();
   }, [loadExpenses]);
 
   const resetForm = () => {
@@ -380,10 +399,25 @@ export default function VariableExpenses() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Paid By</label>
+                <Select value={filterPaidBy} onValueChange={setFilterPaidBy}>
+                  <SelectTrigger className="w-36 h-8 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="Company">Company</SelectItem>
+                    {staffUsers.map(user => (
+                      <SelectItem key={user.id} value={user.name}>{user.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button 
                 variant="ghost" 
                 size="sm"
-                onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('all'); setFilterSettled('all'); }}
+                onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('all'); setFilterSettled('all'); setFilterPaidBy('all'); }}
               >
                 Clear
               </Button>
@@ -711,12 +745,19 @@ export default function VariableExpenses() {
                   <div className="space-y-3 pl-5 border-l-2 border-blue-200">
                     <div>
                       <label className="text-xs font-medium text-gray-700 mb-1 block">Employee Name *</label>
-                      <Input
-                        placeholder="Who paid this expense?"
-                        value={formData.employee_name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, employee_name: e.target.value }))}
-                        className="h-8 text-sm"
-                      />
+                      <Select 
+                        value={formData.employee_name} 
+                        onValueChange={(value) => setFormData(prev => ({ ...prev, employee_name: value }))}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Select employee who paid" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {staffUsers.map(user => (
+                            <SelectItem key={user.id} value={user.name}>{user.name} ({user.role})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     
                     {formData.payment_status === 'paid' && (

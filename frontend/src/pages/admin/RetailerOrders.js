@@ -1844,7 +1844,7 @@ export default function RetailerOrders() {
             MR ORGANIX M.NO. 1638,<br/>
             Taleranwadi, Kesnand Taluka - Haveli<br/>
             Pune - 412207, Maharashtra<br/>
-            Phone: 8530418069
+            Phone: 9145000250
           </div>
           <div class="footer-right">
             <div class="signatory-label">For Mr Organix</div>
@@ -1890,8 +1890,8 @@ export default function RetailerOrders() {
       
       // Flatten all items from dispatches for that day
       const items = [];
-      dayDispatches.forEach(dispatch => {
-        dispatch.items?.forEach(item => {
+      for (const dispatch of dayDispatches) {
+        for (const item of (dispatch.items || [])) {
           // Check if this item matches the rejection being edited
           // Try multiple matching strategies
           let isEditingItem = false;
@@ -1914,6 +1914,15 @@ export default function RetailerOrders() {
             }
           }
           
+          // Fetch rejection history for this product/dispatch combination
+          let rejectionHistory = { rejections: [], total_quantity: 0, total_value: 0 };
+          try {
+            const historyResponse = await api.get(`/api/retailer-rejections/history?dispatch_id=${dispatch.id}&product_id=${item.product_id}&retailer_id=${rejectionForm.retailer_id}`);
+            rejectionHistory = historyResponse.data;
+          } catch (err) {
+            console.log('No rejection history for', item.product_name);
+          }
+          
           items.push({
             dispatch_id: dispatch.id,
             product_id: item.product_id,
@@ -1925,10 +1934,14 @@ export default function RetailerOrders() {
             rejection_qty: isEditingItem ? editingRejection.quantity : 0,
             reason: isEditingItem ? (editingRejection.reason || '') : '',
             remarks: isEditingItem ? (editingRejection.remarks || '') : '',
-            selected: isEditingItem ? true : false
+            selected: isEditingItem ? true : false,
+            // Rejection history
+            previous_rejections: rejectionHistory.rejections || [],
+            total_previous_qty: rejectionHistory.total_quantity || 0,
+            total_previous_value: rejectionHistory.total_value || 0
           });
-        });
-      });
+        }
+      }
       
       setRejectionDispatchItems(items);
     } catch (error) {
@@ -4918,63 +4931,109 @@ export default function RetailerOrders() {
                               </th>
                               <th className="p-2 text-left min-w-[120px]">Product</th>
                               <th className="p-2 text-center w-16">Supplied</th>
-                              <th className="p-2 text-center w-20">Reject Qty</th>
+                              <th className="p-2 text-center w-24">Previous Rej.</th>
+                              <th className="p-2 text-center w-20">New Reject</th>
                               <th className="p-2 text-center w-16">MRP</th>
                               <th className="p-2 text-left min-w-[130px]">Reason</th>
                             </tr>
                           </thead>
                           <tbody>
                             {rejectionDispatchItems.map((item, idx) => (
-                              <tr key={idx} className={`border-t ${item.selected ? 'bg-red-50' : ''}`}>
-                                <td className="p-2 text-center">
-                                  <input
-                                    type="checkbox"
-                                    checked={item.selected}
-                                    onChange={(e) => updateRejectionItem(idx, 'selected', e.target.checked)}
-                                    className="w-4 h-4"
-                                  />
-                                </td>
-                                <td className="p-2">
-                                  <div className="font-medium text-sm">{getProductName(item)}</div>
-                                  {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
-                                </td>
-                                <td className="p-2 text-center text-gray-600 text-sm">{item.supplied_qty}</td>
-                                <td className="p-2 text-center">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max={item.supplied_qty}
-                                    value={item.rejection_qty || ''}
-                                    onChange={(e) => {
-                                      const val = parseFloat(e.target.value) || 0;
-                                      if (val > item.supplied_qty) {
-                                        toast.error('Cannot exceed supplied qty');
-                                        return;
-                                      }
-                                      updateRejectionItem(idx, 'rejection_qty', val);
-                                      if (val > 0) updateRejectionItem(idx, 'selected', true);
-                                    }}
-                                    className="w-16 h-7 text-center text-sm"
-                                    disabled={!item.selected && !item.rejection_qty}
-                                  />
-                                </td>
-                                <td className="p-2 text-center text-gray-600 text-sm">₹{item.mrp}</td>
-                                <td className="p-2">
-                                  <select
-                                    value={item.reason || ''}
-                                    onChange={(e) => updateRejectionItem(idx, 'reason', e.target.value)}
-                                    className="w-full min-w-[110px] h-8 px-2 rounded border text-sm"
-                                    disabled={!item.selected}
-                                  >
-                                    <option value="">Select Reason</option>
-                                    <option value="Rotten">Rotten</option>
-                                    <option value="Damaged">Damaged</option>
-                                    <option value="Quality Issue">Quality Issue</option>
-                                    <option value="Expired">Expired</option>
-                                    <option value="Other">Other</option>
-                                  </select>
-                                </td>
-                              </tr>
+                              <React.Fragment key={idx}>
+                                <tr className={`border-t ${item.selected ? 'bg-red-50' : ''}`}>
+                                  <td className="p-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={item.selected}
+                                      onChange={(e) => updateRejectionItem(idx, 'selected', e.target.checked)}
+                                      className="w-4 h-4"
+                                    />
+                                  </td>
+                                  <td className="p-2">
+                                    <div className="font-medium text-sm">{getProductName(item)}</div>
+                                    {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                                  </td>
+                                  <td className="p-2 text-center text-gray-600 text-sm">{item.supplied_qty}</td>
+                                  <td className="p-2 text-center">
+                                    {item.total_previous_qty > 0 ? (
+                                      <div className="text-xs">
+                                        <span className="font-medium text-red-600">{item.total_previous_qty} kg</span>
+                                        <button
+                                          type="button"
+                                          className="ml-1 text-blue-600 hover:text-blue-800 underline"
+                                          onClick={() => {
+                                            setRejectionDispatchItems(prev => prev.map((it, i) => 
+                                              i === idx ? {...it, showHistory: !it.showHistory} : it
+                                            ));
+                                          }}
+                                        >
+                                          ({item.previous_rejections?.length || 0} entries)
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400 text-xs">None</span>
+                                    )}
+                                  </td>
+                                  <td className="p-2 text-center">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max={item.supplied_qty}
+                                      value={item.rejection_qty || ''}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        if (val > item.supplied_qty) {
+                                          toast.error('Cannot exceed supplied qty');
+                                          return;
+                                        }
+                                        updateRejectionItem(idx, 'rejection_qty', val);
+                                        if (val > 0) updateRejectionItem(idx, 'selected', true);
+                                      }}
+                                      className="w-16 h-7 text-center text-sm"
+                                      disabled={!item.selected && !item.rejection_qty}
+                                    />
+                                  </td>
+                                  <td className="p-2 text-center text-gray-600 text-sm">₹{item.mrp}</td>
+                                  <td className="p-2">
+                                    <select
+                                      value={item.reason || ''}
+                                      onChange={(e) => updateRejectionItem(idx, 'reason', e.target.value)}
+                                      className="w-full min-w-[110px] h-8 px-2 rounded border text-sm"
+                                      disabled={!item.selected}
+                                    >
+                                      <option value="">Select Reason</option>
+                                      <option value="Rotten">Rotten</option>
+                                      <option value="Damaged">Damaged</option>
+                                      <option value="Quality Issue">Quality Issue</option>
+                                      <option value="Expired">Expired</option>
+                                      <option value="Other">Other</option>
+                                    </select>
+                                  </td>
+                                </tr>
+                                {/* Rejection History Row */}
+                                {item.showHistory && item.previous_rejections?.length > 0 && (
+                                  <tr className="bg-amber-50">
+                                    <td colSpan="7" className="p-2 pl-10">
+                                      <div className="text-xs">
+                                        <div className="font-medium text-amber-800 mb-1">Previous Rejections:</div>
+                                        <div className="space-y-1">
+                                          {item.previous_rejections.map((rej, rIdx) => (
+                                            <div key={rIdx} className="flex gap-4 text-gray-600">
+                                              <span>{new Date(rej.rejection_date).toLocaleDateString()}</span>
+                                              <span className="font-medium">{rej.quantity} kg</span>
+                                              <span>₹{rej.rejection_value}</span>
+                                              <span className="text-gray-500">{rej.reason}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="mt-1 pt-1 border-t border-amber-200 font-medium text-amber-800">
+                                          Total Previous: {item.total_previous_qty} kg (₹{item.total_previous_value})
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
                             ))}
                           </tbody>
                         </table>

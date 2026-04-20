@@ -1829,7 +1829,7 @@ export default function QuickCommerce() {
     
     // Company Details
     const companyName = "Mr Organix";
-    const companyPhone = "8530418069";
+    const companyPhone = "9145000250";
     const companyEmail = "mrorganixmushroom@gmail.com";
     const companyState = "27-Maharashtra";
     const companyFullAddress = `MR ORGANIX M.NO. 1638,

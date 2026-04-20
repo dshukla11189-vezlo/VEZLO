@@ -3309,6 +3309,82 @@ async def fix_mismatched_grn_ids(current_user: dict = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=f"Error fixing GRN IDs: {str(e)}")
 
 
+async def calculate_grn_loss(from_date: str = None, to_date: str = None):
+    """
+    Shared function to calculate GRN loss from uploaded GRN files.
+    Used by both GRN Loss Summary and P&L endpoints to ensure consistency.
+    
+    Returns:
+        dict with total_loss, total_qty_diff, by_date breakdown, and all loss items
+    """
+    # Get all saved GRNs
+    saved_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(1000)
+    
+    loss_by_date = {}
+    total_loss = 0
+    total_qty_diff = 0
+    items_with_loss = []
+    
+    for grn in saved_grns:
+        for item in grn.get('items', []):
+            # Use dispatch_date from item (actual supply date)
+            dispatch_date = item.get('dispatch_date', grn.get('grn_date', ''))
+            dispatch_date_str = dispatch_date[:10] if dispatch_date else 'Unknown'
+            
+            # Filter by date range
+            if from_date and dispatch_date_str < from_date:
+                continue
+            if to_date and dispatch_date_str > to_date:
+                continue
+            
+            supplied_qty = item.get('supplied_qty', 0) or 0
+            grn_qty = item.get('grn_qty', 0) or 0
+            difference = item.get('difference', 0) or 0
+            
+            # Loss occurs when GRN < Supplied (difference is negative)
+            if difference < 0:
+                loss_qty = abs(difference)
+                
+                # Calculate loss value
+                rate = item.get('rate_per_unit', 0) or item.get('rate_per_kg', 0) or 0
+                loss_value = item.get('loss_gain_amount')
+                if loss_value is None or loss_value == 0:
+                    loss_value = loss_qty * rate
+                else:
+                    loss_value = abs(loss_value)
+                
+                if dispatch_date_str not in loss_by_date:
+                    loss_by_date[dispatch_date_str] = {
+                        'date': dispatch_date_str,
+                        'total_loss': 0,
+                        'total_qty_diff': 0,
+                        'items': []
+                    }
+                
+                loss_by_date[dispatch_date_str]['total_loss'] += loss_value
+                loss_by_date[dispatch_date_str]['total_qty_diff'] += loss_qty
+                total_loss += loss_value
+                total_qty_diff += loss_qty
+                
+                items_with_loss.append({
+                    'date': dispatch_date_str,
+                    'product_name': item.get('product_name', ''),
+                    'packaging_name': item.get('packaging_name', ''),
+                    'supplied_qty': supplied_qty,
+                    'grn_qty': grn_qty,
+                    'difference': difference,
+                    'loss_amount': round(loss_value, 2),
+                    'rate': rate
+                })
+    
+    return {
+        "total_loss": round(total_loss, 2),
+        "total_qty_diff": round(total_qty_diff, 2),
+        "by_date": sorted(loss_by_date.values(), key=lambda x: x['date'], reverse=True),
+        "items": items_with_loss
+    }
+
+
 @api_router.get("/qc-grns/loss-summary")
 async def get_grn_loss_summary(
     from_date: str = None,
@@ -3319,65 +3395,9 @@ async def get_grn_loss_summary(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Build date query - use dispatch_date (actual supply date) not grn_date (upload date)
-    query = {}
-    
-    # Get all saved GRNs
-    saved_grns = await db.qc_grns.find({}, {"_id": 0}).sort("grn_date", -1).to_list(1000)
-    
-    # Aggregate loss by dispatch_date (actual supply date) and product
-    loss_by_date = {}
-    total_loss = 0
-    items_with_loss = []
-    
-    for grn in saved_grns:
-        for item in grn.get('items', []):
-            # Use dispatch_date from item (actual supply date), not grn_date (upload date)
-            dispatch_date = item.get('dispatch_date', grn.get('grn_date', ''))
-            dispatch_date_str = dispatch_date[:10] if dispatch_date else 'Unknown'
-            
-            # Filter by date range using dispatch_date
-            if from_date and dispatch_date_str < from_date:
-                continue
-            if to_date and dispatch_date_str > to_date:
-                continue
-            
-            difference = item.get('difference', 0)
-            loss_amount = item.get('loss_gain_amount', 0)
-            
-            # Only count losses (negative differences mean we received less than supplied)
-            if difference < 0 or loss_amount < 0:
-                actual_loss = abs(loss_amount) if loss_amount < 0 else abs(difference) * (item.get('rate_per_unit', 0) or item.get('rate_per_kg', 0))
-                
-                if dispatch_date_str not in loss_by_date:
-                    loss_by_date[dispatch_date_str] = {
-                        'date': dispatch_date_str,
-                        'total_loss': 0,
-                        'total_difference_qty': 0,
-                        'items': []
-                    }
-                
-                loss_by_date[dispatch_date_str]['total_loss'] += actual_loss
-                loss_by_date[dispatch_date_str]['total_difference_qty'] += abs(difference)
-                total_loss += actual_loss
-                
-                items_with_loss.append({
-                    'date': dispatch_date_str,
-                    'product_name': item.get('product_name', ''),
-                    'packaging_name': item.get('packaging_name', ''),
-                    'supplied_qty': item.get('supplied_qty', 0),
-                    'grn_qty': item.get('grn_qty', 0),
-                    'difference': difference,
-                    'loss_amount': round(actual_loss, 2),
-                    'rate_type': item.get('rate_type', ''),
-                    'rate': item.get('rate_per_unit', 0) or item.get('rate_per_kg', 0)
-                })
-    
-    return {
-        "total_loss": round(total_loss, 2),
-        "by_date": sorted(loss_by_date.values(), key=lambda x: x['date'], reverse=True),
-        "items": items_with_loss
-    }
+    # Use the shared calculation function
+    result = await calculate_grn_loss(from_date, to_date)
+    return result
 
 # ============================================================================
 # SECTION: QC INVOICE ROUTES (Lines ~1453-1570)
@@ -4034,26 +4054,7 @@ async def get_pnl_report(
                 "wastage_kg": 0,
                 "wastage_value": 0
             })
-            
-            # Calculate GRN loss for this item (dispatched - received)
-            if item_dispatch_date not in grn_loss_by_date:
-                grn_loss_by_date[item_dispatch_date] = {"value": 0, "qty_kg": 0}
-            loss_kg = supplied_kg - grn_qty_kg
-            
-            # Calculate loss value using rate_per_kg, or derive from rate_per_unit if needed
-            if rate_per_kg > 0:
-                loss_value = loss_kg * rate_per_kg
-            elif rate_per_unit > 0 and packaging_weight_gm > 0:
-                # Convert rate_per_unit to rate_per_kg: if 1 unit = X gm, rate_per_kg = rate_per_unit / (X/1000)
-                derived_rate_per_kg = rate_per_unit / (packaging_weight_gm / 1000)
-                loss_value = loss_kg * derived_rate_per_kg
-            else:
-                # Try to get loss_gain_amount directly from the item
-                loss_value = abs(item.get("loss_gain_amount", 0) or 0)
-            
-            if loss_kg > 0:  # Only track positive losses (dispatched > received)
-                grn_loss_by_date[item_dispatch_date]["qty_kg"] += loss_kg
-                grn_loss_by_date[item_dispatch_date]["value"] += loss_value
+            # Note: GRN loss is now calculated by the shared calculate_grn_loss() function
         
         # Only count invoice if this customer had items in the date range
         if customer in sales_by_customer:
@@ -4843,9 +4844,19 @@ async def get_pnl_report(
     qc_fixed_exp = total_fixed / 2
     retail_fixed_exp = total_fixed / 2
     
-    # Calculate total GRN loss
-    total_grn_loss = sum(data.get("value", 0) for data in grn_loss_by_date.values())
-    total_grn_loss_qty = sum(data.get("qty_kg", 0) for data in grn_loss_by_date.values())
+    # Calculate total GRN loss using the shared function (ensures consistency with GRN Loss Summary)
+    grn_loss_data = await calculate_grn_loss(from_date, to_date)
+    total_grn_loss = grn_loss_data["total_loss"]
+    total_grn_loss_qty = grn_loss_data["total_qty_diff"]
+    
+    # Also build grn_loss_by_date for daily P&L breakdown
+    grn_loss_by_date = {}
+    for item in grn_loss_data.get("items", []):
+        date = item.get("date", "Unknown")
+        if date not in grn_loss_by_date:
+            grn_loss_by_date[date] = {"value": 0, "qty_kg": 0}
+        grn_loss_by_date[date]["value"] += item.get("loss_amount", 0)
+        grn_loss_by_date[date]["qty_kg"] += abs(item.get("difference", 0))
     
     # Calculate QC P&L (GRN Loss affects net profit)
     qc_gross_profit = total_qc_sales - qc_purchase - qc_wastage

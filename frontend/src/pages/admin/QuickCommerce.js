@@ -120,11 +120,13 @@ export default function QuickCommerce() {
     toDate: '',
     productName: ''
   });
-  const [grnLossSummary, setGrnLossSummary] = useState({ total_loss: 0, items: [] });
+  const [grnLossSummary, setGrnLossSummary] = useState({ total_loss: 0, items: [], itemsByDate: {} });
   const [grnLossFilters, setGrnLossFilters] = useState({
-    fromDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Last 7 days
+    // Default to 1st of current month to today
+    fromDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     toDate: new Date().toISOString().split('T')[0]
   });
+  const [expandedGrnDates, setExpandedGrnDates] = useState({}); // Track expanded dates
   // Manual GRN entry state for pending dispatches
   const [manualGrnData, setManualGrnData] = useState({});  // { dispatchId_productId: { grn_qty, rate } }
   const [editingPendingGrn, setEditingPendingGrn] = useState(null);  // Track which pending item is being edited
@@ -313,7 +315,21 @@ export default function QuickCommerce() {
       // Fetch GRN Loss Summary
       try {
         const lossRes = await api.get(`/api/qc-grns/loss-summary?from_date=${grnLossFilters.fromDate}&to_date=${grnLossFilters.toDate}`);
-        setGrnLossSummary(lossRes.data);
+        const data = lossRes.data;
+        
+        // Group items by date for collapsible display
+        const itemsByDate = {};
+        (data.items || []).forEach(item => {
+          const dateKey = item.dispatch_date?.split('T')[0] || item.date || 'Unknown';
+          if (!itemsByDate[dateKey]) {
+            itemsByDate[dateKey] = { items: [], total_loss: 0, total_qty: 0 };
+          }
+          itemsByDate[dateKey].items.push(item);
+          itemsByDate[dateKey].total_loss += item.loss_value || 0;
+          itemsByDate[dateKey].total_qty += item.loss_qty || 0;
+        });
+        
+        setGrnLossSummary({ ...data, itemsByDate });
       } catch (err) {
         console.log('GRN loss summary not available yet');
       }
@@ -4336,7 +4352,21 @@ Email: ${companyEmail}`;
                         onClick={async () => {
                           try {
                             const lossRes = await api.get(`/api/qc-grns/loss-summary?from_date=${grnLossFilters.fromDate}&to_date=${grnLossFilters.toDate}`);
-                            setGrnLossSummary({ ...lossRes.data, expanded: true });
+                            const data = lossRes.data;
+                            
+                            // Group items by date
+                            const itemsByDate = {};
+                            (data.items || []).forEach(item => {
+                              const dateKey = item.date || 'Unknown';
+                              if (!itemsByDate[dateKey]) {
+                                itemsByDate[dateKey] = { items: [], total_loss: 0, total_qty: 0 };
+                              }
+                              itemsByDate[dateKey].items.push(item);
+                              itemsByDate[dateKey].total_loss += item.loss_amount || 0;
+                              itemsByDate[dateKey].total_qty += item.difference || 0;
+                            });
+                            
+                            setGrnLossSummary({ ...data, itemsByDate, expanded: true });
                             toast.success('Loss summary updated');
                           } catch (err) {
                             toast.error('Failed to fetch loss summary');
@@ -4347,50 +4377,63 @@ Email: ${companyEmail}`;
                       </Button>
                     </div>
                     
-                    {/* Loss by Date */}
+                    {/* Loss by Date - Grouped View */}
                     {grnLossSummary?.items?.length > 0 ? (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead className="bg-red-50">
-                            <tr>
-                              <th className="p-2 text-left">Date</th>
-                              <th className="p-2 text-left">Product</th>
-                              <th className="p-2 text-left">Packaging</th>
-                              <th className="p-2 text-right">Supplied</th>
-                              <th className="p-2 text-right">GRN</th>
-                              <th className="p-2 text-right">Difference</th>
-                              <th className="p-2 text-right">Loss Amount</th>
-                            </tr>
-                          </thead>
-                        <tbody>
-                          {(grnLossSummary?.items || []).slice(0, 20).map((item, idx) => (
-                            <tr key={idx} className="border-b hover:bg-red-25">
-                              <td className="p-2">{item.date}</td>
-                              <td className="p-2">{getProductName(item)}</td>
-                              <td className="p-2 text-gray-500">{item.packaging_name}</td>
-                              <td className="p-2 text-right">{item.supplied_qty}</td>
-                              <td className="p-2 text-right">{item.grn_qty}</td>
-                              <td className="p-2 text-right text-red-600 font-medium">{item.difference}</td>
-                              <td className="p-2 text-right text-red-700 font-semibold">₹{item.loss_amount.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        {grnLossSummary?.items?.length > 0 && (
-                          <tfoot className="bg-red-100 font-semibold">
-                            <tr>
-                              <td colSpan={6} className="p-2 text-right">Total Loss:</td>
-                              <td className="p-2 text-right text-red-800">₹{(grnLossSummary?.total_loss || 0).toLocaleString()}</td>
-                            </tr>
-                          </tfoot>
-                        )}
-                      </table>
-                      {grnLossSummary?.items?.length > 20 && (
-                        <p className="text-xs text-gray-500 mt-2">Showing first 20 items. Total: {grnLossSummary.items.length} items with loss.</p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 text-center py-4">No GRN loss data for selected period. Upload GRN files to see loss summary.</p>
-                  )}
+                        {Object.entries(grnLossSummary?.itemsByDate || {}).sort((a, b) => b[0].localeCompare(a[0])).map(([dateKey, dateData]) => (
+                          <div key={dateKey} className="mb-2 border rounded">
+                            {/* Date Header - Clickable */}
+                            <div 
+                              className="bg-red-50 p-2 flex justify-between items-center cursor-pointer hover:bg-red-100"
+                              onClick={() => setExpandedGrnDates(prev => ({ ...prev, [dateKey]: !prev[dateKey] }))}
+                            >
+                              <div className="flex items-center gap-2">
+                                {expandedGrnDates[dateKey] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                <span className="font-medium text-sm">{dateKey}</span>
+                                <span className="text-xs text-gray-500">({dateData.items.length} items)</span>
+                              </div>
+                              <span className="font-semibold text-red-700 text-sm">₹{dateData.total_loss.toLocaleString()}</span>
+                            </div>
+                            
+                            {/* Expanded Items */}
+                            {expandedGrnDates[dateKey] && (
+                              <table className="w-full text-xs">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="p-2 text-left">Product</th>
+                                    <th className="p-2 text-left">Packaging</th>
+                                    <th className="p-2 text-right">Supplied</th>
+                                    <th className="p-2 text-right">GRN</th>
+                                    <th className="p-2 text-right">Diff</th>
+                                    <th className="p-2 text-right">Loss</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {dateData.items.map((item, idx) => (
+                                    <tr key={idx} className="border-b hover:bg-red-25">
+                                      <td className="p-2">{getProductName(item)}</td>
+                                      <td className="p-2 text-gray-500">{item.packaging_name}</td>
+                                      <td className="p-2 text-right">{item.supplied_qty}</td>
+                                      <td className="p-2 text-right">{item.grn_qty}</td>
+                                      <td className="p-2 text-right text-red-600 font-medium">{item.difference}</td>
+                                      <td className="p-2 text-right text-red-700">₹{item.loss_amount?.toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        ))}
+                        
+                        {/* Grand Total */}
+                        <div className="bg-red-100 p-3 rounded font-semibold flex justify-between mt-2">
+                          <span>Grand Total ({grnLossSummary?.items?.length} items)</span>
+                          <span className="text-red-800">₹{(grnLossSummary?.total_loss || 0).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500 text-center py-4">No GRN loss data for selected period. Upload GRN files to see loss summary.</p>
+                    )}
                 </CardContent>
                 )}
               </Card>

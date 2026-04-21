@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Receipt, Filter, Calendar, Edit2, Trash2, RefreshCw, 
-  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search, Eye
+  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search, Eye, IndianRupee
 } from 'lucide-react';
 
 const EXPENSE_CATEGORIES = [
@@ -97,6 +97,21 @@ export default function VariableExpenses() {
   // View Payment Modal state
   const [showViewPaymentModal, setShowViewPaymentModal] = useState(false);
   const [viewingExpense, setViewingExpense] = useState(null);
+  
+  // Reimbursement Modal state (for settling employee expenses)
+  const [showReimbursementModal, setShowReimbursementModal] = useState(false);
+  const [reimbursementExpense, setReimbursementExpense] = useState(null);
+  const [reimbursementForm, setReimbursementForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_mode: 'Bank Transfer',
+    payment_reference: '',
+    remarks: ''
+  });
+  
+  // Bulk Settlement state
+  const [showBulkSettlementModal, setShowBulkSettlementModal] = useState(false);
+  const [bulkSettlementEmployee, setBulkSettlementEmployee] = useState(null);
+  const [bulkSettlementExpenses, setBulkSettlementExpenses] = useState([]);
 
   const loadExpenses = useCallback(async () => {
     setLoading(true);
@@ -390,7 +405,42 @@ export default function VariableExpenses() {
     setShowViewPaymentModal(true);
   };
 
-  // Settle employee reimbursement
+  // Open reimbursement modal for a single expense
+  const openReimbursementModal = (expense) => {
+    setReimbursementExpense(expense);
+    setReimbursementForm({
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_mode: 'Bank Transfer',
+      payment_reference: '',
+      remarks: ''
+    });
+    setShowReimbursementModal(true);
+  };
+
+  // Handle single expense reimbursement
+  const handleReimbursementSubmit = async () => {
+    if (!reimbursementExpense) return;
+    
+    try {
+      await api.put(`/api/expenses/variable/${reimbursementExpense.id}`, {
+        ...reimbursementExpense,
+        settlement_status: 'settled',
+        settlement_date: reimbursementForm.payment_date,
+        settlement_mode: reimbursementForm.payment_mode,
+        settlement_reference: reimbursementForm.payment_reference,
+        settlement_remarks: reimbursementForm.remarks,
+        is_settled: true
+      });
+      toast.success('Reimbursement recorded successfully');
+      setShowReimbursementModal(false);
+      setReimbursementExpense(null);
+      loadExpenses();
+    } catch (error) {
+      toast.error('Failed to record reimbursement');
+    }
+  };
+
+  // Settle employee reimbursement (quick action)
   const handleSettleReimbursement = async (expense) => {
     try {
       await api.put(`/api/expenses/variable/${expense.id}`, {
@@ -407,11 +457,80 @@ export default function VariableExpenses() {
     }
   };
 
+  // Get employees with pending reimbursements
+  const getEmployeesWithPendingReimbursements = () => {
+    const pending = expenses.filter(e => 
+      e.payment_status === 'paid' && 
+      e.paid_by_type === 'employee' && 
+      e.settlement_status !== 'settled'
+    );
+    
+    const byEmployee = {};
+    pending.forEach(e => {
+      const empName = e.paid_by || 'Unknown';
+      if (!byEmployee[empName]) {
+        byEmployee[empName] = { name: empName, expenses: [], total: 0 };
+      }
+      byEmployee[empName].expenses.push(e);
+      byEmployee[empName].total += e.amount || 0;
+    });
+    
+    return Object.values(byEmployee);
+  };
+
+  // Open bulk settlement modal for an employee
+  const openBulkSettlementModal = (employee) => {
+    setBulkSettlementEmployee(employee);
+    setBulkSettlementExpenses(employee.expenses.map(e => e.id));
+    setReimbursementForm({
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_mode: 'Bank Transfer',
+      payment_reference: '',
+      remarks: ''
+    });
+    setShowBulkSettlementModal(true);
+  };
+
+  // Handle bulk settlement
+  const handleBulkSettlement = async () => {
+    if (!bulkSettlementEmployee || bulkSettlementExpenses.length === 0) return;
+    
+    try {
+      // Update all selected expenses
+      for (const expenseId of bulkSettlementExpenses) {
+        const expense = expenses.find(e => e.id === expenseId);
+        if (expense) {
+          await api.put(`/api/expenses/variable/${expenseId}`, {
+            ...expense,
+            settlement_status: 'settled',
+            settlement_date: reimbursementForm.payment_date,
+            settlement_mode: reimbursementForm.payment_mode,
+            settlement_reference: reimbursementForm.payment_reference,
+            settlement_remarks: reimbursementForm.remarks,
+            is_settled: true
+          });
+        }
+      }
+      
+      toast.success(`${bulkSettlementExpenses.length} expenses settled for ${bulkSettlementEmployee.name}`);
+      setShowBulkSettlementModal(false);
+      setBulkSettlementEmployee(null);
+      setBulkSettlementExpenses([]);
+      loadExpenses();
+    } catch (error) {
+      toast.error('Failed to settle expenses');
+    }
+  };
+
+  const employeesWithPendingReimbursements = getEmployeesWithPendingReimbursements();
+
   const unsettledExpenses = expenses.filter(e => e.payment_status !== 'paid' && !e.is_settled);
   const pendingExpenses = expenses.filter(e => e.payment_status === 'pending');
   const partiallyPaidExpenses = expenses.filter(e => e.payment_status === 'partially_paid');
+  const pendingReimbursementExpenses = expenses.filter(e => e.payment_status === 'paid' && e.paid_by_type === 'employee' && e.settlement_status !== 'settled');
   const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const unsettledAmount = unsettledExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const pendingReimbursementAmount = pendingReimbursementExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const paidAmount = expenses.filter(e => e.payment_status === 'paid' || e.is_settled).reduce((sum, e) => sum + (e.amount || 0), 0);
   
   // Group by category for summary
@@ -486,6 +605,17 @@ export default function VariableExpenses() {
           </Card>
           <Card className="p-3">
             <div className="flex items-center gap-2">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <IndianRupee className="text-purple-600" size={18} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Pending Reimbursement</p>
+                <p className="text-lg font-bold text-purple-600">₹{pendingReimbursementAmount.toLocaleString()}</p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2">
               <div className="p-2 bg-yellow-100 rounded-lg">
                 <AlertCircle className="text-yellow-600" size={18} />
               </div>
@@ -496,6 +626,38 @@ export default function VariableExpenses() {
             </div>
           </Card>
         </div>
+
+        {/* Pending Reimbursements by Employee */}
+        {employeesWithPendingReimbursements.length > 0 && (
+          <Card className="mb-4">
+            <CardContent className="py-3">
+              <h3 className="text-sm font-semibold text-purple-800 mb-3 flex items-center gap-2">
+                <Users size={16} /> Pending Employee Reimbursements
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {employeesWithPendingReimbursements.map(emp => (
+                  <div 
+                    key={emp.name}
+                    className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2"
+                  >
+                    <div>
+                      <span className="text-sm font-medium text-purple-800">{emp.name}</span>
+                      <span className="text-xs text-purple-600 ml-2">({emp.expenses.length} items)</span>
+                      <span className="text-sm font-bold text-purple-700 ml-2">₹{emp.total.toLocaleString()}</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-7 bg-purple-600 hover:bg-purple-700 text-white"
+                      onClick={() => openBulkSettlementModal(emp)}
+                    >
+                      <IndianRupee size={12} className="mr-1" /> Settle All
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters */}
         <Card className="mb-4">
@@ -672,7 +834,18 @@ export default function VariableExpenses() {
                               expense.settlement_status === 'settled' ? (
                                 <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Settled</span>
                               ) : (
-                                <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">Pending</span>
+                                <div className="flex items-center justify-center gap-1">
+                                  <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">Pending</span>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="h-5 w-5 p-0"
+                                    onClick={() => openReimbursementModal(expense)}
+                                    title="Record Reimbursement"
+                                  >
+                                    <IndianRupee size={12} className="text-green-600" />
+                                  </Button>
+                                </div>
                               )
                             ) : expense.payment_status === 'paid' ? (
                               <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Settled</span>
@@ -1208,6 +1381,191 @@ export default function VariableExpenses() {
                 </Button>
                 <Button variant="outline" className="flex-1" onClick={() => { setShowViewPaymentModal(false); handleEdit(viewingExpense); }}>
                   <Edit2 size={14} className="mr-1" /> Edit
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reimbursement Modal - Single Expense */}
+        {showReimbursementModal && reimbursementExpense && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="p-4 border-b bg-purple-50">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <IndianRupee size={20} className="text-purple-600" />
+                  Record Reimbursement
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Reimburse {reimbursementExpense.paid_by} for ₹{reimbursementExpense.amount?.toLocaleString()}
+                </p>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-600">Category:</span>
+                    <span className="font-medium">{reimbursementExpense.category}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Description:</span>
+                    <span className="font-medium">{reimbursementExpense.description || '-'}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reimbursement Date *</label>
+                  <Input
+                    type="date"
+                    value={reimbursementForm.payment_date}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
+                  <Select value={reimbursementForm.payment_mode} onValueChange={(v) => setReimbursementForm(prev => ({ ...prev, payment_mode: v }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reference / Transaction ID</label>
+                  <Input
+                    value={reimbursementForm.payment_reference}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                    placeholder="Enter reference number"
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Remarks</label>
+                  <Input
+                    value={reimbursementForm.remarks}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional notes"
+                  />
+                </div>
+              </div>
+              <div className="p-4 border-t flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => { setShowReimbursementModal(false); setReimbursementExpense(null); }}>
+                  Cancel
+                </Button>
+                <Button className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={handleReimbursementSubmit}>
+                  <CheckCircle size={14} className="mr-1" /> Confirm Reimbursement
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk Settlement Modal */}
+        {showBulkSettlementModal && bulkSettlementEmployee && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="p-4 border-b bg-purple-50 flex-shrink-0">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Users size={20} className="text-purple-600" />
+                  Settle Expenses for {bulkSettlementEmployee.name}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  {bulkSettlementEmployee.expenses.length} expenses totaling ₹{bulkSettlementEmployee.total.toLocaleString()}
+                </p>
+              </div>
+              <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                {/* Expense List */}
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {bulkSettlementEmployee.expenses.map((expense, idx) => (
+                    <div key={expense.id} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={bulkSettlementExpenses.includes(expense.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setBulkSettlementExpenses(prev => [...prev, expense.id]);
+                            } else {
+                              setBulkSettlementExpenses(prev => prev.filter(id => id !== expense.id));
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <div>
+                          <span className="font-medium">{expense.category}</span>
+                          <span className="text-gray-500 ml-2 text-xs">{expense.date?.split('T')[0]}</span>
+                        </div>
+                      </div>
+                      <span className="font-semibold">₹{expense.amount?.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-purple-50 p-3 rounded-lg">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Selected Items:</span>
+                    <span className="font-medium">{bulkSettlementExpenses.length} / {bulkSettlementEmployee.expenses.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium">Total to Reimburse:</span>
+                    <span className="font-bold text-lg text-purple-700">
+                      ₹{bulkSettlementEmployee.expenses
+                        .filter(e => bulkSettlementExpenses.includes(e.id))
+                        .reduce((s, e) => s + (e.amount || 0), 0)
+                        .toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reimbursement Date *</label>
+                  <Input
+                    type="date"
+                    value={reimbursementForm.payment_date}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
+                  <Select value={reimbursementForm.payment_mode} onValueChange={(v) => setReimbursementForm(prev => ({ ...prev, payment_mode: v }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reference / Transaction ID</label>
+                  <Input
+                    value={reimbursementForm.payment_reference}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                    placeholder="Enter reference number"
+                  />
+                </div>
+              </div>
+              <div className="p-4 border-t flex gap-2 flex-shrink-0">
+                <Button variant="outline" className="flex-1" onClick={() => { setShowBulkSettlementModal(false); setBulkSettlementEmployee(null); }}>
+                  Cancel
+                </Button>
+                <Button 
+                  className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                  onClick={handleBulkSettlement}
+                  disabled={bulkSettlementExpenses.length === 0}
+                >
+                  <CheckCircle size={14} className="mr-1" /> Settle {bulkSettlementExpenses.length} Expenses
                 </Button>
               </div>
             </div>

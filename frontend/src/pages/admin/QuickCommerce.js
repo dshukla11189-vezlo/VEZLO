@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -2265,6 +2265,53 @@ Email: ${companyEmail}`;
       loadData();
     } catch (error) {
       toast.error('Failed to update payments');
+    }
+  };
+
+  // Mark all GRN payments for a specific date as received
+  const handleMarkAllGrnPaymentsForDate = async (date, dateData) => {
+    if (!window.confirm(`Mark all GRN payments for ${date} as received?\n\nTotal: ₹${dateData.items.reduce((s, i) => s + (i.amount || 0), 0).toFixed(0)}`)) return;
+    
+    try {
+      // Group items by GRN ID
+      const grnUpdates = {};
+      dateData.items.forEach(item => {
+        if (!item.payment_received && item.grnId) {
+          if (!grnUpdates[item.grnId]) {
+            grnUpdates[item.grnId] = { grn: null, itemIndices: [] };
+          }
+          grnUpdates[item.grnId].itemIndices.push(item.originalItemIndex);
+        }
+      });
+      
+      // Get all GRNs that need updating
+      const grnsToUpdate = grns.filter(g => grnUpdates[g.id]);
+      
+      // Update each GRN
+      for (const grn of grnsToUpdate) {
+        const updatedItems = [...(grn.items || [])];
+        grnUpdates[grn.id].itemIndices.forEach(idx => {
+          if (updatedItems[idx]) {
+            updatedItems[idx] = {
+              ...updatedItems[idx],
+              payment_received: true,
+              payment_date: new Date().toISOString().split('T')[0],
+              payment_mode: 'bank_transfer'
+            };
+          }
+        });
+        
+        await api.put(`/api/qc-grns/${grn.id}`, {
+          ...grn,
+          items: updatedItems
+        });
+      }
+      
+      toast.success(`All payments for ${date} marked as received`);
+      loadData();
+    } catch (error) {
+      toast.error('Failed to update payments');
+      console.error(error);
     }
   };
 
@@ -4891,6 +4938,27 @@ Email: ${companyEmail}`;
                                 <span className="text-xs text-gray-700 ml-auto mr-2">
                                   Amount: <strong>₹{totalAmount.toFixed(0)}</strong>
                                 </span>
+                                {/* Check if any items have pending payments */}
+                                {dateData.items.some(item => !item.payment_received) && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMarkAllGrnPaymentsForDate(date, dateData);
+                                    }}
+                                    className="h-6 px-2 text-green-600 border-green-300 hover:bg-green-100 mr-1"
+                                    title={`Mark all payments as received for ${date}`}
+                                  >
+                                    <IndianRupee size={14} className="mr-1" />
+                                    <span className="text-xs">Mark All Paid</span>
+                                  </Button>
+                                )}
+                                {dateData.items.every(item => item.payment_received) && (
+                                  <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded mr-1 flex items-center gap-1">
+                                    <CheckCircle size={12} /> All Paid
+                                  </span>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="ghost"

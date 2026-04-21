@@ -161,8 +161,13 @@ export default function Procurement() {
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
     payment_mode: 'cash',
-    reference: ''
+    reference: '',
+    paid_by_type: 'company', // 'company' or 'employee'
+    paid_by_employee_id: ''
   });
+
+  // Staff users for Paid By dropdown
+  const [staffUsers, setStaffUsers] = useState([]);
 
   // Farmer form
   const [farmerForm, setFarmerForm] = useState({
@@ -200,7 +205,17 @@ export default function Procurement() {
   useEffect(() => {
     loadData();
     loadTemplates();
+    loadStaffUsers();
   }, []);
+
+  const loadStaffUsers = async () => {
+    try {
+      const response = await api.get('/api/users');
+      setStaffUsers(response.data.filter(u => u.role === 'admin' || u.role === 'staff'));
+    } catch (error) {
+      console.error('Failed to load staff users:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -696,7 +711,9 @@ export default function Procurement() {
     setPaymentForm({
       amount: procurement.pending_amount || 0,
       payment_mode: 'cash',
-      reference: ''
+      reference: '',
+      paid_by_type: 'company',
+      paid_by_employee_id: ''
     });
     setOpenPayment(true);
   };
@@ -704,6 +721,13 @@ export default function Procurement() {
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
     try {
+      // Determine paid_by value
+      let paidByValue = 'Company';
+      if (paymentForm.paid_by_type === 'employee' && paymentForm.paid_by_employee_id) {
+        const emp = staffUsers.find(u => u.id === paymentForm.paid_by_employee_id);
+        paidByValue = emp?.name || emp?.email || paymentForm.paid_by_employee_id;
+      }
+      
       // Record payment
       await api.post('/api/payments', {
         date: new Date().toISOString(),
@@ -712,7 +736,10 @@ export default function Procurement() {
         party_name: selectedProcurement.farmer_name,
         amount: paymentForm.amount,
         payment_mode: paymentForm.payment_mode,
-        reference: paymentForm.reference || `Payment for procurement on ${formatDate(selectedProcurement.date)}`
+        reference: paymentForm.reference || `Payment for procurement on ${formatDate(selectedProcurement.date)}`,
+        paid_by_type: paymentForm.paid_by_type,
+        paid_by: paidByValue,
+        paid_by_employee_id: paymentForm.paid_by_employee_id
       });
       
       // Update procurement record with new payment info
@@ -2549,6 +2576,46 @@ export default function Procurement() {
                   value={paymentForm.reference}
                   onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
                 />
+              </div>
+
+              {/* Paid By Section */}
+              <div>
+                <Label className="mb-2 block">Paid By</Label>
+                <div className="flex gap-4 mb-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="radio"
+                      checked={paymentForm.paid_by_type === 'company'}
+                      onChange={() => setPaymentForm({ ...paymentForm, paid_by_type: 'company', paid_by_employee_id: '' })}
+                      className="w-4 h-4 text-green-600"
+                    />
+                    <span className="text-sm">Company</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="radio"
+                      checked={paymentForm.paid_by_type === 'employee'}
+                      onChange={() => setPaymentForm({ ...paymentForm, paid_by_type: 'employee' })}
+                      className="w-4 h-4 text-green-600"
+                    />
+                    <span className="text-sm">Employee</span>
+                  </label>
+                </div>
+                {paymentForm.paid_by_type === 'employee' && (
+                  <Select 
+                    value={paymentForm.paid_by_employee_id} 
+                    onValueChange={(v) => setPaymentForm({ ...paymentForm, paid_by_employee_id: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select employee" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staffUsers.map(user => (
+                        <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-payment-button">

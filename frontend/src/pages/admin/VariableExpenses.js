@@ -67,14 +67,26 @@ export default function VariableExpenses() {
     paid_to: '',
     payment_mode: 'Cash',
     receipt_no: '',
+    paid_by_type: 'company', // 'company' or 'employee'
     paid_by: 'Company', // Company or Employee name
-    is_employee_expense: false,
-    employee_name: '',
+    paid_by_employee_id: '', // If employee, store their ID
     payment_status: 'pending', // 'pending', 'partially_paid', 'paid'
     paid_amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_reference: '',
     settlement_date: '',
     settlement_remarks: '',
     vertical: 'all' // 'all', 'qc', or 'retail'
+  });
+  
+  // Payment Details Modal state (for recording payment details when marking as Paid)
+  const [showPaymentDetailsModal, setShowPaymentDetailsModal] = useState(false);
+  const [paymentDetailsForm, setPaymentDetailsForm] = useState({
+    payment_mode: 'Cash',
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_reference: '',
+    paid_by_type: 'company',
+    paid_by_employee_id: ''
   });
   
   // Bulk settlement
@@ -146,11 +158,13 @@ export default function VariableExpenses() {
       paid_to: '',
       payment_mode: 'Cash',
       receipt_no: '',
+      paid_by_type: 'company',
       paid_by: 'Company',
-      is_employee_expense: false,
-      employee_name: '',
+      paid_by_employee_id: '',
       payment_status: 'pending',
       paid_amount: '',
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_reference: '',
       settlement_date: '',
       settlement_remarks: '',
       vertical: 'all'
@@ -164,17 +178,105 @@ export default function VariableExpenses() {
       return;
     }
     
+    // If status is being set to "paid", show payment details modal first
+    if (formData.payment_status === 'paid' && !formData.payment_date) {
+      setPaymentDetailsForm({
+        payment_mode: formData.payment_mode || 'Cash',
+        payment_date: new Date().toISOString().split('T')[0],
+        payment_reference: formData.payment_reference || '',
+        paid_by_type: formData.paid_by_type || 'company',
+        paid_by_employee_id: formData.paid_by_employee_id || ''
+      });
+      setShowPaymentDetailsModal(true);
+      return;
+    }
+    
     try {
+      // Determine paid_by value based on type
+      let paidByValue = 'Company';
+      if (formData.paid_by_type === 'employee' && formData.paid_by_employee_id) {
+        const emp = staffUsers.find(u => u.id === formData.paid_by_employee_id);
+        paidByValue = emp?.name || emp?.email || formData.paid_by_employee_id;
+      }
+      
       const payload = {
         ...formData,
         rate: formData.rate ? parseFloat(formData.rate) : null,
         quantity: formData.quantity ? parseFloat(formData.quantity) : null,
         amount: parseFloat(formData.amount),
-        paid_amount: formData.paid_amount ? parseFloat(formData.paid_amount) : 0,
+        paid_amount: formData.payment_status === 'paid' ? parseFloat(formData.amount) : (formData.paid_amount ? parseFloat(formData.paid_amount) : 0),
         payment_status: formData.payment_status || 'pending',
-        // Legacy is_settled: true only if fully paid
         is_settled: formData.payment_status === 'paid',
-        paid_by: formData.is_employee_expense ? formData.employee_name : 'Company'
+        paid_by_type: formData.paid_by_type,
+        paid_by: paidByValue,
+        paid_by_employee_id: formData.paid_by_employee_id,
+        payment_date: formData.payment_date,
+        payment_reference: formData.payment_reference
+      };
+      
+      if (editingExpense) {
+        await api.put(`/api/expenses/variable/${editingExpense.id}`, payload);
+        toast.success('Expense updated successfully');
+      } else {
+        await api.post('/api/expenses/variable', payload);
+        toast.success('Expense added successfully');
+      }
+      
+      setShowAddDialog(false);
+      resetForm();
+      loadExpenses();
+    } catch (error) {
+      console.error('Save expense error:', error);
+      toast.error('Failed to save expense');
+    }
+  };
+  
+  // Handle payment details submission from modal
+  const handlePaymentDetailsSubmit = () => {
+    // Determine paid_by value
+    let paidByValue = 'Company';
+    if (paymentDetailsForm.paid_by_type === 'employee' && paymentDetailsForm.paid_by_employee_id) {
+      const emp = staffUsers.find(u => u.id === paymentDetailsForm.paid_by_employee_id);
+      paidByValue = emp?.name || emp?.email || paymentDetailsForm.paid_by_employee_id;
+    }
+    
+    // Update form with payment details and submit
+    setFormData(prev => ({
+      ...prev,
+      payment_mode: paymentDetailsForm.payment_mode,
+      payment_date: paymentDetailsForm.payment_date,
+      payment_reference: paymentDetailsForm.payment_reference,
+      paid_by_type: paymentDetailsForm.paid_by_type,
+      paid_by_employee_id: paymentDetailsForm.paid_by_employee_id,
+      paid_by: paidByValue
+    }));
+    setShowPaymentDetailsModal(false);
+    // Re-trigger submit with complete data
+    setTimeout(() => handleSubmitFinal(), 100);
+  };
+  
+  // Final submit after payment details
+  const handleSubmitFinal = async () => {
+    try {
+      let paidByValue = 'Company';
+      if (formData.paid_by_type === 'employee' && formData.paid_by_employee_id) {
+        const emp = staffUsers.find(u => u.id === formData.paid_by_employee_id);
+        paidByValue = emp?.name || emp?.email || formData.paid_by_employee_id;
+      }
+      
+      const payload = {
+        ...formData,
+        rate: formData.rate ? parseFloat(formData.rate) : null,
+        quantity: formData.quantity ? parseFloat(formData.quantity) : null,
+        amount: parseFloat(formData.amount),
+        paid_amount: formData.payment_status === 'paid' ? parseFloat(formData.amount) : (formData.paid_amount ? parseFloat(formData.paid_amount) : 0),
+        payment_status: formData.payment_status || 'pending',
+        is_settled: formData.payment_status === 'paid',
+        paid_by_type: formData.paid_by_type,
+        paid_by: paidByValue,
+        paid_by_employee_id: formData.paid_by_employee_id,
+        payment_date: formData.payment_date,
+        payment_reference: formData.payment_reference
       };
       
       if (editingExpense) {
@@ -196,6 +298,8 @@ export default function VariableExpenses() {
 
   const handleEdit = (expense) => {
     setEditingExpense(expense);
+    // Determine paid_by_type from existing data
+    const isPaidByEmployee = expense.paid_by && expense.paid_by !== 'Company' && expense.paid_by !== 'Vendor';
     setFormData({
       date: expense.date?.split('T')[0] || '',
       category: expense.category || '',
@@ -206,11 +310,13 @@ export default function VariableExpenses() {
       paid_to: expense.paid_to || '',
       payment_mode: expense.payment_mode || 'Cash',
       receipt_no: expense.receipt_no || '',
+      paid_by_type: expense.paid_by_type || (isPaidByEmployee ? 'employee' : 'company'),
       paid_by: expense.paid_by || 'Company',
-      is_employee_expense: expense.paid_by !== 'Company',
-      employee_name: expense.paid_by !== 'Company' ? expense.paid_by : '',
+      paid_by_employee_id: expense.paid_by_employee_id || '',
       payment_status: expense.payment_status || (expense.is_settled ? 'paid' : 'pending'),
       paid_amount: expense.paid_amount?.toString() || '',
+      payment_date: expense.payment_date?.split('T')[0] || '',
+      payment_reference: expense.payment_reference || '',
       settlement_date: expense.settlement_date?.split('T')[0] || '',
       settlement_remarks: expense.settlement_remarks || '',
       vertical: expense.vertical || 'all'
@@ -457,6 +563,7 @@ export default function VariableExpenses() {
                       <th className="p-2 text-right text-xs font-medium text-gray-500">AMOUNT</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">VERTICAL</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">PAID TO</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">PAID BY</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">ACTIONS</th>
                     </tr>
@@ -464,7 +571,7 @@ export default function VariableExpenses() {
                   <tbody>
                     {expenses.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="p-8 text-center text-gray-500">
+                        <td colSpan={12} className="p-8 text-center text-gray-500">
                           No expenses found. Click "Add Expense" to get started.
                         </td>
                       </tr>
@@ -502,6 +609,15 @@ export default function VariableExpenses() {
                             </span>
                           </td>
                           <td className="p-2 text-xs">{expense.paid_to || '-'}</td>
+                          <td className="p-2 text-xs">
+                            <span className={`px-2 py-0.5 rounded ${
+                              expense.paid_by === 'Company' || !expense.paid_by 
+                                ? 'bg-blue-50 text-blue-700' 
+                                : 'bg-purple-50 text-purple-700'
+                            }`}>
+                              {expense.paid_by || 'Company'}
+                            </span>
+                          </td>
                           <td className="p-2 text-center">
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${statusConfig.color}`}>
                               {expense.payment_status === 'paid' || expense.is_settled ? <CheckCircle size={10} /> : 
@@ -727,61 +843,69 @@ export default function VariableExpenses() {
                 </p>
               </div>
               
-              {/* Employee Expense Section */}
+              {/* Paid By Section */}
               <div className="border-t pt-3 mt-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Checkbox 
-                    checked={formData.is_employee_expense}
-                    onCheckedChange={(checked) => setFormData(prev => ({ 
-                      ...prev, 
-                      is_employee_expense: checked,
-                      payment_status: checked ? 'pending' : prev.payment_status 
-                    }))}
-                  />
-                  <label className="text-xs font-medium text-gray-700">Paid by Employee (Reimbursement)</label>
+                <label className="text-xs font-medium text-gray-700 mb-2 block">Paid By *</label>
+                <div className="flex gap-4 mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="radio"
+                      name="paid_by_type"
+                      value="company"
+                      checked={formData.paid_by_type === 'company'}
+                      onChange={() => setFormData(prev => ({ 
+                        ...prev, 
+                        paid_by_type: 'company',
+                        paid_by: 'Company',
+                        paid_by_employee_id: ''
+                      }))}
+                      className="w-4 h-4 text-green-600"
+                    />
+                    <span className="text-sm">Company</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="radio"
+                      name="paid_by_type"
+                      value="employee"
+                      checked={formData.paid_by_type === 'employee'}
+                      onChange={() => setFormData(prev => ({ 
+                        ...prev, 
+                        paid_by_type: 'employee',
+                        paid_by: '',
+                        paid_by_employee_id: ''
+                      }))}
+                      className="w-4 h-4 text-green-600"
+                    />
+                    <span className="text-sm">Employee (Reimbursement)</span>
+                  </label>
                 </div>
                 
-                {formData.is_employee_expense && (
-                  <div className="space-y-3 pl-5 border-l-2 border-blue-200">
+                {formData.paid_by_type === 'employee' && (
+                  <div className="space-y-3 pl-4 border-l-2 border-blue-200">
                     <div>
                       <label className="text-xs font-medium text-gray-700 mb-1 block">Employee Name *</label>
                       <Select 
-                        value={formData.employee_name} 
-                        onValueChange={(value) => setFormData(prev => ({ ...prev, employee_name: value }))}
+                        value={formData.paid_by_employee_id} 
+                        onValueChange={(value) => {
+                          const emp = staffUsers.find(u => u.id === value);
+                          setFormData(prev => ({ 
+                            ...prev, 
+                            paid_by_employee_id: value,
+                            paid_by: emp?.name || emp?.email || value
+                          }));
+                        }}
                       >
                         <SelectTrigger className="h-8 text-sm">
                           <SelectValue placeholder="Select employee who paid" />
                         </SelectTrigger>
                         <SelectContent>
                           {staffUsers.map(user => (
-                            <SelectItem key={user.id} value={user.name}>{user.name} ({user.role})</SelectItem>
+                            <SelectItem key={user.id} value={user.id}>{user.name} ({user.role})</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-                    
-                    {formData.payment_status === 'paid' && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs font-medium text-gray-700 mb-1 block">Settlement Date</label>
-                          <Input
-                            type="date"
-                            value={formData.settlement_date}
-                            onChange={(e) => setFormData(prev => ({ ...prev, settlement_date: e.target.value }))}
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-700 mb-1 block">Remarks</label>
-                          <Input
-                            placeholder="Settlement notes"
-                            value={formData.settlement_remarks}
-                            onChange={(e) => setFormData(prev => ({ ...prev, settlement_remarks: e.target.value }))}
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -844,6 +968,103 @@ export default function VariableExpenses() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Payment Details Modal - shown when marking expense as Paid */}
+        {showPaymentDetailsModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="p-4 border-b bg-green-50">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <CheckCircle size={20} className="text-green-600" />
+                  Record Payment Details
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">Expense amount: ₹{formData.amount}</p>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Date *</label>
+                  <Input
+                    type="date"
+                    value={paymentDetailsForm.payment_date}
+                    onChange={(e) => setPaymentDetailsForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
+                  <Select value={paymentDetailsForm.payment_mode} onValueChange={(v) => setPaymentDetailsForm(prev => ({ ...prev, payment_mode: v }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                      <SelectItem value="Card">Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reference / Transaction ID</label>
+                  <Input
+                    placeholder="Enter reference number"
+                    value={paymentDetailsForm.payment_reference}
+                    onChange={(e) => setPaymentDetailsForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Paid By</label>
+                  <div className="flex gap-4 mb-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="radio"
+                        checked={paymentDetailsForm.paid_by_type === 'company'}
+                        onChange={() => setPaymentDetailsForm(prev => ({ ...prev, paid_by_type: 'company', paid_by_employee_id: '' }))}
+                        className="w-4 h-4 text-green-600"
+                      />
+                      <span className="text-sm">Company</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="radio"
+                        checked={paymentDetailsForm.paid_by_type === 'employee'}
+                        onChange={() => setPaymentDetailsForm(prev => ({ ...prev, paid_by_type: 'employee' }))}
+                        className="w-4 h-4 text-green-600"
+                      />
+                      <span className="text-sm">Employee</span>
+                    </label>
+                  </div>
+                  {paymentDetailsForm.paid_by_type === 'employee' && (
+                    <Select 
+                      value={paymentDetailsForm.paid_by_employee_id} 
+                      onValueChange={(v) => setPaymentDetailsForm(prev => ({ ...prev, paid_by_employee_id: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select employee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {staffUsers.map(user => (
+                          <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
+              <div className="p-4 border-t flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDetailsModal(false)}>
+                  Cancel
+                </Button>
+                <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handlePaymentDetailsSubmit}>
+                  <CheckCircle size={14} className="mr-1" /> Confirm Payment
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

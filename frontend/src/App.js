@@ -14,7 +14,7 @@ import RetailerOrders from './pages/admin/RetailerOrders';
 import Wastage from './pages/admin/Wastage';
 import VariableExpenses from './pages/admin/VariableExpenses';
 import FixedExpenses from './pages/admin/FixedExpenses';
-import Payments from './pages/admin/Payments';
+import Cashflow from './pages/admin/Cashflow';
 import LaborCosts from './pages/admin/LaborCosts';
 import UserManagement from './pages/admin/UserManagement';
 import Backup from './pages/admin/Backup';
@@ -145,10 +145,10 @@ function App() {
             }
           />
           <Route
-            path="/admin/payments"
+            path="/admin/cashflow"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
-                <Payments />
+                <Cashflow />
               </ProtectedRoute>
             }
           />

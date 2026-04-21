@@ -69,14 +69,24 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 ## Recent Changes (April 2026)
 
-### Current Session (20 Apr 2026)
+### Current Session (21 Apr 2026)
+1. **Fixed Cashflow QC GRN ₹0.00 Bug** - Changed `item.date` to `item.dispatch_date` in Cashflow.js
+   - QC (Ninjacart) now correctly shows receivables (₹4.99L for Apr 1-21)
+2. **Fixed Variable Expenses Settlement** - Removed spreading of full expense object in PUT requests
+   - Now only sends required fields: `settlement_status`, `settlement_date`, `is_settled`, etc.
+3. **Added Mark All Paid Loading Feedback** - GRN "Mark All Paid" button now shows:
+   - "Marking..." with spinner while processing
+   - "All Paid" badge after completion
+4. **All files linted and verified** - No ESLint errors
+
+### Session 20 Apr 2026
 1. **Verified GRN Loss Unification** - P&L Dashboard loads correctly with shared calculation
 2. **Started Codebase Refactoring Phase 2**
    - Extracted Labour Management routes to `/app/backend/routes/labour.py` (~357 lines)
    - Updated `dependencies.py` with `get_db()` helper
    - server.py reduced from 12,207 to 11,850 lines
 
-### Previous Session
+### Previous Sessions
 1. Unified GRN Loss calculation using `calculate_grn_loss()` helper
 2. Implemented Date-wise Retail Rejection tracking
 3. Added Paid By filters with employee dropdown to Variable Expenses

@@ -140,6 +140,7 @@ export default function QuickCommerce() {
     payment_reference: '',
     remarks: ''
   });
+  const [markingAllPaid, setMarkingAllPaid] = useState(null);  // Track which date group is being marked as paid
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -2272,6 +2273,7 @@ Email: ${companyEmail}`;
   const handleMarkAllGrnPaymentsForDate = async (date, dateData) => {
     if (!window.confirm(`Mark all GRN payments for ${date} as received?\n\nTotal: ₹${dateData.items.reduce((s, i) => s + (i.amount || 0), 0).toFixed(0)}`)) return;
     
+    setMarkingAllPaid(date);  // Show loading state
     try {
       // Group items by GRN ID
       const grnUpdates = {};
@@ -2308,10 +2310,12 @@ Email: ${companyEmail}`;
       }
       
       toast.success(`All payments for ${date} marked as received`);
-      loadData();
+      await loadData();  // Wait for data to reload before clearing loading state
     } catch (error) {
       toast.error('Failed to update payments');
       console.error(error);
+    } finally {
+      setMarkingAllPaid(null);  // Clear loading state
     }
   };
 
@@ -4943,15 +4947,25 @@ Email: ${companyEmail}`;
                                   <Button
                                     size="sm"
                                     variant="outline"
+                                    disabled={markingAllPaid === date}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleMarkAllGrnPaymentsForDate(date, dateData);
                                     }}
-                                    className="h-6 px-2 text-green-600 border-green-300 hover:bg-green-100 mr-1"
+                                    className={`h-6 px-2 mr-1 ${markingAllPaid === date ? 'text-gray-400 border-gray-300' : 'text-green-600 border-green-300 hover:bg-green-100'}`}
                                     title={`Mark all payments as received for ${date}`}
                                   >
-                                    <IndianRupee size={14} className="mr-1" />
-                                    <span className="text-xs">Mark All Paid</span>
+                                    {markingAllPaid === date ? (
+                                      <>
+                                        <Loader2 size={14} className="mr-1 animate-spin" />
+                                        <span className="text-xs">Marking...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <IndianRupee size={14} className="mr-1" />
+                                        <span className="text-xs">Mark All Paid</span>
+                                      </>
+                                    )}
                                   </Button>
                                 )}
                                 {dateData.items.every(item => item.payment_received) && (

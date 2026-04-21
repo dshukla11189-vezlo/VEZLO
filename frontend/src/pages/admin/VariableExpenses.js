@@ -422,8 +422,8 @@ export default function VariableExpenses() {
     if (!reimbursementExpense) return;
     
     try {
+      // Only send the fields that need to be updated, not the entire expense object
       await api.put(`/api/expenses/variable/${reimbursementExpense.id}`, {
-        ...reimbursementExpense,
         settlement_status: 'settled',
         settlement_date: reimbursementForm.payment_date,
         settlement_mode: reimbursementForm.payment_mode,
@@ -436,6 +436,7 @@ export default function VariableExpenses() {
       setReimbursementExpense(null);
       loadExpenses();
     } catch (error) {
+      console.error('Reimbursement error:', error);
       toast.error('Failed to record reimbursement');
     }
   };
@@ -443,8 +444,8 @@ export default function VariableExpenses() {
   // Settle employee reimbursement (quick action)
   const handleSettleReimbursement = async (expense) => {
     try {
+      // Only send the fields that need to be updated
       await api.put(`/api/expenses/variable/${expense.id}`, {
-        ...expense,
         settlement_status: 'settled',
         settlement_date: new Date().toISOString().split('T')[0],
         is_settled: true
@@ -453,6 +454,7 @@ export default function VariableExpenses() {
       setShowViewPaymentModal(false);
       loadExpenses();
     } catch (error) {
+      console.error('Settlement error:', error);
       toast.error('Failed to settle reimbursement');
     }
   };
@@ -496,20 +498,16 @@ export default function VariableExpenses() {
     if (!bulkSettlementEmployee || bulkSettlementExpenses.length === 0) return;
     
     try {
-      // Update all selected expenses
+      // Update all selected expenses - only send fields that need updating
       for (const expenseId of bulkSettlementExpenses) {
-        const expense = expenses.find(e => e.id === expenseId);
-        if (expense) {
-          await api.put(`/api/expenses/variable/${expenseId}`, {
-            ...expense,
-            settlement_status: 'settled',
-            settlement_date: reimbursementForm.payment_date,
-            settlement_mode: reimbursementForm.payment_mode,
-            settlement_reference: reimbursementForm.payment_reference,
-            settlement_remarks: reimbursementForm.remarks,
-            is_settled: true
-          });
-        }
+        await api.put(`/api/expenses/variable/${expenseId}`, {
+          settlement_status: 'settled',
+          settlement_date: reimbursementForm.payment_date,
+          settlement_mode: reimbursementForm.payment_mode,
+          settlement_reference: reimbursementForm.payment_reference,
+          settlement_remarks: reimbursementForm.remarks,
+          is_settled: true
+        });
       }
       
       toast.success(`${bulkSettlementExpenses.length} expenses settled for ${bulkSettlementEmployee.name}`);
@@ -518,6 +516,7 @@ export default function VariableExpenses() {
       setBulkSettlementExpenses([]);
       loadExpenses();
     } catch (error) {
+      console.error('Bulk settlement error:', error);
       toast.error('Failed to settle expenses');
     }
   };

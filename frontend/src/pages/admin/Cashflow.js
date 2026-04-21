@@ -167,10 +167,11 @@ export default function Cashflow() {
       const retailReceived = retailInvoices.reduce((sum, inv) => sum + (inv.paid_amount || 0), 0);
       
       // Process QC GRNs (Receivables) - filter by date range
+      // Note: GRN items use 'dispatch_date' not 'date'
       const qcGrns = (qcGrnsRes.data || []).filter(grn => {
-        // Check if any item date falls within range
+        // Check if any item dispatch_date falls within range
         return grn.items?.some(item => {
-          const itemDate = item.date?.split('T')[0];
+          const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
           return itemDate >= fromDate && itemDate <= toDate;
         });
       });
@@ -179,7 +180,7 @@ export default function Cashflow() {
       let qcReceived = 0;
       qcGrns.forEach(grn => {
         grn.items?.forEach(item => {
-          const itemDate = item.date?.split('T')[0];
+          const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
           if (itemDate >= fromDate && itemDate <= toDate) {
             qcTotal += item.amount || 0;
             if (item.payment_received) {
@@ -216,13 +217,14 @@ export default function Cashflow() {
       });
       
       // Add QC GRN entries
+      // Note: GRN items use 'dispatch_date' not 'date'
       qcGrns.forEach(grn => {
         grn.items?.forEach((item, idx) => {
-          const itemDate = item.date?.split('T')[0];
+          const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
           if (itemDate >= fromDate && itemDate <= toDate && !item.payment_received) {
             receivablesDetailsList.push({
               type: 'QC GRN',
-              date: item.date,
+              date: item.dispatch_date || item.date,
               description: `${grn.customer_name || 'Ninjacart'} - ${item.product_name || 'Products'}`,
               total: item.amount || 0,
               received: item.payment_received ? item.amount : 0,

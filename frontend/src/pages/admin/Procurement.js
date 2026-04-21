@@ -168,6 +168,17 @@ export default function Procurement() {
 
   // Staff users for Paid By dropdown
   const [staffUsers, setStaffUsers] = useState([]);
+  
+  // Settlement/Reimbursement states
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [settlementProcurement, setSettlementProcurement] = useState(null);
+  const [settlementForm, setSettlementForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_mode: 'bank_transfer',
+    payment_reference: '',
+    remarks: ''
+  });
+  const [selectedForSettlement, setSelectedForSettlement] = useState([]);  // For bulk settlement
 
   // Farmer form
   const [farmerForm, setFarmerForm] = useState({
@@ -790,10 +801,88 @@ export default function Procurement() {
       paid_amount: totalPaid || procurement.paid_amount || 0,
       pending_amount: grandTotal - (totalPaid || procurement.paid_amount || 0),
       payment_status: procurement.payment_status || 'pending',
-      remark: procurement.remark || ''
+      remark: procurement.remark || '',
+      // Payment details for paid procurements
+      payment_date: procurement.payment_date?.split('T')[0] || '',
+      payment_mode: procurement.payment_mode || 'cash',
+      payment_reference: procurement.payment_reference || '',
+      paid_by_type: procurement.paid_by_type || 'company',
+      paid_by: procurement.paid_by || 'Company',
+      paid_by_employee_id: procurement.paid_by_employee_id || '',
+      settlement_status: procurement.settlement_status || 'settled'
     });
     setOpenProcurement(true);
   };
+
+  // Settlement functions for employee-paid procurements
+  const openSettlementModal = (procurement) => {
+    setSettlementProcurement(procurement);
+    setSettlementForm({
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_mode: 'bank_transfer',
+      payment_reference: '',
+      remarks: ''
+    });
+    setShowSettlementModal(true);
+  };
+
+  const handleSettlementSubmit = async () => {
+    if (!settlementProcurement) return;
+    
+    try {
+      await api.put(`/api/procurement/${settlementProcurement.id}`, {
+        settlement_status: 'settled',
+        settlement_date: settlementForm.payment_date,
+        settlement_mode: settlementForm.payment_mode,
+        settlement_reference: settlementForm.payment_reference,
+        settlement_remarks: settlementForm.remarks,
+        is_settled: true
+      });
+      toast.success('Reimbursement recorded successfully');
+      setShowSettlementModal(false);
+      setSettlementProcurement(null);
+      loadData();
+    } catch (error) {
+      console.error('Settlement error:', error);
+      toast.error('Failed to record reimbursement');
+    }
+  };
+
+  const toggleSettlementSelection = (procId) => {
+    setSelectedForSettlement(prev => 
+      prev.includes(procId) 
+        ? prev.filter(id => id !== procId)
+        : [...prev, procId]
+    );
+  };
+
+  const handleBulkSettlement = async () => {
+    if (selectedForSettlement.length === 0) {
+      toast.error('No procurements selected');
+      return;
+    }
+    
+    try {
+      for (const procId of selectedForSettlement) {
+        await api.put(`/api/procurement/${procId}`, {
+          settlement_status: 'settled',
+          settlement_date: new Date().toISOString().split('T')[0],
+          is_settled: true
+        });
+      }
+      toast.success(`${selectedForSettlement.length} procurements settled`);
+      setSelectedForSettlement([]);
+      loadData();
+    } catch (error) {
+      console.error('Bulk settlement error:', error);
+      toast.error('Failed to settle procurements');
+    }
+  };
+
+  // Get unsettled employee-paid procurements
+  const unsettledEmployeeProcurements = procurements.filter(
+    p => p.paid_by_type === 'employee' && p.settlement_status !== 'settled' && p.payment_status === 'paid'
+  );
 
   // Delete procurement
   const handleDelete = async (procurementId) => {
@@ -1944,6 +2033,116 @@ export default function Procurement() {
                   </span>
                 )}
               </div>
+              
+              {/* Payment Details for Paid Procurements */}
+              {editMode && procurementForm.payment_status === 'paid' && (
+                <div className="border-t pt-3 mt-2">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Payment Details</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-gray-500">Payment Date</Label>
+                      <Input
+                        type="date"
+                        value={procurementForm.payment_date || ''}
+                        onChange={(e) => setProcurementForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                        className="h-8 text-sm mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Payment Mode</Label>
+                      <Select 
+                        value={procurementForm.payment_mode || 'cash'} 
+                        onValueChange={(v) => setProcurementForm(prev => ({ ...prev, payment_mode: v }))}
+                      >
+                        <SelectTrigger className="h-8 text-sm mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="upi">UPI</SelectItem>
+                          <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                          <SelectItem value="cheque">Cheque</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Paid By</Label>
+                      <Select 
+                        value={procurementForm.paid_by_type || 'company'} 
+                        onValueChange={(v) => {
+                          if (v === 'company') {
+                            setProcurementForm(prev => ({ 
+                              ...prev, 
+                              paid_by_type: v, 
+                              paid_by: 'Company',
+                              paid_by_employee_id: '',
+                              settlement_status: 'settled'
+                            }));
+                          } else {
+                            setProcurementForm(prev => ({ ...prev, paid_by_type: v }));
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-sm mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="company">Company</SelectItem>
+                          <SelectItem value="employee">Employee</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {procurementForm.paid_by_type === 'employee' && (
+                      <div>
+                        <Label className="text-xs text-gray-500">Employee Name</Label>
+                        <Select 
+                          value={procurementForm.paid_by_employee_id || ''} 
+                          onValueChange={(v) => {
+                            const emp = staffUsers.find(u => u.id === v);
+                            setProcurementForm(prev => ({ 
+                              ...prev, 
+                              paid_by_employee_id: v,
+                              paid_by: emp?.name || emp?.email || v,
+                              settlement_status: 'pending_reimbursement'
+                            }));
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-sm mt-1">
+                            <SelectValue placeholder="Select employee" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {staffUsers.map(user => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.name || user.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className={procurementForm.paid_by_type === 'employee' ? '' : 'col-span-2'}>
+                      <Label className="text-xs text-gray-500">Reference / Transaction ID</Label>
+                      <Input
+                        value={procurementForm.payment_reference || ''}
+                        onChange={(e) => setProcurementForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                        placeholder="Enter reference"
+                        className="h-8 text-sm mt-1"
+                      />
+                    </div>
+                    {procurementForm.paid_by_type === 'employee' && (
+                      <div className="col-span-2">
+                        <div className={`text-xs px-2 py-1 rounded inline-block ${
+                          procurementForm.settlement_status === 'settled' 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-purple-100 text-purple-700'
+                        }`}>
+                          Settlement: {procurementForm.settlement_status === 'settled' ? 'Settled' : 'Pending Reimbursement'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Remarks at the bottom */}
               <div className="border-t pt-3">
@@ -2046,6 +2245,37 @@ export default function Procurement() {
           </CardContent>
         </Card>
       </div>
+      
+      {/* Pending Employee Reimbursements Section */}
+      {unsettledEmployeeProcurements.length > 0 && (
+        <Card className="mb-4 border-purple-200 bg-purple-50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2 text-purple-800">
+                <IndianRupee size={18} />
+                Pending Employee Reimbursements
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-purple-700 font-bold">
+                  ₹{unsettledEmployeeProcurements.reduce((sum, p) => sum + (p.total_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+                {selectedForSettlement.length > 0 && (
+                  <Button
+                    size="sm"
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                    onClick={handleBulkSettlement}
+                  >
+                    <Check size={14} className="mr-1" /> Settle Selected ({selectedForSettlement.length})
+                  </Button>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-purple-600 mt-1">
+              {unsettledEmployeeProcurements.length} procurements paid by employees - awaiting company reimbursement
+            </p>
+          </CardHeader>
+        </Card>
+      )}
 
       <Tabs defaultValue="history" className="w-full">
         <TabsList className="grid w-full grid-cols-4 max-w-3xl">
@@ -2147,6 +2377,7 @@ export default function Procurement() {
                 <table>
                   <thead>
                     <tr>
+                      <th className="w-8"></th>
                       <th>{t('procurement.date')}</th>
                       <th>{t('procurement.farmer')}</th>
                       <th>{t('procurement.products')}</th>
@@ -2154,12 +2385,29 @@ export default function Procurement() {
                       <th className="text-right">{t('procurement.paid')}</th>
                       <th className="text-right">{t('procurement.pending')}</th>
                       <th>{t('procurement.payment')}</th>
+                      <th>Settlement</th>
                       <th className="text-center">{t('procurement.action')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredProcurements.map((proc) => (
-                      <tr key={proc.id} data-testid={`procurement-row-${proc.id}`}>
+                    {filteredProcurements.map((proc) => {
+                      const isPendingSettlement = proc.payment_status === 'paid' && 
+                        proc.paid_by_type === 'employee' && 
+                        proc.settlement_status !== 'settled';
+                      return (
+                      <tr 
+                        key={proc.id} 
+                        data-testid={`procurement-row-${proc.id}`}
+                        className={isPendingSettlement ? 'bg-purple-50' : ''}
+                      >
+                        <td>
+                          {isPendingSettlement && (
+                            <Checkbox
+                              checked={selectedForSettlement.includes(proc.id)}
+                              onCheckedChange={() => toggleSettlementSelection(proc.id)}
+                            />
+                          )}
+                        </td>
                         <td>{formatDate(proc.date)}</td>
                         <td className="font-medium">{proc.farmer_name}</td>
                         <td>
@@ -2175,12 +2423,39 @@ export default function Procurement() {
                         <td className="text-right text-green-700">₹{(proc.paid_amount || 0).toFixed(2)}</td>
                         <td className="text-right text-red-700">₹{(proc.pending_amount || 0).toFixed(2)}</td>
                         <td>
-                          <span className={`badge ${
-                            proc.payment_status === 'paid' ? 'badge-success' : 
-                            proc.payment_status === 'partial' ? 'badge-warning' : 'badge-error'
-                          }`}>
-                            {proc.payment_status || 'pending'}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`badge ${
+                              proc.payment_status === 'paid' ? 'badge-success' : 
+                              proc.payment_status === 'partial' ? 'badge-warning' : 'badge-error'
+                            }`}>
+                              {proc.payment_status || 'pending'}
+                            </span>
+                            {proc.paid_by_type === 'employee' && proc.payment_status === 'paid' && (
+                              <span className="text-xs text-purple-600">by {proc.paid_by}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          {proc.payment_status === 'paid' && proc.paid_by_type === 'employee' ? (
+                            proc.settlement_status === 'settled' ? (
+                              <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">Settled</span>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">Pending</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-green-600 hover:bg-green-50"
+                                  onClick={() => openSettlementModal(proc)}
+                                  title="Record Reimbursement"
+                                >
+                                  <IndianRupee size={12} />
+                                </Button>
+                              </div>
+                            )
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
                         </td>
                         <td>
                           <div className="flex items-center justify-center gap-1">
@@ -2216,7 +2491,7 @@ export default function Procurement() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
                 {filteredProcurements.length === 0 && !loading && (
@@ -2692,6 +2967,87 @@ export default function Procurement() {
           </form>
         </DialogContent>
       </Dialog>
+      
+      {/* Settlement/Reimbursement Modal */}
+      {showSettlementModal && settlementProcurement && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-4 border-b bg-purple-50">
+              <h3 className="text-lg font-semibold flex items-center gap-2 text-purple-800">
+                <IndianRupee size={20} />
+                Record Reimbursement
+              </h3>
+              <p className="text-sm text-purple-600 mt-1">
+                Paid by: {settlementProcurement.paid_by} | Amount: ₹{settlementProcurement.total_amount?.toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <Label className="text-sm">Reimbursement Date *</Label>
+                <Input
+                  type="date"
+                  value={settlementForm.payment_date}
+                  onChange={(e) => setSettlementForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Payment Mode</Label>
+                <Select 
+                  value={settlementForm.payment_mode} 
+                  onValueChange={(v) => setSettlementForm(prev => ({ ...prev, payment_mode: v }))}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label className="text-sm">Reference / Transaction ID</Label>
+                <Input
+                  value={settlementForm.payment_reference}
+                  onChange={(e) => setSettlementForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                  placeholder="Enter reference number"
+                  className="mt-1"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Remarks</Label>
+                <Input
+                  value={settlementForm.remarks}
+                  onChange={(e) => setSettlementForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  placeholder="Optional notes"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => { setShowSettlementModal(false); setSettlementProcurement(null); }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                onClick={handleSettlementSubmit}
+              >
+                <Check size={14} className="mr-1" /> Record Reimbursement
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

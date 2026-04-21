@@ -152,6 +152,20 @@ class Procurement(BaseModel):
     status: str = "completed"
     recorded_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Payment detail fields
+    payment_date: Optional[str] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
+    paid_by_type: Optional[str] = None  # 'company' or 'employee'
+    paid_by: Optional[str] = None
+    paid_by_employee_id: Optional[str] = None
+    # Settlement fields (for employee-paid procurements)
+    settlement_status: Optional[str] = None  # 'settled' or 'pending_reimbursement'
+    settlement_date: Optional[str] = None
+    settlement_mode: Optional[str] = None
+    settlement_reference: Optional[str] = None
+    settlement_remarks: Optional[str] = None
+    is_settled: Optional[bool] = None
 
 class ProcurementCreate(BaseModel):
     date: datetime

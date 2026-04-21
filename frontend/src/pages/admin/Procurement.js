@@ -620,7 +620,15 @@ export default function Procurement() {
           pending_amount: procurementForm.pending_amount,
           payment_status: procurementForm.payment_status,
           status: 'completed',
-          remark: procurementForm.remark || ''
+          remark: procurementForm.remark || '',
+          // Payment details
+          payment_date: procurementForm.payment_date || null,
+          payment_mode: procurementForm.payment_mode || null,
+          payment_reference: procurementForm.payment_reference || null,
+          paid_by_type: procurementForm.paid_by_type || null,
+          paid_by: procurementForm.paid_by || null,
+          paid_by_employee_id: procurementForm.paid_by_employee_id || null,
+          settlement_status: procurementForm.settlement_status || null
         };
         
         await api.put(`/api/procurement/${selectedProcurement.id}`, payload);
@@ -2079,7 +2087,11 @@ export default function Procurement() {
                               settlement_status: 'settled'
                             }));
                           } else {
-                            setProcurementForm(prev => ({ ...prev, paid_by_type: v }));
+                            setProcurementForm(prev => ({ 
+                              ...prev, 
+                              paid_by_type: v,
+                              settlement_status: 'pending_reimbursement'
+                            }));
                           }
                         }}
                       >

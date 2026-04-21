@@ -1420,6 +1420,32 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
     if "status" in input:
         update_fields["status"] = input["status"]
     
+    # Payment detail fields (for tracking who paid and settlement)
+    if "payment_date" in input:
+        update_fields["payment_date"] = input["payment_date"]
+    if "payment_mode" in input:
+        update_fields["payment_mode"] = input["payment_mode"]
+    if "payment_reference" in input:
+        update_fields["payment_reference"] = input["payment_reference"]
+    if "paid_by_type" in input:
+        update_fields["paid_by_type"] = input["paid_by_type"]
+    if "paid_by" in input:
+        update_fields["paid_by"] = input["paid_by"]
+    if "paid_by_employee_id" in input:
+        update_fields["paid_by_employee_id"] = input["paid_by_employee_id"]
+    if "settlement_status" in input:
+        update_fields["settlement_status"] = input["settlement_status"]
+    if "settlement_date" in input:
+        update_fields["settlement_date"] = input["settlement_date"]
+    if "settlement_mode" in input:
+        update_fields["settlement_mode"] = input["settlement_mode"]
+    if "settlement_reference" in input:
+        update_fields["settlement_reference"] = input["settlement_reference"]
+    if "settlement_remarks" in input:
+        update_fields["settlement_remarks"] = input["settlement_remarks"]
+    if "is_settled" in input:
+        update_fields["is_settled"] = input["is_settled"]
+    
     # Date field
     new_date = None
     if "date" in input:
@@ -1621,6 +1647,31 @@ async def delete_procurement(procurement_id: str, current_user: dict = Depends(g
         raise HTTPException(status_code=404, detail="Procurement not found")
     
     return {"message": "Procurement deleted successfully"}
+
+
+@api_router.post("/procurement/migrate-paid-by-type")
+async def migrate_procurement_paid_by_type(current_user: dict = Depends(get_current_user)):
+    """Migration endpoint to allow setting paid_by_type for paid procurements without it"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Find paid procurements without paid_by_type
+    paid_without_type = await db.procurements.count_documents({
+        "payment_status": "paid",
+        "paid_by_type": {"$exists": False}
+    })
+    
+    paid_with_null_type = await db.procurements.count_documents({
+        "payment_status": "paid",
+        "paid_by_type": None
+    })
+    
+    return {
+        "message": "Migration check completed",
+        "paid_procurements_without_type": paid_without_type,
+        "paid_procurements_with_null_type": paid_with_null_type,
+        "note": "Use the Edit Purchase dialog to set paid_by_type for each procurement"
+    }
 
 
 # ============================================================================

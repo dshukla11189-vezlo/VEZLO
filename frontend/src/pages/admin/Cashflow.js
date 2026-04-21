@@ -86,13 +86,27 @@ export default function Cashflow() {
       const varTotal = varExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
       const varPaid = varExpenses.filter(e => e.payment_status === 'paid' || e.is_settled).reduce((sum, e) => sum + (e.amount || 0), 0);
       
-      // Process Fixed Expenses (Payables) - filter by date range
+      // Process Fixed Expenses (Payables) - filter by month/year range
+      // Fixed expenses use month (1-12) and year fields, not date
+      const fromMonth = parseInt(fromDate.split('-')[1]);
+      const fromYear = parseInt(fromDate.split('-')[0]);
+      const toMonth = parseInt(toDate.split('-')[1]);
+      const toYear = parseInt(toDate.split('-')[0]);
+      
       const fixedExpenses = (fixedExpensesRes.data || []).filter(e => {
-        const expDate = e.date?.split('T')[0];
-        return expDate >= fromDate && expDate <= toDate;
+        const expMonth = e.month;
+        const expYear = e.year;
+        if (!expMonth || !expYear) return false;
+        
+        // Check if expense month/year falls within range
+        const expDateValue = expYear * 12 + expMonth;
+        const fromDateValue = fromYear * 12 + fromMonth;
+        const toDateValue = toYear * 12 + toMonth;
+        
+        return expDateValue >= fromDateValue && expDateValue <= toDateValue;
       });
       const fixTotal = fixedExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-      const fixPaid = fixedExpenses.filter(e => e.is_settled).reduce((sum, e) => sum + (e.amount || 0), 0);
+      const fixPaid = fixedExpenses.filter(e => e.is_settled || e.status === 'Paid').reduce((sum, e) => sum + (e.amount || 0), 0);
       
       // Process Labour Costs (Payables)
       const labourTotal = labourSummaryRes.data?.summary?.total_payment || 0;
@@ -144,10 +158,12 @@ export default function Cashflow() {
       
       // Add fixed expense entries
       fixedExpenses.forEach(e => {
-        if (!e.is_settled) {
+        if (!e.is_settled && e.status !== 'Paid') {
+          // Create a date from month/year for display
+          const displayDate = e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null;
           payablesDetailsList.push({
             type: 'Fixed Expense',
-            date: e.date,
+            date: displayDate,
             description: `${e.category} - ${e.description || ''}`,
             total: e.amount || 0,
             paid: 0,

@@ -296,6 +296,14 @@ export default function VariableExpenses() {
         paidByValue = emp?.name || emp?.email || formData.paid_by_employee_id;
       }
       
+      // Settlement status: Company paid = settled, Employee paid = pending_reimbursement
+      let settlementStatus = 'settled';
+      let isSettled = true;
+      if (formData.payment_status === 'paid' && formData.paid_by_type === 'employee') {
+        settlementStatus = 'pending_reimbursement';
+        isSettled = false;  // Not settled until company reimburses employee
+      }
+      
       const payload = {
         ...formData,
         rate: formData.rate ? parseFloat(formData.rate) : null,
@@ -303,12 +311,13 @@ export default function VariableExpenses() {
         amount: parseFloat(formData.amount),
         paid_amount: formData.payment_status === 'paid' ? parseFloat(formData.amount) : (formData.paid_amount ? parseFloat(formData.paid_amount) : 0),
         payment_status: formData.payment_status || 'pending',
-        is_settled: formData.payment_status === 'paid',
+        is_settled: isSettled,
         paid_by_type: formData.paid_by_type,
         paid_by: paidByValue,
         paid_by_employee_id: formData.paid_by_employee_id,
         payment_date: formData.payment_date,
-        payment_reference: formData.payment_reference
+        payment_reference: formData.payment_reference,
+        settlement_status: settlementStatus
       };
       
       if (editingExpense) {
@@ -781,11 +790,15 @@ export default function VariableExpenses() {
                     ) : (
                       expenses.map((expense) => {
                         const statusConfig = PAYMENT_STATUS_OPTIONS.find(s => s.value === expense.payment_status) || PAYMENT_STATUS_OPTIONS[0];
-                        const isUnsettled = expense.payment_status !== 'paid' && !expense.is_settled;
+                        // Show checkbox for: unpaid expenses OR employee-paid expenses pending reimbursement
+                        const isPendingReimbursement = expense.payment_status === 'paid' && 
+                          expense.paid_by_type === 'employee' && 
+                          expense.settlement_status !== 'settled';
+                        const showCheckbox = (expense.payment_status !== 'paid' && !expense.is_settled) || isPendingReimbursement;
                         return (
-                        <tr key={expense.id} className={`border-b hover:bg-gray-50 ${isUnsettled ? 'bg-orange-50' : ''}`}>
+                        <tr key={expense.id} className={`border-b hover:bg-gray-50 ${showCheckbox ? 'bg-orange-50' : ''}`}>
                           <td className="p-2">
-                            {isUnsettled && (
+                            {showCheckbox && (
                               <Checkbox 
                                 checked={selectedExpenses.includes(expense.id)}
                                 onCheckedChange={() => toggleExpenseSelection(expense.id)}

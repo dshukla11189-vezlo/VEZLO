@@ -363,6 +363,11 @@ class QCGRNItem(BaseModel):
     amount: Optional[float] = None  # grn_qty * rate_per_unit
     rate_change: Optional[float] = None  # Rate change from previous day (₹)
     rate_change_percent: Optional[float] = None  # Rate change percentage
+    # Payment tracking fields
+    payment_received: Optional[bool] = None
+    payment_date: Optional[str] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
 
 # QC GRN Models - Ninjacart specific
 class QCGRN(BaseModel):

@@ -72,12 +72,16 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 ### Current Session (21 Apr 2026)
 1. **Fixed Cashflow QC GRN ₹0.00 Bug** - Changed `item.date` to `item.dispatch_date` in Cashflow.js
    - QC (Ninjacart) now correctly shows receivables (₹4.99L for Apr 1-21)
-2. **Fixed Variable Expenses Settlement** - Removed spreading of full expense object in PUT requests
-   - Now only sends required fields: `settlement_status`, `settlement_date`, `is_settled`, etc.
-3. **Added Mark All Paid Loading Feedback** - GRN "Mark All Paid" button now shows:
-   - "Marking..." with spinner while processing
-   - "All Paid" badge after completion
-4. **All files linted and verified** - No ESLint errors
+2. **Fixed Variable Expenses Settlement Logic** - Employee-paid expenses now correctly show "Pending" status
+   - Added `settlement_status='pending_reimbursement'` when paid_by_type='employee'
+   - Checkbox enabled for employee-paid pending reimbursement rows
+   - Green rupee icon shows next to "Pending" badge to record reimbursement
+3. **Fixed Mark All Paid Visual Feedback** - GRN payments now properly saved and display "All Paid" badge
+   - Added `payment_received`, `payment_date`, `payment_mode` fields to `QCGRNItem` model in models.py
+   - Loading state with spinner ("Marking...") while processing
+   - "All Paid" badge shows after successful marking
+4. **Fixed Cashflow Fixed Expenses** - Now uses month/year filtering instead of date field
+5. **All files linted and verified** - No ESLint errors
 
 ### Session 20 Apr 2026
 1. **Verified GRN Loss Unification** - P&L Dashboard loads correctly with shared calculation

@@ -37,6 +37,8 @@ export default function Cashflow() {
   // Detailed lists
   const [payablesDetails, setPayablesDetails] = useState([]);
   const [receivablesDetails, setReceivablesDetails] = useState([]);
+  const [reimbursementsData, setReimbursementsData] = useState([]); // Employee-wise reimbursements
+  const [labourDetails, setLabourDetails] = useState([]); // Daily labour breakdown
   
   // Filter for payables tab
   const [payablesFilter, setPayablesFilter] = useState('all'); // 'all', 'procurement', 'variable_expense', 'fixed_expense'
@@ -183,6 +185,98 @@ export default function Cashflow() {
       });
       
       setPayablesDetails(payablesDetailsList.sort((a, b) => new Date(b.date) - new Date(a.date)));
+      
+      // Process Labour Costs for detailed breakdown
+      const labourBreakdown = labourSummaryRes.data?.daily_breakdown || [];
+      const labourDetailsList = labourBreakdown.map(day => ({
+        date: day.date,
+        total_present: day.total_present,
+        total_payment: day.total_payment,
+        records: day.records || []
+      }));
+      setLabourDetails(labourDetailsList);
+      
+      // Build Employee Reimbursements (from Procurement, Variable & Fixed Expenses)
+      const employeeReimbursements = {};
+      
+      // From Procurement (paid_by_type === 'employee' and not settled)
+      procurements.forEach(p => {
+        if (p.paid_by_type === 'employee' && p.settlement_status !== 'settled') {
+          const empName = p.paid_by || 'Unknown';
+          if (!employeeReimbursements[empName]) {
+            employeeReimbursements[empName] = {
+              name: empName,
+              total: 0,
+              procurement: { amount: 0, items: [] },
+              variable: { amount: 0, items: [] },
+              fixed: { amount: 0, items: [] }
+            };
+          }
+          const amount = p.total_amount || 0;
+          employeeReimbursements[empName].total += amount;
+          employeeReimbursements[empName].procurement.amount += amount;
+          employeeReimbursements[empName].procurement.items.push({
+            id: p.id,
+            date: p.date,
+            description: `${p.farmer_name} - ${p.items?.length || 0} items`,
+            amount: amount
+          });
+        }
+      });
+      
+      // From Variable Expenses (paid_by_type === 'employee' and not settled)
+      varExpenses.forEach(e => {
+        if (e.paid_by_type === 'employee' && e.settlement_status !== 'settled') {
+          const empName = e.paid_by || 'Unknown';
+          if (!employeeReimbursements[empName]) {
+            employeeReimbursements[empName] = {
+              name: empName,
+              total: 0,
+              procurement: { amount: 0, items: [] },
+              variable: { amount: 0, items: [] },
+              fixed: { amount: 0, items: [] }
+            };
+          }
+          const amount = e.amount || 0;
+          employeeReimbursements[empName].total += amount;
+          employeeReimbursements[empName].variable.amount += amount;
+          employeeReimbursements[empName].variable.items.push({
+            id: e.id,
+            date: e.date,
+            description: `${e.category} - ${e.description || ''}`,
+            amount: amount
+          });
+        }
+      });
+      
+      // From Fixed Expenses (paid_by_type === 'employee' and not settled)
+      fixedExpenses.forEach(e => {
+        if (e.paid_by_type === 'employee' && e.settlement_status !== 'settled') {
+          const empName = e.paid_by || 'Unknown';
+          if (!employeeReimbursements[empName]) {
+            employeeReimbursements[empName] = {
+              name: empName,
+              total: 0,
+              procurement: { amount: 0, items: [] },
+              variable: { amount: 0, items: [] },
+              fixed: { amount: 0, items: [] }
+            };
+          }
+          const amount = e.amount || 0;
+          employeeReimbursements[empName].total += amount;
+          employeeReimbursements[empName].fixed.amount += amount;
+          employeeReimbursements[empName].fixed.items.push({
+            id: e.id,
+            date: e.date || `${e.year}-${String(e.month).padStart(2, '0')}-01`,
+            description: `${e.category} - ${e.description || ''}`,
+            amount: amount
+          });
+        }
+      });
+      
+      // Convert to array and sort by total descending
+      const reimbursementsList = Object.values(employeeReimbursements).sort((a, b) => b.total - a.total);
+      setReimbursementsData(reimbursementsList);
       
       // Process Retail Invoices (Receivables)
       const retailInvoices = retailInvoicesRes.data || [];
@@ -481,6 +575,26 @@ export default function Cashflow() {
             >
               Receivables ({receivablesDetails.length})
             </button>
+            <button
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'reimbursements' 
+                  ? 'border-[#14532D] text-[#14532D]' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setActiveTab('reimbursements')}
+            >
+              Reimbursements ({reimbursementsData.length})
+            </button>
+            <button
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'labour' 
+                  ? 'border-[#14532D] text-[#14532D]' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setActiveTab('labour')}
+            >
+              Labour ({labourDetails.length} days)
+            </button>
           </div>
         </div>
 
@@ -548,6 +662,25 @@ export default function Cashflow() {
                     <div className="text-right">
                       <div className="font-semibold text-red-600">{formatCurrency(payablesSummary.fixedExpenses.pending)}</div>
                       <div className="text-xs text-gray-500">of {formatCurrency(payablesSummary.fixedExpenses.total)}</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Labour Costs */}
+                <div className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-100 rounded-lg">
+                        <Users size={16} className="text-amber-600" />
+                      </div>
+                      <div>
+                        <div className="font-medium">Labour Costs</div>
+                        <div className="text-xs text-gray-500">Daily wages</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold text-red-600">{formatCurrency(payablesSummary.labourCosts.total)}</div>
+                      <div className="text-xs text-gray-500">{labourDetails.reduce((s, d) => s + d.total_present, 0)} man-days</div>
                     </div>
                   </div>
                 </div>
@@ -779,6 +912,231 @@ export default function Cashflow() {
                   </tfoot>
                 )}
               </table>
+            </div>
+          </div>
+        )}
+        
+        {/* Reimbursements Tab */}
+        {activeTab === 'reimbursements' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg border overflow-hidden">
+              <div className="p-4 border-b bg-purple-50">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-purple-900 flex items-center gap-2">
+                    <Users size={18} /> Employee Reimbursements
+                  </h3>
+                  <span className="text-sm text-purple-600">
+                    Total: {formatCurrency(reimbursementsData.reduce((s, e) => s + e.total, 0))}
+                  </span>
+                </div>
+                <p className="text-xs text-purple-600 mt-1">
+                  Amounts payable to employees from Procurement, Variable & Fixed Expenses
+                </p>
+              </div>
+              
+              {reimbursementsData.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <Users size={40} className="mx-auto mb-3 text-gray-300" />
+                  <p>No pending employee reimbursements</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {reimbursementsData.map((emp, idx) => (
+                    <div key={idx} className="p-4">
+                      <div 
+                        className="flex items-center justify-between cursor-pointer"
+                        onClick={() => setExpandedPayables(prev => ({
+                          ...prev,
+                          [`emp_${idx}`]: !prev[`emp_${idx}`]
+                        }))}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                            <span className="text-purple-700 font-semibold">
+                              {emp.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="font-medium">{emp.name}</div>
+                            <div className="text-xs text-gray-500">
+                              {[
+                                emp.procurement.items.length > 0 && `${emp.procurement.items.length} procurement`,
+                                emp.variable.items.length > 0 && `${emp.variable.items.length} variable`,
+                                emp.fixed.items.length > 0 && `${emp.fixed.items.length} fixed`
+                              ].filter(Boolean).join(', ')}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="font-bold text-purple-600">{formatCurrency(emp.total)}</div>
+                            <div className="text-xs text-gray-500">Total Pending</div>
+                          </div>
+                          <ChevronDown 
+                            size={18} 
+                            className={`text-gray-400 transition-transform ${
+                              expandedPayables[`emp_${idx}`] ? 'rotate-180' : ''
+                            }`}
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Expanded Details */}
+                      {expandedPayables[`emp_${idx}`] && (
+                        <div className="mt-4 pl-13 space-y-3">
+                          {/* Procurement */}
+                          {emp.procurement.items.length > 0 && (
+                            <div className="bg-orange-50 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium text-orange-800">From Procurement</span>
+                                <span className="text-sm font-semibold text-orange-600">{formatCurrency(emp.procurement.amount)}</span>
+                              </div>
+                              <div className="space-y-1">
+                                {emp.procurement.items.map((item, i) => (
+                                  <div key={i} className="flex justify-between text-xs text-orange-700">
+                                    <span>{formatDate(item.date)} - {item.description}</span>
+                                    <span>₹{item.amount?.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Variable Expenses */}
+                          {emp.variable.items.length > 0 && (
+                            <div className="bg-blue-50 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium text-blue-800">From Variable Expenses</span>
+                                <span className="text-sm font-semibold text-blue-600">{formatCurrency(emp.variable.amount)}</span>
+                              </div>
+                              <div className="space-y-1">
+                                {emp.variable.items.map((item, i) => (
+                                  <div key={i} className="flex justify-between text-xs text-blue-700">
+                                    <span>{formatDate(item.date)} - {item.description}</span>
+                                    <span>₹{item.amount?.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Fixed Expenses */}
+                          {emp.fixed.items.length > 0 && (
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium text-gray-800">From Fixed Expenses</span>
+                                <span className="text-sm font-semibold text-gray-600">{formatCurrency(emp.fixed.amount)}</span>
+                              </div>
+                              <div className="space-y-1">
+                                {emp.fixed.items.map((item, i) => (
+                                  <div key={i} className="flex justify-between text-xs text-gray-700">
+                                    <span>{formatDate(item.date)} - {item.description}</span>
+                                    <span>₹{item.amount?.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Labour Tab */}
+        {activeTab === 'labour' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg border overflow-hidden">
+              <div className="p-4 border-b bg-amber-50">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-amber-900 flex items-center gap-2">
+                    <Users size={18} /> Daily Labour Costs
+                  </h3>
+                  <span className="text-sm text-amber-600">
+                    Total: {formatCurrency(payablesSummary.labourCosts.total)}
+                  </span>
+                </div>
+                <p className="text-xs text-amber-600 mt-1">
+                  {labourDetails.reduce((s, d) => s + d.total_present, 0)} man-days in selected period
+                </p>
+              </div>
+              
+              {labourDetails.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <Users size={40} className="mx-auto mb-3 text-gray-300" />
+                  <p>No labour records in this period</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {labourDetails.map((day, idx) => (
+                    <div key={idx} className="p-4">
+                      <div 
+                        className="flex items-center justify-between cursor-pointer"
+                        onClick={() => setExpandedPayables(prev => ({
+                          ...prev,
+                          [`labour_${idx}`]: !prev[`labour_${idx}`]
+                        }))}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                            <span className="text-amber-700 font-semibold text-xs">
+                              {formatDate(day.date).split('/')[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="font-medium">{formatDate(day.date)}</div>
+                            <div className="text-xs text-gray-500">
+                              {day.total_present} workers present
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="font-bold text-amber-600">{formatCurrency(day.total_payment)}</div>
+                            <div className="text-xs text-gray-500">Daily Total</div>
+                          </div>
+                          <ChevronDown 
+                            size={18} 
+                            className={`text-gray-400 transition-transform ${
+                              expandedPayables[`labour_${idx}`] ? 'rotate-180' : ''
+                            }`}
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Expanded Worker Details */}
+                      {expandedPayables[`labour_${idx}`] && (
+                        <div className="mt-3 bg-amber-50 rounded-lg p-3">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-xs text-amber-800">
+                                <th className="text-left pb-2">Worker</th>
+                                <th className="text-center pb-2">Hours</th>
+                                <th className="text-right pb-2">Rate</th>
+                                <th className="text-right pb-2">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-amber-200">
+                              {day.records.filter(r => r.present).map((worker, i) => (
+                                <tr key={i} className="text-amber-700">
+                                  <td className="py-1">{worker.labour_name}</td>
+                                  <td className="text-center">{worker.working_hours || 9}h</td>
+                                  <td className="text-right">₹{worker.daily_rate?.toFixed(0)}</td>
+                                  <td className="text-right font-medium">₹{worker.total_payment?.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

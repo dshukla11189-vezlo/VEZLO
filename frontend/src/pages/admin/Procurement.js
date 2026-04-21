@@ -766,10 +766,21 @@ export default function Procurement() {
       const newPendingAmount = selectedProcurement.total_amount - newPaidAmount;
       const newPaymentStatus = newPendingAmount <= 0 ? 'paid' : newPaidAmount > 0 ? 'partial' : 'pending';
       
+      // Determine settlement status based on who paid
+      const settlementStatus = paymentForm.paid_by_type === 'employee' ? 'pending_reimbursement' : 'settled';
+      
       await api.put(`/api/procurement/${selectedProcurement.id}`, {
         paid_amount: newPaidAmount,
         pending_amount: newPendingAmount,
-        payment_status: newPaymentStatus
+        payment_status: newPaymentStatus,
+        // Payment detail fields
+        payment_date: new Date().toISOString().split('T')[0],
+        payment_mode: paymentForm.payment_mode,
+        payment_reference: paymentForm.reference || '',
+        paid_by_type: paymentForm.paid_by_type,
+        paid_by: paidByValue,
+        paid_by_employee_id: paymentForm.paid_by_employee_id || null,
+        settlement_status: settlementStatus
       });
       
       toast.success('Payment recorded successfully');

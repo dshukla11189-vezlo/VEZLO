@@ -88,6 +88,8 @@ export default function RetailerOrders() {
   const [editingInvoice, setEditingInvoice] = useState(null);
   const [showEditInvoiceModal, setShowEditInvoiceModal] = useState(false);
   const [editInvoiceForm, setEditInvoiceForm] = useState(null);
+  const [editInvoicePayments, setEditInvoicePayments] = useState([]); // Payment history for edit modal
+  const [editInvoicePaymentsLoading, setEditInvoicePaymentsLoading] = useState(false);
   // For item-level selection
   const [uninvoicedItems, setUninvoicedItems] = useState([]); // All uninvoiced items
   const [selectedItemIds, setSelectedItemIds] = useState([]);
@@ -1606,7 +1608,7 @@ export default function RetailerOrders() {
   };
 
   // Edit Invoice
-  const openEditInvoiceModal = (invoice) => {
+  const openEditInvoiceModal = async (invoice) => {
     setEditingInvoice(invoice);
     setEditInvoiceForm({
       invoice_date: invoice.invoice_date?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -1617,6 +1619,22 @@ export default function RetailerOrders() {
       remarks: invoice.remarks || ''
     });
     setShowEditInvoiceModal(true);
+    
+    // Load payment history if invoice has any payments
+    if (invoice.paid_amount > 0) {
+      setEditInvoicePaymentsLoading(true);
+      try {
+        const response = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
+        setEditInvoicePayments(response.data);
+      } catch (error) {
+        console.error('Failed to load payment history:', error);
+        setEditInvoicePayments([]);
+      } finally {
+        setEditInvoicePaymentsLoading(false);
+      }
+    } else {
+      setEditInvoicePayments([]);
+    }
   };
 
   const updateEditInvoiceItem = (index, field, value) => {
@@ -1646,9 +1664,31 @@ export default function RetailerOrders() {
       toast.success('Invoice updated successfully');
       setShowEditInvoiceModal(false);
       setEditingInvoice(null);
+      setEditInvoicePayments([]);
       loadInvoices();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update invoice');
+    }
+  };
+
+  // Delete payment from edit invoice modal
+  const handleDeletePaymentFromEditModal = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment? This will update the invoice status.')) return;
+    try {
+      await api.delete(`/api/retailer-payments/${paymentId}`);
+      toast.success('Payment deleted successfully');
+      // Reload payment history for edit modal
+      if (editingInvoice) {
+        const response = await api.get(`/api/retailer-invoices/${editingInvoice.id}/payments`);
+        setEditInvoicePayments(response.data);
+        // Update the editingInvoice paid_amount to reflect the change
+        const newPaidAmount = response.data.reduce((sum, p) => sum + (p.amount || 0), 0);
+        setEditingInvoice(prev => ({ ...prev, paid_amount: newPaidAmount }));
+      }
+      loadInvoices();
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete payment');
     }
   };
 
@@ -4914,8 +4954,77 @@ export default function RetailerOrders() {
                   />
                 </div>
 
+                {/* Payment History Section (only show if there are payments) */}
+                {(editingInvoice.paid_amount > 0 || editInvoicePayments.length > 0) && (
+                  <div className="border-t pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <CreditCard size={16} className="text-green-600" />
+                        Payment History
+                      </h4>
+                      <span className="text-sm text-green-600 font-medium">
+                        Paid: {formatCurrency(editingInvoice.paid_amount || 0)}
+                      </span>
+                    </div>
+                    {editInvoicePaymentsLoading ? (
+                      <div className="text-center py-3 text-gray-500 text-sm">Loading payments...</div>
+                    ) : editInvoicePayments.length === 0 ? (
+                      <div className="text-center py-3 text-gray-500 bg-gray-50 rounded-lg text-sm">No payments recorded</div>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {editInvoicePayments.map((payment, idx) => (
+                          <div key={payment.id || idx} className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-bold text-green-700">{formatCurrency(payment.amount)}</span>
+                                  <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 uppercase">{payment.payment_mode}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-4 text-xs text-gray-600">
+                                  <div><span className="text-gray-500">Date:</span> {formatDate(payment.payment_date)}</div>
+                                  <div><span className="text-gray-500">By:</span> {payment.received_by_name || '-'}</div>
+                                  {payment.reference_number && (
+                                    <div className="col-span-2"><span className="text-gray-500">Ref:</span> {payment.reference_number}</div>
+                                  )}
+                                  {payment.remarks && (
+                                    <div className="col-span-2"><span className="text-gray-500">Remarks:</span> {payment.remarks}</div>
+                                  )}
+                                </div>
+                              </div>
+                              <Button 
+                                type="button"
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-red-500 hover:bg-red-50 h-7 w-7 p-0 flex-shrink-0"
+                                onClick={() => handleDeletePaymentFromEditModal(payment.id)}
+                                title="Delete Payment"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Add Payment button if there's pending amount */}
+                    {((editingInvoice.net_payable || 0) - (editingInvoice.paid_amount || 0)) > 0 && (
+                      <Button 
+                        type="button"
+                        variant="outline"
+                        className="w-full mt-3 text-green-600 border-green-300 hover:bg-green-50"
+                        onClick={() => {
+                          setShowEditInvoiceModal(false);
+                          openInvoicePaymentModal(editingInvoice);
+                        }}
+                      >
+                        <IndianRupee size={14} className="mr-1" /> Add Payment ({formatCurrency((editingInvoice.net_payable || 0) - (editingInvoice.paid_amount || 0))} pending)
+                      </Button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => { setShowEditInvoiceModal(false); setEditingInvoice(null); }} className="flex-1">
+                  <Button type="button" variant="outline" onClick={() => { setShowEditInvoiceModal(false); setEditingInvoice(null); setEditInvoicePayments([]); }} className="flex-1">
                     Cancel
                   </Button>
                   <Button type="submit" className="flex-1 bg-[#14532D]">

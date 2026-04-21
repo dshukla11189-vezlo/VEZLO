@@ -86,17 +86,23 @@ export default function Cashflow() {
       const varTotal = varExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
       const varPaid = varExpenses.filter(e => e.payment_status === 'paid' || e.is_settled).reduce((sum, e) => sum + (e.amount || 0), 0);
       
-      // Process Fixed Expenses (Payables) - filter by month/year range
-      // Fixed expenses use month (1-12) and year fields, not date
-      const fromMonth = parseInt(fromDate.split('-')[1]);
-      const fromYear = parseInt(fromDate.split('-')[0]);
-      const toMonth = parseInt(toDate.split('-')[1]);
-      const toYear = parseInt(toDate.split('-')[0]);
-      
+      // Process Fixed Expenses (Payables) - filter by date range
+      // Fixed expenses now have a 'date' field (fallback to month/year for backward compatibility)
       const fixedExpenses = (fixedExpensesRes.data || []).filter(e => {
+        // If expense has date field, use it directly
+        if (e.date) {
+          const expDate = e.date?.split('T')[0];
+          return expDate >= fromDate && expDate <= toDate;
+        }
+        // Fallback: use month/year fields for backward compatibility
         const expMonth = e.month;
         const expYear = e.year;
         if (!expMonth || !expYear) return false;
+        
+        const fromMonth = parseInt(fromDate.split('-')[1]);
+        const fromYear = parseInt(fromDate.split('-')[0]);
+        const toMonth = parseInt(toDate.split('-')[1]);
+        const toYear = parseInt(toDate.split('-')[0]);
         
         // Check if expense month/year falls within range
         const expDateValue = expYear * 12 + expMonth;
@@ -159,8 +165,9 @@ export default function Cashflow() {
       // Add fixed expense entries
       fixedExpenses.forEach(e => {
         if (!e.is_settled && e.status !== 'Paid') {
-          // Create a date from month/year for display
-          const displayDate = e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null;
+          // Use date field if available, otherwise create from month/year
+          const displayDate = e.date ? e.date.split('T')[0] : 
+            (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
           payablesDetailsList.push({
             type: 'Fixed Expense',
             date: displayDate,

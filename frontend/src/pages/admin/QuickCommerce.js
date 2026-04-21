@@ -141,6 +141,21 @@ export default function QuickCommerce() {
     remarks: ''
   });
   const [markingAllPaid, setMarkingAllPaid] = useState(null);  // Track which date group is being marked as paid
+  
+  // Bulk GRN Payment Modal
+  const [showBulkGrnPaymentModal, setShowBulkGrnPaymentModal] = useState(false);
+  const [bulkGrnPaymentData, setBulkGrnPaymentData] = useState(null);  // { date, dateData }
+  const [bulkGrnPaymentForm, setBulkGrnPaymentForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_mode: 'bank_transfer',
+    payment_reference: '',
+    remarks: ''
+  });
+  
+  // View/Edit GRN Payment Modal
+  const [showViewGrnPaymentModal, setShowViewGrnPaymentModal] = useState(false);
+  const [viewingGrnPayment, setViewingGrnPayment] = useState(null);  // { grnId, itemIndex, item }
+  const [editingGrnPayment, setEditingGrnPayment] = useState(false);
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -2270,10 +2285,26 @@ Email: ${companyEmail}`;
   };
 
   // Mark all GRN payments for a specific date as received
-  const handleMarkAllGrnPaymentsForDate = async (date, dateData) => {
-    if (!window.confirm(`Mark all GRN payments for ${date} as received?\n\nTotal: ₹${dateData.items.reduce((s, i) => s + (i.amount || 0), 0).toFixed(0)}`)) return;
+  // Open bulk payment modal for a date
+  const openBulkGrnPaymentModal = (date, dateData) => {
+    setBulkGrnPaymentData({ date, dateData });
+    setBulkGrnPaymentForm({
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_mode: 'bank_transfer',
+      payment_reference: '',
+      remarks: ''
+    });
+    setShowBulkGrnPaymentModal(true);
+  };
+  
+  const handleMarkAllGrnPaymentsForDate = async () => {
+    if (!bulkGrnPaymentData) return;
+    
+    const { date, dateData } = bulkGrnPaymentData;
     
     setMarkingAllPaid(date);  // Show loading state
+    setShowBulkGrnPaymentModal(false);
+    
     try {
       // Group items by GRN ID
       const grnUpdates = {};
@@ -2297,8 +2328,10 @@ Email: ${companyEmail}`;
             updatedItems[idx] = {
               ...updatedItems[idx],
               payment_received: true,
-              payment_date: new Date().toISOString().split('T')[0],
-              payment_mode: 'bank_transfer'
+              payment_date: bulkGrnPaymentForm.payment_date,
+              payment_mode: bulkGrnPaymentForm.payment_mode,
+              payment_reference: bulkGrnPaymentForm.payment_reference,
+              payment_remarks: bulkGrnPaymentForm.remarks
             };
           }
         });
@@ -2310,12 +2343,64 @@ Email: ${companyEmail}`;
       }
       
       toast.success(`All payments for ${date} marked as received`);
+      setBulkGrnPaymentData(null);
       await loadData();  // Wait for data to reload before clearing loading state
     } catch (error) {
       toast.error('Failed to update payments');
       console.error(error);
     } finally {
       setMarkingAllPaid(null);  // Clear loading state
+    }
+  };
+  
+  // View GRN Payment details
+  const openViewGrnPayment = (grnId, itemIndex, item) => {
+    setViewingGrnPayment({ grnId, itemIndex, item });
+    setGrnPaymentForm({
+      payment_date: item.payment_date || new Date().toISOString().split('T')[0],
+      payment_mode: item.payment_mode || 'bank_transfer',
+      payment_reference: item.payment_reference || '',
+      remarks: item.payment_remarks || ''
+    });
+    setEditingGrnPayment(false);
+    setShowViewGrnPaymentModal(true);
+  };
+  
+  // Update single GRN item payment
+  const handleUpdateGrnPayment = async () => {
+    if (!viewingGrnPayment) return;
+    
+    const { grnId, itemIndex } = viewingGrnPayment;
+    const grn = grns.find(g => g.id === grnId);
+    
+    if (!grn) {
+      toast.error('GRN not found');
+      return;
+    }
+    
+    try {
+      const updatedItems = [...(grn.items || [])];
+      updatedItems[itemIndex] = {
+        ...updatedItems[itemIndex],
+        payment_received: true,
+        payment_date: grnPaymentForm.payment_date,
+        payment_mode: grnPaymentForm.payment_mode,
+        payment_reference: grnPaymentForm.payment_reference,
+        payment_remarks: grnPaymentForm.remarks
+      };
+      
+      await api.put(`/api/qc-grns/${grnId}`, {
+        ...grn,
+        items: updatedItems
+      });
+      
+      toast.success('Payment details updated');
+      setShowViewGrnPaymentModal(false);
+      setViewingGrnPayment(null);
+      loadData();
+    } catch (error) {
+      toast.error('Failed to update payment');
+      console.error(error);
     }
   };
 
@@ -4950,7 +5035,7 @@ Email: ${companyEmail}`;
                                     disabled={markingAllPaid === date}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleMarkAllGrnPaymentsForDate(date, dateData);
+                                      openBulkGrnPaymentModal(date, dateData);
                                     }}
                                     className={`h-6 px-2 mr-1 ${markingAllPaid === date ? 'text-gray-400 border-gray-300' : 'text-green-600 border-green-300 hover:bg-green-100'}`}
                                     title={`Mark all payments as received for ${date}`}
@@ -5052,9 +5137,23 @@ Email: ${companyEmail}`;
                                             </td>
                                             <td className="text-center">
                                               {item.payment_received ? (
-                                                <span className="text-green-600" title={`Paid: ${item.payment_date || ''}`}>
-                                                  <CheckCircle size={14} />
-                                                </span>
+                                                <div className="flex items-center justify-center gap-1">
+                                                  <span className="text-green-600" title={`Paid: ${item.payment_date || ''}`}>
+                                                    <CheckCircle size={14} />
+                                                  </span>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-5 w-5 p-0 text-blue-600 hover:bg-blue-50"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      openViewGrnPayment(item.grnId, item.originalItemIndex, item);
+                                                    }}
+                                                    title="View/Edit Payment"
+                                                  >
+                                                    <Eye size={10} />
+                                                  </Button>
+                                                </div>
                                               ) : (
                                                 <Button
                                                   size="sm"
@@ -5669,6 +5768,162 @@ Email: ${companyEmail}`;
               <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleGrnPaymentSubmit}>
                 <CheckCircle size={14} className="mr-1" /> Record Payment
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Bulk GRN Payment Modal */}
+      {showBulkGrnPaymentModal && bulkGrnPaymentData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-4 border-b bg-green-50">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <IndianRupee size={20} className="text-green-600" />
+                Mark All Payments - {bulkGrnPaymentData.date}
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {bulkGrnPaymentData.dateData.items.filter(i => !i.payment_received).length} items | 
+                Total: ₹{bulkGrnPaymentData.dateData.items.filter(i => !i.payment_received).reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <Label className="text-sm">Payment Date *</Label>
+                <Input
+                  type="date"
+                  value={bulkGrnPaymentForm.payment_date}
+                  onChange={(e) => setBulkGrnPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Payment Mode *</Label>
+                <Select value={bulkGrnPaymentForm.payment_mode} onValueChange={(v) => setBulkGrnPaymentForm(prev => ({ ...prev, payment_mode: v }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label className="text-sm">Reference / Transaction ID</Label>
+                <Input
+                  value={bulkGrnPaymentForm.payment_reference}
+                  onChange={(e) => setBulkGrnPaymentForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                  placeholder="Enter reference number"
+                  className="mt-1"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Remarks</Label>
+                <Input
+                  value={bulkGrnPaymentForm.remarks}
+                  onChange={(e) => setBulkGrnPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  placeholder="Optional notes"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setShowBulkGrnPaymentModal(false); setBulkGrnPaymentData(null); }}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleMarkAllGrnPaymentsForDate}>
+                <CheckCircle size={14} className="mr-1" /> Mark All Paid
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* View/Edit GRN Payment Modal */}
+      {showViewGrnPaymentModal && viewingGrnPayment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-4 border-b bg-blue-50">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Eye size={20} className="text-blue-600" />
+                {editingGrnPayment ? 'Edit Payment Details' : 'Payment Details'}
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {viewingGrnPayment.item.product_name} | ₹{viewingGrnPayment.item.amount?.toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <Label className="text-sm">Payment Date</Label>
+                <Input
+                  type="date"
+                  value={grnPaymentForm.payment_date}
+                  onChange={(e) => setGrnPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  className="mt-1"
+                  disabled={!editingGrnPayment}
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Payment Mode</Label>
+                <Select 
+                  value={grnPaymentForm.payment_mode} 
+                  onValueChange={(v) => setGrnPaymentForm(prev => ({ ...prev, payment_mode: v }))}
+                  disabled={!editingGrnPayment}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label className="text-sm">Reference / Transaction ID</Label>
+                <Input
+                  value={grnPaymentForm.payment_reference}
+                  onChange={(e) => setGrnPaymentForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                  placeholder="Reference number"
+                  className="mt-1"
+                  disabled={!editingGrnPayment}
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Remarks</Label>
+                <Input
+                  value={grnPaymentForm.remarks}
+                  onChange={(e) => setGrnPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  placeholder="Notes"
+                  className="mt-1"
+                  disabled={!editingGrnPayment}
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setShowViewGrnPaymentModal(false); setViewingGrnPayment(null); setEditingGrnPayment(false); }}>
+                Close
+              </Button>
+              {editingGrnPayment ? (
+                <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleUpdateGrnPayment}>
+                  <CheckCircle size={14} className="mr-1" /> Save Changes
+                </Button>
+              ) : (
+                <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={() => setEditingGrnPayment(true)}>
+                  <Pencil size={14} className="mr-1" /> Edit
+                </Button>
+              )}
             </div>
           </div>
         </div>

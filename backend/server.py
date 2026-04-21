@@ -7638,6 +7638,30 @@ async def bulk_settle_variable_expenses(data: dict, current_user: dict = Depends
     
     return {"message": f"Settled {result.modified_count} expenses", "count": result.modified_count}
 
+@api_router.post("/expenses/variable/migrate-paid-by-type")
+async def migrate_variable_expenses_paid_by_type(current_user: dict = Depends(get_current_user)):
+    """One-time migration to add paid_by_type field to variable expenses based on paid_by value"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Update expenses where paid_by is 'Company' or 'Vendor' -> paid_by_type = 'company'
+    company_result = await db.variable_expenses.update_many(
+        {"paid_by_type": {"$exists": False}, "paid_by": {"$in": ["Company", "Vendor", None, ""]}},
+        {"$set": {"paid_by_type": "company", "settlement_status": "settled"}}
+    )
+    
+    # Update expenses where paid_by is an employee name -> paid_by_type = 'employee'
+    employee_result = await db.variable_expenses.update_many(
+        {"paid_by_type": {"$exists": False}, "paid_by": {"$nin": ["Company", "Vendor", None, ""]}},
+        {"$set": {"paid_by_type": "employee", "settlement_status": "settled", "is_settled": True}}
+    )
+    
+    return {
+        "message": "Migration completed",
+        "company_expenses_updated": company_result.modified_count,
+        "employee_expenses_updated": employee_result.modified_count
+    }
+
 # ============================================================================
 # SECTION: FIXED EXPENSES ROUTES (Lines ~3208-3370)
 # ============================================================================

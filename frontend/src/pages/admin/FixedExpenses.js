@@ -48,7 +48,8 @@ export default function FixedExpenses() {
   
   // Form data
   const [formData, setFormData] = useState({
-    month: new Date().getMonth(),
+    date: new Date().toISOString().split('T')[0],  // Full date instead of month/year
+    month: new Date().getMonth() + 1,  // Keep for backward compatibility (1-12)
     year: new Date().getFullYear(),
     category: '',
     description: '',
@@ -125,7 +126,8 @@ export default function FixedExpenses() {
 
   const resetForm = () => {
     setFormData({
-      month: filterMonth,
+      date: new Date().toISOString().split('T')[0],
+      month: filterMonth + 1,  // filterMonth is 0-indexed
       year: filterYear,
       category: '',
       description: '',
@@ -247,8 +249,19 @@ export default function FixedExpenses() {
   const handleEdit = (expense) => {
     setEditingExpense(expense);
     const isPaidByEmployee = expense.paid_by && expense.paid_by !== 'Company';
+    
+    // Construct date from expense.date or from month/year for backward compatibility
+    let dateValue = expense.date?.split('T')[0];
+    if (!dateValue && expense.month && expense.year) {
+      dateValue = `${expense.year}-${String(expense.month).padStart(2, '0')}-01`;
+    }
+    if (!dateValue) {
+      dateValue = new Date().toISOString().split('T')[0];
+    }
+    
     setFormData({
-      month: expense.month ?? new Date().getMonth(),
+      date: dateValue,
+      month: expense.month ?? new Date().getMonth() + 1,
       year: expense.year ?? new Date().getFullYear(),
       category: expense.category || '',
       description: expense.description || '',
@@ -626,33 +639,23 @@ export default function FixedExpenses() {
             </DialogHeader>
             
             <div className="space-y-3 py-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">Month *</label>
-                  <Select value={formData.month.toString()} onValueChange={(v) => setFormData(prev => ({ ...prev, month: parseInt(v) }))}>
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTHS.map((month, idx) => (
-                        <SelectItem key={idx} value={idx.toString()}>{month}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">Year *</label>
-                  <Select value={formData.year.toString()} onValueChange={(v) => setFormData(prev => ({ ...prev, year: parseInt(v) }))}>
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {years.map(year => (
-                        <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Date *</label>
+                <Input
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => {
+                    const dateVal = e.target.value;
+                    const d = new Date(dateVal);
+                    setFormData(prev => ({ 
+                      ...prev, 
+                      date: dateVal,
+                      month: d.getMonth() + 1,  // 1-12 for backward compatibility
+                      year: d.getFullYear()
+                    }));
+                  }}
+                  className="h-8 text-sm"
+                />
               </div>
               
               <div>

@@ -69,7 +69,20 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 ## Recent Changes (April 2026)
 
-### Current Session (21 Apr 2026)
+### Current Session (21 Apr 2026) - Part 2
+1. **GRN Mark All Paid Popup** - Shows payment details modal instead of confirm dialog
+   - Payment Date, Payment Mode, Reference/Transaction ID, Remarks fields
+   - Button changes to "All Paid" badge after successful marking
+2. **View/Edit GRN Payments** - Added Eye icon to view/edit payment details for paid items
+3. **Fixed Expenses Date Field** - Changed from month/year dropdowns to full date picker
+   - Backward compatible with existing month/year data
+4. **Cashflow Fixed Expenses Filter** - Now correctly filters by date field
+   - Shows ₹75.0K for April Fixed Expenses
+5. **Variable Expenses Migration** - Added migration endpoint to set `paid_by_type` for past entries
+   - 25 company expenses + 33 employee expenses migrated
+   - All past Ankush expenses now show "Settled" status
+
+### Current Session (21 Apr 2026) - Part 1
 1. **Fixed Cashflow QC GRN ₹0.00 Bug** - Changed `item.date` to `item.dispatch_date` in Cashflow.js
    - QC (Ninjacart) now correctly shows receivables (₹4.99L for Apr 1-21)
 2. **Fixed Variable Expenses Settlement Logic** - Employee-paid expenses now correctly show "Pending" status
@@ -80,7 +93,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
    - Added `payment_received`, `payment_date`, `payment_mode` fields to `QCGRNItem` model in models.py
    - Loading state with spinner ("Marking...") while processing
    - "All Paid" badge shows after successful marking
-4. **Fixed Cashflow Fixed Expenses** - Now uses month/year filtering instead of date field
+4. **Fixed Cashflow Fixed Expenses** - Now uses date field with month/year fallback
 5. **All files linted and verified** - No ESLint errors
 
 ### Session 20 Apr 2026

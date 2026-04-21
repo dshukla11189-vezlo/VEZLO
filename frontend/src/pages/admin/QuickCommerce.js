@@ -2353,6 +2353,59 @@ Email: ${companyEmail}`;
     }
   };
   
+  // Unmark all GRN payments for a date (toggle from "All Paid" back to "Mark All Paid")
+  const handleUnmarkAllGrnPaymentsForDate = async (date, dateData) => {
+    if (!window.confirm(`Unmark all payments for ${date}?\n\nThis will reset all ${dateData.items.length} items to unpaid status.`)) return;
+    
+    setMarkingAllPaid(date);  // Show loading state
+    
+    try {
+      // Group items by GRN ID
+      const grnUpdates = {};
+      dateData.items.forEach(item => {
+        if (item.payment_received && item.grnId) {
+          if (!grnUpdates[item.grnId]) {
+            grnUpdates[item.grnId] = { itemIndices: [] };
+          }
+          grnUpdates[item.grnId].itemIndices.push(item.originalItemIndex);
+        }
+      });
+      
+      // Get all GRNs that need updating
+      const grnsToUpdate = grns.filter(g => grnUpdates[g.id]);
+      
+      // Update each GRN to clear payment status
+      for (const grn of grnsToUpdate) {
+        const updatedItems = [...(grn.items || [])];
+        grnUpdates[grn.id].itemIndices.forEach(idx => {
+          if (updatedItems[idx]) {
+            updatedItems[idx] = {
+              ...updatedItems[idx],
+              payment_received: false,
+              payment_date: null,
+              payment_mode: null,
+              payment_reference: null,
+              payment_remarks: null
+            };
+          }
+        });
+        
+        await api.put(`/api/qc-grns/${grn.id}`, {
+          ...grn,
+          items: updatedItems
+        });
+      }
+      
+      toast.success(`Payments for ${date} have been reset`);
+      await loadData();
+    } catch (error) {
+      toast.error('Failed to reset payments');
+      console.error(error);
+    } finally {
+      setMarkingAllPaid(null);
+    }
+  };
+  
   // View GRN Payment details
   const openViewGrnPayment = (grnId, itemIndex, item) => {
     setViewingGrnPayment({ grnId, itemIndex, item });
@@ -5054,9 +5107,29 @@ Email: ${companyEmail}`;
                                   </Button>
                                 )}
                                 {dateData.items.every(item => item.payment_received) && (
-                                  <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded mr-1 flex items-center gap-1">
-                                    <CheckCircle size={12} /> All Paid
-                                  </span>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={markingAllPaid === date}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleUnmarkAllGrnPaymentsForDate(date, dateData);
+                                    }}
+                                    className="h-6 px-2 mr-1 text-green-600 hover:bg-green-50 hover:text-orange-600"
+                                    title={`Click to unmark all payments for ${date}`}
+                                  >
+                                    {markingAllPaid === date ? (
+                                      <>
+                                        <Loader2 size={12} className="mr-1 animate-spin" />
+                                        <span className="text-xs">Resetting...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle size={12} className="mr-1" />
+                                        <span className="text-xs">All Paid</span>
+                                      </>
+                                    )}
+                                  </Button>
                                 )}
                                 <Button
                                   size="sm"

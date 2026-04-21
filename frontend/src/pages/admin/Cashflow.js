@@ -294,7 +294,7 @@ export default function Cashflow() {
     payablesSummary.procurement.pending + 
     payablesSummary.variableExpenses.pending + 
     payablesSummary.fixedExpenses.pending +
-    payablesSummary.labourCosts.pending;
+    payablesSummary.labourCosts.total;  // Labour is always "due" (paid daily)
     
   const totalReceivables = 
     receivablesSummary.retailInvoices.pending + 
@@ -392,6 +392,10 @@ export default function Cashflow() {
               <div className="flex justify-between text-red-600">
                 <span>Fixed Expenses</span>
                 <span>{formatCurrency(payablesSummary.fixedExpenses.pending)}</span>
+              </div>
+              <div className="flex justify-between text-red-600">
+                <span>Labour Costs</span>
+                <span>{formatCurrency(payablesSummary.labourCosts.total)}</span>
               </div>
             </div>
           </div>

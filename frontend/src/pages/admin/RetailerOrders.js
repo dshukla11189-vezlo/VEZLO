@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye
 } from 'lucide-react';
 
 // Export utility function
@@ -138,6 +138,12 @@ export default function RetailerOrders() {
     payment_date: new Date().toISOString().split('T')[0]
   });
   const [staffUsers, setStaffUsers] = useState([]); // Admin and Staff users for "Received By"
+  
+  // Payment History Modal state (for viewing/editing paid invoices)
+  const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+  const [selectedInvoiceForHistory, setSelectedInvoiceForHistory] = useState(null);
+  const [invoicePaymentHistory, setInvoicePaymentHistory] = useState([]);
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
   
   // Invoice filter state
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all'); // all, pending, partial, paid
@@ -2271,6 +2277,41 @@ export default function RetailerOrders() {
     setShowInvoicePaymentModal(true);
   };
 
+  // Open payment history modal (for viewing/editing paid invoices)
+  const openPaymentHistoryModal = async (invoice) => {
+    setSelectedInvoiceForHistory(invoice);
+    setPaymentHistoryLoading(true);
+    setShowPaymentHistoryModal(true);
+    try {
+      const response = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
+      setInvoicePaymentHistory(response.data);
+    } catch (error) {
+      console.error('Failed to load payment history:', error);
+      toast.error('Failed to load payment history');
+      setInvoicePaymentHistory([]);
+    } finally {
+      setPaymentHistoryLoading(false);
+    }
+  };
+
+  // Delete a payment from history
+  const handleDeletePaymentFromHistory = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment? This will update the invoice status.')) return;
+    try {
+      await api.delete(`/api/retailer-payments/${paymentId}`);
+      toast.success('Payment deleted successfully');
+      // Reload payment history
+      if (selectedInvoiceForHistory) {
+        const response = await api.get(`/api/retailer-invoices/${selectedInvoiceForHistory.id}/payments`);
+        setInvoicePaymentHistory(response.data);
+      }
+      loadInvoices();
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete payment');
+    }
+  };
+
   // Handle invoice payment submission
   const handleInvoicePayment = async (e) => {
     e.preventDefault();
@@ -3207,7 +3248,17 @@ export default function RetailerOrders() {
                             </td>
                             <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
-                                {status !== 'paid' && (
+                                {status === 'paid' ? (
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                    onClick={() => openPaymentHistoryModal(invoice)}
+                                    title="View Payment Details"
+                                  >
+                                    <Eye size={14} className="mr-1" /> View
+                                  </Button>
+                                ) : (
                                   <Button 
                                     size="sm" 
                                     variant="outline" 
@@ -5227,9 +5278,9 @@ export default function RetailerOrders() {
 
         {/* ==================== INVOICE PAYMENT MODAL ==================== */}
         {showInvoicePaymentModal && selectedInvoiceForPayment && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-              <div className="flex items-center justify-between p-4 border-b bg-green-50">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) { setShowInvoicePaymentModal(false); setSelectedInvoiceForPayment(null); }}}>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col my-auto">
+              <div className="flex items-center justify-between p-4 border-b bg-green-50 flex-shrink-0">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <IndianRupee size={20} className="text-green-600" />
                   Record Invoice Payment
@@ -5238,7 +5289,7 @@ export default function RetailerOrders() {
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleInvoicePayment} className="p-4 space-y-4">
+              <form onSubmit={handleInvoicePayment} className="p-4 space-y-4 overflow-y-auto flex-1">
                 {/* Invoice Summary */}
                 <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
                   <div className="flex justify-between">
@@ -5365,6 +5416,122 @@ export default function RetailerOrders() {
                   </Button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT HISTORY MODAL (View/Edit Paid Invoices) ==================== */}
+        {showPaymentHistoryModal && selectedInvoiceForHistory && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) { setShowPaymentHistoryModal(false); setSelectedInvoiceForHistory(null); }}}>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col my-auto">
+              <div className="flex items-center justify-between p-4 border-b bg-blue-50 flex-shrink-0">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Eye size={20} className="text-blue-600" />
+                  Payment Details
+                </h3>
+                <button onClick={() => { setShowPaymentHistoryModal(false); setSelectedInvoiceForHistory(null); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                {/* Invoice Summary */}
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Invoice:</span>
+                    <span className="font-semibold text-blue-600">{selectedInvoiceForHistory.invoice_number}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Retailer:</span>
+                    <span className="font-medium">{getRetailerNameById(selectedInvoiceForHistory.retailer_id) || selectedInvoiceForHistory.retailer_name}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 mt-2">
+                    <span className="text-gray-600">Invoice Amount:</span>
+                    <span className="font-semibold">{formatCurrency(selectedInvoiceForHistory.net_payable)}</span>
+                  </div>
+                  <div className="flex justify-between text-green-600">
+                    <span>Total Paid:</span>
+                    <span className="font-semibold">{formatCurrency(selectedInvoiceForHistory.paid_amount || 0)}</span>
+                  </div>
+                  {((selectedInvoiceForHistory.net_payable || 0) - (selectedInvoiceForHistory.paid_amount || 0)) > 0 && (
+                    <div className="flex justify-between text-amber-600">
+                      <span>Pending:</span>
+                      <span className="font-medium">{formatCurrency((selectedInvoiceForHistory.net_payable || 0) - (selectedInvoiceForHistory.paid_amount || 0))}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment History */}
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Payment History</h4>
+                  {paymentHistoryLoading ? (
+                    <div className="text-center py-4 text-gray-500">Loading...</div>
+                  ) : invoicePaymentHistory.length === 0 ? (
+                    <div className="text-center py-4 text-gray-500 bg-gray-50 rounded-lg">No payments recorded</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {invoicePaymentHistory.map((payment, idx) => (
+                        <div key={payment.id || idx} className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <span className="text-lg font-bold text-green-700">{formatCurrency(payment.amount)}</span>
+                              <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 uppercase">{payment.payment_mode}</span>
+                            </div>
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="text-red-500 hover:bg-red-50 h-7 w-7 p-0"
+                              onClick={() => handleDeletePaymentFromHistory(payment.id)}
+                              title="Delete Payment"
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                            <div>
+                              <span className="text-gray-500">Date:</span>{' '}
+                              <span className="font-medium">{formatDate(payment.payment_date)}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Received By:</span>{' '}
+                              <span className="font-medium">{payment.received_by_name || '-'}</span>
+                            </div>
+                            {payment.reference_number && (
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Reference:</span>{' '}
+                                <span className="font-medium">{payment.reference_number}</span>
+                              </div>
+                            )}
+                            {payment.remarks && (
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Remarks:</span>{' '}
+                                <span className="font-medium">{payment.remarks}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add More Payment Button (if invoice still has pending amount) */}
+                {((selectedInvoiceForHistory.net_payable || 0) - (selectedInvoiceForHistory.paid_amount || 0)) > 0 && (
+                  <Button 
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      setShowPaymentHistoryModal(false);
+                      openInvoicePaymentModal(selectedInvoiceForHistory);
+                    }}
+                  >
+                    <IndianRupee size={14} className="mr-1" /> Add Payment
+                  </Button>
+                )}
+              </div>
+              <div className="p-4 border-t flex-shrink-0">
+                <Button variant="outline" className="w-full" onClick={() => { setShowPaymentHistoryModal(false); setSelectedInvoiceForHistory(null); }}>
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
         )}

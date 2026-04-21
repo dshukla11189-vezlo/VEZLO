@@ -8370,9 +8370,41 @@ async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can delete payments")
     
+    # Get the payment first to know which invoice to update
+    payment = await db.retailer_payments.find_one({"id": payment_id})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    invoice_id = payment.get("invoice_id")
+    payment_amount = payment.get("amount", 0)
+    
+    # Delete the payment
     result = await db.retailer_payments.delete_one({"id": payment_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Payment not found")
+    
+    # If payment was linked to an invoice, recalculate invoice paid_amount and status
+    if invoice_id:
+        invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+        if invoice:
+            # Recalculate total paid from remaining payments
+            remaining_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+            new_paid_amount = sum(p.get("amount", 0) for p in remaining_payments)
+            net_payable = invoice.get("net_payable", 0)
+            
+            # Determine new status
+            if new_paid_amount >= net_payable:
+                new_status = "paid"
+            elif new_paid_amount > 0:
+                new_status = "partial"
+            else:
+                new_status = "pending"
+            
+            # Update invoice
+            await db.retailer_invoices.update_one(
+                {"id": invoice_id},
+                {"$set": {"paid_amount": round(new_paid_amount, 2), "status": new_status}}
+            )
     
     return {"message": "Payment deleted successfully"}
 

@@ -38,6 +38,9 @@ export default function Cashflow() {
   const [payablesDetails, setPayablesDetails] = useState([]);
   const [receivablesDetails, setReceivablesDetails] = useState([]);
   
+  // Filter for payables tab
+  const [payablesFilter, setPayablesFilter] = useState('all'); // 'all', 'procurement', 'variable_expense', 'fixed_expense'
+  
   // Expanded sections
   const [expandedPayables, setExpandedPayables] = useState({
     procurement: false,
@@ -573,61 +576,121 @@ export default function Cashflow() {
         )}
 
         {activeTab === 'payables' && (
-          <div className="bg-white rounded-lg border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-3 text-left">Date</th>
-                    <th className="p-3 text-left">Type</th>
-                    <th className="p-3 text-left">Description</th>
-                    <th className="p-3 text-right">Total</th>
-                    <th className="p-3 text-right">Paid</th>
-                    <th className="p-3 text-right">Pending</th>
-                    <th className="p-3 text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {payablesDetails.length === 0 ? (
+          <div className="space-y-4">
+            {/* Payables Filter */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-gray-600">Filter:</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPayablesFilter('all')}
+                  className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    payablesFilter === 'all' 
+                      ? 'bg-gray-800 text-white' 
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  All ({payablesDetails.length})
+                </button>
+                <button
+                  onClick={() => setPayablesFilter('procurement')}
+                  className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    payablesFilter === 'procurement' 
+                      ? 'bg-orange-600 text-white' 
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                  }`}
+                >
+                  Procurement ({payablesDetails.filter(p => p.entity === 'procurement').length})
+                </button>
+                <button
+                  onClick={() => setPayablesFilter('variable_expense')}
+                  className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    payablesFilter === 'variable_expense' 
+                      ? 'bg-purple-600 text-white' 
+                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                  }`}
+                >
+                  Variable ({payablesDetails.filter(p => p.entity === 'variable_expense').length})
+                </button>
+                <button
+                  onClick={() => setPayablesFilter('fixed_expense')}
+                  className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+                    payablesFilter === 'fixed_expense' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                  }`}
+                >
+                  Fixed ({payablesDetails.filter(p => p.entity === 'fixed_expense').length})
+                </button>
+              </div>
+            </div>
+
+            {/* Payables Table */}
+            <div className="bg-white rounded-lg border overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-gray-500">
-                        No pending payables in this period
-                      </td>
+                      <th className="p-3 text-left">Date</th>
+                      <th className="p-3 text-left">Type</th>
+                      <th className="p-3 text-left">Description</th>
+                      <th className="p-3 text-right">Total</th>
+                      <th className="p-3 text-right">Paid</th>
+                      <th className="p-3 text-right">Pending</th>
+                      <th className="p-3 text-center">Status</th>
                     </tr>
-                  ) : (
-                    payablesDetails.map((item, idx) => (
-                      <tr key={`${item.entity}-${item.id}-${idx}`} className="hover:bg-gray-50">
-                        <td className="p-3 whitespace-nowrap">{formatDate(item.date)}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            item.type === 'Procurement' ? 'bg-orange-100 text-orange-700' :
-                            item.type === 'Variable Expense' ? 'bg-purple-100 text-purple-700' :
-                            'bg-blue-100 text-blue-700'
-                          }`}>
-                            {item.type}
-                          </span>
+                  </thead>
+                  <tbody className="divide-y">
+                    {payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-8 text-center text-gray-500">
+                          No pending payables in this period
                         </td>
-                        <td className="p-3 max-w-xs truncate">{item.description}</td>
-                        <td className="p-3 text-right font-medium">₹{item.total?.toFixed(2)}</td>
-                        <td className="p-3 text-right text-green-600">₹{item.paid?.toFixed(2)}</td>
-                        <td className="p-3 text-right font-semibold text-red-600">₹{item.pending?.toFixed(2)}</td>
-                        <td className="p-3 text-center">{getStatusBadge(item.status)}</td>
                       </tr>
-                    ))
+                    ) : (
+                      payablesDetails
+                        .filter(p => payablesFilter === 'all' || p.entity === payablesFilter)
+                        .map((item, idx) => (
+                          <tr key={`${item.entity}-${item.id}-${idx}`} className="hover:bg-gray-50">
+                            <td className="p-3 whitespace-nowrap">{formatDate(item.date)}</td>
+                            <td className="p-3">
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                item.type === 'Procurement' ? 'bg-orange-100 text-orange-700' :
+                                item.type === 'Variable Expense' ? 'bg-purple-100 text-purple-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                {item.type}
+                              </span>
+                            </td>
+                            <td className="p-3 max-w-xs truncate">{item.description}</td>
+                            <td className="p-3 text-right font-medium">₹{item.total?.toFixed(2)}</td>
+                            <td className="p-3 text-right text-green-600">₹{item.paid?.toFixed(2)}</td>
+                            <td className="p-3 text-right font-semibold text-red-600">₹{item.pending?.toFixed(2)}</td>
+                            <td className="p-3 text-center">{getStatusBadge(item.status)}</td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                  {payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).length > 0 && (
+                    <tfoot className="bg-red-50">
+                      <tr>
+                        <td colSpan={3} className="p-3 font-semibold text-red-900">
+                          Total {payablesFilter === 'all' ? 'Payables' : payablesFilter === 'procurement' ? 'Procurement' : payablesFilter === 'variable_expense' ? 'Variable Expenses' : 'Fixed Expenses'}
+                        </td>
+                        <td className="p-3 text-right font-semibold">
+                          ₹{payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).reduce((s, i) => s + i.total, 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right font-semibold text-green-600">
+                          ₹{payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).reduce((s, i) => s + i.paid, 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right font-bold text-red-600">
+                          ₹{payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).reduce((s, i) => s + i.pending, 0).toFixed(2)}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
                   )}
-                </tbody>
-                {payablesDetails.length > 0 && (
-                  <tfoot className="bg-red-50">
-                    <tr>
-                      <td colSpan={3} className="p-3 font-semibold text-red-900">Total Payables</td>
-                      <td className="p-3 text-right font-semibold">₹{payablesDetails.reduce((s, i) => s + i.total, 0).toFixed(2)}</td>
-                      <td className="p-3 text-right font-semibold text-green-600">₹{payablesDetails.reduce((s, i) => s + i.paid, 0).toFixed(2)}</td>
-                      <td className="p-3 text-right font-bold text-red-600">₹{payablesDetails.reduce((s, i) => s + i.pending, 0).toFixed(2)}</td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+                </table>
+              </div>
             </div>
           </div>
         )}

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Receipt, Filter, Calendar, Edit2, Trash2, RefreshCw, 
-  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search
+  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search, Eye
 } from 'lucide-react';
 
 const EXPENSE_CATEGORIES = [
@@ -74,6 +74,7 @@ export default function VariableExpenses() {
     paid_amount: '',
     payment_date: new Date().toISOString().split('T')[0],
     payment_reference: '',
+    settlement_status: 'settled', // 'settled' or 'pending_reimbursement'
     settlement_date: '',
     settlement_remarks: '',
     vertical: 'all' // 'all', 'qc', or 'retail'
@@ -92,6 +93,10 @@ export default function VariableExpenses() {
   // Bulk settlement
   const [selectedExpenses, setSelectedExpenses] = useState([]);
   const [settlementRemarks, setSettlementRemarks] = useState('');
+  
+  // View Payment Modal state
+  const [showViewPaymentModal, setShowViewPaymentModal] = useState(false);
+  const [viewingExpense, setViewingExpense] = useState(null);
 
   const loadExpenses = useCallback(async () => {
     setLoading(true);
@@ -165,6 +170,7 @@ export default function VariableExpenses() {
       paid_amount: '',
       payment_date: new Date().toISOString().split('T')[0],
       payment_reference: '',
+      settlement_status: 'settled',
       settlement_date: '',
       settlement_remarks: '',
       vertical: 'all'
@@ -199,6 +205,16 @@ export default function VariableExpenses() {
         paidByValue = emp?.name || emp?.email || formData.paid_by_employee_id;
       }
       
+      // Settlement status: Company paid = settled, Employee paid = pending_reimbursement (unless already settled)
+      let settlementStatus = formData.settlement_status;
+      if (formData.payment_status === 'paid') {
+        if (formData.paid_by_type === 'company') {
+          settlementStatus = 'settled';
+        } else if (formData.paid_by_type === 'employee' && formData.settlement_status !== 'settled') {
+          settlementStatus = 'pending_reimbursement';
+        }
+      }
+      
       const payload = {
         ...formData,
         rate: formData.rate ? parseFloat(formData.rate) : null,
@@ -206,12 +222,13 @@ export default function VariableExpenses() {
         amount: parseFloat(formData.amount),
         paid_amount: formData.payment_status === 'paid' ? parseFloat(formData.amount) : (formData.paid_amount ? parseFloat(formData.paid_amount) : 0),
         payment_status: formData.payment_status || 'pending',
-        is_settled: formData.payment_status === 'paid',
+        is_settled: formData.payment_status === 'paid' && formData.paid_by_type === 'company',
         paid_by_type: formData.paid_by_type,
         paid_by: paidByValue,
         paid_by_employee_id: formData.paid_by_employee_id,
         payment_date: formData.payment_date,
-        payment_reference: formData.payment_reference
+        payment_reference: formData.payment_reference,
+        settlement_status: settlementStatus
       };
       
       if (editingExpense) {
@@ -317,6 +334,7 @@ export default function VariableExpenses() {
       paid_amount: expense.paid_amount?.toString() || '',
       payment_date: expense.payment_date?.split('T')[0] || '',
       payment_reference: expense.payment_reference || '',
+      settlement_status: expense.settlement_status || (isPaidByEmployee && !expense.is_settled ? 'pending_reimbursement' : 'settled'),
       settlement_date: expense.settlement_date?.split('T')[0] || '',
       settlement_remarks: expense.settlement_remarks || '',
       vertical: expense.vertical || 'all'
@@ -364,6 +382,29 @@ export default function VariableExpenses() {
     setSelectedExpenses(prev => 
       prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]
     );
+  };
+
+  // View payment details
+  const handleViewPayment = (expense) => {
+    setViewingExpense(expense);
+    setShowViewPaymentModal(true);
+  };
+
+  // Settle employee reimbursement
+  const handleSettleReimbursement = async (expense) => {
+    try {
+      await api.put(`/api/expenses/variable/${expense.id}`, {
+        ...expense,
+        settlement_status: 'settled',
+        settlement_date: new Date().toISOString().split('T')[0],
+        is_settled: true
+      });
+      toast.success('Reimbursement settled');
+      setShowViewPaymentModal(false);
+      loadExpenses();
+    } catch (error) {
+      toast.error('Failed to settle reimbursement');
+    }
   };
 
   const unsettledExpenses = expenses.filter(e => e.payment_status !== 'paid' && !e.is_settled);
@@ -565,13 +606,14 @@ export default function VariableExpenses() {
                       <th className="p-2 text-left text-xs font-medium text-gray-500">PAID TO</th>
                       <th className="p-2 text-left text-xs font-medium text-gray-500">PAID BY</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">SETTLEMENT</th>
                       <th className="p-2 text-center text-xs font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {expenses.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="p-8 text-center text-gray-500">
+                        <td colSpan={13} className="p-8 text-center text-gray-500">
                           No expenses found. Click "Add Expense" to get started.
                         </td>
                       </tr>
@@ -626,7 +668,25 @@ export default function VariableExpenses() {
                             </span>
                           </td>
                           <td className="p-2 text-center">
+                            {expense.payment_status === 'paid' && expense.paid_by_type === 'employee' ? (
+                              expense.settlement_status === 'settled' ? (
+                                <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Settled</span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">Pending</span>
+                              )
+                            ) : expense.payment_status === 'paid' ? (
+                              <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Settled</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center">
                             <div className="flex items-center justify-center gap-1">
+                              {expense.payment_status === 'paid' && (
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleViewPayment(expense)} title="View Payment">
+                                  <Eye size={12} className="text-green-600" />
+                                </Button>
+                              )}
                               <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleEdit(expense)}>
                                 <Edit2 size={12} className="text-blue-600" />
                               </Button>
@@ -1060,6 +1120,94 @@ export default function VariableExpenses() {
                 </Button>
                 <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handlePaymentDetailsSubmit}>
                   <CheckCircle size={14} className="mr-1" /> Confirm Payment
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* View Payment Modal */}
+        {showViewPaymentModal && viewingExpense && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="p-4 border-b bg-blue-50">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Eye size={20} className="text-blue-600" />
+                  Payment Details
+                </h3>
+              </div>
+              <div className="p-4 space-y-4">
+                {/* Expense Summary */}
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Category:</span>
+                    <span className="font-medium">{viewingExpense.category}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Description:</span>
+                    <span className="font-medium">{viewingExpense.description || '-'}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2">
+                    <span className="text-gray-600">Amount:</span>
+                    <span className="font-bold text-lg">₹{viewingExpense.amount?.toFixed(2)}</span>
+                  </div>
+                </div>
+                
+                {/* Payment Info */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-gray-700">Payment Information</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="bg-green-50 p-2 rounded">
+                      <span className="text-gray-600 block text-xs">Payment Mode</span>
+                      <span className="font-medium">{viewingExpense.payment_mode || 'Cash'}</span>
+                    </div>
+                    <div className="bg-green-50 p-2 rounded">
+                      <span className="text-gray-600 block text-xs">Payment Date</span>
+                      <span className="font-medium">{viewingExpense.payment_date?.split('T')[0] || viewingExpense.date?.split('T')[0]}</span>
+                    </div>
+                    <div className="bg-green-50 p-2 rounded">
+                      <span className="text-gray-600 block text-xs">Paid By</span>
+                      <span className={`font-medium ${viewingExpense.paid_by === 'Company' ? 'text-blue-600' : 'text-purple-600'}`}>
+                        {viewingExpense.paid_by || 'Company'}
+                      </span>
+                    </div>
+                    {viewingExpense.payment_reference && (
+                      <div className="bg-green-50 p-2 rounded">
+                        <span className="text-gray-600 block text-xs">Reference</span>
+                        <span className="font-medium">{viewingExpense.payment_reference}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Settlement Status for Employee Paid */}
+                {viewingExpense.paid_by_type === 'employee' && (
+                  <div className="border-t pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Reimbursement Status:</span>
+                      {viewingExpense.settlement_status === 'settled' ? (
+                        <span className="px-3 py-1 rounded-full text-sm bg-green-100 text-green-700">Settled</span>
+                      ) : (
+                        <span className="px-3 py-1 rounded-full text-sm bg-amber-100 text-amber-700">Pending Reimbursement</span>
+                      )}
+                    </div>
+                    {viewingExpense.settlement_status !== 'settled' && (
+                      <Button 
+                        className="w-full mt-3 bg-green-600 hover:bg-green-700"
+                        onClick={() => handleSettleReimbursement(viewingExpense)}
+                      >
+                        <CheckCircle size={14} className="mr-1" /> Mark as Settled
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="p-4 border-t flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setShowViewPaymentModal(false)}>
+                  Close
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={() => { setShowViewPaymentModal(false); handleEdit(viewingExpense); }}>
+                  <Edit2 size={14} className="mr-1" /> Edit
                 </Button>
               </div>
             </div>

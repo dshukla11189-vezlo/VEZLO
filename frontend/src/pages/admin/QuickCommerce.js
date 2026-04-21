@@ -130,6 +130,16 @@ export default function QuickCommerce() {
   // Manual GRN entry state for pending dispatches
   const [manualGrnData, setManualGrnData] = useState({});  // { dispatchId_productId: { grn_qty, rate } }
   const [editingPendingGrn, setEditingPendingGrn] = useState(null);  // Track which pending item is being edited
+  
+  // GRN Payment Recording
+  const [showGrnPaymentModal, setShowGrnPaymentModal] = useState(false);
+  const [selectedGrnForPayment, setSelectedGrnForPayment] = useState(null);
+  const [grnPaymentForm, setGrnPaymentForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_mode: 'bank_transfer',
+    payment_reference: '',
+    remarks: ''
+  });
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -2187,6 +2197,74 @@ Email: ${companyEmail}`;
       loadData();
     } catch (error) {
       toast.error('Failed to delete GRN');
+    }
+  };
+
+  // GRN Payment Recording functions
+  const openGrnPaymentModal = (grn, itemIndex) => {
+    setSelectedGrnForPayment({ grn, itemIndex });
+    setGrnPaymentForm({
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_mode: 'bank_transfer',
+      payment_reference: '',
+      remarks: ''
+    });
+    setShowGrnPaymentModal(true);
+  };
+
+  const handleGrnPaymentSubmit = async () => {
+    if (!selectedGrnForPayment) return;
+    
+    try {
+      const { grn, itemIndex } = selectedGrnForPayment;
+      const updatedItems = [...(grn.items || [])];
+      
+      // Mark this item as payment received
+      if (itemIndex !== undefined && updatedItems[itemIndex]) {
+        updatedItems[itemIndex] = {
+          ...updatedItems[itemIndex],
+          payment_received: true,
+          payment_date: grnPaymentForm.payment_date,
+          payment_mode: grnPaymentForm.payment_mode,
+          payment_reference: grnPaymentForm.payment_reference,
+          payment_remarks: grnPaymentForm.remarks
+        };
+      }
+      
+      // Update the GRN
+      await api.put(`/api/qc-grns/${grn.id}`, {
+        ...grn,
+        items: updatedItems
+      });
+      
+      toast.success('Payment recorded successfully');
+      setShowGrnPaymentModal(false);
+      setSelectedGrnForPayment(null);
+      loadData();
+    } catch (error) {
+      toast.error('Failed to record payment');
+    }
+  };
+
+  const handleMarkAllGrnPaymentsReceived = async (grn) => {
+    if (!window.confirm(`Mark all items in this GRN as payment received?`)) return;
+    
+    try {
+      const updatedItems = (grn.items || []).map(item => ({
+        ...item,
+        payment_received: true,
+        payment_date: new Date().toISOString().split('T')[0]
+      }));
+      
+      await api.put(`/api/qc-grns/${grn.id}`, {
+        ...grn,
+        items: updatedItems
+      });
+      
+      toast.success('All payments marked as received');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to update payments');
     }
   };
 
@@ -4841,6 +4919,7 @@ Email: ${companyEmail}`;
                                         <th className="text-right">RATE</th>
                                         <th className="text-center">RATE Δ</th>
                                         <th className="text-right">AMOUNT</th>
+                                        <th className="text-center">PAID</th>
                                         <th className="text-center">ACT</th>
                                       </tr>
                                     </thead>
@@ -4887,6 +4966,27 @@ Email: ${companyEmail}`;
                                                 <div className={`text-xs font-bold ${lossGain > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                   {lossGain > 0 ? '+' : ''}₹{lossGain.toFixed(0)}
                                                 </div>
+                                              )}
+                                            </td>
+                                            <td className="text-center">
+                                              {item.payment_received ? (
+                                                <span className="text-green-600" title={`Paid: ${item.payment_date || ''}`}>
+                                                  <CheckCircle size={14} />
+                                                </span>
+                                              ) : (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  className="h-6 px-2 text-amber-600 hover:bg-amber-50"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const grn = grns.find(g => g.id === item.grnId);
+                                                    if (grn) openGrnPaymentModal(grn, item.originalItemIndex);
+                                                  }}
+                                                  title="Record Payment"
+                                                >
+                                                  <Clock size={12} />
+                                                </Button>
                                               )}
                                             </td>
                                             <td className="text-center">
@@ -4942,7 +5042,9 @@ Email: ${companyEmail}`;
                                           </span>
                                         </td>
                                         <td></td>
+                                        <td></td>
                                         <td className="text-right font-bold">₹{totalAmount.toFixed(0)}</td>
+                                        <td></td>
                                         <td></td>
                                       </tr>
                                     </tfoot>
@@ -5418,6 +5520,77 @@ Email: ${companyEmail}`;
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* GRN Payment Modal */}
+      {showGrnPaymentModal && selectedGrnForPayment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-4 border-b bg-green-50">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <IndianRupee size={20} className="text-green-600" />
+                Record GRN Payment
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Amount: ₹{selectedGrnForPayment?.grn?.items?.[selectedGrnForPayment?.itemIndex]?.amount?.toFixed(2) || 0}
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <Label className="text-sm">Payment Date *</Label>
+                <Input
+                  type="date"
+                  value={grnPaymentForm.payment_date}
+                  onChange={(e) => setGrnPaymentForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Payment Mode *</Label>
+                <Select value={grnPaymentForm.payment_mode} onValueChange={(v) => setGrnPaymentForm(prev => ({ ...prev, payment_mode: v }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label className="text-sm">Reference / Transaction ID</Label>
+                <Input
+                  value={grnPaymentForm.payment_reference}
+                  onChange={(e) => setGrnPaymentForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                  placeholder="Enter reference number"
+                  className="mt-1"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-sm">Remarks</Label>
+                <Input
+                  value={grnPaymentForm.remarks}
+                  onChange={(e) => setGrnPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  placeholder="Optional notes"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setShowGrnPaymentModal(false); setSelectedGrnForPayment(null); }}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleGrnPaymentSubmit}>
+                <CheckCircle size={14} className="mr-1" /> Record Payment
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

@@ -89,8 +89,8 @@ export default function FixedExpenses() {
   useEffect(() => {
     const loadStaffUsers = async () => {
       try {
-        const response = await api.get('/api/users');
-        setStaffUsers(response.data.filter(u => u.role === 'admin' || u.role === 'staff'));
+        const response = await api.get('/api/employees');
+        setStaffUsers(response.data || []);
       } catch (error) {
         console.error('Failed to load staff users:', error);
       }

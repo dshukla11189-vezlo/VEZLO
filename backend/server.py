@@ -339,6 +339,15 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 # ============================================================================
 # SECTION: USER MANAGEMENT ROUTES - Admin Only (Lines ~225-305)
 # ============================================================================
+@api_router.get("/employees")
+async def get_employees(current_user: dict = Depends(get_current_user)):
+    """Get list of employees (staff and admin users) for dropdowns - accessible by all authenticated users"""
+    users = await db.users.find(
+        {"role": {"$in": ["staff", "admin"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+    ).to_list(1000)
+    return users
+
 @api_router.get("/users")
 async def get_users(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "admin":

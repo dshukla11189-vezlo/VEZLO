@@ -149,12 +149,8 @@ export default function VariableExpenses() {
   // Load Admin and Staff users for Paid By dropdown
   const loadStaffUsers = async () => {
     try {
-      const response = await api.get('/api/users');
-      // Filter only admin and staff users
-      const adminStaff = (response.data || []).filter(u => 
-        u.role === 'admin' || u.role === 'staff'
-      );
-      setStaffUsers(adminStaff);
+      const response = await api.get('/api/employees');
+      setStaffUsers(response.data || []);
     } catch (error) {
       console.error('Failed to load staff users:', error);
       setStaffUsers([]);

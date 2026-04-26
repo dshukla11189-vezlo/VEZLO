@@ -367,13 +367,14 @@ export default function Cashflow() {
       
       setReceivablesDetails(receivablesDetailsList.sort((a, b) => new Date(b.date) - new Date(a.date)));
       
-      // Build Payments Data (Inflows and Outflows for actual transactions)
+      // Build Payments Data (Inflows and Outflows for ACTUAL cash transactions only)
+      // This shows real money movement - what came in and what went out
       const inflows = [];
       const outflows = [];
       let totalInflow = 0;
       let totalOutflow = 0;
       
-      // INFLOWS: QC GRN payments received
+      // INFLOWS: QC GRN payments received (confirmed payment from customers)
       qcGrns.forEach(grn => {
         grn.items?.forEach((item, idx) => {
           const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
@@ -413,10 +414,12 @@ export default function Cashflow() {
         }
       });
       
-      // OUTFLOWS: Procurement payments made
+      // OUTFLOWS: Procurement payments made BY COMPANY (not employee)
+      // Only include if company actually paid the farmer
       procurements.forEach(p => {
         const paidAmount = p.paid_amount || 0;
-        if (paidAmount > 0) {
+        const paidByCompany = !p.paid_by_type || p.paid_by_type === 'company' || p.paid_by_type === '';
+        if (paidAmount > 0 && paidByCompany) {
           totalOutflow += paidAmount;
           outflows.push({
             type: 'Procurement',
@@ -426,15 +429,20 @@ export default function Cashflow() {
             amount: paidAmount,
             payment_mode: p.payment_mode || '-',
             reference: p.payment_reference || '-',
-            paid_by: p.paid_by_type === 'employee' ? p.paid_by : 'Company',
+            paid_by: 'Company',
             id: p.id
           });
         }
       });
       
-      // OUTFLOWS: Variable Expenses paid
+      // OUTFLOWS: Variable Expenses paid BY COMPANY directly
+      // Only include if company paid directly (not employee reimbursements)
       varExpenses.forEach(e => {
-        if (e.payment_status === 'paid' || e.is_settled) {
+        const paidByCompany = e.paid_by === 'Company' || 
+          (!e.paid_by_type && !e.paid_by) ||
+          (e.paid_by_type === 'company');
+        // Include only company-paid expenses
+        if (paidByCompany) {
           const amount = e.amount || 0;
           totalOutflow += amount;
           outflows.push({
@@ -443,17 +451,21 @@ export default function Cashflow() {
             date: e.date,
             description: e.description || e.category,
             amount: amount,
-            payment_mode: e.payment_mode || '-',
-            reference: e.payment_reference || '-',
-            paid_by: e.paid_by_type === 'employee' ? e.paid_by : 'Company',
+            payment_mode: e.payment_mode || 'Cash',
+            reference: '-',
+            paid_by: 'Company',
             id: e.id
           });
         }
       });
       
-      // OUTFLOWS: Fixed Expenses paid
+      // OUTFLOWS: Fixed Expenses paid BY COMPANY directly
       fixedExpenses.forEach(e => {
-        if (e.is_settled || e.status === 'Paid') {
+        const paidByCompany = e.paid_by === 'Company' || 
+          (!e.paid_by_type && !e.paid_by) ||
+          (e.paid_by_type === 'company');
+        // Include only company-paid fixed expenses
+        if (paidByCompany) {
           const amount = e.amount || 0;
           totalOutflow += amount;
           const displayDate = e.date ? e.date.split('T')[0] : 
@@ -465,30 +477,15 @@ export default function Cashflow() {
             description: e.description || e.category,
             amount: amount,
             payment_mode: e.payment_mode || '-',
-            reference: e.payment_reference || '-',
-            paid_by: e.paid_by_type === 'employee' ? e.paid_by : 'Company',
+            reference: '-',
+            paid_by: 'Company',
             id: e.id
           });
         }
       });
       
-      // OUTFLOWS: Labour Costs
-      labourBreakdown.forEach(day => {
-        if (day.total_payment > 0) {
-          totalOutflow += day.total_payment;
-          outflows.push({
-            type: 'Labour',
-            recipient: `${day.total_present} workers`,
-            date: day.date,
-            description: `Daily labour payment`,
-            amount: day.total_payment,
-            payment_mode: 'Cash',
-            reference: '-',
-            paid_by: 'Company',
-            id: `labour-${day.date}`
-          });
-        }
-      });
+      // NOTE: Labour Costs are NOT included as they don't have individual payment recording
+      // Labour payments are typically made in cash daily without specific payment tracking
       
       // Sort by date descending
       inflows.sort((a, b) => new Date(b.date) - new Date(a.date));

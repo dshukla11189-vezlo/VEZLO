@@ -29,6 +29,8 @@ export default function AdminDashboard() {
   const [pnlData, setPnlData] = useState(null);
   const [todaySummary, setTodaySummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [qcReceivables, setQcReceivables] = useState({ total: 0, received: 0, pending: 0 });
+  const [retailReceivables, setRetailReceivables] = useState({ total: 0, received: 0, pending: 0 });
   
   // Initialize dates from localStorage or default to current month
   const [dateFrom, setDateFrom] = useState(() => {
@@ -578,12 +580,41 @@ export default function AdminDashboard() {
   const loadPnlData = useCallback(async () => {
     setLoading(true);
     try {
-      const [pnlResponse, summaryResponse] = await Promise.all([
+      const [pnlResponse, summaryResponse, qcGrnsResponse, retailInvoicesResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${dateFrom}&to_date=${dateTo}`),
-        api.get('/api/reports/today-summary')
+        api.get('/api/reports/today-summary'),
+        api.get('/api/qc-grns'),
+        api.get(`/api/retailer-invoices?from_date=${dateFrom}&to_date=${dateTo}`)
       ]);
       setPnlData(pnlResponse.data);
       setTodaySummary(summaryResponse.data);
+      
+      // Calculate QC receivables from GRN data (filter by date range)
+      let qcTotal = 0, qcReceived = 0;
+      (qcGrnsResponse.data || []).forEach(grn => {
+        (grn.items || []).forEach(item => {
+          const itemDate = (item.dispatch_date || item.date || '')?.split('T')[0];
+          if (itemDate >= dateFrom && itemDate <= dateTo) {
+            const amount = item.amount || 0;
+            qcTotal += amount;
+            if (item.payment_received) {
+              qcReceived += amount;
+            }
+          }
+        });
+      });
+      setQcReceivables({ total: qcTotal, received: qcReceived, pending: qcTotal - qcReceived });
+      
+      // Calculate Retail receivables from Invoice data (already filtered by API)
+      let retailTotal = 0, retailReceived = 0;
+      (retailInvoicesResponse.data || []).forEach(inv => {
+        const invTotal = inv.net_payable || inv.total_amount || 0;
+        const invPaid = inv.paid_amount || 0;
+        retailTotal += invTotal;
+        retailReceived += invPaid;
+      });
+      setRetailReceivables({ total: retailTotal, received: retailReceived, pending: retailTotal - retailReceived });
+      
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -1031,6 +1062,21 @@ export default function AdminDashboard() {
                   <span>Qty: {(pnlData.vertical_bifurcation.qc.qty || 0).toLocaleString()}</span>
                   <span>Orders: {pnlData.vertical_bifurcation.qc.orders || 0}</span>
                 </div>
+                {/* Receivables Row */}
+                <div className="grid grid-cols-3 gap-2 text-center mt-2 pt-2 border-t border-blue-100">
+                  <div className="p-1.5 bg-indigo-100/50 rounded">
+                    <p className="text-[9px] text-indigo-600 font-medium">NET RECEIVABLE</p>
+                    <p className="text-sm font-bold text-indigo-700">{formatCurrency(qcReceivables.total)}</p>
+                  </div>
+                  <div className="p-1.5 bg-green-100/50 rounded">
+                    <p className="text-[9px] text-green-600 font-medium">PAYMENTS</p>
+                    <p className="text-sm font-bold text-green-700">{formatCurrency(qcReceivables.received)}</p>
+                  </div>
+                  <div className="p-1.5 bg-amber-100/50 rounded">
+                    <p className="text-[9px] text-amber-600 font-medium">PENDING</p>
+                    <p className="text-sm font-bold text-amber-700">{formatCurrency(qcReceivables.pending)}</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -1093,6 +1139,21 @@ export default function AdminDashboard() {
                 <div className="flex justify-between mt-2 pt-2 border-t border-emerald-100 text-xs text-emerald-700">
                   <span>Qty: {(pnlData.vertical_bifurcation.retail.qty || 0).toLocaleString()}</span>
                   <span>Orders: {pnlData.vertical_bifurcation.retail.orders || 0}</span>
+                </div>
+                {/* Receivables Row */}
+                <div className="grid grid-cols-3 gap-2 text-center mt-2 pt-2 border-t border-emerald-100">
+                  <div className="p-1.5 bg-indigo-100/50 rounded">
+                    <p className="text-[9px] text-indigo-600 font-medium">NET RECEIVABLE</p>
+                    <p className="text-sm font-bold text-indigo-700">{formatCurrency(retailReceivables.total)}</p>
+                  </div>
+                  <div className="p-1.5 bg-green-100/50 rounded">
+                    <p className="text-[9px] text-green-600 font-medium">PAYMENTS</p>
+                    <p className="text-sm font-bold text-green-700">{formatCurrency(retailReceivables.received)}</p>
+                  </div>
+                  <div className="p-1.5 bg-amber-100/50 rounded">
+                    <p className="text-[9px] text-amber-600 font-medium">PENDING</p>
+                    <p className="text-sm font-bold text-amber-700">{formatCurrency(retailReceivables.pending)}</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>

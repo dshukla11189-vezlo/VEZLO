@@ -1194,16 +1194,33 @@ async def delete_farmer(farmer_id: str, current_user: dict = Depends(get_current
 # SECTION: PROCUREMENT ROUTES (Lines ~425-590)
 # ============================================================================
 @api_router.get("/procurement", response_model=List[Procurement])
-async def get_procurements(current_user: dict = Depends(get_current_user)):
+async def get_procurements(
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    procurements = await db.procurements.find({}, {"_id": 0}).sort("date", -1).to_list(1000)
+    # Build query with optional date filters
+    # Note: Dates in DB are stored as strings in ISO format
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            # Filter dates >= from_date (string comparison works for ISO dates)
+            date_filter["$gte"] = from_date + "T00:00:00" if 'T' not in from_date else from_date
+        if to_date:
+            # Filter dates <= to_date end of day
+            date_filter["$lte"] = to_date + "T23:59:59" if 'T' not in to_date else to_date
+        query["date"] = date_filter
+    
+    procurements = await db.procurements.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     for p in procurements:
         if isinstance(p['date'], str):
-            p['date'] = datetime.fromisoformat(p['date'])
+            p['date'] = datetime.fromisoformat(p['date'].replace('Z', '+00:00'))
         if isinstance(p['created_at'], str):
-            p['created_at'] = datetime.fromisoformat(p['created_at'])
+            p['created_at'] = datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))
     return [Procurement(**p) for p in procurements]
 
 

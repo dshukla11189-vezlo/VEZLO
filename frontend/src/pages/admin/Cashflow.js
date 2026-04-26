@@ -333,25 +333,29 @@ export default function Cashflow() {
       // Build receivables details
       const receivablesDetailsList = [];
       
-      // Add retail invoice entries
+      // Add retail invoice entries - filter by date range
       retailInvoices.forEach(inv => {
-        const pending = (inv.net_payable || inv.total_amount || 0) - (inv.paid_amount || 0);
-        if (pending > 0) {
-          receivablesDetailsList.push({
-            type: 'Retail Invoice',
-            date: inv.invoice_date,
-            description: `${inv.invoice_number} - ${inv.retailer_name || 'Unknown'}`,
-            total: inv.net_payable || inv.total_amount || 0,
-            received: inv.paid_amount || 0,
-            pending: pending,
-            status: inv.status || 'pending',
-            id: inv.id,
-            entity: 'retail_invoice'
-          });
+        const invDate = (inv.invoice_date || '')?.split('T')[0];
+        // Filter by date range
+        if (invDate >= fromDate && invDate <= toDate) {
+          const pending = (inv.net_payable || inv.total_amount || 0) - (inv.paid_amount || 0);
+          if (pending > 0) {
+            receivablesDetailsList.push({
+              type: 'Retail Invoice',
+              date: inv.invoice_date,
+              description: `${inv.invoice_number} - ${retailerMap[inv.retailer_id] || inv.retailer_name || 'Unknown'}`,
+              total: inv.net_payable || inv.total_amount || 0,
+              received: inv.paid_amount || 0,
+              pending: pending,
+              status: inv.status || 'pending',
+              id: inv.id,
+              entity: 'retail_invoice'
+            });
+          }
         }
       });
       
-      // Add QC GRN entries
+      // Add QC GRN entries - already filtered by date range
       // Note: GRN items use 'dispatch_date' not 'date'
       qcGrns.forEach(grn => {
         grn.items?.forEach((item, idx) => {
@@ -445,8 +449,9 @@ export default function Cashflow() {
       const retailByDateRetailer = {};
       retailInvoices.forEach(inv => {
         const paidAmount = inv.paid_amount || 0;
-        if (paidAmount > 0) {
-          const invDate = (inv.payment_date || inv.invoice_date)?.split('T')[0];
+        const invDate = (inv.payment_date || inv.invoice_date)?.split('T')[0];
+        // Filter by date range
+        if (paidAmount > 0 && invDate >= fromDate && invDate <= toDate) {
           const retailerName = retailerMap[inv.retailer_id] || inv.retailer_name || 'Retailer';
           const key = `${invDate}_${inv.retailer_id}`;
           
@@ -485,11 +490,12 @@ export default function Cashflow() {
       });
       
       // OUTFLOWS: Procurement payments made BY COMPANY (not employee)
-      // Only include if company actually paid the farmer
+      // Only include if company actually paid the farmer and within date range
       procurements.forEach(p => {
         const paidAmount = p.paid_amount || 0;
         const paidByCompany = !p.paid_by_type || p.paid_by_type === 'company' || p.paid_by_type === '';
-        if (paidAmount > 0 && paidByCompany) {
+        const procDate = (p.payment_date || p.date)?.split('T')[0];
+        if (paidAmount > 0 && paidByCompany && procDate >= fromDate && procDate <= toDate) {
           totalOutflow += paidAmount;
           outflows.push({
             type: 'Procurement',
@@ -506,13 +512,14 @@ export default function Cashflow() {
       });
       
       // OUTFLOWS: Variable Expenses paid BY COMPANY directly
-      // Only include if company paid directly (not employee reimbursements)
+      // Only include if company paid directly (not employee reimbursements) and within date range
       varExpenses.forEach(e => {
         const paidByCompany = e.paid_by === 'Company' || 
           (!e.paid_by_type && !e.paid_by) ||
           (e.paid_by_type === 'company');
-        // Include only company-paid expenses
-        if (paidByCompany) {
+        const expDate = (e.date)?.split('T')[0];
+        // Include only company-paid expenses within date range
+        if (paidByCompany && expDate >= fromDate && expDate <= toDate) {
           const amount = e.amount || 0;
           totalOutflow += amount;
           outflows.push({
@@ -534,12 +541,12 @@ export default function Cashflow() {
         const paidByCompany = e.paid_by === 'Company' || 
           (!e.paid_by_type && !e.paid_by) ||
           (e.paid_by_type === 'company');
-        // Include only company-paid fixed expenses
-        if (paidByCompany) {
+        const displayDate = e.date ? e.date.split('T')[0] : 
+          (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
+        // Include only company-paid fixed expenses within date range
+        if (paidByCompany && displayDate && displayDate >= fromDate && displayDate <= toDate) {
           const amount = e.amount || 0;
           totalOutflow += amount;
-          const displayDate = e.date ? e.date.split('T')[0] : 
-            (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
           outflows.push({
             type: 'Fixed Expense',
             recipient: e.category,

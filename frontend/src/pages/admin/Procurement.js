@@ -1025,7 +1025,7 @@ export default function Procurement() {
   const exportProcurements = () => {
     const dataToExport = [];
     filteredProcurements.forEach(proc => {
-      proc.products?.forEach(item => {
+      proc.products?.forEach((item, idx) => {
         dataToExport.push({
           date: proc.date,
           farmer: proc.farmer_name,
@@ -1035,9 +1035,11 @@ export default function Procurement() {
           unit_size: item.unit_size || '-',
           rate: item.rate,
           total: item.total,
-          payment_status: proc.payment_status,
-          paid_amount: proc.paid_amount || 0,
-          pending: proc.pending_amount || 0
+          // Only show procurement-level values on first line item to avoid summing issues
+          payment_status: idx === 0 ? proc.payment_status : '',
+          paid_amount: idx === 0 ? (proc.paid_amount || 0) : '',
+          pending: idx === 0 ? (proc.pending_amount || 0) : '',
+          procurement_total: idx === 0 ? (proc.total_amount || 0) : ''
         });
       });
     });
@@ -1050,7 +1052,8 @@ export default function Procurement() {
       { label: 'Unit', getter: (d) => d.unit },
       { label: 'Size (gm)', getter: (d) => d.unit_size },
       { label: 'Rate', getter: (d) => d.rate },
-      { label: 'Total', getter: (d) => d.total },
+      { label: 'Product Total', getter: (d) => d.total },
+      { label: 'Procurement Total', getter: (d) => d.procurement_total },
       { label: 'Payment Status', getter: (d) => d.payment_status },
       { label: 'Paid', getter: (d) => d.paid_amount },
       { label: 'Pending', getter: (d) => d.pending }

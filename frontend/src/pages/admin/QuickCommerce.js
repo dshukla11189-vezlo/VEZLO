@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -149,7 +149,8 @@ export default function QuickCommerce() {
     payment_date: new Date().toISOString().split('T')[0],
     payment_mode: 'bank_transfer',
     payment_reference: '',
-    remarks: ''
+    remarks: '',
+    amount_received: ''
   });
   
   // View/Edit GRN Payment Modal
@@ -346,13 +347,13 @@ export default function QuickCommerce() {
         // Group items by date for collapsible display
         const itemsByDate = {};
         (data.items || []).forEach(item => {
-          const dateKey = item.dispatch_date?.split('T')[0] || item.date || 'Unknown';
+          const dateKey = item.date || item.dispatch_date?.split('T')[0] || 'Unknown';
           if (!itemsByDate[dateKey]) {
             itemsByDate[dateKey] = { items: [], total_loss: 0, total_qty: 0 };
           }
           itemsByDate[dateKey].items.push(item);
-          itemsByDate[dateKey].total_loss += item.loss_value || 0;
-          itemsByDate[dateKey].total_qty += item.loss_qty || 0;
+          itemsByDate[dateKey].total_loss += item.loss_amount || item.loss_value || 0;
+          itemsByDate[dateKey].total_qty += Math.abs(item.difference) || item.loss_qty || 0;
         });
         
         setGrnLossSummary({ ...data, itemsByDate });
@@ -2287,12 +2288,14 @@ Email: ${companyEmail}`;
   // Mark all GRN payments for a specific date as received
   // Open bulk payment modal for a date
   const openBulkGrnPaymentModal = (date, dateData) => {
-    setBulkGrnPaymentData({ date, dateData });
+    const totalGrnAmount = dateData.items.filter(i => !i.payment_received).reduce((sum, item) => sum + (item.amount || 0), 0);
+    setBulkGrnPaymentData({ date, dateData, totalGrnAmount });
     setBulkGrnPaymentForm({
       payment_date: new Date().toISOString().split('T')[0],
       payment_mode: 'bank_transfer',
       payment_reference: '',
-      remarks: ''
+      remarks: '',
+      amount_received: totalGrnAmount.toFixed(2)  // Default to full amount
     });
     setShowBulkGrnPaymentModal(true);
   };
@@ -2300,7 +2303,9 @@ Email: ${companyEmail}`;
   const handleMarkAllGrnPaymentsForDate = async () => {
     if (!bulkGrnPaymentData) return;
     
-    const { date, dateData } = bulkGrnPaymentData;
+    const { date, dateData, totalGrnAmount } = bulkGrnPaymentData;
+    const amountReceived = parseFloat(bulkGrnPaymentForm.amount_received) || 0;
+    const shortPayment = totalGrnAmount - amountReceived;
     
     setMarkingAllPaid(date);  // Show loading state
     setShowBulkGrnPaymentModal(false);
@@ -2331,22 +2336,29 @@ Email: ${companyEmail}`;
               payment_date: bulkGrnPaymentForm.payment_date,
               payment_mode: bulkGrnPaymentForm.payment_mode,
               payment_reference: bulkGrnPaymentForm.payment_reference,
-              payment_remarks: bulkGrnPaymentForm.remarks
+              payment_remarks: bulkGrnPaymentForm.remarks,
+              amount_received: amountReceived,
+              short_payment: shortPayment > 0 ? shortPayment : 0
             };
           }
         });
         
         await api.put(`/api/qc-grns/${grn.id}`, {
           ...grn,
-          items: updatedItems
+          items: updatedItems,
+          // Store date-level payment info
+          payment_date: bulkGrnPaymentForm.payment_date,
+          amount_received: amountReceived,
+          short_payment: shortPayment > 0 ? shortPayment : 0
         });
       }
       
-      toast.success(`All payments for ${date} marked as received`);
+      const shortPaymentMsg = shortPayment > 0 ? ` (Short: ₹${shortPayment.toLocaleString()})` : '';
+      toast.success(`Payment recorded for ${date}${shortPaymentMsg}`);
       setBulkGrnPaymentData(null);
       await loadData();  // Wait for data to reload before clearing loading state
     } catch (error) {
-      toast.error('Failed to update payments');
+      toast.error('Failed to record payment');
       console.error(error);
     } finally {
       setMarkingAllPaid(null);  // Clear loading state
@@ -4624,13 +4636,13 @@ Email: ${companyEmail}`;
                             // Group items by date
                             const itemsByDate = {};
                             (data.items || []).forEach(item => {
-                              const dateKey = item.date || 'Unknown';
+                              const dateKey = item.date || item.dispatch_date?.split('T')[0] || 'Unknown';
                               if (!itemsByDate[dateKey]) {
                                 itemsByDate[dateKey] = { items: [], total_loss: 0, total_qty: 0 };
                               }
                               itemsByDate[dateKey].items.push(item);
-                              itemsByDate[dateKey].total_loss += item.loss_amount || 0;
-                              itemsByDate[dateKey].total_qty += item.difference || 0;
+                              itemsByDate[dateKey].total_loss += item.loss_amount || item.loss_value || 0;
+                              itemsByDate[dateKey].total_qty += Math.abs(item.difference) || item.loss_qty || 0;
                             });
                             
                             setGrnLossSummary({ ...data, itemsByDate, expanded: true });
@@ -4704,6 +4716,63 @@ Email: ${companyEmail}`;
                 </CardContent>
                 )}
               </Card>
+
+              {/* Short Payment Summary Card - Collapsible */}
+              {(() => {
+                // Calculate short payment totals from all GRNs
+                const shortPaymentData = grns.reduce((acc, grn) => {
+                  (grn.items || []).forEach(item => {
+                    if (item.short_payment && item.short_payment > 0) {
+                      const dateKey = (item.dispatch_date || item.date)?.split('T')[0] || 'Unknown';
+                      if (!acc.byDate[dateKey]) {
+                        acc.byDate[dateKey] = { total: 0, items: [] };
+                      }
+                      acc.byDate[dateKey].total += item.short_payment;
+                      acc.byDate[dateKey].items.push({
+                        ...item,
+                        grn_id: grn.id,
+                        customer_name: grn.customer_name
+                      });
+                      acc.total += item.short_payment;
+                    }
+                  });
+                  return acc;
+                }, { total: 0, byDate: {} });
+                
+                if (shortPaymentData.total === 0) return null;
+                
+                return (
+                  <Card className="mb-6 border-orange-200 shadow-sm">
+                    <CardHeader 
+                      className="bg-orange-50 cursor-pointer"
+                      onClick={() => setGrnLossSummary(prev => ({ ...prev, shortPaymentExpanded: !prev?.shortPaymentExpanded }))}
+                    >
+                      <CardTitle className="text-base flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-orange-800">
+                          {grnLossSummary?.shortPaymentExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          <AlertCircle size={16} />
+                          Short Payment Summary
+                        </div>
+                        <span className="text-orange-700">
+                          Total: ₹{shortPaymentData.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    {grnLossSummary?.shortPaymentExpanded && (
+                      <CardContent className="p-4">
+                        <div className="space-y-2">
+                          {Object.entries(shortPaymentData.byDate).sort((a, b) => b[0].localeCompare(a[0])).map(([dateKey, data]) => (
+                            <div key={dateKey} className="flex justify-between items-center p-2 bg-orange-25 rounded border border-orange-100">
+                              <span className="font-medium text-sm">{dateKey}</span>
+                              <span className="text-orange-700 font-semibold">₹{data.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                );
+              })()}
 
               {/* GRN Matched Items Table (from CSV upload) */}
               {grnMatchedItems.length > 0 && (
@@ -5052,6 +5121,7 @@ Email: ${companyEmail}`;
                           const totalGrn = dateData.items.reduce((sum, i) => sum + (i.grn_qty || 0), 0);
                           const totalDiff = dateData.items.reduce((sum, i) => sum + (i.difference || 0), 0);
                           const totalAmount = dateData.items.reduce((sum, i) => sum + (i.amount || 0), 0);
+                          const totalShortPayment = dateData.items.reduce((sum, i) => sum + (i.short_payment || 0), 0);
                           const isExpanded = expandedSavedDates[date];
                           
                           return (
@@ -5080,6 +5150,11 @@ Email: ${companyEmail}`;
                                 <span className="text-xs text-gray-700 ml-auto mr-2">
                                   Amount: <strong>₹{totalAmount.toFixed(0)}</strong>
                                 </span>
+                                {totalShortPayment > 0 && (
+                                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-medium">
+                                    Short: ₹{totalShortPayment.toLocaleString()}
+                                  </span>
+                                )}
                                 {/* Check if any items have pending payments */}
                                 {dateData.items.some(item => !item.payment_received) && (
                                   <Button
@@ -5101,7 +5176,7 @@ Email: ${companyEmail}`;
                                     ) : (
                                       <>
                                         <IndianRupee size={14} className="mr-1" />
-                                        <span className="text-xs">Mark All Paid</span>
+                                        <span className="text-xs">Record Payment</span>
                                       </>
                                     )}
                                   </Button>
@@ -5853,14 +5928,32 @@ Email: ${companyEmail}`;
             <div className="p-4 border-b bg-green-50">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <IndianRupee size={20} className="text-green-600" />
-                Mark All Payments - {bulkGrnPaymentData.date}
+                Record Payment - {bulkGrnPaymentData.date}
               </h3>
               <p className="text-sm text-gray-500 mt-1">
                 {bulkGrnPaymentData.dateData.items.filter(i => !i.payment_received).length} items | 
-                Total: ₹{bulkGrnPaymentData.dateData.items.filter(i => !i.payment_received).reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-IN')}
+                Total GRN Amount: ₹{(bulkGrnPaymentData.totalGrnAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </p>
             </div>
             <div className="p-4 space-y-4">
+              <div>
+                <Label className="text-sm font-medium">Amount Received (₹) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={bulkGrnPaymentForm.amount_received}
+                  onChange={(e) => setBulkGrnPaymentForm(prev => ({ ...prev, amount_received: e.target.value }))}
+                  placeholder="Enter amount received"
+                  className="mt-1 text-lg font-semibold"
+                />
+                {bulkGrnPaymentForm.amount_received && parseFloat(bulkGrnPaymentForm.amount_received) < (bulkGrnPaymentData.totalGrnAmount || 0) && (
+                  <p className="text-sm text-orange-600 mt-1 flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    Short Payment: ₹{((bulkGrnPaymentData.totalGrnAmount || 0) - parseFloat(bulkGrnPaymentForm.amount_received || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
+                )}
+              </div>
+              
               <div>
                 <Label className="text-sm">Payment Date *</Label>
                 <Input
@@ -5911,7 +6004,7 @@ Email: ${companyEmail}`;
                 Cancel
               </Button>
               <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleMarkAllGrnPaymentsForDate}>
-                <CheckCircle size={14} className="mr-1" /> Mark All Paid
+                <CheckCircle size={14} className="mr-1" /> Record Payment
               </Button>
             </div>
           </div>

@@ -69,15 +69,23 @@ export default function Cashflow() {
         fixedExpensesRes,
         labourSummaryRes,
         retailInvoicesRes,
-        qcGrnsRes
+        qcGrnsRes,
+        retailersRes
       ] = await Promise.all([
         api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/variable?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/fixed`),
         api.get(`/api/labour-costs/summary?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/retailer-invoices?from_date=${fromDate}&to_date=${toDate}`),
-        api.get('/api/qc-grns')
+        api.get('/api/qc-grns'),
+        api.get('/api/retailers')
       ]);
+      
+      // Build retailer lookup map (id -> company_name or name)
+      const retailerMap = {};
+      (retailersRes.data || []).forEach(r => {
+        retailerMap[r.id] = r.company_name || r.name || 'Unknown';
+      });
       
       // Process Procurements (Payables)
       const procurements = procurementsRes.data || [];
@@ -433,22 +441,47 @@ export default function Cashflow() {
         });
       });
       
-      // INFLOWS: Retail Invoice payments received
+      // INFLOWS: Retail Invoice payments received - AGGREGATE BY DATE AND RETAILER
+      const retailByDateRetailer = {};
       retailInvoices.forEach(inv => {
         const paidAmount = inv.paid_amount || 0;
         if (paidAmount > 0) {
-          totalInflow += paidAmount;
-          inflows.push({
-            type: 'Retail Invoice',
-            source: inv.retailer_name || 'Retailer',
-            date: inv.payment_date || inv.invoice_date,
-            description: `Invoice #${inv.invoice_number}`,
-            amount: paidAmount,
-            payment_mode: inv.payment_mode || '-',
-            reference: inv.payment_reference || '-',
-            id: inv.id
-          });
+          const invDate = (inv.payment_date || inv.invoice_date)?.split('T')[0];
+          const retailerName = retailerMap[inv.retailer_id] || inv.retailer_name || 'Retailer';
+          const key = `${invDate}_${inv.retailer_id}`;
+          
+          if (!retailByDateRetailer[key]) {
+            retailByDateRetailer[key] = {
+              date: invDate,
+              retailer_name: retailerName,
+              retailer_id: inv.retailer_id,
+              total_amount: 0,
+              invoices_count: 0,
+              invoice_numbers: [],
+              payment_mode: inv.payment_mode,
+              payment_reference: inv.payment_reference
+            };
+          }
+          retailByDateRetailer[key].total_amount += paidAmount;
+          retailByDateRetailer[key].invoices_count += 1;
+          retailByDateRetailer[key].invoice_numbers.push(inv.invoice_number);
         }
+      });
+      
+      // Convert grouped retail invoice data to inflows
+      Object.values(retailByDateRetailer).forEach(entry => {
+        totalInflow += entry.total_amount;
+        inflows.push({
+          type: 'Retail Invoice',
+          source: entry.retailer_name,
+          date: entry.date,
+          description: entry.invoices_count === 1 
+            ? `Invoice #${entry.invoice_numbers[0]}`
+            : `${entry.invoices_count} invoices`,
+          amount: entry.total_amount,
+          payment_mode: entry.payment_mode || '-',
+          reference: entry.payment_reference || '-'
+        });
       });
       
       // OUTFLOWS: Procurement payments made BY COMPANY (not employee)

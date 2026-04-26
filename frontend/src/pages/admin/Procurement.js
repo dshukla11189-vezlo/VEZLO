@@ -1109,12 +1109,20 @@ export default function Procurement() {
   const getFilteredStats = useMemo(() => {
     let filtered = procurements;
     
-    // Apply date filters if set
+    // Apply date filters if set - normalize dates for proper comparison
     if (filters.fromDate) {
-      filtered = filtered.filter(p => p.date >= filters.fromDate);
+      const fromDateNorm = filters.fromDate.split('T')[0];
+      filtered = filtered.filter(p => {
+        const pDateNorm = (p.date || '').split('T')[0];
+        return pDateNorm >= fromDateNorm;
+      });
     }
     if (filters.toDate) {
-      filtered = filtered.filter(p => p.date <= filters.toDate);
+      const toDateNorm = filters.toDate.split('T')[0];
+      filtered = filtered.filter(p => {
+        const pDateNorm = (p.date || '').split('T')[0];
+        return pDateNorm <= toDateNorm;
+      });
     }
     
     // Apply status filter

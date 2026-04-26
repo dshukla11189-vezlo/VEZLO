@@ -39,6 +39,7 @@ export default function Cashflow() {
   const [receivablesDetails, setReceivablesDetails] = useState([]);
   const [reimbursementsData, setReimbursementsData] = useState([]); // Employee-wise reimbursements
   const [labourDetails, setLabourDetails] = useState([]); // Daily labour breakdown
+  const [paymentsData, setPaymentsData] = useState({ inflows: [], outflows: [], summary: { inflow: 0, outflow: 0, net: 0 } }); // Payment transactions
   
   // Filter for payables tab
   const [payablesFilter, setPayablesFilter] = useState('all'); // 'all', 'procurement', 'variable_expense', 'fixed_expense'
@@ -357,6 +358,143 @@ export default function Cashflow() {
       
       setReceivablesDetails(receivablesDetailsList.sort((a, b) => new Date(b.date) - new Date(a.date)));
       
+      // Build Payments Data (Inflows and Outflows for actual transactions)
+      const inflows = [];
+      const outflows = [];
+      let totalInflow = 0;
+      let totalOutflow = 0;
+      
+      // INFLOWS: QC GRN payments received
+      qcGrns.forEach(grn => {
+        grn.items?.forEach((item, idx) => {
+          const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
+          if (itemDate >= fromDate && itemDate <= toDate && item.payment_received) {
+            const amount = item.amount || 0;
+            totalInflow += amount;
+            inflows.push({
+              type: 'QC GRN',
+              source: grn.customer_name || 'Ninjacart',
+              date: item.payment_date || item.dispatch_date || item.date,
+              description: item.product_name || 'Products',
+              amount: amount,
+              payment_mode: item.payment_mode || '-',
+              reference: item.payment_reference || '-',
+              id: grn.id,
+              itemIndex: idx
+            });
+          }
+        });
+      });
+      
+      // INFLOWS: Retail Invoice payments received
+      retailInvoices.forEach(inv => {
+        const paidAmount = inv.paid_amount || 0;
+        if (paidAmount > 0) {
+          totalInflow += paidAmount;
+          inflows.push({
+            type: 'Retail Invoice',
+            source: inv.retailer_name || 'Retailer',
+            date: inv.payment_date || inv.invoice_date,
+            description: `Invoice #${inv.invoice_number}`,
+            amount: paidAmount,
+            payment_mode: inv.payment_mode || '-',
+            reference: inv.payment_reference || '-',
+            id: inv.id
+          });
+        }
+      });
+      
+      // OUTFLOWS: Procurement payments made
+      procurements.forEach(p => {
+        const paidAmount = p.paid_amount || 0;
+        if (paidAmount > 0) {
+          totalOutflow += paidAmount;
+          outflows.push({
+            type: 'Procurement',
+            recipient: p.farmer_name || 'Farmer',
+            date: p.payment_date || p.date,
+            description: `${p.items?.length || 0} items`,
+            amount: paidAmount,
+            payment_mode: p.payment_mode || '-',
+            reference: p.payment_reference || '-',
+            paid_by: p.paid_by_type === 'employee' ? p.paid_by : 'Company',
+            id: p.id
+          });
+        }
+      });
+      
+      // OUTFLOWS: Variable Expenses paid
+      varExpenses.forEach(e => {
+        if (e.payment_status === 'paid' || e.is_settled) {
+          const amount = e.amount || 0;
+          totalOutflow += amount;
+          outflows.push({
+            type: 'Variable Expense',
+            recipient: e.paid_to || e.category,
+            date: e.date,
+            description: e.description || e.category,
+            amount: amount,
+            payment_mode: e.payment_mode || '-',
+            reference: e.payment_reference || '-',
+            paid_by: e.paid_by_type === 'employee' ? e.paid_by : 'Company',
+            id: e.id
+          });
+        }
+      });
+      
+      // OUTFLOWS: Fixed Expenses paid
+      fixedExpenses.forEach(e => {
+        if (e.is_settled || e.status === 'Paid') {
+          const amount = e.amount || 0;
+          totalOutflow += amount;
+          const displayDate = e.date ? e.date.split('T')[0] : 
+            (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
+          outflows.push({
+            type: 'Fixed Expense',
+            recipient: e.category,
+            date: displayDate,
+            description: e.description || e.category,
+            amount: amount,
+            payment_mode: e.payment_mode || '-',
+            reference: e.payment_reference || '-',
+            paid_by: e.paid_by_type === 'employee' ? e.paid_by : 'Company',
+            id: e.id
+          });
+        }
+      });
+      
+      // OUTFLOWS: Labour Costs
+      labourBreakdown.forEach(day => {
+        if (day.total_payment > 0) {
+          totalOutflow += day.total_payment;
+          outflows.push({
+            type: 'Labour',
+            recipient: `${day.total_present} workers`,
+            date: day.date,
+            description: `Daily labour payment`,
+            amount: day.total_payment,
+            payment_mode: 'Cash',
+            reference: '-',
+            paid_by: 'Company',
+            id: `labour-${day.date}`
+          });
+        }
+      });
+      
+      // Sort by date descending
+      inflows.sort((a, b) => new Date(b.date) - new Date(a.date));
+      outflows.sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      setPaymentsData({
+        inflows,
+        outflows,
+        summary: {
+          inflow: totalInflow,
+          outflow: totalOutflow,
+          net: totalInflow - totalOutflow
+        }
+      });
+      
     } catch (error) {
       console.error('Failed to load cashflow data:', error);
       toast.error('Failed to load cashflow data');
@@ -584,6 +722,16 @@ export default function Cashflow() {
               onClick={() => setActiveTab('reimbursements')}
             >
               Reimbursements ({reimbursementsData.length})
+            </button>
+            <button
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'payments' 
+                  ? 'border-[#14532D] text-[#14532D]' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setActiveTab('payments')}
+            >
+              Payments ({paymentsData.inflows.length + paymentsData.outflows.length})
             </button>
             <button
               className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
@@ -1043,6 +1191,162 @@ export default function Cashflow() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+        
+        {/* Payments Tab */}
+        {activeTab === 'payments' && (
+          <div className="space-y-4">
+            {/* Payments Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg border p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <TrendingUp className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Total Inflow</p>
+                    <p className="text-xl font-bold text-green-600">{formatCurrency(paymentsData.summary.inflow)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg border p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-lg">
+                    <TrendingDown className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Total Outflow</p>
+                    <p className="text-xl font-bold text-red-600">{formatCurrency(paymentsData.summary.outflow)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg border p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${paymentsData.summary.net >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
+                    <Wallet className={`w-5 h-5 ${paymentsData.summary.net >= 0 ? 'text-green-600' : 'text-red-600'}`} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Net Cash Flow</p>
+                    <p className={`text-xl font-bold ${paymentsData.summary.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {paymentsData.summary.net >= 0 ? '+' : ''}{formatCurrency(paymentsData.summary.net)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Inflows Section */}
+              <div className="bg-white rounded-lg border overflow-hidden">
+                <div className="p-4 border-b bg-green-50">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-green-900 flex items-center gap-2">
+                      <TrendingUp size={18} /> Inflows (Received)
+                    </h3>
+                    <span className="text-sm text-green-600">
+                      {paymentsData.inflows.length} transactions
+                    </span>
+                  </div>
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {paymentsData.inflows.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500 text-sm">
+                      No payments received in this period
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-gray-600">Date</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-600">Source</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
+                          <th className="text-right px-4 py-2 font-medium text-gray-600">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {paymentsData.inflows.map((payment, idx) => (
+                          <tr key={`inflow-${idx}`} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 text-gray-600">{formatDate(payment.date)}</td>
+                            <td className="px-4 py-2">
+                              <div className="font-medium text-gray-900">{payment.source}</div>
+                              <div className="text-xs text-gray-500">{payment.description}</div>
+                            </td>
+                            <td className="px-4 py-2">
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+                                {payment.type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-right font-medium text-green-600">
+                              +{formatCurrency(payment.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+              
+              {/* Outflows Section */}
+              <div className="bg-white rounded-lg border overflow-hidden">
+                <div className="p-4 border-b bg-red-50">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-red-900 flex items-center gap-2">
+                      <TrendingDown size={18} /> Outflows (Paid)
+                    </h3>
+                    <span className="text-sm text-red-600">
+                      {paymentsData.outflows.length} transactions
+                    </span>
+                  </div>
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {paymentsData.outflows.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500 text-sm">
+                      No payments made in this period
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-gray-600">Date</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-600">Recipient</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
+                          <th className="text-right px-4 py-2 font-medium text-gray-600">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {paymentsData.outflows.map((payment, idx) => (
+                          <tr key={`outflow-${idx}`} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 text-gray-600">{formatDate(payment.date)}</td>
+                            <td className="px-4 py-2">
+                              <div className="font-medium text-gray-900">{payment.recipient}</div>
+                              <div className="text-xs text-gray-500">{payment.description}</div>
+                              {payment.paid_by !== 'Company' && (
+                                <div className="text-xs text-purple-600">Paid by: {payment.paid_by}</div>
+                              )}
+                            </td>
+                            <td className="px-4 py-2">
+                              <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                payment.type === 'Procurement' ? 'bg-blue-100 text-blue-700' :
+                                payment.type === 'Variable Expense' ? 'bg-orange-100 text-orange-700' :
+                                payment.type === 'Fixed Expense' ? 'bg-purple-100 text-purple-700' :
+                                'bg-amber-100 text-amber-700'
+                              }`}>
+                                {payment.type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-right font-medium text-red-600">
+                              -{formatCurrency(payment.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}

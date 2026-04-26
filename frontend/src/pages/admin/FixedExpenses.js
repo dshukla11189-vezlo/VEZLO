@@ -103,7 +103,7 @@ export default function FixedExpenses() {
     try {
       let url = '/api/expenses/fixed';
       const params = new URLSearchParams();
-      params.append('month', filterMonth);
+      params.append('month', filterMonth + 1);  // Convert 0-indexed to 1-indexed
       params.append('year', filterYear);
       if (filterCategory !== 'all') params.append('category', filterCategory);
       if (filterStatus !== 'all') params.append('status', filterStatus);

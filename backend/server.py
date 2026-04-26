@@ -4537,13 +4537,35 @@ async def get_pnl_report(
         variable_all += total_labour_cost  # Labour is shared across all verticals
     
     # ========== FIXED EXPENSES ==========
-    # Get current month's fixed expenses
-    current_month = datetime.now(timezone.utc).month - 1  # 0-indexed
-    current_year = datetime.now(timezone.utc).year
+    # Get fixed expenses for the selected period based on date field or month/year
+    # Parse the from_date and to_date to get the month range
+    from_date_obj = datetime.strptime(from_date, '%Y-%m-%d')
+    to_date_obj = datetime.strptime(to_date, '%Y-%m-%d')
     
+    # Query fixed expenses that fall within the date range
+    # Match by either the date field (if set) OR the month/year combination
     fixed_expenses = await db.fixed_expenses.find({
-        "month": current_month,
-        "year": current_year
+        "$or": [
+            # Match by date field (new format with exact date)
+            {"date": {"$gte": from_date, "$lte": to_date}},
+            # Match by month/year (legacy format) - include all months in range
+            {"$and": [
+                {"$or": [
+                    {"year": {"$gt": from_date_obj.year}},
+                    {"$and": [
+                        {"year": from_date_obj.year},
+                        {"month": {"$gte": from_date_obj.month}}
+                    ]}
+                ]},
+                {"$or": [
+                    {"year": {"$lt": to_date_obj.year}},
+                    {"$and": [
+                        {"year": to_date_obj.year},
+                        {"month": {"$lte": to_date_obj.month}}
+                    ]}
+                ]}
+            ]}
+        ]
     }, {"_id": 0}).to_list(100)
     
     fixed_by_category = {}

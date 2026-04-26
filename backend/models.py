@@ -382,6 +382,11 @@ class QCGRNItem(BaseModel):
     payment_date: Optional[str] = None
     payment_mode: Optional[str] = None
     payment_reference: Optional[str] = None
+    payment_remarks: Optional[str] = None
+    # Short/Excess payment tracking (only stored on first item of date)
+    amount_received: Optional[float] = None  # Actual amount received for the date
+    payment_difference: Optional[float] = None  # Positive = excess, negative = short
+    grn_date_total: Optional[float] = None  # Total GRN amount for the date
 
 # QC GRN Models - Ninjacart specific
 class QCGRN(BaseModel):

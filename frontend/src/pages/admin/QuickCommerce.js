@@ -2305,7 +2305,7 @@ Email: ${companyEmail}`;
     
     const { date, dateData, totalGrnAmount } = bulkGrnPaymentData;
     const amountReceived = parseFloat(bulkGrnPaymentForm.amount_received) || 0;
-    const shortPayment = totalGrnAmount - amountReceived;
+    const paymentDifference = amountReceived - totalGrnAmount; // Positive = excess, negative = short
     
     setMarkingAllPaid(date);  // Show loading state
     setShowBulkGrnPaymentModal(false);
@@ -2325,7 +2325,8 @@ Email: ${companyEmail}`;
       // Get all GRNs that need updating
       const grnsToUpdate = grns.filter(g => grnUpdates[g.id]);
       
-      // Update each GRN
+      // Update each GRN - store payment difference only on the first item for the date
+      let isFirstItem = true;
       for (const grn of grnsToUpdate) {
         const updatedItems = [...(grn.items || [])];
         grnUpdates[grn.id].itemIndices.forEach(idx => {
@@ -2337,24 +2338,25 @@ Email: ${companyEmail}`;
               payment_mode: bulkGrnPaymentForm.payment_mode,
               payment_reference: bulkGrnPaymentForm.payment_reference,
               payment_remarks: bulkGrnPaymentForm.remarks,
-              amount_received: amountReceived,
-              short_payment: shortPayment > 0 ? shortPayment : 0
+              // Only store payment difference info on first item to avoid duplication
+              amount_received: isFirstItem ? amountReceived : null,
+              payment_difference: isFirstItem ? paymentDifference : null, // Positive = excess, negative = short
+              grn_date_total: isFirstItem ? totalGrnAmount : null
             };
+            isFirstItem = false;
           }
         });
         
         await api.put(`/api/qc-grns/${grn.id}`, {
           ...grn,
-          items: updatedItems,
-          // Store date-level payment info
-          payment_date: bulkGrnPaymentForm.payment_date,
-          amount_received: amountReceived,
-          short_payment: shortPayment > 0 ? shortPayment : 0
+          items: updatedItems
         });
       }
       
-      const shortPaymentMsg = shortPayment > 0 ? ` (Short: ₹${shortPayment.toLocaleString()})` : '';
-      toast.success(`Payment recorded for ${date}${shortPaymentMsg}`);
+      const diffMsg = paymentDifference !== 0 ? 
+        (paymentDifference < 0 ? ` (Short: ₹${Math.abs(paymentDifference).toLocaleString()})` : ` (Excess: ₹${paymentDifference.toLocaleString()})`) 
+        : '';
+      toast.success(`Payment recorded for ${date}${diffMsg}`);
       setBulkGrnPaymentData(null);
       await loadData();  // Wait for data to reload before clearing loading state
     } catch (error) {
@@ -4722,18 +4724,20 @@ Email: ${companyEmail}`;
                 // Calculate short payment totals from all GRNs
                 const shortPaymentData = grns.reduce((acc, grn) => {
                   (grn.items || []).forEach(item => {
-                    if (item.short_payment && item.short_payment > 0) {
+                    // Check for negative payment_difference (short payment)
+                    if (item.payment_difference && item.payment_difference < 0) {
                       const dateKey = (item.dispatch_date || item.date)?.split('T')[0] || 'Unknown';
                       if (!acc.byDate[dateKey]) {
                         acc.byDate[dateKey] = { total: 0, items: [] };
                       }
-                      acc.byDate[dateKey].total += item.short_payment;
+                      const shortAmount = Math.abs(item.payment_difference);
+                      acc.byDate[dateKey].total = shortAmount; // Replace, not add (since only first item has the value)
                       acc.byDate[dateKey].items.push({
                         ...item,
                         grn_id: grn.id,
                         customer_name: grn.customer_name
                       });
-                      acc.total += item.short_payment;
+                      acc.total += shortAmount;
                     }
                   });
                   return acc;
@@ -5121,7 +5125,11 @@ Email: ${companyEmail}`;
                           const totalGrn = dateData.items.reduce((sum, i) => sum + (i.grn_qty || 0), 0);
                           const totalDiff = dateData.items.reduce((sum, i) => sum + (i.difference || 0), 0);
                           const totalAmount = dateData.items.reduce((sum, i) => sum + (i.amount || 0), 0);
-                          const totalShortPayment = dateData.items.reduce((sum, i) => sum + (i.short_payment || 0), 0);
+                          // Get payment difference (only stored on first item of date)
+                          const itemWithPaymentInfo = dateData.items.find(i => i.payment_difference !== null && i.payment_difference !== undefined);
+                          const paymentDifference = itemWithPaymentInfo?.payment_difference || 0;
+                          const amountReceived = itemWithPaymentInfo?.amount_received || 0;
+                          const allPaid = dateData.items.every(item => item.payment_received);
                           const isExpanded = expandedSavedDates[date];
                           
                           return (
@@ -5147,14 +5155,15 @@ Email: ${companyEmail}`;
                                 <span className={`text-xs font-bold ${totalDiff > 0 ? 'text-green-600' : totalDiff < 0 ? 'text-red-600' : 'text-gray-400'}`}>
                                   Diff: {totalDiff > 0 ? '+' : ''}{totalDiff.toFixed(0)}
                                 </span>
+                                {/* Show payment difference next to Diff */}
+                                {allPaid && paymentDifference !== 0 && (
+                                  <span className={`text-xs font-bold ${paymentDifference > 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                                    {paymentDifference > 0 ? 'Excess' : 'Short'}: ₹{Math.abs(paymentDifference).toLocaleString()}
+                                  </span>
+                                )}
                                 <span className="text-xs text-gray-700 ml-auto mr-2">
                                   Amount: <strong>₹{totalAmount.toFixed(0)}</strong>
                                 </span>
-                                {totalShortPayment > 0 && (
-                                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-medium">
-                                    Short: ₹{totalShortPayment.toLocaleString()}
-                                  </span>
-                                )}
                                 {/* Check if any items have pending payments */}
                                 {dateData.items.some(item => !item.payment_received) && (
                                   <Button
@@ -5190,8 +5199,11 @@ Email: ${companyEmail}`;
                                       e.stopPropagation();
                                       handleUnmarkAllGrnPaymentsForDate(date, dateData);
                                     }}
-                                    className="h-6 px-2 mr-1 text-green-600 hover:bg-green-50 hover:text-orange-600"
-                                    title={`Click to unmark all payments for ${date}`}
+                                    className={`h-6 px-2 mr-1 hover:bg-green-50 hover:text-orange-600 ${
+                                      paymentDifference < 0 ? 'text-orange-600' : 
+                                      paymentDifference > 0 ? 'text-blue-600' : 'text-green-600'
+                                    }`}
+                                    title={`Click to reset payment for ${date}`}
                                   >
                                     {markingAllPaid === date ? (
                                       <>
@@ -5201,7 +5213,10 @@ Email: ${companyEmail}`;
                                     ) : (
                                       <>
                                         <CheckCircle size={12} className="mr-1" />
-                                        <span className="text-xs">All Paid</span>
+                                        <span className="text-xs">
+                                          {paymentDifference < 0 ? 'Short Payment' : 
+                                           paymentDifference > 0 ? 'Excess Payment' : 'All Paid'}
+                                        </span>
                                       </>
                                     )}
                                   </Button>

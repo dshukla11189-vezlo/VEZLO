@@ -225,9 +225,14 @@ export default function Cashflow() {
         }
       });
       
-      // From Variable Expenses (paid_by_type === 'employee' and not settled)
+      // From Variable Expenses (employee-paid and not settled)
+      // Check both paid_by_type === 'employee' OR paid_by is an employee name (not Company) and not settled
       varExpenses.forEach(e => {
-        if (e.paid_by_type === 'employee' && e.settlement_status !== 'settled') {
+        const isEmployeePaid = e.paid_by_type === 'employee' || 
+          (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
+        const needsReimbursement = isEmployeePaid && !e.is_settled && e.settlement_status !== 'settled';
+        
+        if (needsReimbursement) {
           const empName = e.paid_by || 'Unknown';
           if (!employeeReimbursements[empName]) {
             employeeReimbursements[empName] = {
@@ -250,9 +255,13 @@ export default function Cashflow() {
         }
       });
       
-      // From Fixed Expenses (paid_by_type === 'employee' and not settled)
+      // From Fixed Expenses (employee-paid and not settled)
       fixedExpenses.forEach(e => {
-        if (e.paid_by_type === 'employee' && e.settlement_status !== 'settled') {
+        const isEmployeePaid = e.paid_by_type === 'employee' || 
+          (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
+        const needsReimbursement = isEmployeePaid && !e.is_settled && e.settlement_status !== 'settled';
+        
+        if (needsReimbursement) {
           const empName = e.paid_by || 'Unknown';
           if (!employeeReimbursements[empName]) {
             employeeReimbursements[empName] = {

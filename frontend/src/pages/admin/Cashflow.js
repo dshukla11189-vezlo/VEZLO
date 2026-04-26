@@ -374,25 +374,62 @@ export default function Cashflow() {
       let totalInflow = 0;
       let totalOutflow = 0;
       
-      // INFLOWS: QC GRN payments received (confirmed payment from customers)
+      // INFLOWS: QC GRN payments received - AGGREGATE BY DATE
+      // Group all paid GRN items by date and show as single entry per date
+      const grnByDate = {};
       qcGrns.forEach(grn => {
-        grn.items?.forEach((item, idx) => {
+        grn.items?.forEach((item) => {
           const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
           if (itemDate >= fromDate && itemDate <= toDate && item.payment_received) {
-            const amount = item.amount || 0;
-            totalInflow += amount;
-            inflows.push({
-              type: 'QC GRN',
-              source: grn.customer_name || 'Ninjacart',
-              date: item.payment_date || item.dispatch_date || item.date,
-              description: item.product_name || 'Products',
-              amount: amount,
-              payment_mode: item.payment_mode || '-',
-              reference: item.payment_reference || '-',
-              id: grn.id,
-              itemIndex: idx
-            });
+            if (!grnByDate[itemDate]) {
+              grnByDate[itemDate] = {
+                date: itemDate,
+                customer_name: grn.customer_name || 'Ninjacart',
+                payment_date: item.payment_date,
+                payment_mode: item.payment_mode,
+                payment_reference: item.payment_reference,
+                total_amount: 0,
+                amount_received: null,
+                payment_difference: null,
+                items_count: 0
+              };
+            }
+            grnByDate[itemDate].total_amount += (item.amount || 0);
+            grnByDate[itemDate].items_count += 1;
+            // Get payment info from the item that has it (first item stores it)
+            if (item.amount_received !== null && item.amount_received !== undefined) {
+              grnByDate[itemDate].amount_received = item.amount_received;
+              grnByDate[itemDate].payment_difference = item.payment_difference;
+            }
           }
+        });
+      });
+      
+      // Convert grouped GRN data to inflows
+      Object.values(grnByDate).forEach(dateEntry => {
+        // Use amount_received if available, otherwise use total_amount
+        const actualAmount = dateEntry.amount_received !== null ? dateEntry.amount_received : dateEntry.total_amount;
+        totalInflow += actualAmount;
+        
+        let description = `${dateEntry.items_count} items - GRN: ₹${dateEntry.total_amount.toLocaleString()}`;
+        if (dateEntry.payment_difference && dateEntry.payment_difference !== 0) {
+          if (dateEntry.payment_difference < 0) {
+            description += ` (Short: ₹${Math.abs(dateEntry.payment_difference).toLocaleString()})`;
+          } else {
+            description += ` (Excess: ₹${dateEntry.payment_difference.toLocaleString()})`;
+          }
+        }
+        
+        inflows.push({
+          type: 'QC GRN',
+          source: dateEntry.customer_name,
+          date: dateEntry.payment_date || dateEntry.date,
+          description: description,
+          amount: actualAmount,
+          grn_amount: dateEntry.total_amount,
+          payment_difference: dateEntry.payment_difference,
+          payment_mode: dateEntry.payment_mode || '-',
+          reference: dateEntry.payment_reference || '-'
         });
       });
       

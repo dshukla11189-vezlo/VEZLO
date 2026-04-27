@@ -10080,45 +10080,52 @@ async def generate_auto_indents_for_tomorrow():
                 
                 logger.info(f"Analyzing {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoices for {retailer_name}")
                 
-                # Calculate average invoice quantity per product
-                product_totals = {}
+                # Calculate average invoice quantity per product+variant combination
+                product_variant_totals = {}
                 
                 for inv in same_weekday_invoices:
                     inv_date_str = inv.get("invoice_date", "")[:10]
                     for item in inv.get("items", []):
                         product_id = item.get("product_id")
                         product_name = item.get("product_name", "")
+                        variant_id = item.get("variant_id") or ""
+                        variant_name = item.get("variant_name") or ""
                         # Invoice quantity = final dispatched qty after rejections
                         invoice_qty = item.get("quantity", 0) or 0
                         
                         if product_id and invoice_qty > 0:
-                            if product_id not in product_totals:
-                                product_totals[product_id] = {
+                            # Create unique key for product+variant combination
+                            key = f"{product_id}_{variant_name}"
+                            if key not in product_variant_totals:
+                                product_variant_totals[key] = {
+                                    "product_id": product_id,
                                     "product_name": product_name,
+                                    "variant_id": variant_id,
+                                    "variant_name": variant_name,
                                     "total_qty": 0,
                                     "dates": set()
                                 }
-                            product_totals[product_id]["total_qty"] += invoice_qty
-                            product_totals[product_id]["dates"].add(inv_date_str)
+                            product_variant_totals[key]["total_qty"] += invoice_qty
+                            product_variant_totals[key]["dates"].add(inv_date_str)
                 
-                if not product_totals:
+                if not product_variant_totals:
                     logger.info(f"No invoice items for {retailer_name}, skipping")
                     continue
                 
                 # Calculate average and add 10% buffer
                 indent_items = []
-                for product_id, data in product_totals.items():
+                for key, data in product_variant_totals.items():
                     days_count = len(data["dates"])
                     avg_qty = data["total_qty"] / days_count
                     recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
                     
                     if recommended_qty > 0:
-                        product = product_map.get(product_id, {})
+                        product = product_map.get(data["product_id"], {})
                         indent_items.append({
-                            "product_id": product_id,
+                            "product_id": data["product_id"],
                             "product_name": product.get("name", data["product_name"]),
-                            "variant_id": None,
-                            "variant_name": None,
+                            "variant_id": data["variant_id"],
+                            "variant_name": data["variant_name"],
                             "quantity": recommended_qty,
                             "status": "pending"
                         })
@@ -10267,9 +10274,9 @@ async def generate_single_auto_indent(
                 "message": f"No historical invoice data found for {retailer_name} on this weekday. The retailer needs to have at least one invoice for a {weekday_names[target_weekday]}."
             }
         
-        # Calculate average invoice quantity per product
+        # Calculate average invoice quantity per product+variant combination
         # Invoice quantity = Dispatch - Rejections (the net final number)
-        product_totals = {}
+        product_variant_totals = {}
         dates_with_data = set()
         
         for inv in same_weekday_invoices:
@@ -10277,40 +10284,47 @@ async def generate_single_auto_indent(
             for item in inv.get("items", []):
                 product_id = item.get("product_id")
                 product_name = item.get("product_name", "")
+                variant_id = item.get("variant_id") or ""
+                variant_name = item.get("variant_name") or ""
                 # Use quantity from invoice (this is the final dispatched qty after rejections)
                 invoice_qty = item.get("quantity", 0) or 0
                 
                 if product_id and invoice_qty > 0:
-                    if product_id not in product_totals:
-                        product_totals[product_id] = {
+                    # Create unique key for product+variant combination
+                    key = f"{product_id}_{variant_name}"
+                    if key not in product_variant_totals:
+                        product_variant_totals[key] = {
+                            "product_id": product_id,
                             "product_name": product_name,
+                            "variant_id": variant_id,
+                            "variant_name": variant_name,
                             "total_qty": 0,
                             "dates": set()
                         }
-                    product_totals[product_id]["total_qty"] += invoice_qty
-                    product_totals[product_id]["dates"].add(inv_date_str)
+                    product_variant_totals[key]["total_qty"] += invoice_qty
+                    product_variant_totals[key]["dates"].add(inv_date_str)
                     dates_with_data.add(inv_date_str)
         
-        if not product_totals:
+        if not product_variant_totals:
             return {
                 "success": False,
                 "message": f"No invoice data found for {retailer_name} on this weekday"
             }
         
         # Create indent items with average + 10% buffer
-        # Average is calculated based on count of days that had data for that product
+        # Average is calculated based on count of days that had data for that product+variant
         indent_items = []
-        for product_id, data in product_totals.items():
+        for key, data in product_variant_totals.items():
             days_count = len(data["dates"])
             avg_qty = data["total_qty"] / days_count
             recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
             
             if recommended_qty > 0:
                 indent_items.append({
-                    "product_id": product_id,
+                    "product_id": data["product_id"],
                     "product_name": data["product_name"],
-                    "variant_id": "",
-                    "variant_name": "",
+                    "variant_id": data["variant_id"],
+                    "variant_name": data["variant_name"],
                     "quantity": recommended_qty,
                     "status": "pending"
                 })

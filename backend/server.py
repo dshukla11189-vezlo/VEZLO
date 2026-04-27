@@ -10001,23 +10001,26 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
 
 async def generate_auto_indents_for_tomorrow():
     """
-    Auto-generate retailer indents for the next day based on sales history.
+    Auto-generate retailer indents for the next day based on invoice history.
     Runs at 11 PM daily.
     
     Logic:
     1. Calculate tomorrow's day of week (e.g., Monday)
-    2. For each retailer, find items sold on the last 7 occurrences of that day
-    3. Calculate average and increase by 10%
+    2. For each retailer, find invoice quantities on the same weekday in the last 7 weeks
+    3. Calculate average based on count of days with data and increase by 10%
     4. Create auto-generated indent
+    
+    Note: Invoice quantity = Dispatch - Rejections (the net final number)
     """
     try:
-        logger.info("Starting auto-indent generation for tomorrow...")
+        logger.info("Starting auto-indent generation for tomorrow (using invoice data)...")
         
         # Get tomorrow's date
         now = datetime.now(timezone.utc)
         tomorrow = now + timedelta(days=1)
         tomorrow_str = tomorrow.strftime('%Y-%m-%d')
         tomorrow_weekday = tomorrow.weekday()  # 0=Monday, 6=Sunday
+        weekday_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         
         # Get all retailers
         retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
@@ -10044,98 +10047,76 @@ async def generate_auto_indents_for_tomorrow():
                     logger.info(f"Indent already exists for {retailer_name} on {tomorrow_str}, skipping")
                     continue
                 
-                # Find the last 7 occurrences of the same weekday
-                target_dates = []
-                check_date = tomorrow - timedelta(days=7)
+                # Get all invoices for this retailer
+                invoices = await db.retailer_invoices.find({
+                    "retailer_id": retailer_id
+                }).to_list(500)
                 
-                while len(target_dates) < 7 and check_date > now - timedelta(days=90):
-                    if check_date.weekday() == tomorrow_weekday:
-                        target_dates.append(check_date.strftime('%Y-%m-%d'))
-                    check_date -= timedelta(days=1)
-                
-                if not target_dates:
-                    logger.info(f"No historical data for {retailer_name}, skipping")
+                if not invoices:
+                    logger.info(f"No invoice history for {retailer_name}, skipping")
                     continue
                 
-                logger.info(f"Analyzing {len(target_dates)} {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][tomorrow_weekday]}s for {retailer_name}")
+                # Filter invoices for the same weekday in the last 7 weeks
+                same_weekday_invoices = []
+                cutoff_date = tomorrow.date() - timedelta(days=49)  # 7 weeks
                 
-                # Get dispatches for those dates
-                date_regex_patterns = [f"^{d}" for d in target_dates]
-                
-                dispatches = await db.retailer_dispatches.find({
-                    "retailer_id": retailer_id,
-                    "$or": [{"dispatch_date": {"$regex": pattern}} for pattern in date_regex_patterns]
-                }, {"_id": 0}).to_list(500)
-                
-                if not dispatches:
-                    logger.info(f"No dispatch history for {retailer_name} on target weekdays, skipping")
-                    continue
-                
-                # Get closing inventory data
-                closing_records = await db.retailer_closing_inventory.find({
-                    "retailer_id": retailer_id,
-                    "closing_date": {"$in": target_dates}
-                }, {"_id": 0}).to_list(100)
-                
-                closing_map = {}
-                for record in closing_records:
-                    closing_map[record["closing_date"]] = {
-                        item["product_id"]: item["closing_qty"]
-                        for item in record.get("items", [])
-                        if item.get("closing_qty") is not None
-                    }
-                
-                # Calculate items received per product per date
-                received_per_date = {}
-                for dispatch in dispatches:
-                    dispatch_date = dispatch["dispatch_date"][:10]
-                    if dispatch_date not in received_per_date:
-                        received_per_date[dispatch_date] = {}
-                    
-                    for item in dispatch.get("items", []):
-                        product_id = item.get("product_id")
-                        qty = item.get("supplied_qty", 0)
-                        if product_id:
-                            received_per_date[dispatch_date][product_id] = \
-                                received_per_date[dispatch_date].get(product_id, 0) + qty
-                
-                # Calculate items sold per product
-                product_sales = {}
-                sales_count = {}
-                
-                for date_str, received_items in received_per_date.items():
-                    prev_date = (datetime.strptime(date_str, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
-                    prev_closing = closing_map.get(prev_date, {})
-                    current_closing = closing_map.get(date_str, {})
-                    
-                    for product_id, received_qty in received_items.items():
-                        opening_qty = prev_closing.get(product_id, 0)
-                        closing_qty = current_closing.get(product_id)
-                        
-                        if closing_qty is not None:
-                            items_sold = opening_qty + received_qty - closing_qty
+                for inv in invoices:
+                    try:
+                        inv_date_str = inv.get("invoice_date", "")
+                        if isinstance(inv_date_str, str):
+                            inv_date = datetime.fromisoformat(inv_date_str.replace('Z', '+00:00')).date()
                         else:
-                            items_sold = received_qty * 0.8
+                            inv_date = inv_date_str.date() if hasattr(inv_date_str, 'date') else None
                         
-                        if items_sold > 0:
-                            product_sales[product_id] = product_sales.get(product_id, 0) + items_sold
-                            sales_count[product_id] = sales_count.get(product_id, 0) + 1
+                        if inv_date and inv_date.weekday() == tomorrow_weekday:
+                            if inv_date >= cutoff_date and inv_date < tomorrow.date():
+                                same_weekday_invoices.append(inv)
+                    except Exception as e:
+                        continue
                 
-                if not product_sales:
-                    logger.info(f"No sales data for {retailer_name}, skipping")
+                if not same_weekday_invoices:
+                    logger.info(f"No {weekday_names[tomorrow_weekday]} invoices for {retailer_name} in last 7 weeks, skipping")
                     continue
                 
-                # Calculate average and add 10%
+                logger.info(f"Analyzing {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoices for {retailer_name}")
+                
+                # Calculate average invoice quantity per product
+                product_totals = {}
+                
+                for inv in same_weekday_invoices:
+                    inv_date_str = inv.get("invoice_date", "")[:10]
+                    for item in inv.get("items", []):
+                        product_id = item.get("product_id")
+                        product_name = item.get("product_name", "")
+                        # Invoice quantity = final dispatched qty after rejections
+                        invoice_qty = item.get("quantity", 0) or 0
+                        
+                        if product_id and invoice_qty > 0:
+                            if product_id not in product_totals:
+                                product_totals[product_id] = {
+                                    "product_name": product_name,
+                                    "total_qty": 0,
+                                    "dates": set()
+                                }
+                            product_totals[product_id]["total_qty"] += invoice_qty
+                            product_totals[product_id]["dates"].add(inv_date_str)
+                
+                if not product_totals:
+                    logger.info(f"No invoice items for {retailer_name}, skipping")
+                    continue
+                
+                # Calculate average and add 10% buffer
                 indent_items = []
-                for product_id, total_sales in product_sales.items():
-                    avg_sales = total_sales / sales_count[product_id]
-                    recommended_qty = round(avg_sales * 1.1)
+                for product_id, data in product_totals.items():
+                    days_count = len(data["dates"])
+                    avg_qty = data["total_qty"] / days_count
+                    recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
                     
-                    if recommended_qty > 0 and product_id in product_map:
-                        product = product_map[product_id]
+                    if recommended_qty > 0:
+                        product = product_map.get(product_id, {})
                         indent_items.append({
                             "product_id": product_id,
-                            "product_name": product.get("name", "Unknown"),
+                            "product_name": product.get("name", data["product_name"]),
                             "variant_id": None,
                             "variant_name": None,
                             "quantity": recommended_qty,
@@ -10156,7 +10137,7 @@ async def generate_auto_indents_for_tomorrow():
                     "status": "pending",
                     "created_by": "system",
                     "created_by_role": "system",
-                    "remarks": f"Auto-generated based on last {len(target_dates)} {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][tomorrow_weekday]}s sales",
+                    "remarks": f"Auto-generated based on last {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoice data",
                     "is_auto_generated": True,
                     "created_at": datetime.now(timezone.utc).isoformat()
                 }
@@ -10207,7 +10188,7 @@ async def generate_single_auto_indent(
     request: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Generate auto-indent for a single retailer for a specific date"""
+    """Generate auto-indent for a single retailer for a specific date based on invoice history"""
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can generate auto indents")
     
@@ -10245,60 +10226,84 @@ async def generate_single_auto_indent(
         
         # Get the target weekday (0=Monday, 6=Sunday)
         target_weekday = target_date.weekday()
+        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         
-        # Find the last 7 occurrences of this weekday in retailer closing data
-        closing_records = await db.retailer_closing.find({
+        # Calculate the dates for the last 7 identical weekdays
+        historical_dates = []
+        check_date = target_date - timedelta(days=7)  # Start from 1 week ago
+        while len(historical_dates) < 7 and check_date >= target_date - timedelta(days=56):  # Max 8 weeks back
+            if check_date.weekday() == target_weekday:
+                historical_dates.append(check_date.isoformat())
+            check_date -= timedelta(days=1)
+        
+        # Find invoices for this retailer on those weekdays
+        # Invoice dates are stored as ISO datetime strings
+        invoices = await db.retailer_invoices.find({
             "retailer_id": retailer_id
-        }).sort("closing_date", -1).to_list(100)
+        }).to_list(500)
         
-        # Filter to only include same weekday
-        same_weekday_records = []
-        for record in closing_records:
+        # Filter invoices for the same weekday in the last 7 weeks
+        same_weekday_invoices = []
+        for inv in invoices:
             try:
-                record_date = datetime.strptime(record["closing_date"], "%Y-%m-%d").date()
-                if record_date.weekday() == target_weekday and record_date < target_date:
-                    same_weekday_records.append(record)
-                    if len(same_weekday_records) >= 7:
-                        break
-            except:
+                inv_date_str = inv.get("invoice_date", "")
+                if isinstance(inv_date_str, str):
+                    inv_date = datetime.fromisoformat(inv_date_str.replace('Z', '+00:00')).date()
+                else:
+                    inv_date = inv_date_str.date() if hasattr(inv_date_str, 'date') else None
+                
+                if inv_date and inv_date.weekday() == target_weekday and inv_date < target_date:
+                    # Only consider last 7 weeks
+                    if inv_date >= target_date - timedelta(days=49):
+                        same_weekday_invoices.append(inv)
+            except Exception as e:
+                logger.warning(f"Error parsing invoice date: {e}")
                 continue
         
-        # Use whatever data is available (even 1 record is fine)
-        if len(same_weekday_records) == 0:
+        # Use whatever data is available (even 1 invoice is fine)
+        if len(same_weekday_invoices) == 0:
             return {
                 "success": False,
-                "message": f"No historical data found for {retailer_name} on this weekday. The retailer needs to have at least one closing record for a {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][target_weekday]}."
+                "message": f"No historical invoice data found for {retailer_name} on this weekday. The retailer needs to have at least one invoice for a {weekday_names[target_weekday]}."
             }
         
-        # Calculate average items sold per product
+        # Calculate average invoice quantity per product
+        # Invoice quantity = Dispatch - Rejections (the net final number)
         product_totals = {}
-        for record in same_weekday_records:
-            for item in record.get("items", []):
+        dates_with_data = set()
+        
+        for inv in same_weekday_invoices:
+            inv_date_str = inv.get("invoice_date", "")[:10]
+            for item in inv.get("items", []):
                 product_id = item.get("product_id")
                 product_name = item.get("product_name", "")
-                items_sold = item.get("items_sold", 0) or 0
+                # Use quantity from invoice (this is the final dispatched qty after rejections)
+                invoice_qty = item.get("quantity", 0) or 0
                 
-                if product_id and items_sold > 0:
+                if product_id and invoice_qty > 0:
                     if product_id not in product_totals:
                         product_totals[product_id] = {
                             "product_name": product_name,
-                            "total_sold": 0,
-                            "count": 0
+                            "total_qty": 0,
+                            "dates": set()
                         }
-                    product_totals[product_id]["total_sold"] += items_sold
-                    product_totals[product_id]["count"] += 1
+                    product_totals[product_id]["total_qty"] += invoice_qty
+                    product_totals[product_id]["dates"].add(inv_date_str)
+                    dates_with_data.add(inv_date_str)
         
         if not product_totals:
             return {
                 "success": False,
-                "message": f"No sales data found for {retailer_name} on this weekday"
+                "message": f"No invoice data found for {retailer_name} on this weekday"
             }
         
         # Create indent items with average + 10% buffer
+        # Average is calculated based on count of days that had data for that product
         indent_items = []
         for product_id, data in product_totals.items():
-            avg_sold = data["total_sold"] / data["count"]
-            recommended_qty = round(avg_sold * 1.1)  # Add 10% buffer
+            days_count = len(data["dates"])
+            avg_qty = data["total_qty"] / days_count
+            recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
             
             if recommended_qty > 0:
                 indent_items.append({
@@ -10313,7 +10318,7 @@ async def generate_single_auto_indent(
         if not indent_items:
             return {
                 "success": False,
-                "message": f"No products with positive sales found for {retailer_name}"
+                "message": f"No products with positive quantities found for {retailer_name}"
             }
         
         # Sort by product name
@@ -10328,7 +10333,7 @@ async def generate_single_auto_indent(
             "items": indent_items,
             "total_qty": sum(item["quantity"] for item in indent_items),
             "status": "pending",
-            "remarks": f"Auto-generated based on {len(same_weekday_records)} weeks of {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][target_weekday]} sales",
+            "remarks": f"Auto-generated based on {len(same_weekday_invoices)} weeks of {weekday_names[target_weekday]} invoice data",
             "is_auto_generated": True,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()

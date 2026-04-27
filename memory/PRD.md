@@ -54,6 +54,14 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Preview modal with editable fields (quantity, lot size)
   - Checkbox selection for items to include in indent
   - Create Indent button generates QC indent with source='ocr' marker
+- **Cashflow Receivables Date Filter Fix** ✅
+  - Summary cards now correctly filter retail invoices by selected date range
+  - Previously showed all-time totals (₹16.5K) instead of date-filtered amounts (₹2.6K)
+- **Labour-wise Summary Expandable Rows** ✅
+  - Click on any labour name to expand and view day-wise attendance details
+  - Shows DATE, HOURS, OVERTIME, PAYMENT columns for each day
+  - Inline editing: click edit icon to edit hours/overtime
+  - Save updates attendance record via API with success toast
 
 ## Technical Architecture
 

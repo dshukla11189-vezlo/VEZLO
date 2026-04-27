@@ -43,9 +43,17 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - APScheduler reliability (architectural decision needed)
 
 ### Backlog
-- OCR QC Order Processing
 - Hindi language E2E testing
 - AI-powered demand forecasting
+
+### Completed (This Session - 27 Apr 2026)
+- **OCR QC Order Processing** ✅
+  - GPT-4o integration via emergentintegrations library for image OCR
+  - Extracts NC SKU ID, UOM, CA (unit type), UNITS (total demand), Mr Organix (order qty)
+  - 100% product matching rate with existing database products
+  - Preview modal with editable fields (quantity, lot size)
+  - Checkbox selection for items to include in indent
+  - Create Indent button generates QC indent with source='ocr' marker
 
 ## Technical Architecture
 
@@ -119,6 +127,8 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - `GET /api/labour-attendance` - Attendance tracking (modular route)
 - `GET /api/labour-costs/summary` - Labour costs summary (modular route)
 - `GET /api/rejections` - Historical date-wise rejections
+- `POST /api/qc-indents/ocr` - OCR image upload for Ninjacart indent extraction
+- `POST /api/qc-indents/create-from-ocr` - Create indent from OCR extracted data
 
 ## Test Credentials
 - Admin: admin@freshflow.com / admin123
@@ -133,3 +143,4 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 ## Active Modular Routes
 - `/app/backend/routes/labour.py` - Labour Management (ACTIVE)
+- `/app/backend/ocr_indent_processor.py` - OCR Indent Processing (ACTIVE)

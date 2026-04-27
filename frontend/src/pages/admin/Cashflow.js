@@ -511,53 +511,70 @@ export default function Cashflow() {
         }
       });
       
-      // OUTFLOWS: Variable Expenses paid BY COMPANY directly
-      // Only include if company paid directly (not employee reimbursements) and within date range
+      // OUTFLOWS: Variable Expenses - Include both:
+      // 1. Company-paid expenses (direct payments)
+      // 2. Settled employee reimbursements (company paid employee back)
       varExpenses.forEach(e => {
-        const paidByCompany = e.paid_by === 'Company' || 
-          (!e.paid_by_type && !e.paid_by) ||
-          (e.paid_by_type === 'company');
         const expDate = (e.date)?.split('T')[0];
-        // Include only company-paid expenses within date range
-        if (paidByCompany && expDate >= fromDate && expDate <= toDate) {
-          const amount = e.amount || 0;
-          totalOutflow += amount;
-          outflows.push({
-            type: 'Variable Expense',
-            recipient: e.paid_to || e.category,
-            date: e.date,
-            description: e.description || e.category,
-            amount: amount,
-            payment_mode: e.payment_mode || 'Cash',
-            reference: '-',
-            paid_by: 'Company',
-            id: e.id
-          });
+        if (expDate >= fromDate && expDate <= toDate) {
+          const paidByCompany = e.paid_by === 'Company' || 
+            (!e.paid_by_type && !e.paid_by) ||
+            (e.paid_by_type === 'company');
+          
+          // Check if employee-paid but settled (reimbursed by company)
+          const isEmployeePaidAndSettled = (e.paid_by_type === 'employee' || 
+            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'))) && 
+            (e.is_settled || e.settlement_status === 'settled');
+          
+          // Include if company paid directly OR if employee was reimbursed
+          if (paidByCompany || isEmployeePaidAndSettled) {
+            const amount = e.amount || 0;
+            totalOutflow += amount;
+            outflows.push({
+              type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Variable Expense',
+              recipient: isEmployeePaidAndSettled ? e.paid_by : (e.paid_to || e.category),
+              date: e.settlement_date || e.date,
+              description: `${e.category} - ${e.description || ''}`,
+              amount: amount,
+              payment_mode: e.payment_mode || 'Cash',
+              reference: '-',
+              paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
+              id: e.id
+            });
+          }
         }
       });
       
-      // OUTFLOWS: Fixed Expenses paid BY COMPANY directly
+      // OUTFLOWS: Fixed Expenses - Include both company-paid and settled reimbursements
       fixedExpenses.forEach(e => {
-        const paidByCompany = e.paid_by === 'Company' || 
-          (!e.paid_by_type && !e.paid_by) ||
-          (e.paid_by_type === 'company');
         const displayDate = e.date ? e.date.split('T')[0] : 
           (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
-        // Include only company-paid fixed expenses within date range
-        if (paidByCompany && displayDate && displayDate >= fromDate && displayDate <= toDate) {
-          const amount = e.amount || 0;
-          totalOutflow += amount;
-          outflows.push({
-            type: 'Fixed Expense',
-            recipient: e.category,
-            date: displayDate,
-            description: e.description || e.category,
-            amount: amount,
-            payment_mode: e.payment_mode || '-',
-            reference: '-',
-            paid_by: 'Company',
-            id: e.id
-          });
+        
+        if (displayDate && displayDate >= fromDate && displayDate <= toDate) {
+          const paidByCompany = e.paid_by === 'Company' || 
+            (!e.paid_by_type && !e.paid_by) ||
+            (e.paid_by_type === 'company');
+          
+          // Check if employee-paid but settled
+          const isEmployeePaidAndSettled = (e.paid_by_type === 'employee' || 
+            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'))) && 
+            (e.is_settled || e.settlement_status === 'settled');
+          
+          if (paidByCompany || isEmployeePaidAndSettled) {
+            const amount = e.amount || 0;
+            totalOutflow += amount;
+            outflows.push({
+              type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Fixed Expense',
+              recipient: isEmployeePaidAndSettled ? e.paid_by : e.category,
+              date: displayDate,
+              description: e.description || e.category,
+              amount: amount,
+              payment_mode: e.payment_mode || '-',
+              reference: '-',
+              paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
+              id: e.id
+            });
+          }
         }
       });
       

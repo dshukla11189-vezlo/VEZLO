@@ -406,11 +406,12 @@ export default function LaborCosts() {
         return record;
       });
       
-      // Save the updated attendance
-      await api.post('/api/labour-attendance', {
+      // Save the updated attendance using BULK endpoint
+      await api.post('/api/labour-attendance/bulk', {
         date: date,
         records: updatedRecords.map(r => ({
           labour_id: r.labour_id,
+          labour_name: r.labour_name,
           present: r.present,
           working_hours: r.working_hours || 9,
           overtime_hours: r.overtime_hours || 0,

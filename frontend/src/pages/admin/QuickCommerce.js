@@ -275,6 +275,13 @@ export default function QuickCommerce() {
   const [dispatchItemEditCrates, setDispatchItemEditCrates] = useState('');
   const [dispatchInvoiceStatus, setDispatchInvoiceStatus] = useState({}); // { dispatchId: { is_invoiced, invoice_number } }
 
+  // OCR Indent Upload state
+  const [ocrUploading, setOcrUploading] = useState(false);
+  const [ocrPreviewData, setOcrPreviewData] = useState(null);
+  const [ocrPreviewOpen, setOcrPreviewOpen] = useState(false);
+  const [ocrCreating, setOcrCreating] = useState(false);
+  const [ocrEditingItems, setOcrEditingItems] = useState([]); // Editable items from OCR
+
   // ============================================================================
   // SECTION: DATA LOADING (useEffect)
   // ============================================================================
@@ -1345,6 +1352,118 @@ export default function QuickCommerce() {
       customer_name: '',
       items: [{ product_id: '', product_name: '', product_unit: '', packaging_id: '', packaging_name: '', required_qty: '', lot_size: '', no_of_crates: 0, rate: '' }]
     });
+  };
+
+  // ============================================================================
+  // SECTION: OCR INDENT UPLOAD HANDLERS
+  // ============================================================================
+  
+  // Handle OCR image upload
+  const handleOcrFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file (PNG, JPG, JPEG)');
+      return;
+    }
+    
+    // File size limit (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10MB');
+      return;
+    }
+    
+    setOcrUploading(true);
+    setOcrPreviewData(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await api.post('/api/qc-indents/ocr', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (response.data.success) {
+        setOcrPreviewData(response.data);
+        setOcrEditingItems(response.data.items.map(item => ({
+          ...item,
+          required_qty: item.mr_organix_qty,
+          lot_size: 25, // Default lot size
+          include: true // Include in indent by default
+        })));
+        setOcrPreviewOpen(true);
+        toast.success(`Extracted ${response.data.total_items} items from image`);
+      } else {
+        toast.error(response.data.error || 'Failed to process image');
+      }
+    } catch (error) {
+      console.error('OCR upload error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to process image');
+    } finally {
+      setOcrUploading(false);
+      // Reset file input
+      e.target.value = '';
+    }
+  };
+  
+  // Update OCR editing item field
+  const updateOcrItem = (index, field, value) => {
+    setOcrEditingItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+  
+  // Create indent from OCR data
+  const handleCreateIndentFromOcr = async () => {
+    const itemsToCreate = ocrEditingItems.filter(item => item.include && item.required_qty > 0);
+    
+    if (itemsToCreate.length === 0) {
+      toast.error('No items selected to create indent');
+      return;
+    }
+    
+    setOcrCreating(true);
+    
+    try {
+      const payload = {
+        customer_name: 'Ninjacart',
+        indent_date: ocrPreviewData?.indent_date || new Date().toISOString().split('T')[0],
+        items: itemsToCreate.map(item => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          nc_sku_id: item.nc_sku_id,
+          packaging_id: item.packaging_id,
+          packaging_name: item.packaging_name,
+          ca: item.ca,
+          required_qty: parseFloat(item.required_qty) || 0,
+          lot_size: parseInt(item.lot_size) || 25,
+          units_total_demand: item.units_total_demand,
+          rate: item.rate || null
+        }))
+      };
+      
+      const response = await api.post('/api/qc-indents/create-from-ocr', payload);
+      
+      if (response.data.success) {
+        toast.success(`Indent created with ${itemsToCreate.length} items!`);
+        setOcrPreviewOpen(false);
+        setOcrPreviewData(null);
+        setOcrEditingItems([]);
+        loadData(); // Refresh indent list
+      } else {
+        toast.error(response.data.error || 'Failed to create indent');
+      }
+    } catch (error) {
+      console.error('Create indent from OCR error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to create indent');
+    } finally {
+      setOcrCreating(false);
+    }
   };
 
   // ============================================================================
@@ -3309,6 +3428,37 @@ Email: ${companyEmail}`;
                 </form>
               </DialogContent>
             </Dialog>
+
+            {/* OCR Upload Button */}
+            <div className="relative">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                onChange={handleOcrFileUpload}
+                className="hidden"
+                id="ocr-file-input"
+                data-testid="ocr-file-input"
+              />
+              <Button
+                variant="outline"
+                className="border-orange-400 text-orange-600 hover:bg-orange-50"
+                onClick={() => document.getElementById('ocr-file-input').click()}
+                disabled={ocrUploading}
+                data-testid="ocr-upload-btn"
+              >
+                {ocrUploading ? (
+                  <>
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} className="mr-2" />
+                    Upload Ninjacart Indent
+                  </>
+                )}
+              </Button>
+            </div>
 
             <Dialog open={openIndent} onOpenChange={(open) => { setOpenIndent(open); if (!open) resetIndentForm(); }}>
               <DialogTrigger asChild>
@@ -6105,6 +6255,206 @@ Email: ${companyEmail}`;
                   <Pencil size={14} className="mr-1" /> Edit
                 </Button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OCR Preview Modal */}
+      {ocrPreviewOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] overflow-hidden shadow-xl flex flex-col">
+            <div className="p-4 border-b bg-gradient-to-r from-orange-500 to-amber-500 text-white flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Upload size={20} />
+                  Ninjacart Indent Preview
+                </h2>
+                {ocrPreviewData && (
+                  <p className="text-sm text-orange-100">
+                    Date: {ocrPreviewData.indent_date || 'Not detected'} | 
+                    {' '}{ocrPreviewData.matched_items}/{ocrPreviewData.total_items} products matched
+                  </p>
+                )}
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="text-white hover:bg-orange-600"
+                onClick={() => { setOcrPreviewOpen(false); setOcrPreviewData(null); setOcrEditingItems([]); }}
+              >
+                <X size={20} />
+              </Button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto flex-1">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="bg-blue-50 p-3 rounded-lg text-center">
+                  <p className="text-xs text-blue-600">Total Items</p>
+                  <p className="text-xl font-bold text-blue-700">{ocrEditingItems.length}</p>
+                </div>
+                <div className="bg-green-50 p-3 rounded-lg text-center">
+                  <p className="text-xs text-green-600">Selected</p>
+                  <p className="text-xl font-bold text-green-700">{ocrEditingItems.filter(i => i.include).length}</p>
+                </div>
+                <div className="bg-purple-50 p-3 rounded-lg text-center">
+                  <p className="text-xs text-purple-600">Total Qty (Mr Organix)</p>
+                  <p className="text-xl font-bold text-purple-700">
+                    {ocrEditingItems.filter(i => i.include).reduce((sum, i) => sum + (parseFloat(i.required_qty) || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="bg-amber-50 p-3 rounded-lg text-center">
+                  <p className="text-xs text-amber-600">Total Demand (UNITS)</p>
+                  <p className="text-xl font-bold text-amber-700">
+                    {ocrEditingItems.filter(i => i.include).reduce((sum, i) => sum + (parseFloat(i.units_total_demand) || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Items Table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="py-2 px-2 text-left w-8">
+                          <input
+                            type="checkbox"
+                            checked={ocrEditingItems.every(i => i.include)}
+                            onChange={(e) => {
+                              setOcrEditingItems(prev => prev.map(i => ({ ...i, include: e.target.checked })));
+                            }}
+                            className="rounded"
+                          />
+                        </th>
+                        <th className="py-2 px-2 text-left">NC SKU / Product</th>
+                        <th className="py-2 px-2 text-center">UOM</th>
+                        <th className="py-2 px-2 text-center">Unit</th>
+                        <th className="py-2 px-2 text-right">UNITS<br/><span className="text-xs text-gray-500">(Total Demand)</span></th>
+                        <th className="py-2 px-2 text-right">Mr Organix<br/><span className="text-xs text-gray-500">(Order Qty)</span></th>
+                        <th className="py-2 px-2 text-center">Lot Size</th>
+                        <th className="py-2 px-2 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ocrEditingItems.map((item, index) => (
+                        <tr 
+                          key={index} 
+                          className={`border-t hover:bg-gray-50 ${!item.include ? 'opacity-50 bg-gray-50' : ''}`}
+                        >
+                          <td className="py-2 px-2">
+                            <input
+                              type="checkbox"
+                              checked={item.include}
+                              onChange={(e) => updateOcrItem(index, 'include', e.target.checked)}
+                              className="rounded"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <div className="text-xs text-gray-500 truncate max-w-[200px]" title={item.nc_sku_id}>
+                              {item.nc_sku_id}
+                            </div>
+                            <div className={`font-medium ${item.is_matched ? 'text-green-700' : 'text-orange-600'}`}>
+                              {item.product_name}
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                              {item.uom || item.packaging_name || '-'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <span className={`text-xs font-medium px-2 py-1 rounded ${item.ca === 'PCS' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                              {item.ca}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-right text-gray-600">
+                            {(item.units_total_demand || 0).toLocaleString()}
+                          </td>
+                          <td className="py-2 px-2 text-right">
+                            <Input
+                              type="number"
+                              value={item.required_qty}
+                              onChange={(e) => updateOcrItem(index, 'required_qty', e.target.value)}
+                              className="w-20 h-7 text-sm text-right"
+                              disabled={!item.include}
+                            />
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <Input
+                              type="number"
+                              value={item.lot_size}
+                              onChange={(e) => updateOcrItem(index, 'lot_size', e.target.value)}
+                              className="w-16 h-7 text-sm text-center"
+                              disabled={!item.include}
+                            />
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            {item.is_matched ? (
+                              <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                                <Check size={12} /> Matched
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                                <AlertTriangle size={12} /> New
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              {/* Legend */}
+              <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 bg-green-100 rounded"></span> Matched = Product found in database
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 bg-orange-100 rounded"></span> New = Product will be created
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="font-medium">UNITS</span> = Total demand from all vendors
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="font-medium">Mr Organix</span> = Your allocated order qty
+                </span>
+              </div>
+            </div>
+            
+            <div className="p-4 border-t bg-gray-50 flex justify-between items-center gap-3">
+              <Button 
+                variant="outline" 
+                onClick={() => { setOcrPreviewOpen(false); setOcrPreviewData(null); setOcrEditingItems([]); }}
+              >
+                Cancel
+              </Button>
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-gray-600">
+                  {ocrEditingItems.filter(i => i.include).length} items selected
+                </p>
+                <Button 
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={handleCreateIndentFromOcr}
+                  disabled={ocrCreating || ocrEditingItems.filter(i => i.include).length === 0}
+                  data-testid="create-indent-from-ocr-btn"
+                >
+                  {ocrCreating ? (
+                    <>
+                      <Loader2 size={16} className="mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} className="mr-2" />
+                      Create Indent
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

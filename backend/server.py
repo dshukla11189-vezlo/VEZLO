@@ -61,9 +61,11 @@ import csv
 import uuid
 import traceback
 import time
+import base64
 
 from models import *
 from ocr_processor import process_excel_image
+from ocr_indent_processor import extract_indent_from_image, map_sku_to_product, map_uom_to_packaging
 from pdf_generator import generate_invoice_pdf
 from backup_system import setup_backup_scheduler, trigger_manual_backup, generate_backup_excel
 from gmail_integration import (
@@ -1980,6 +1982,171 @@ async def get_previous_qc_indent(customer_name: str, current_user: dict = Depend
         return {"indent": None, "message": "No previous indent found"}
     
     return {"indent": indent, "message": "Previous indent found"}
+
+
+# ============================================================================
+# SECTION: QC INDENT OCR PROCESSING
+# ============================================================================
+@api_router.post("/qc-indents/ocr")
+async def process_qc_indent_ocr(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Process an uploaded Ninjacart indent image using OCR.
+    Extracts product data and returns preview for user confirmation.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Validate file type
+    allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed types: {', '.join(allowed_types)}"
+        )
+    
+    try:
+        # Read file content
+        file_content = await file.read()
+        
+        # Convert to base64
+        image_base64 = base64.b64encode(file_content).decode('utf-8')
+        
+        # Call OCR processor
+        ocr_result = await extract_indent_from_image(image_base64, file.content_type)
+        
+        if not ocr_result["success"]:
+            return {
+                "success": False,
+                "error": ocr_result.get("error", "OCR processing failed"),
+                "indent_date": None,
+                "items": []
+            }
+        
+        # Get products and packagings for mapping
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        
+        # Map extracted items to products and packagings
+        mapped_items = []
+        for item in ocr_result["items"]:
+            # Map SKU to product
+            product_match = map_sku_to_product(item["nc_sku_id"], products)
+            
+            # Map UOM to packaging
+            packaging_match = map_uom_to_packaging(item["uom"], item["ca"], packagings)
+            
+            mapped_items.append({
+                "nc_sku_id": item["nc_sku_id"],
+                "product_id": product_match["product_id"],
+                "product_name": product_match["product_name"],
+                "uom": item["uom"],
+                "ca": item["ca"],  # KG or PCS
+                "packaging_id": packaging_match["packaging_id"],
+                "packaging_name": packaging_match["packaging_name"],
+                "packaging_weight_gm": packaging_match["weight_gm"],
+                "units_total_demand": item["units"],
+                "mr_organix_qty": item["mr_organix"],
+                "is_matched": product_match["product_id"] is not None
+            })
+        
+        return {
+            "success": True,
+            "indent_date": ocr_result["indent_date"],
+            "items": mapped_items,
+            "total_items": len(mapped_items),
+            "matched_items": sum(1 for i in mapped_items if i["is_matched"]),
+            "unmatched_items": sum(1 for i in mapped_items if not i["is_matched"])
+        }
+        
+    except Exception as e:
+        logger.error(f"OCR processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+
+
+@api_router.post("/qc-indents/create-from-ocr")
+async def create_qc_indent_from_ocr(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a QC indent from OCR-extracted data.
+    Expected input:
+    {
+        "customer_name": "Ninjacart",
+        "indent_date": "2026-04-27",
+        "items": [
+            {
+                "product_id": "xxx",
+                "product_name": "Coriander",
+                "packaging_id": "yyy",
+                "packaging_name": "90-110gm",
+                "required_qty": 252,
+                "lot_size": 25,
+                "rate": null
+            }
+        ]
+    }
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    customer_name = input.get("customer_name", "Ninjacart")
+    indent_date = input.get("indent_date")
+    items = input.get("items", [])
+    
+    if not indent_date:
+        indent_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    if not items:
+        raise HTTPException(status_code=400, detail="No items provided")
+    
+    # Prepare indent items
+    indent_items = []
+    for item in items:
+        qty = float(item.get("required_qty", 0))
+        lot_size = int(item.get("lot_size", 25))  # Default lot size
+        no_of_crates = lot_size > 0 and qty > 0 and int((qty + lot_size - 1) // lot_size) or 0
+        
+        indent_items.append({
+            "product_id": item.get("product_id") or str(uuid.uuid4()),
+            "product_name": item.get("product_name", ""),
+            "product_unit": item.get("ca", "KG"),
+            "packaging_id": item.get("packaging_id", ""),
+            "packaging_name": item.get("packaging_name", ""),
+            "required_qty": qty,
+            "lot_size": lot_size,
+            "no_of_crates": no_of_crates,
+            "rate": item.get("rate"),
+            # Store OCR-specific fields for reference
+            "ocr_nc_sku_id": item.get("nc_sku_id", ""),
+            "ocr_units_total_demand": item.get("units_total_demand", 0)
+        })
+    
+    # Create the indent
+    indent_id = str(uuid.uuid4())
+    indent_doc = {
+        "id": indent_id,
+        "indent_date": f"{indent_date}T00:00:00+00:00" if 'T' not in indent_date else indent_date,
+        "customer_name": customer_name,
+        "items": indent_items,
+        "status": "pending",
+        "source": "ocr",  # Mark as created from OCR
+        "recorded_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.qc_indents.insert_one(indent_doc)
+    indent_doc.pop("_id", None)
+    
+    return {
+        "success": True,
+        "message": f"Indent created successfully with {len(indent_items)} items",
+        "indent_id": indent_id,
+        "indent": indent_doc
+    }
 
 # ============================================================================
 # SECTION: QC DISPATCH ROUTES (Lines ~825-1000)

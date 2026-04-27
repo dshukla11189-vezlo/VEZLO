@@ -49,6 +49,9 @@ export default function LaborCosts() {
   const [costsSummary, setCostsSummary] = useState(null);
   const [loadingCosts, setLoadingCosts] = useState(false);
   const [expandedDates, setExpandedDates] = useState({});
+  const [expandedLabours, setExpandedLabours] = useState({}); // Track expanded labours in Labour-wise Summary
+  const [editingLabourAttendance, setEditingLabourAttendance] = useState(null); // { labourId, date, field, value }
+  const [savingLabourEdit, setSavingLabourEdit] = useState(false);
 
   // Attendance state (for admin recording)
   const [attendanceDate, setAttendanceDate] = useState(today);
@@ -361,6 +364,72 @@ export default function LaborCosts() {
     setExpandedDates(prev => ({ ...prev, [date]: !prev[date] }));
   };
 
+  // Toggle expand for labour in Labour-wise Summary
+  const toggleLabourExpand = (labourId) => {
+    setExpandedLabours(prev => ({ ...prev, [labourId]: !prev[labourId] }));
+  };
+
+  // Get daily records for a specific labour
+  const getLabourDailyRecords = (labourId) => {
+    if (!costsSummary?.daily_breakdown) return [];
+    
+    const records = [];
+    costsSummary.daily_breakdown.forEach(day => {
+      const labourRecord = day.records?.find(r => r.labour_id === labourId);
+      if (labourRecord) {
+        records.push({
+          date: day.date,
+          ...labourRecord
+        });
+      }
+    });
+    return records.sort((a, b) => new Date(b.date) - new Date(a.date));
+  };
+
+  // Save individual labour attendance edit
+  const saveLabourAttendanceEdit = async (labourId, date, workingHours, overtimeHours) => {
+    setSavingLabourEdit(true);
+    try {
+      // First fetch the existing attendance for this date
+      const response = await api.get(`/api/labour-attendance?date=${date}`);
+      const existingAttendance = response.data || [];
+      
+      // Find and update the specific labour's record
+      const updatedRecords = existingAttendance.map(record => {
+        if (record.labour_id === labourId) {
+          return {
+            ...record,
+            working_hours: parseFloat(workingHours) || 9,
+            overtime_hours: parseFloat(overtimeHours) || 0
+          };
+        }
+        return record;
+      });
+      
+      // Save the updated attendance
+      await api.post('/api/labour-attendance', {
+        date: date,
+        records: updatedRecords.map(r => ({
+          labour_id: r.labour_id,
+          present: r.present,
+          working_hours: r.working_hours || 9,
+          overtime_hours: r.overtime_hours || 0,
+          daily_rate: r.daily_rate,
+          overtime_rate: r.overtime_rate
+        }))
+      });
+      
+      toast.success('Attendance updated successfully');
+      setEditingLabourAttendance(null);
+      loadCostsSummary(); // Refresh data
+    } catch (error) {
+      console.error('Error saving attendance:', error);
+      toast.error('Failed to update attendance');
+    } finally {
+      setSavingLabourEdit(false);
+    }
+  };
+
   const formatCurrency = (amount) => {
     if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
     if (amount >= 1000) return `₹${(amount / 1000).toFixed(1)}K`;
@@ -516,12 +585,14 @@ export default function LaborCosts() {
               <Card>
                 <CardHeader className="py-3">
                   <CardTitle className="text-sm">Labour-wise Summary</CardTitle>
+                  <p className="text-xs text-gray-500 mt-1">Click on a labour name to view day-wise attendance details</p>
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 border-b">
                         <tr>
+                          <th className="p-2 w-6"></th>
                           <th className="p-2 text-left font-medium text-gray-500">LABOUR NAME</th>
                           <th className="p-2 text-center font-medium text-gray-500">DAYS PRESENT</th>
                           <th className="p-2 text-center font-medium text-gray-500">OVERTIME (HRS)</th>
@@ -530,16 +601,145 @@ export default function LaborCosts() {
                       </thead>
                       <tbody>
                         {costsSummary.labour_breakdown.map((labour, idx) => (
-                          <tr key={labour.labour_id} className="border-b hover:bg-gray-50">
-                            <td className="p-2 font-medium">{labour.labour_name}</td>
-                            <td className="p-2 text-center">{labour.days_present}</td>
-                            <td className="p-2 text-center text-orange-600">{labour.total_overtime_hours.toFixed(1)}</td>
-                            <td className="p-2 text-right font-semibold text-green-700">₹{labour.total_payment.toLocaleString()}</td>
-                          </tr>
+                          <React.Fragment key={labour.labour_id}>
+                            <tr 
+                              className="border-b hover:bg-gray-50 cursor-pointer"
+                              onClick={() => toggleLabourExpand(labour.labour_id)}
+                              data-testid={`labour-row-${labour.labour_id}`}
+                            >
+                              <td className="p-2 text-center text-gray-400">
+                                {expandedLabours[labour.labour_id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                              </td>
+                              <td className="p-2 font-medium">{labour.labour_name}</td>
+                              <td className="p-2 text-center">{labour.days_present}</td>
+                              <td className="p-2 text-center text-orange-600">{labour.total_overtime_hours.toFixed(1)}</td>
+                              <td className="p-2 text-right font-semibold text-green-700">₹{labour.total_payment.toLocaleString()}</td>
+                            </tr>
+                            
+                            {/* Expanded day-wise attendance details */}
+                            {expandedLabours[labour.labour_id] && (
+                              <>
+                                {/* Header row for expanded section */}
+                                <tr className="bg-blue-50 border-b">
+                                  <td></td>
+                                  <td className="p-1 pl-4 text-[10px] font-medium text-blue-700">DATE</td>
+                                  <td className="p-1 text-center text-[10px] font-medium text-blue-700">HOURS</td>
+                                  <td className="p-1 text-center text-[10px] font-medium text-blue-700">OVERTIME</td>
+                                  <td className="p-1 text-right text-[10px] font-medium text-blue-700">PAYMENT</td>
+                                </tr>
+                                
+                                {getLabourDailyRecords(labour.labour_id).map((record, ridx) => {
+                                  const isEditing = editingLabourAttendance?.labourId === labour.labour_id && 
+                                                   editingLabourAttendance?.date === record.date;
+                                  
+                                  return (
+                                    <tr key={`${labour.labour_id}-${record.date}`} className="bg-gray-50 border-b hover:bg-gray-100">
+                                      <td></td>
+                                      <td className="p-1 pl-4 text-gray-600 text-[11px]">
+                                        <Calendar size={10} className="inline mr-1" />
+                                        {formatDate(record.date)}
+                                      </td>
+                                      <td className="p-1 text-center">
+                                        {isEditing ? (
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            max="24"
+                                            step="0.5"
+                                            value={editingLabourAttendance.workingHours}
+                                            onChange={(e) => setEditingLabourAttendance(prev => ({ ...prev, workingHours: e.target.value }))}
+                                            className="w-14 h-6 text-xs text-center p-1"
+                                            onClick={(e) => e.stopPropagation()}
+                                          />
+                                        ) : (
+                                          <span className="text-gray-700 text-[11px]">{record.working_hours || 9} hrs</span>
+                                        )}
+                                      </td>
+                                      <td className="p-1 text-center">
+                                        {isEditing ? (
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            max="12"
+                                            step="0.5"
+                                            value={editingLabourAttendance.overtimeHours}
+                                            onChange={(e) => setEditingLabourAttendance(prev => ({ ...prev, overtimeHours: e.target.value }))}
+                                            className="w-14 h-6 text-xs text-center p-1"
+                                            onClick={(e) => e.stopPropagation()}
+                                          />
+                                        ) : (
+                                          <span className={`text-[11px] ${record.overtime_hours > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                                            {record.overtime_hours > 0 ? `+${record.overtime_hours}` : '0'}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="p-1 text-right">
+                                        {isEditing ? (
+                                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="h-5 w-5 p-0 text-gray-400 hover:text-gray-600"
+                                              onClick={() => setEditingLabourAttendance(null)}
+                                            >
+                                              <X size={12} />
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              className="h-5 px-2 text-[10px] bg-green-600 hover:bg-green-700"
+                                              onClick={() => saveLabourAttendanceEdit(
+                                                labour.labour_id,
+                                                record.date,
+                                                editingLabourAttendance.workingHours,
+                                                editingLabourAttendance.overtimeHours
+                                              )}
+                                              disabled={savingLabourEdit}
+                                            >
+                                              {savingLabourEdit ? '...' : <Save size={10} />}
+                                            </Button>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className="text-gray-700 text-[11px]">₹{record.total_payment?.toLocaleString() || 0}</span>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="h-5 w-5 p-0 text-gray-400 hover:text-blue-600"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditingLabourAttendance({
+                                                  labourId: labour.labour_id,
+                                                  date: record.date,
+                                                  workingHours: record.working_hours || 9,
+                                                  overtimeHours: record.overtime_hours || 0
+                                                });
+                                              }}
+                                              data-testid={`edit-attendance-${labour.labour_id}-${record.date}`}
+                                            >
+                                              <Edit2 size={10} />
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                
+                                {getLabourDailyRecords(labour.labour_id).length === 0 && (
+                                  <tr className="bg-gray-50">
+                                    <td colSpan={5} className="p-2 text-center text-gray-400 text-xs">
+                                      No attendance records found for this period
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
+                            )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                       <tfoot className="bg-gray-100">
                         <tr>
+                          <td></td>
                           <td className="p-2 font-bold">TOTAL</td>
                           <td className="p-2 text-center font-bold">{costsSummary.summary.total_man_days}</td>
                           <td className="p-2 text-center font-bold text-orange-600">{costsSummary.summary.total_overtime_hours.toFixed(1)}</td>

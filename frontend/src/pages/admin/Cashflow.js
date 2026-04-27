@@ -296,10 +296,15 @@ export default function Cashflow() {
       const reimbursementsList = Object.values(employeeReimbursements).sort((a, b) => b.total - a.total);
       setReimbursementsData(reimbursementsList);
       
-      // Process Retail Invoices (Receivables)
+      // Process Retail Invoices (Receivables) - filter by date range
       const retailInvoices = retailInvoicesRes.data || [];
-      const retailTotal = retailInvoices.reduce((sum, inv) => sum + (inv.net_payable || inv.total_amount || 0), 0);
-      const retailReceived = retailInvoices.reduce((sum, inv) => sum + (inv.paid_amount || 0), 0);
+      // Filter retail invoices by date range for accurate summary
+      const filteredRetailInvoices = retailInvoices.filter(inv => {
+        const invDate = (inv.invoice_date || '')?.split('T')[0];
+        return invDate >= fromDate && invDate <= toDate;
+      });
+      const retailTotal = filteredRetailInvoices.reduce((sum, inv) => sum + (inv.net_payable || inv.total_amount || 0), 0);
+      const retailReceived = filteredRetailInvoices.reduce((sum, inv) => sum + (inv.paid_amount || 0), 0);
       
       // Process QC GRNs (Receivables) - filter by date range
       // Note: GRN items use 'dispatch_date' not 'date'

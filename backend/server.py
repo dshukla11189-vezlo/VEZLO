@@ -7857,6 +7857,20 @@ async def update_variable_expense(expense_id: str, updates: dict, current_user: 
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     updates["updated_by"] = current_user["email"]
     
+    # If payment_status is being changed to 'pending', check if employee-paid and reset settlement_status
+    if updates.get("payment_status") == "pending":
+        # Fetch the existing expense to check paid_by_type
+        existing = await db.variable_expenses.find_one({"id": expense_id})
+        if existing:
+            is_employee_paid = existing.get("paid_by_type") == "employee" or \
+                (existing.get("paid_by") and existing.get("paid_by") != "Company" and \
+                 "company" not in existing.get("paid_by", "").lower())
+            
+            if is_employee_paid:
+                # Reset settlement status for employee-paid expenses when changing to pending
+                updates["settlement_status"] = "pending_reimbursement"
+                updates["is_settled"] = False
+    
     result = await db.variable_expenses.update_one(
         {"id": expense_id},
         {"$set": updates}
@@ -7926,6 +7940,38 @@ async def migrate_variable_expenses_paid_by_type(current_user: dict = Depends(ge
         "message": "Migration completed",
         "company_expenses_updated": company_result.modified_count,
         "employee_expenses_updated": employee_result.modified_count
+    }
+
+
+@api_router.post("/expenses/variable/fix-settlement-status")
+async def fix_settlement_status_for_pending(current_user: dict = Depends(get_current_user)):
+    """Fix settlement_status for employee-paid expenses that have payment_status=pending but settlement_status=settled"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Find and fix employee-paid expenses where:
+    # - payment_status is 'pending'
+    # - settlement_status is 'settled' (which is wrong - should be pending_reimbursement)
+    result = await db.variable_expenses.update_many(
+        {
+            "payment_status": "pending",
+            "settlement_status": "settled",
+            "$or": [
+                {"paid_by_type": "employee"},
+                {"paid_by": {"$nin": ["Company", "Vendor", None, ""]}}
+            ]
+        },
+        {
+            "$set": {
+                "settlement_status": "pending_reimbursement",
+                "is_settled": False
+            }
+        }
+    )
+    
+    return {
+        "message": f"Fixed {result.modified_count} expenses (settlement_status: settled -> pending_reimbursement)",
+        "fixed_count": result.modified_count
     }
 
 # ============================================================================

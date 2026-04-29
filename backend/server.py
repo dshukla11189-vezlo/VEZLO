@@ -63,40 +63,6 @@ import traceback
 import time
 import base64
 
-# Helper function to convert unit_size to Kg
-# Handles both gram-based (>= 10, e.g., 384.42g) and Kg-based (< 10, e.g., 0.607kg) values
-def convert_unit_size_to_kg(qty: float, unit_size, unit: str = "") -> float:
-    """Convert quantity with unit_size to Kg.
-    
-    Args:
-        qty: Number of units (e.g., 130 bunches)
-        unit_size: Weight per unit - can be in grams (>= 10) or Kg (< 10)
-        unit: Unit type (Bunch, Piece, Pack, Kg, etc.)
-    
-    Returns:
-        Total weight in Kg
-    """
-    if not unit_size:
-        return qty  # Assume already in Kg
-    
-    # Skip conversion for Kg units
-    if unit.lower() == "kg":
-        return qty
-    
-    try:
-        weight_per_unit = float(unit_size)
-        # Detect if unit_size is in Kg (< 10) or grams (>= 10)
-        # Historical data used grams (e.g., 384.42, 815.38)
-        # Recent data may use Kg (e.g., 0.607, 0.205)
-        if weight_per_unit < 10:
-            # Already in Kg
-            return qty * weight_per_unit
-        else:
-            # In grams, convert to Kg
-            return (qty * weight_per_unit) / 1000
-    except (ValueError, TypeError):
-        return qty
-
 from models import *
 from ocr_processor import process_excel_image
 from ocr_indent_processor import extract_indent_from_image, map_sku_to_product, map_uom_to_packaging
@@ -1389,9 +1355,12 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
         unit = getattr(item, 'unit', 'Kg')
         unit_size = getattr(item, 'unit_size', '')
         
-        # Convert Bunch, Packet, Piece to kg using unit_size
+        # Convert Bunch, Packet, Piece to kg using unit_size (in grams)
         if unit in ["Bunch", "Packet", "Piece"] and unit_size:
-            qty_kg = convert_unit_size_to_kg(item.quantity, unit_size, unit)
+            try:
+                qty_kg = (item.quantity * float(unit_size)) / 1000
+            except (ValueError, TypeError):
+                pass  # Keep original quantity if conversion fails
             
         # Check if stock status entry exists for this product/date
         existing = await db.daily_stock_status.find_one({
@@ -1551,7 +1520,10 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                 qty_kg = qty
                 # Convert Bunch, Packet, Piece to kg using unit_size
                 if unit in ["Bunch", "Packet", "Piece"] and unit_size:
-                    qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                    try:
+                        qty_kg = (qty * float(unit_size)) / 1000
+                    except:
+                        pass
                 total_value = float(item.get("total", 0) or 0)
                 old_product_map[product_id] = {"qty_kg": qty_kg, "total_value": total_value}
         
@@ -1565,7 +1537,10 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                 qty_kg = qty
                 # Convert Bunch, Packet, Piece to kg using unit_size
                 if unit in ["Bunch", "Packet", "Piece"] and unit_size:
-                    qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                    try:
+                        qty_kg = (qty * float(unit_size)) / 1000
+                    except:
+                        pass
                 total_value = float(item.get("total", 0) or 0)
                 new_product_map[product_id] = {"qty_kg": qty_kg, "total_value": total_value}
         
@@ -4370,7 +4345,11 @@ async def get_pnl_report(
             
             # Convert to Kg if unit is Bunch/Piece
             if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                qty = convert_unit_size_to_kg(qty, unit_size, unit)
+                try:
+                    weight_per_unit_gm = float(unit_size)
+                    qty = (qty * weight_per_unit_gm) / 1000
+                except (ValueError, TypeError):
+                    pass
             
             if product not in product_purchase_totals:
                 product_purchase_totals[product] = {"amount": 0, "qty": 0}
@@ -4576,16 +4555,8 @@ async def get_pnl_report(
             # Convert to Kg if unit is Bunch/Piece with unit_size
             if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
                 try:
-                    weight_per_unit = float(unit_size)
-                    # Detect if unit_size is in Kg (< 10) or grams (>= 10)
-                    # Historical data used grams (e.g., 384.42, 815.38)
-                    # Recent data may use Kg (e.g., 0.607, 0.205)
-                    if weight_per_unit < 10:
-                        # Already in Kg
-                        qty_kg = qty * weight_per_unit
-                    else:
-                        # In grams, convert to Kg
-                        qty_kg = (qty * weight_per_unit) / 1000
+                    weight_per_unit_gm = float(unit_size)
+                    qty_kg = (qty * weight_per_unit_gm) / 1000
                 except (ValueError, TypeError):
                     qty_kg = qty
             else:
@@ -5634,9 +5605,13 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             rate = item.get("rate", 0)  # rate per unit (per Kg or per Bunch)
             total_value = item.get("total", qty * rate)
             
-            # Convert to Kg if unit is Bunch/Piece with a unit_size (weight in grams or Kg)
+            # Convert to Kg if unit is Bunch/Piece with a unit_size (weight in grams)
             if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                try:
+                    weight_per_unit_gm = float(unit_size)  # grams per bunch/piece
+                    qty_kg = (qty * weight_per_unit_gm) / 1000  # convert to Kg
+                except (ValueError, TypeError):
+                    qty_kg = qty  # fallback if unit_size is not a number
             else:
                 qty_kg = qty  # already in Kg
             
@@ -5896,7 +5871,11 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
                 
                 # Convert to Kg
                 if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                    qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
                 else:
                     qty_kg = qty
                 
@@ -6193,7 +6172,10 @@ async def recalculate_wastage_from_procurement(
             # Convert to kg
             qty_kg = qty
             if unit in ["Bunch", "Packet", "Piece"] and unit_size:
-                qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000
+                except:
+                    pass
             
             if product_id not in procurement_by_product:
                 procurement_by_product[product_id] = {"qty_kg": 0, "value": 0}
@@ -6365,7 +6347,10 @@ async def recalculate_purchase_from_procurement(
             # Convert to kg based on unit type
             qty_kg = qty
             if unit in ["Bunch", "Packet", "Piece"] and unit_size:
-                qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000
+                except (ValueError, TypeError):
+                    pass  # Keep original if conversion fails
             
             # Recalculate total value if not provided
             if total_value == 0 and rate > 0:
@@ -7246,7 +7231,11 @@ async def get_closable_products_for_date(
                 
                 # Convert to Kg
                 if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                    qty_kg = convert_unit_size_to_kg(qty, unit_size, unit)
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
                 else:
                     qty_kg = qty
                 

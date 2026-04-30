@@ -7842,6 +7842,19 @@ async def create_variable_expense(expense: dict, current_user: dict = Depends(ge
     expense["created_at"] = datetime.now(timezone.utc).isoformat()
     expense["created_by"] = current_user["email"]
     
+    # Set settlement_status based on paid_by and payment_status
+    is_employee_paid = expense.get("paid_by_type") == "employee" or \
+        (expense.get("paid_by") and expense.get("paid_by") != "Company" and \
+         "company" not in expense.get("paid_by", "").lower() and \
+         expense.get("paid_by") != "Vendor")
+    
+    if is_employee_paid and expense.get("payment_status") == "pending":
+        expense["settlement_status"] = "pending_reimbursement"
+        expense["is_settled"] = False
+    elif expense.get("payment_status") == "paid":
+        expense["settlement_status"] = "settled"
+        expense["is_settled"] = True
+    
     await db.variable_expenses.insert_one(expense.copy())
     if "_id" in expense:
         del expense["_id"]

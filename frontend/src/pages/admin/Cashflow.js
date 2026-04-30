@@ -517,7 +517,7 @@ export default function Cashflow() {
       });
       
       // OUTFLOWS: Variable Expenses - Include both:
-      // 1. Company-paid expenses (direct payments)
+      // 1. Company-paid expenses (direct payments) - ONLY if payment_status is 'paid'
       // 2. Settled employee reimbursements (company paid employee back)
       varExpenses.forEach(e => {
         const expDate = (e.date)?.split('T')[0];
@@ -531,8 +531,12 @@ export default function Cashflow() {
             (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'))) && 
             (e.is_settled || e.settlement_status === 'settled');
           
-          // Include if company paid directly OR if employee was reimbursed
-          if (paidByCompany || isEmployeePaidAndSettled) {
+          // For company-paid expenses, ONLY include if payment_status is 'paid'
+          // For employee reimbursements, include if settled (company already paid the employee back)
+          const companyPaidAndSettled = paidByCompany && e.payment_status === 'paid';
+          
+          // Include if company paid directly (and status is paid) OR if employee was reimbursed
+          if (companyPaidAndSettled || isEmployeePaidAndSettled) {
             const amount = e.amount || 0;
             totalOutflow += amount;
             outflows.push({
@@ -550,7 +554,7 @@ export default function Cashflow() {
         }
       });
       
-      // OUTFLOWS: Fixed Expenses - Include both company-paid and settled reimbursements
+      // OUTFLOWS: Fixed Expenses - Include both company-paid (if status is Paid) and settled reimbursements
       fixedExpenses.forEach(e => {
         const displayDate = e.date ? e.date.split('T')[0] : 
           (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
@@ -565,7 +569,10 @@ export default function Cashflow() {
             (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'))) && 
             (e.is_settled || e.settlement_status === 'settled');
           
-          if (paidByCompany || isEmployeePaidAndSettled) {
+          // For company-paid expenses, ONLY include if status is 'Paid'
+          const companyPaidAndSettled = paidByCompany && e.status === 'Paid';
+          
+          if (companyPaidAndSettled || isEmployeePaidAndSettled) {
             const amount = e.amount || 0;
             totalOutflow += amount;
             outflows.push({

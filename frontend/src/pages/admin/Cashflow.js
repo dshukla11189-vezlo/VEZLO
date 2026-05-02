@@ -526,13 +526,15 @@ export default function Cashflow() {
             (!e.paid_by_type && !e.paid_by) ||
             (e.paid_by_type === 'company');
           
-          // Check if employee-paid but settled (reimbursed by company)
-          const isEmployeePaidAndSettled = (e.paid_by_type === 'employee' || 
-            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'))) && 
-            (e.is_settled || e.settlement_status === 'settled');
+          // Check if employee-paid AND truly settled (company has reimbursed)
+          // Must have BOTH is_settled=true AND settlement_status='settled'
+          const isEmployeePaid = e.paid_by_type === 'employee' || 
+            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
+          const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
+          const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
           
           // For company-paid expenses, ONLY include if payment_status is 'paid'
-          // For employee reimbursements, include if settled (company already paid the employee back)
+          // For employee reimbursements, include if truly settled (company already paid the employee back)
           const companyPaidAndSettled = paidByCompany && e.payment_status === 'paid';
           
           // Include if company paid directly (and status is paid) OR if employee was reimbursed
@@ -564,10 +566,12 @@ export default function Cashflow() {
             (!e.paid_by_type && !e.paid_by) ||
             (e.paid_by_type === 'company');
           
-          // Check if employee-paid but settled
-          const isEmployeePaidAndSettled = (e.paid_by_type === 'employee' || 
-            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'))) && 
-            (e.is_settled || e.settlement_status === 'settled');
+          // Check if employee-paid AND truly settled
+          // Must have BOTH is_settled=true AND settlement_status='settled'
+          const isEmployeePaid = e.paid_by_type === 'employee' || 
+            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
+          const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
+          const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
           
           // For company-paid expenses, ONLY include if status is 'Paid'
           const companyPaidAndSettled = paidByCompany && e.status === 'Paid';

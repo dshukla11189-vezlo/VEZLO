@@ -9013,12 +9013,13 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
     }
     await db.retailer_payments.insert_one(payment_doc)
     
-    # Update the invoice with new paid amount and status
+    # Update the invoice with new paid amount, status, and payment_date
     await db.retailer_invoices.update_one(
         {"id": invoice_id},
         {"$set": {
             "paid_amount": round(new_paid, 2),
-            "status": new_status
+            "status": new_status,
+            "payment_date": payment_date  # Track when payment was received
         }}
     )
     

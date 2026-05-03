@@ -70,7 +70,8 @@ export default function Cashflow() {
         labourSummaryRes,
         retailInvoicesRes,
         qcGrnsRes,
-        retailersRes
+        retailersRes,
+        retailerPaymentsRes
       ] = await Promise.all([
         api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/variable?from_date=${fromDate}&to_date=${toDate}`),
@@ -78,7 +79,8 @@ export default function Cashflow() {
         api.get(`/api/labour-costs/summary?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/retailer-invoices?from_date=${fromDate}&to_date=${toDate}`),
         api.get('/api/qc-grns'),
-        api.get('/api/retailers')
+        api.get('/api/retailers'),
+        api.get('/api/retailer-payments')  // Fetch actual payment records
       ]);
       
       // Build retailer lookup map (id -> company_name or name)
@@ -450,36 +452,39 @@ export default function Cashflow() {
         });
       });
       
-      // INFLOWS: Retail Invoice payments received - AGGREGATE BY DATE AND RETAILER
-      const retailByDateRetailer = {};
-      retailInvoices.forEach(inv => {
-        const paidAmount = inv.paid_amount || 0;
-        const invDate = (inv.payment_date || inv.invoice_date)?.split('T')[0];
+      // INFLOWS: Retail Invoice payments received - USE ACTUAL PAYMENT RECORDS
+      const retailerPayments = retailerPaymentsRes.data || [];
+      const retailPaymentsByDateRetailer = {};
+      
+      retailerPayments.forEach(payment => {
+        const paymentDate = (payment.payment_date)?.split('T')[0];
         // Filter by date range
-        if (paidAmount > 0 && invDate >= fromDate && invDate <= toDate) {
-          const retailerName = retailerMap[inv.retailer_id] || inv.retailer_name || 'Retailer';
-          const key = `${invDate}_${inv.retailer_id}`;
+        if (payment.amount > 0 && paymentDate >= fromDate && paymentDate <= toDate) {
+          const retailerName = payment.retailer_name || retailerMap[payment.retailer_id] || 'Retailer';
+          const key = `${paymentDate}_${payment.retailer_id}`;
           
-          if (!retailByDateRetailer[key]) {
-            retailByDateRetailer[key] = {
-              date: invDate,
+          if (!retailPaymentsByDateRetailer[key]) {
+            retailPaymentsByDateRetailer[key] = {
+              date: paymentDate,
               retailer_name: retailerName,
-              retailer_id: inv.retailer_id,
+              retailer_id: payment.retailer_id,
               total_amount: 0,
               invoices_count: 0,
               invoice_numbers: [],
-              payment_mode: inv.payment_mode,
-              payment_reference: inv.payment_reference
+              payment_mode: payment.payment_mode,
+              payment_reference: payment.reference_number
             };
           }
-          retailByDateRetailer[key].total_amount += paidAmount;
-          retailByDateRetailer[key].invoices_count += 1;
-          retailByDateRetailer[key].invoice_numbers.push(inv.invoice_number);
+          retailPaymentsByDateRetailer[key].total_amount += payment.amount;
+          retailPaymentsByDateRetailer[key].invoices_count += 1;
+          if (payment.invoice_number) {
+            retailPaymentsByDateRetailer[key].invoice_numbers.push(payment.invoice_number);
+          }
         }
       });
       
-      // Convert grouped retail invoice data to inflows
-      Object.values(retailByDateRetailer).forEach(entry => {
+      // Convert grouped retail payment data to inflows
+      Object.values(retailPaymentsByDateRetailer).forEach(entry => {
         totalInflow += entry.total_amount;
         inflows.push({
           type: 'Retail Invoice',

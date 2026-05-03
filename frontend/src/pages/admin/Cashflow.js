@@ -310,8 +310,11 @@ export default function Cashflow() {
       
       // Process QC GRNs (Receivables) - filter by date range
       // Note: GRN items use 'dispatch_date' not 'date'
-      const qcGrns = (qcGrnsRes.data || []).filter(grn => {
-        // Check if any item dispatch_date falls within range
+      // Store full QC GRN data for Payments tab (needs payment_date filtering, not dispatch_date)
+      const allQcGrns = qcGrnsRes.data || [];
+      
+      const qcGrns = allQcGrns.filter(grn => {
+        // Check if any item dispatch_date falls within range (for Receivables view)
         return grn.items?.some(item => {
           const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
           return itemDate >= fromDate && itemDate <= toDate;
@@ -393,32 +396,42 @@ export default function Cashflow() {
       let totalInflow = 0;
       let totalOutflow = 0;
       
-      // INFLOWS: QC GRN payments received - AGGREGATE BY DATE
-      // Group all paid GRN items by date and show as single entry per date
+      // INFLOWS: QC GRN payments received - AGGREGATE BY PAYMENT DATE
+      // Use allQcGrns (not filtered by dispatch_date) because payments can come later
       const grnByDate = {};
-      qcGrns.forEach(grn => {
+      allQcGrns.forEach(grn => {
         grn.items?.forEach((item) => {
-          const itemDate = (item.dispatch_date || item.date)?.split('T')[0];
-          if (itemDate >= fromDate && itemDate <= toDate && item.payment_received) {
-            if (!grnByDate[itemDate]) {
-              grnByDate[itemDate] = {
-                date: itemDate,
+          // For Payments tab, use payment_date (when money was received), not dispatch_date
+          const paymentDate = (item.payment_date)?.split('T')[0];
+          const dispatchDate = (item.dispatch_date || item.date)?.split('T')[0];
+          // Use payment_date for filtering in Payments, fall back to dispatch_date
+          const dateForFilter = paymentDate || dispatchDate;
+          
+          if (dateForFilter >= fromDate && dateForFilter <= toDate && item.payment_received) {
+            const key = paymentDate || dispatchDate; // Group by payment date
+            if (!grnByDate[key]) {
+              grnByDate[key] = {
+                date: key,
                 customer_name: grn.customer_name || 'Ninjacart',
                 payment_date: item.payment_date,
                 payment_mode: item.payment_mode,
                 payment_reference: item.payment_reference,
                 total_amount: 0,
-                amount_received: null,
-                payment_difference: null,
+                amount_received: 0,
+                payment_difference: 0,
                 items_count: 0
               };
             }
-            grnByDate[itemDate].total_amount += (item.amount || 0);
-            grnByDate[itemDate].items_count += 1;
-            // Get payment info from the item that has it (first item stores it)
+            grnByDate[key].total_amount += (item.amount || 0);
+            grnByDate[key].items_count += 1;
+            // Accumulate actual received amounts
             if (item.amount_received !== null && item.amount_received !== undefined) {
-              grnByDate[itemDate].amount_received = item.amount_received;
-              grnByDate[itemDate].payment_difference = item.payment_difference;
+              grnByDate[key].amount_received += item.amount_received;
+            } else {
+              grnByDate[key].amount_received += (item.amount || 0);
+            }
+            if (item.payment_difference) {
+              grnByDate[key].payment_difference += item.payment_difference;
             }
           }
         });
@@ -426,8 +439,8 @@ export default function Cashflow() {
       
       // Convert grouped GRN data to inflows
       Object.values(grnByDate).forEach(dateEntry => {
-        // Use amount_received if available, otherwise use total_amount
-        const actualAmount = dateEntry.amount_received !== null ? dateEntry.amount_received : dateEntry.total_amount;
+        // Use the accumulated amount_received
+        const actualAmount = dateEntry.amount_received || dateEntry.total_amount;
         totalInflow += actualAmount;
         
         let description = `${dateEntry.items_count} items - GRN: ₹${dateEntry.total_amount.toLocaleString()}`;
@@ -442,7 +455,7 @@ export default function Cashflow() {
         inflows.push({
           type: 'QC GRN',
           source: dateEntry.customer_name,
-          date: dateEntry.payment_date || dateEntry.date,
+          date: dateEntry.date,
           description: description,
           amount: actualAmount,
           grn_amount: dateEntry.total_amount,

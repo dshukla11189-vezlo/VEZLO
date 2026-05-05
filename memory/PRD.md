@@ -46,7 +46,23 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Hindi language E2E testing
 - AI-powered demand forecasting
 
-### Completed (This Session - 27 Apr 2026)
+### Completed (This Session - 05 May 2026)
+- **Record Rejection Performance Fix** ✅
+  - Created batch API endpoint `/api/retailer-rejections/history-batch` 
+  - Fetches rejection history for ALL products in one call instead of N individual calls
+  - Modal now loads within 3 seconds instead of 15-30+ seconds
+- **Rejection Recorded Timestamp Display** ✅
+  - Rejections tab now shows "Recorded: DD MMM YYYY at HH:MM" when date row is expanded
+  - Record Rejection modal history shows "For: DD MMM YYYY" and "(Recorded: DD MMM at HH:MM)"
+- **Previous Rejections History Fix** ✅
+  - Fixed API to NOT filter by dispatch_id - now returns ALL rejections for product/retailer
+  - "Previous Rej." column correctly shows total kg with clickable "(X entries)" links
+  - Clicking entries link expands to show full rejection history with dates and values
+- **P&L grn_qty_kg Revert** ✅
+  - Reverted selling_price_per_kg calculation to use supplied_kg instead of grn_qty_kg
+  - User requested this change to be reversed
+
+### Completed (Previous Session - 27 Apr 2026)
 - **OCR QC Order Processing** ✅
   - GPT-4o integration via emergentintegrations library for image OCR
   - Extracts NC SKU ID, UOM, CA (unit type), UNITS (total demand), Mr Organix (order qty)
@@ -135,6 +151,8 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - `GET /api/labour-attendance` - Attendance tracking (modular route)
 - `GET /api/labour-costs/summary` - Labour costs summary (modular route)
 - `GET /api/rejections` - Historical date-wise rejections
+- `GET /api/retailer-rejections/history` - Single product rejection history
+- `POST /api/retailer-rejections/history-batch` - Batch rejection history for multiple products
 - `POST /api/qc-indents/ocr` - OCR image upload for Ninjacart indent extraction
 - `POST /api/qc-indents/create-from-ocr` - Create indent from OCR extracted data
 

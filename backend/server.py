@@ -4277,7 +4277,7 @@ async def get_pnl_report(
                 product_by_date[item_dispatch_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
             product_by_date[item_dispatch_date][product]["sales"] += amount
             product_by_date[item_dispatch_date][product]["sales_qty"] += qty
-            product_by_date[item_dispatch_date][product]["sales_kg"] += grn_qty_kg  # Use GRN kg (accepted qty) for SP/Kg calculation
+            product_by_date[item_dispatch_date][product]["sales_kg"] += supplied_kg  # Use supplied kg for SP/Kg calculation
             # Track sales by customer for this product on this date
             if customer not in product_by_date[item_dispatch_date][product]["customers"]:
                 product_by_date[item_dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
@@ -4292,7 +4292,6 @@ async def get_pnl_report(
                 "unit": unit,
                 "supplied_qty": round(dispatch_qty_units, 2),
                 "supplied_kg": round(supplied_kg, 3),
-                "grn_qty_kg": round(grn_qty_kg, 3),  # Track GRN received kg for loss calculation
                 "revenue": round(amount, 2),
                 "rate_per_kg": round(rate_per_kg, 2),
                 "rate_per_unit": round(rate_per_unit, 2),
@@ -4836,7 +4835,6 @@ async def get_pnl_report(
                         "unit": line["unit"],
                         "supplied_qty": 0,
                         "supplied_kg": 0,
-                        "grn_qty_kg": 0,  # Track GRN qty for correct selling price calculation
                         "revenue": 0,
                         "rate_per_kg": line["rate_per_kg"],
                         "rate_per_unit": line["rate_per_unit"],
@@ -4844,7 +4842,6 @@ async def get_pnl_report(
                     }
                 customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
                 customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
-                customer_product_map[key]["grn_qty_kg"] += line.get("grn_qty_kg", 0) or line["supplied_kg"]  # Fallback to supplied_kg
                 customer_product_map[key]["revenue"] += line["revenue"]
             
             # Now calculate COGS and wastage allocation per line item
@@ -4935,9 +4932,8 @@ async def get_pnl_report(
                 line_gross_profit = item["revenue"] - cogs - wastage_value - commission_value
                 line_gross_margin = (line_gross_profit / item["revenue"] * 100) if item["revenue"] > 0 else 0
                 
-                # Calculate price/kg metrics using grn_qty_kg (accepted qty) since payment is based on GRN
-                grn_kg_for_calc = item.get("grn_qty_kg", 0) or item.get("supplied_kg", 0) or 0
-                selling_price_per_kg = (item["revenue"] / grn_kg_for_calc) if grn_kg_for_calc > 0 else 0
+                # Calculate price/kg metrics using supplied_kg
+                selling_price_per_kg = (item["revenue"] / item["supplied_kg"]) if item["supplied_kg"] > 0 else 0
                 purchase_price_per_kg = cogs_rate
                 profit_per_qty = (line_gross_profit / item["supplied_qty"]) if item["supplied_qty"] > 0 else 0
                 
@@ -4948,7 +4944,6 @@ async def get_pnl_report(
                     "unit": item["unit"],
                     "supplied_qty": round(item["supplied_qty"], 2),
                     "supplied_kg": round(item["supplied_kg"], 3),
-                    "grn_qty_kg": round(grn_kg_for_calc, 3),  # Include actual GRN kg used for calculations
                     "revenue": round(item["revenue"], 2),
                     "cogs": round(cogs, 2),
                     "wastage_kg": round(wastage_kg, 3),
@@ -8612,13 +8607,15 @@ async def get_rejection_history(
     """
     Get rejection history for a specific dispatch/product/retailer combination.
     Returns all previous rejections with dates to show cumulative history.
+    NOTE: dispatch_id is IGNORED to fetch all rejections for this product/retailer
+    regardless of which dispatch date the rejection was originally recorded against.
     """
     if current_user["role"] not in ["admin", "staff", "retailer"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = {}
-    if dispatch_id:
-        query["dispatch_id"] = dispatch_id
+    # IMPORTANT: Do NOT filter by dispatch_id - we want ALL rejections for this product/retailer
+    # to show proper history even if rejections were recorded against different dispatch dates
     if product_id:
         query["product_id"] = product_id
     if retailer_id:
@@ -8637,6 +8634,68 @@ async def get_rejection_history(
         "total_value": round(total_value, 2),
         "count": len(rejections)
     }
+
+
+@api_router.post("/retailer-rejections/history-batch")
+async def get_rejection_history_batch(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get rejection history for multiple products at once (batch API).
+    This is much faster than making separate calls for each product.
+    
+    Input: { 
+        "retailer_id": "...", 
+        "product_ids": ["prod1", "prod2", ...] 
+    }
+    
+    Returns: {
+        "history": {
+            "product_id_1": { "rejections": [...], "total_quantity": 0, "total_value": 0 },
+            "product_id_2": { "rejections": [...], "total_quantity": 0, "total_value": 0 }
+        }
+    }
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    retailer_id = input.get("retailer_id")
+    product_ids = input.get("product_ids", [])
+    
+    if not retailer_id or not product_ids:
+        return {"history": {}}
+    
+    # Fetch all rejections for this retailer and these products in ONE query
+    query = {
+        "retailer_id": retailer_id,
+        "product_id": {"$in": product_ids}
+    }
+    
+    all_rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", 1).to_list(500)
+    
+    # Group by product_id
+    history = {}
+    for product_id in product_ids:
+        history[product_id] = {
+            "rejections": [],
+            "total_quantity": 0,
+            "total_value": 0
+        }
+    
+    for rej in all_rejections:
+        pid = rej.get("product_id")
+        if pid in history:
+            history[pid]["rejections"].append(rej)
+            history[pid]["total_quantity"] += rej.get("quantity", 0) or 0
+            history[pid]["total_value"] += rej.get("rejection_value", 0) or 0
+    
+    # Round the totals
+    for pid in history:
+        history[pid]["total_quantity"] = round(history[pid]["total_quantity"], 2)
+        history[pid]["total_value"] = round(history[pid]["total_value"], 2)
+    
+    return {"history": history}
 
 
 

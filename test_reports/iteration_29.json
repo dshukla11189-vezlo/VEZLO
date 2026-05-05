@@ -1,0 +1,98 @@
+{
+  "summary": "Tested three rejection-related bug fixes: 1) Record Rejection modal loads quickly using batch API, 2) Rejection list shows 'Recorded:' timestamp when expanded, 3) Previous Rejections column shows correct values (not 0) when recording new rejection. All three features verified working correctly.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Retailer Orders page",
+        "issues": ["Console warning: 'In HTML, <span> cannot be a child of <option>' - hydration error in retailer dropdown. This is a minor React warning but doesn't affect functionality."]
+      }
+    ]
+  },
+
+  "passed_tests": [
+    "1. Backend: /api/health - returns healthy status - PASS",
+    "2. Backend: /api/retailer-rejections - returns list with created_at field - PASS",
+    "3. Backend: /api/retailer-rejections/history - returns rejection history for single product - PASS",
+    "4. Backend: /api/retailer-rejections/history-batch - returns history for multiple products in one call - PASS",
+    "5. Backend: Batch API response time < 3 seconds - PASS",
+    "6. Frontend: Rejections tab shows date rows that can be expanded - PASS",
+    "7. Frontend: Expanded rejection shows 'Recorded: <date> at <time>' timestamp - PASS",
+    "8. Frontend: Record Rejection modal opens and loads dispatch items - PASS",
+    "9. Frontend: Record Rejection modal loads within 3 seconds (batch API working) - PASS",
+    "10. Frontend: 'Previous Rej.' column shows correct kg values (not 0 or None) - PASS",
+    "11. Frontend: Clickable '(X entries)' links expand to show rejection history - PASS",
+    "12. Frontend: Expanded history shows 'For: <date>' and '(Recorded: <date> <time>)' - PASS",
+    "13. Frontend: 'Total Previous: X kg (₹Y)' summary shown in expanded history - PASS"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_rejection_features.py",
+    "/app/test_reports/pytest/pytest_rejection_features.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "Backend server.py Lines 8639-8698: New batch endpoint /api/retailer-rejections/history-batch correctly fetches all rejections for multiple products in a single query, improving performance significantly",
+    "Frontend RetailerOrders.js Lines 1910-2015: loadRejectionDispatchItems function uses batch API to fetch rejection history for all products at once instead of individual calls",
+    "Frontend RetailerOrders.js Lines 3566-3570: Rejection list correctly displays 'Recorded:' timestamp using created_at field",
+    "Frontend RetailerOrders.js Lines 5206-5216: Rejection history modal shows 'For: <date>' and '(Recorded: <date> <time>)' for each entry"
+  ],
+
+  "updated_files": [],
+
+  "success_rate": {
+    "backend": "100% (9/9 tests passed)",
+    "frontend": "100% (all UI tests passed)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing data - Tamanna Mart retailer with rejection history for multiple products",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "All three rejection features verified working: 1) Batch API /api/retailer-rejections/history-batch speeds up Record Rejection modal loading. 2) Rejection list shows 'Recorded:' timestamp when date row is expanded. 3) Previous Rejections column in Record Rejection modal shows correct kg values with clickable history links. Test with Tamanna Mart retailer and date 26 Apr 2026 to see products with previous rejections.",
+
+  "verified_features": {
+    "batch_api_for_rejection_history": {
+      "endpoint": "POST /api/retailer-rejections/history-batch",
+      "input": "{ retailer_id, product_ids[] }",
+      "output": "{ history: { product_id: { rejections, total_quantity, total_value } } }",
+      "status": "WORKING"
+    },
+    "rejection_list_recorded_timestamp": {
+      "description": "When expanding a rejection date row, each rejection shows 'Recorded: <date> at <time>'",
+      "location": "Rejections tab > Click date row to expand",
+      "status": "WORKING"
+    },
+    "previous_rejections_column": {
+      "description": "Record Rejection modal shows 'Previous Rej.' column with correct kg values and clickable history links",
+      "location": "Record Rejection modal > Previous Rej. column",
+      "status": "WORKING"
+    },
+    "rejection_history_display": {
+      "description": "Expanded history shows 'For: <date>' and '(Recorded: <date> <time>)' for each entry",
+      "location": "Record Rejection modal > Click '(X entries)' link",
+      "status": "WORKING"
+    }
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

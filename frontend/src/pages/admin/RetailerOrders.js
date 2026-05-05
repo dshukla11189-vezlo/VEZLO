@@ -1934,6 +1934,30 @@ export default function RetailerOrders() {
         });
       }
       
+      // Collect all unique product IDs from the dispatches
+      const productIds = new Set();
+      for (const dispatch of dayDispatches) {
+        for (const item of (dispatch.items || [])) {
+          if (item.product_id) {
+            productIds.add(item.product_id);
+          }
+        }
+      }
+      
+      // Fetch rejection history for ALL products in a single batch call
+      let rejectionHistoryMap = {};
+      if (productIds.size > 0) {
+        try {
+          const historyResponse = await api.post('/api/retailer-rejections/history-batch', {
+            retailer_id: rejectionForm.retailer_id,
+            product_ids: Array.from(productIds)
+          });
+          rejectionHistoryMap = historyResponse.data.history || {};
+        } catch (err) {
+          console.log('Failed to fetch rejection history batch:', err);
+        }
+      }
+      
       // Flatten all items from dispatches for that day
       const items = [];
       for (const dispatch of dayDispatches) {
@@ -1960,14 +1984,8 @@ export default function RetailerOrders() {
             }
           }
           
-          // Fetch rejection history for this product/dispatch combination
-          let rejectionHistory = { rejections: [], total_quantity: 0, total_value: 0 };
-          try {
-            const historyResponse = await api.get(`/api/retailer-rejections/history?dispatch_id=${dispatch.id}&product_id=${item.product_id}&retailer_id=${rejectionForm.retailer_id}`);
-            rejectionHistory = historyResponse.data;
-          } catch (err) {
-            console.log('No rejection history for', item.product_name);
-          }
+          // Get rejection history from the batch response
+          const rejectionHistory = rejectionHistoryMap[item.product_id] || { rejections: [], total_quantity: 0, total_value: 0 };
           
           items.push({
             dispatch_id: dispatch.id,
@@ -3543,6 +3561,12 @@ export default function RetailerOrders() {
                                   <span className="text-sm text-gray-700">{getProductName(rejection)}</span>
                                   {rejection.variant_name && (
                                     <span className="text-xs text-gray-400 ml-1">({rejection.variant_name})</span>
+                                  )}
+                                  {/* Show when this rejection was recorded */}
+                                  {rejection.created_at && (
+                                    <div className="text-[10px] text-gray-400 italic mt-0.5">
+                                      Recorded: {new Date(rejection.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} at {new Date(rejection.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
                                   )}
                                 </td>
                                 <td className="p-2 text-gray-600 text-sm">{getRetailerNameById(rejection.retailer_id) || rejection.retailer_name}</td>
@@ -5178,16 +5202,23 @@ export default function RetailerOrders() {
                                         <div className="font-medium text-amber-800 mb-1">Previous Rejections:</div>
                                         <div className="space-y-1">
                                           {item.previous_rejections.map((rej, rIdx) => (
-                                            <div key={rIdx} className="flex gap-4 text-gray-600">
-                                              <span>{new Date(rej.rejection_date).toLocaleDateString()}</span>
+                                            <div key={rIdx} className="flex flex-wrap gap-2 sm:gap-4 text-gray-600 py-1 border-b border-amber-100 last:border-0">
+                                              <span className="text-amber-700 font-medium">
+                                                For: {new Date(rej.rejection_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                              </span>
                                               <span className="font-medium">{rej.quantity} kg</span>
-                                              <span>₹{rej.rejection_value}</span>
+                                              <span>₹{rej.rejection_value?.toFixed(2)}</span>
                                               <span className="text-gray-500">{rej.reason}</span>
+                                              {rej.created_at && (
+                                                <span className="text-gray-400 text-[10px] italic">
+                                                  (Recorded: {new Date(rej.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} {new Date(rej.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})
+                                                </span>
+                                              )}
                                             </div>
                                           ))}
                                         </div>
                                         <div className="mt-1 pt-1 border-t border-amber-200 font-medium text-amber-800">
-                                          Total Previous: {item.total_previous_qty} kg (₹{item.total_previous_value})
+                                          Total Previous: {item.total_previous_qty} kg (₹{item.total_previous_value?.toFixed(2)})
                                         </div>
                                       </div>
                                     </td>

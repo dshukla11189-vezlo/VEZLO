@@ -6,6 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../components/ui/alert-dialog';
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
@@ -113,6 +122,13 @@ export default function RetailerOrders() {
     items: [] // Changed to array of items for multi-item rejection
   });
   const [rejectionDispatchItems, setRejectionDispatchItems] = useState([]); // Dispatch items for selected date
+  
+  // Error dialog state for rejection validation
+  const [rejectionErrorDialog, setRejectionErrorDialog] = useState({
+    open: false,
+    title: '',
+    message: ''
+  });
   
   // Payments state
   const [payments, setPayments] = useState([]);
@@ -2039,7 +2055,11 @@ export default function RetailerOrders() {
     const selectedItems = rejectionDispatchItems.filter(item => item.selected && item.rejection_qty > 0);
     
     if (selectedItems.length === 0) {
-      toast.error('Please select items and enter rejection quantities');
+      setRejectionErrorDialog({
+        open: true,
+        title: 'No Items Selected',
+        message: 'Please select items and enter rejection quantities.'
+      });
       return;
     }
     
@@ -2051,14 +2071,22 @@ export default function RetailerOrders() {
     if (invalidItems.length > 0) {
       const item = invalidItems[0];
       const maxAllowed = item.supplied_qty - (item.total_previous_qty || 0);
-      toast.error(`${item.product_name}: Rejection qty (${item.rejection_qty}) exceeds remaining qty (${maxAllowed}). Supplied: ${item.supplied_qty}, Already rejected: ${item.total_previous_qty || 0}`);
+      setRejectionErrorDialog({
+        open: true,
+        title: 'Rejection Limit Exceeded',
+        message: `${item.product_name}:\n\nRejection qty entered: ${item.rejection_qty}\nMaximum allowed: ${maxAllowed}\n\nSupplied: ${item.supplied_qty}\nAlready rejected: ${item.total_previous_qty || 0}`
+      });
       return;
     }
     
     // Validate all selected items have a reason
     const noReasonItems = selectedItems.filter(item => !item.reason);
     if (noReasonItems.length > 0) {
-      toast.error('Please select a reason for all rejected items');
+      setRejectionErrorDialog({
+        open: true,
+        title: 'Reason Required',
+        message: 'Please select a reason for all rejected items.'
+      });
       return;
     }
 
@@ -5175,7 +5203,11 @@ export default function RetailerOrders() {
                                         const val = parseFloat(e.target.value) || 0;
                                         const maxAllowed = item.supplied_qty - item.total_previous_qty;
                                         if (val > maxAllowed) {
-                                          toast.error(`Cannot exceed remaining qty (${maxAllowed}). Supplied: ${item.supplied_qty}, Already rejected: ${item.total_previous_qty}`);
+                                          setRejectionErrorDialog({
+                                            open: true,
+                                            title: 'Rejection Limit Exceeded',
+                                            message: `Cannot exceed remaining quantity (${maxAllowed}).\n\nSupplied: ${item.supplied_qty}\nAlready rejected: ${item.total_previous_qty}\nRemaining: ${maxAllowed}`
+                                          });
                                           return;
                                         }
                                         updateRejectionItem(idx, 'rejection_qty', val);
@@ -5766,6 +5798,29 @@ export default function RetailerOrders() {
           </div>
         )}
       </div>
+      
+      {/* Rejection Error Dialog - Centered popup for validation errors */}
+      <AlertDialog open={rejectionErrorDialog.open} onOpenChange={(open) => setRejectionErrorDialog(prev => ({ ...prev, open }))}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              {rejectionErrorDialog.title}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-left whitespace-pre-line text-gray-700">
+              {rejectionErrorDialog.message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction 
+              onClick={() => setRejectionErrorDialog({ open: false, title: '', message: '' })}
+              className="bg-red-600 hover:bg-red-700 w-full sm:w-auto"
+            >
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Layout>
   );
 }

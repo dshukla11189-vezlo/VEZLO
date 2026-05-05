@@ -4836,6 +4836,7 @@ async def get_pnl_report(
                         "unit": line["unit"],
                         "supplied_qty": 0,
                         "supplied_kg": 0,
+                        "grn_qty_kg": 0,  # Track GRN qty for correct selling price calculation
                         "revenue": 0,
                         "rate_per_kg": line["rate_per_kg"],
                         "rate_per_unit": line["rate_per_unit"],
@@ -4843,6 +4844,7 @@ async def get_pnl_report(
                     }
                 customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
                 customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
+                customer_product_map[key]["grn_qty_kg"] += line.get("grn_qty_kg", 0) or line["supplied_kg"]  # Fallback to supplied_kg
                 customer_product_map[key]["revenue"] += line["revenue"]
             
             # Now calculate COGS and wastage allocation per line item
@@ -4946,6 +4948,7 @@ async def get_pnl_report(
                     "unit": item["unit"],
                     "supplied_qty": round(item["supplied_qty"], 2),
                     "supplied_kg": round(item["supplied_kg"], 3),
+                    "grn_qty_kg": round(grn_kg_for_calc, 3),  # Include actual GRN kg used for calculations
                     "revenue": round(item["revenue"], 2),
                     "cogs": round(cogs, 2),
                     "wastage_kg": round(wastage_kg, 3),

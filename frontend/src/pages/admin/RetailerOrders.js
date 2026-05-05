@@ -1945,12 +1945,14 @@ export default function RetailerOrders() {
       }
       
       // Fetch rejection history for ALL products in a single batch call
+      // IMPORTANT: Pass rejection_date to only get rejections for THIS SPECIFIC dispatch date
       let rejectionHistoryMap = {};
       if (productIds.size > 0) {
         try {
           const historyResponse = await api.post('/api/retailer-rejections/history-batch', {
             retailer_id: rejectionForm.retailer_id,
-            product_ids: Array.from(productIds)
+            product_ids: Array.from(productIds),
+            rejection_date: dateStr  // Filter to only show rejections for this date
           });
           rejectionHistoryMap = historyResponse.data.history || {};
         } catch (err) {
@@ -1984,7 +1986,7 @@ export default function RetailerOrders() {
             }
           }
           
-          // Get rejection history from the batch response
+          // Get rejection history from the batch response (only for THIS date)
           const rejectionHistory = rejectionHistoryMap[item.product_id] || { rejections: [], total_quantity: 0, total_value: 0 };
           
           items.push({
@@ -1999,7 +2001,7 @@ export default function RetailerOrders() {
             reason: isEditingItem ? (editingRejection.reason || '') : '',
             remarks: isEditingItem ? (editingRejection.remarks || '') : '',
             selected: isEditingItem ? true : false,
-            // Rejection history
+            // Rejection history for THIS DATE ONLY
             previous_rejections: rejectionHistory.rejections || [],
             total_previous_qty: rejectionHistory.total_quantity || 0,
             total_previous_value: rejectionHistory.total_value || 0
@@ -2041,10 +2043,15 @@ export default function RetailerOrders() {
       return;
     }
     
-    // Validate rejection qty doesn't exceed supplied qty
-    const invalidItems = selectedItems.filter(item => item.rejection_qty > item.supplied_qty);
+    // Validate rejection qty + previous rejections doesn't exceed supplied qty
+    const invalidItems = selectedItems.filter(item => {
+      const maxAllowed = item.supplied_qty - (item.total_previous_qty || 0);
+      return item.rejection_qty > maxAllowed;
+    });
     if (invalidItems.length > 0) {
-      toast.error('Rejection quantity cannot exceed supplied quantity');
+      const item = invalidItems[0];
+      const maxAllowed = item.supplied_qty - (item.total_previous_qty || 0);
+      toast.error(`${item.product_name}: Rejection qty (${item.rejection_qty}) exceeds remaining qty (${maxAllowed}). Supplied: ${item.supplied_qty}, Already rejected: ${item.total_previous_qty || 0}`);
       return;
     }
     
@@ -5141,7 +5148,7 @@ export default function RetailerOrders() {
                                   <td className="p-2 text-center">
                                     {item.total_previous_qty > 0 ? (
                                       <div className="text-xs">
-                                        <span className="font-medium text-red-600">{item.total_previous_qty} kg</span>
+                                        <span className="font-medium text-red-600">{item.total_previous_qty}</span>
                                         <button
                                           type="button"
                                           className="ml-1 text-blue-600 hover:text-blue-800 underline"
@@ -5162,12 +5169,13 @@ export default function RetailerOrders() {
                                     <Input
                                       type="number"
                                       min="0"
-                                      max={item.supplied_qty}
+                                      max={item.supplied_qty - item.total_previous_qty}
                                       value={item.rejection_qty || ''}
                                       onChange={(e) => {
                                         const val = parseFloat(e.target.value) || 0;
-                                        if (val > item.supplied_qty) {
-                                          toast.error('Cannot exceed supplied qty');
+                                        const maxAllowed = item.supplied_qty - item.total_previous_qty;
+                                        if (val > maxAllowed) {
+                                          toast.error(`Cannot exceed remaining qty (${maxAllowed}). Supplied: ${item.supplied_qty}, Already rejected: ${item.total_previous_qty}`);
                                           return;
                                         }
                                         updateRejectionItem(idx, 'rejection_qty', val);
@@ -5199,14 +5207,11 @@ export default function RetailerOrders() {
                                   <tr className="bg-amber-50">
                                     <td colSpan="7" className="p-2 pl-10">
                                       <div className="text-xs">
-                                        <div className="font-medium text-amber-800 mb-1">Previous Rejections:</div>
+                                        <div className="font-medium text-amber-800 mb-1">Rejections for this date:</div>
                                         <div className="space-y-1">
                                           {item.previous_rejections.map((rej, rIdx) => (
                                             <div key={rIdx} className="flex flex-wrap gap-2 sm:gap-4 text-gray-600 py-1 border-b border-amber-100 last:border-0">
-                                              <span className="text-amber-700 font-medium">
-                                                For: {new Date(rej.rejection_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                              </span>
-                                              <span className="font-medium">{rej.quantity} kg</span>
+                                              <span className="font-medium text-red-600">{rej.quantity} units</span>
                                               <span>₹{rej.rejection_value?.toFixed(2)}</span>
                                               <span className="text-gray-500">{rej.reason}</span>
                                               {rej.created_at && (
@@ -5218,7 +5223,7 @@ export default function RetailerOrders() {
                                           ))}
                                         </div>
                                         <div className="mt-1 pt-1 border-t border-amber-200 font-medium text-amber-800">
-                                          Total Previous: {item.total_previous_qty} kg (₹{item.total_previous_value?.toFixed(2)})
+                                          Total for this date: {item.total_previous_qty} units (₹{item.total_previous_value?.toFixed(2)})
                                         </div>
                                       </div>
                                     </td>

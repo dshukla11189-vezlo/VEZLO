@@ -53,11 +53,17 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Modal now loads within 3 seconds instead of 15-30+ seconds
 - **Rejection Recorded Timestamp Display** ✅
   - Rejections tab now shows "Recorded: DD MMM YYYY at HH:MM" when date row is expanded
-  - Record Rejection modal history shows "For: DD MMM YYYY" and "(Recorded: DD MMM at HH:MM)"
-- **Previous Rejections History Fix** ✅
-  - Fixed API to NOT filter by dispatch_id - now returns ALL rejections for product/retailer
-  - "Previous Rej." column correctly shows total kg with clickable "(X entries)" links
-  - Clicking entries link expands to show full rejection history with dates and values
+  - Record Rejection modal history shows "(Recorded: DD MMM at HH:MM)"
+- **Previous Rejections Now Filter by Date** ✅
+  - Fixed: "Previous Rej." column now ONLY shows rejections for the SELECTED dispatch date
+  - Previously showed ALL historical rejections across all dates (incorrect behavior)
+  - API now accepts `rejection_date` parameter to filter correctly
+- **Rejection Quantity Display Fixed** ✅
+  - Changed from "X kg" to "X units" in all displays
+  - Shows proper unit count, not misleading kg values
+- **Rejection Validation Added** ✅
+  - New rejection qty cannot exceed (supplied_qty - already_rejected_for_this_date)
+  - Error message shows: "Cannot exceed remaining qty. Supplied: X, Already rejected: Y"
 - **P&L grn_qty_kg Revert** ✅
   - Reverted selling_price_per_kg calculation to use supplied_kg instead of grn_qty_kg
   - User requested this change to be reversed

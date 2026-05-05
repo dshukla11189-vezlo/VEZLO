@@ -8647,7 +8647,8 @@ async def get_rejection_history_batch(
     
     Input: { 
         "retailer_id": "...", 
-        "product_ids": ["prod1", "prod2", ...] 
+        "product_ids": ["prod1", "prod2", ...],
+        "rejection_date": "YYYY-MM-DD" (optional - if provided, filters to only this date)
     }
     
     Returns: {
@@ -8656,23 +8657,33 @@ async def get_rejection_history_batch(
             "product_id_2": { "rejections": [...], "total_quantity": 0, "total_value": 0 }
         }
     }
+    
+    Note: Previous rejection should ONLY show rejections for the SAME dispatch date,
+    not all historical rejections across all dates.
     """
     if current_user["role"] not in ["admin", "staff", "retailer"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     retailer_id = input.get("retailer_id")
     product_ids = input.get("product_ids", [])
+    rejection_date = input.get("rejection_date")  # The dispatch date we're recording rejections for
     
     if not retailer_id or not product_ids:
         return {"history": {}}
     
-    # Fetch all rejections for this retailer and these products in ONE query
+    # Build query - filter by retailer and products
     query = {
         "retailer_id": retailer_id,
         "product_id": {"$in": product_ids}
     }
     
-    all_rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", 1).to_list(500)
+    # IMPORTANT: Filter by rejection_date to only show rejections for THIS SPECIFIC DATE
+    # This ensures "Previous Rej." only shows rejections already recorded for this dispatch date
+    if rejection_date:
+        # Match rejection_date that starts with the given date (handles ISO datetime strings)
+        query["rejection_date"] = {"$regex": f"^{rejection_date}"}
+    
+    all_rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("created_at", 1).to_list(500)
     
     # Group by product_id
     history = {}

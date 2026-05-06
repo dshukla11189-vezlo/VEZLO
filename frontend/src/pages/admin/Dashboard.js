@@ -649,7 +649,9 @@ export default function AdminDashboard() {
   }
 
   const summary = pnlData?.summary || {};
-  const dailyPnl = pnlData?.daily_pnl || [];
+  const dailyPnlRaw = pnlData?.daily_pnl || [];
+  // Sort by date descending (latest date on top)
+  const dailyPnl = [...dailyPnlRaw].sort((a, b) => new Date(b.date) - new Date(a.date));
   const customerPnl = pnlData?.customer_pnl || [];
   const productPnl = pnlData?.product_pnl || [];
   const expenses = pnlData?.expenses || {};

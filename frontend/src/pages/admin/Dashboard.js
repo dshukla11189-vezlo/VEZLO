@@ -1198,6 +1198,7 @@ export default function AdminDashboard() {
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50 border-b">
                       <tr>
+                        <th className="p-2 text-center font-medium text-gray-500 w-10">#</th>
                         <th className="p-2 text-left font-medium text-gray-500 w-8"></th>
                         <th className="p-2 text-left font-medium text-gray-500">DATE / VERTICAL / CUSTOMER</th>
                         <th className="p-2 text-right font-medium text-gray-500">SALES</th>
@@ -1216,10 +1217,10 @@ export default function AdminDashboard() {
                     <tbody>
                       {dailyPnl.length === 0 ? (
                         <tr>
-                          <td colSpan={13} className="p-4 text-center text-gray-400">No data</td>
+                          <td colSpan={14} className="p-4 text-center text-gray-400">No data</td>
                         </tr>
                       ) : (
-                        dailyPnl.map((day, idx) => {
+                        dailyPnl.map((day, dayIdx) => {
                           // Group line items by vertical and customer
                           const qcItems = (day.line_items || []).filter(i => i.customer_type === 'QC');
                           const retailItems = (day.line_items || []).filter(i => i.customer_type !== 'QC');
@@ -1265,12 +1266,13 @@ export default function AdminDashboard() {
                           }, {});
                           
                           return (
-                            <React.Fragment key={idx}>
+                            <React.Fragment key={dayIdx}>
                               {/* Level 1: Date Row */}
                               <tr 
                                 className="border-b hover:bg-gray-50 cursor-pointer bg-white"
                                 onClick={() => toggleDateExpand(day.date)}
                               >
+                                <td className="p-2 text-center text-gray-500">{dayIdx + 1}</td>
                                 <td className="p-2 text-center">
                                   {expandedDates[day.date] ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
                                 </td>

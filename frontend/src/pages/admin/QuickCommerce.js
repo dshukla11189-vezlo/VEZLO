@@ -3679,6 +3679,7 @@ Email: ${companyEmail}`;
                 <table>
                   <thead>
                     <tr>
+                      <th className="w-10 text-center">#</th>
                       <th>DATE</th>
                       <th>CUSTOMER</th>
                       <th>PRODUCT</th>
@@ -3691,7 +3692,7 @@ Email: ${companyEmail}`;
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredIndents.map((indent) => {
+                    {filteredIndents.map((indent, indentIdx) => {
                       // Calculate row span for items
                       const itemCount = indent.items?.length || 1;
                       // Check if any dispatches exist for this indent
@@ -3703,6 +3704,7 @@ Email: ${companyEmail}`;
                         <tr key={`${indent.id}-${itemIndex}`} data-testid={`indent-row-${indent.id}-${itemIndex}`}>
                           {itemIndex === 0 && (
                             <>
+                              <td rowSpan={itemCount} className="align-top text-center text-gray-500">{indentIdx + 1}</td>
                               <td rowSpan={itemCount} className="align-top">{formatDate(indent.indent_date)}</td>
                               <td rowSpan={itemCount} className="font-medium align-top">{indent.customer_name}</td>
                             </>
@@ -4483,6 +4485,7 @@ Email: ${companyEmail}`;
                   <table>
                     <thead>
                       <tr>
+                        <th className="w-10 text-center">#</th>
                         <th>INVOICE NO</th>
                         <th>DATE</th>
                         <th>CUSTOMER</th>
@@ -4494,8 +4497,9 @@ Email: ${companyEmail}`;
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredInvoices.map((invoice) => (
+                      {filteredInvoices.map((invoice, invoiceIdx) => (
                         <tr key={invoice.id} data-testid={`invoice-row-${invoice.id}`}>
+                          <td className="text-center text-gray-500">{invoiceIdx + 1}</td>
                           <td className="font-semibold text-[#14532D]">{invoice.invoice_number}</td>
                           <td>{formatDate(invoice.invoice_date)}</td>
                           <td className="font-medium">{invoice.customer_name}</td>

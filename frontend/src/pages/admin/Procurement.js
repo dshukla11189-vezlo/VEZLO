@@ -1510,6 +1510,7 @@ export default function Procurement() {
                   <table className="w-full text-sm">
                     <thead className="bg-amber-100 sticky top-0">
                       <tr>
+                        <th className="p-2 w-10 text-center">#</th>
                         <th className="p-2 w-8 text-center">
                           <input 
                             type="checkbox"
@@ -1551,7 +1552,9 @@ export default function Procurement() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previousDayProcurements.map((proc, procIdx) => 
+                      {(() => {
+                        let rowNum = 0;
+                        return previousDayProcurements.map((proc, procIdx) => 
                         proc.products?.filter(p => {
                           // Filter by search term
                           if (!yesterdaySearchTerm) return true;
@@ -1560,13 +1563,16 @@ export default function Procurement() {
                           const productMatch = p.product_name?.toLowerCase().includes(searchLower);
                           return farmerMatch || productMatch;
                         }).map((p, pIdx) => {
+                          rowNum++;
                           const itemKey = `${proc.farmer_id}-${p.product_id}`;
                           const itemIndex = yesterdayItems.findIndex(i => i.farmer_id === proc.farmer_id && i.product_id === p.product_id);
                           const item = itemIndex >= 0 ? yesterdayItems[itemIndex] : null;
                           const isSelected = item?.selected || false;
+                          const currentRowNum = rowNum;
                           
                           return (
                             <tr key={itemKey} className={`border-b ${isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                              <td className="p-2 text-center text-gray-400 text-xs">{currentRowNum}</td>
                               <td className="p-2 text-center">
                                 <input 
                                   type="checkbox"
@@ -1702,7 +1708,7 @@ export default function Procurement() {
                             </tr>
                           );
                         })
-                      )}
+                      )})()}
                     </tbody>
                   </table>
                 </div>

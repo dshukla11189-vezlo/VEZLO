@@ -2897,6 +2897,7 @@ export default function RetailerOrders() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="p-3 text-center w-10 font-medium text-gray-500">#</th>
                       <th className="p-3 text-left w-8"></th>
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
@@ -2907,10 +2908,11 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredIndents.length === 0 ? (
-                      <tr><td colSpan={6} className="p-8 text-center text-gray-400">{indentDateFilter ? `No indents for ${indentDateFilter}` : 'No indents found'}</td></tr>
-                    ) : filteredIndents.map(indent => (
+                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">{indentDateFilter ? `No indents for ${indentDateFilter}` : 'No indents found'}</td></tr>
+                    ) : filteredIndents.map((indent, indentIdx) => (
                       <React.Fragment key={indent.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleIndentExpand(indent.id)}>
+                          <td className="p-3 text-center text-gray-500">{indentIdx + 1}</td>
                           <td className="p-3 text-center">
                             {expandedIndents[indent.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </td>
@@ -2983,6 +2985,7 @@ export default function RetailerOrders() {
                                   <table className="w-full text-xs">
                                     <thead>
                                       <tr className="border-b">
+                                        <th className="p-2 text-center w-8">#</th>
                                         <th className="p-2 text-left">Product</th>
                                         <th className="p-2 text-left">Variant</th>
                                         <th className="p-2 text-right">Ordered</th>
@@ -3001,6 +3004,7 @@ export default function RetailerOrders() {
                                         const remaining = (item.quantity || 0) - dispatched;
                                         return (
                                           <tr key={idx} className={remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}>
+                                            <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                             <td className="p-2">{getProductName(item)}</td>
                                             <td className="p-2">{item.variant_name || '-'}</td>
                                             <td className="p-2 text-right">{item.quantity}</td>
@@ -3022,7 +3026,7 @@ export default function RetailerOrders() {
                                     </tbody>
                                     <tfoot className="bg-blue-100 font-semibold">
                                       <tr>
-                                        <td colSpan={2} className="p-2 text-right">TOTAL:</td>
+                                        <td colSpan={3} className="p-2 text-right">TOTAL:</td>
                                         <td className="p-2 text-right">
                                           {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}
                                         </td>
@@ -3089,6 +3093,7 @@ export default function RetailerOrders() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="p-3 text-center w-10 font-medium text-gray-500">#</th>
                       <th className="p-3 text-center w-8"></th>
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
@@ -3103,10 +3108,11 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredDispatches.length === 0 ? (
-                      <tr><td colSpan={10} className="p-8 text-center text-gray-400">{dispatchDateFilter ? `No dispatches for ${dispatchDateFilter}` : 'No dispatches found'}</td></tr>
-                    ) : filteredDispatches.map(dispatch => (
+                      <tr><td colSpan={11} className="p-8 text-center text-gray-400">{dispatchDateFilter ? `No dispatches for ${dispatchDateFilter}` : 'No dispatches found'}</td></tr>
+                    ) : filteredDispatches.map((dispatch, dispatchIdx) => (
                       <React.Fragment key={dispatch.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedDispatchId(expandedDispatchId === dispatch.id ? null : dispatch.id)}>
+                          <td className="p-3 text-center text-gray-500">{dispatchIdx + 1}</td>
                           <td className="p-3 text-center">
                             <ChevronDown size={16} className={`transition-transform ${expandedDispatchId === dispatch.id ? 'rotate-180' : ''}`} />
                           </td>
@@ -3144,11 +3150,12 @@ export default function RetailerOrders() {
                         {/* Expanded items row */}
                         {expandedDispatchId === dispatch.id && (
                           <tr className="bg-gray-50">
-                            <td colSpan={10} className="p-0">
+                            <td colSpan={11} className="p-0">
                               <div className="p-3 pl-8">
                                 <table className="w-full text-xs border rounded">
                                   <thead className="bg-gray-100">
                                     <tr>
+                                      <th className="p-2 text-center w-8 font-medium">#</th>
                                       <th className="p-2 text-left font-medium">Product</th>
                                       <th className="p-2 text-left font-medium">Variant</th>
                                       <th className="p-2 text-center font-medium">Indent Qty</th>
@@ -3160,6 +3167,7 @@ export default function RetailerOrders() {
                                   <tbody>
                                     {dispatch.items?.map((item, idx) => (
                                       <tr key={idx} className="border-t">
+                                        <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                         <td className="p-2 font-medium">{getProductName(item)}</td>
                                         <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
                                         <td className="p-2 text-center">{item.indent_qty || '-'}</td>
@@ -3171,7 +3179,7 @@ export default function RetailerOrders() {
                                   </tbody>
                                   <tfoot className="bg-green-100 font-semibold">
                                     <tr>
-                                      <td colSpan={2} className="p-2 text-right">TOTAL:</td>
+                                      <td colSpan={3} className="p-2 text-right">TOTAL:</td>
                                       <td className="p-2 text-center">
                                         {dispatch.items?.reduce((sum, item) => sum + (item.indent_qty || 0), 0) || '-'}
                                       </td>
@@ -3195,7 +3203,7 @@ export default function RetailerOrders() {
                   {filteredDispatches.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
-                        <td colSpan={4} className="p-3 text-right">TOTAL:</td>
+                        <td colSpan={5} className="p-3 text-right">TOTAL:</td>
                         <td className="p-3 text-right">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0))}</td>
                         <td></td>
                         <td className="p-3 text-right text-green-700">{formatCurrency(filteredDispatches.reduce((sum, d) => sum + (d.net_payable || 0), 0))}</td>
@@ -3289,6 +3297,7 @@ export default function RetailerOrders() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="p-3 text-center w-10 font-medium text-gray-500">#</th>
                       <th className="p-3 text-left w-8"></th>
                       <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
                       <th className="p-3 text-left font-medium text-gray-500">DATE</th>
@@ -3303,8 +3312,8 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredInvoices.length === 0 ? (
-                      <tr><td colSpan={10} className="p-8 text-center text-gray-400">No invoices found</td></tr>
-                    ) : filteredInvoices.map(invoice => {
+                      <tr><td colSpan={11} className="p-8 text-center text-gray-400">No invoices found</td></tr>
+                    ) : filteredInvoices.map((invoice, invoiceIdx) => {
                       const paidAmount = invoice.paid_amount || 0;
                       const pendingAmount = (invoice.net_payable || 0) - paidAmount;
                       const status = invoice.status || 'pending';
@@ -3312,6 +3321,7 @@ export default function RetailerOrders() {
                       return (
                         <React.Fragment key={invoice.id}>
                           <tr className={`border-b hover:bg-gray-50 cursor-pointer ${status === 'paid' ? 'bg-green-50/30' : ''}`} onClick={() => toggleInvoiceExpand(invoice.id)}>
+                            <td className="p-3 text-center text-gray-500">{invoiceIdx + 1}</td>
                             <td className="p-3">
                               {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                             </td>
@@ -3537,6 +3547,7 @@ export default function RetailerOrders() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="p-3 text-center font-medium text-gray-500 w-10">#</th>
                       <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
                       <th className="p-3 text-left font-medium text-gray-500">DATE / PRODUCT</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
@@ -3548,7 +3559,7 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredRejections.length === 0 ? (
-                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">No rejections found</td></tr>
+                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">No rejections found</td></tr>
                     ) : (() => {
                       // Group rejections by date
                       const rejectionsByDate = filteredRejections.reduce((acc, r) => {
@@ -3561,7 +3572,7 @@ export default function RetailerOrders() {
                       // Sort dates descending
                       const sortedDates = Object.keys(rejectionsByDate).sort((a, b) => b.localeCompare(a));
                       
-                      return sortedDates.map(date => {
+                      return sortedDates.map((date, dateIdx) => {
                         const dateRejections = rejectionsByDate[date];
                         const isExpanded = expandedRejectionDates[date];
                         const totalQty = dateRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
@@ -3577,6 +3588,7 @@ export default function RetailerOrders() {
                               className="border-b bg-red-50 hover:bg-red-100 cursor-pointer"
                               onClick={() => setExpandedRejectionDates(prev => ({ ...prev, [date]: !prev[date] }))}
                             >
+                              <td className="p-3 text-center text-gray-500">{dateIdx + 1}</td>
                               <td className="p-3 text-center">
                                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                               </td>

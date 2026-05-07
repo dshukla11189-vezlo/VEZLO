@@ -4174,6 +4174,7 @@ Email: ${companyEmail}`;
                               <table>
                                 <thead>
                                   <tr>
+                                    <th className="w-10 text-center">#</th>
                                     <th>PRODUCT</th>
                                     <th>PACKAGING</th>
                                     <th className="text-right">INDENT QTY</th>
@@ -4188,6 +4189,7 @@ Email: ${companyEmail}`;
                                     const itemRemaining = item.required_qty - dispatched;
                                     return (
                                       <tr key={idx}>
+                                        <td className="text-center text-gray-400">{idx + 1}</td>
                                         <td className="font-medium">{getProductName(item)}</td>
                                         <td className="text-sm text-gray-600">{item.packaging_name || '-'}</td>
                                         <td className="text-right">{item.required_qty}</td>
@@ -4835,6 +4837,7 @@ Email: ${companyEmail}`;
                               <table className="w-full text-xs">
                                 <thead className="bg-gray-50">
                                   <tr>
+                                    <th className="p-2 text-center w-10">#</th>
                                     <th className="p-2 text-left">Product</th>
                                     <th className="p-2 text-left">Packaging</th>
                                     <th className="p-2 text-right">Supplied</th>
@@ -4846,6 +4849,7 @@ Email: ${companyEmail}`;
                                 <tbody>
                                   {dateData.items.map((item, idx) => (
                                     <tr key={idx} className="border-b hover:bg-red-25">
+                                      <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                       <td className="p-2">{getProductName(item)}</td>
                                       <td className="p-2 text-gray-500">{item.packaging_name}</td>
                                       <td className="p-2 text-right">{item.supplied_qty}</td>

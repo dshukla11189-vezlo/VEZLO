@@ -4312,6 +4312,15 @@ async def get_pnl_report(
     product_id_to_name = {p.get("id"): p.get("name") for p in all_products}
     product_name_to_id = {p.get("name"): p.get("id") for p in all_products}
     
+    # Load packaging variants for weight lookup
+    all_packaging = await db.qc_packaging.find({}, {"_id": 0}).to_list(500)
+    packaging_weight_map = {}
+    for pkg in all_packaging:
+        pkg_name = (pkg.get("name") or "").strip().lower()
+        pkg_weight = pkg.get("weight_gm", 0) or 0
+        if pkg_name and pkg_weight > 0:
+            packaging_weight_map[pkg_name] = pkg_weight
+    
     # Build cost alias map: {product_name: aliased_product_name}
     # e.g., {"Spinach": "Palak"} means Spinach uses Palak's purchase cost
     cost_alias_map = {}
@@ -4438,12 +4447,30 @@ async def get_pnl_report(
             # Calculate supplied_kg - need to convert pieces to kg for packet items
             # Get packaging weight from item or extract from variant_name
             packaging_weight_gm = item.get("packaging_weight", 0) or item.get("packaging_weight_gm", 0)
+            
             if not packaging_weight_gm and unit:
-                # Try to extract weight from variant_name like "240-260 gm" or "200 gm"
-                import re
-                weight_match = re.search(r'(\d+)(?:\s*-\s*\d+)?\s*(?:gm|g)\b', unit.lower())
-                if weight_match:
-                    packaging_weight_gm = float(weight_match.group(1))
+                # First, try to lookup weight from qc_packaging table
+                variant_key = (unit or '').strip().lower()
+                if variant_key in packaging_weight_map:
+                    packaging_weight_gm = packaging_weight_map[variant_key]
+                else:
+                    # Try to extract weight from variant_name like "240-260 gm" or "200 gm"
+                    import re
+                    weight_match = re.search(r'(\d+)(?:\s*-\s*\d+)?\s*(?:gm|g)\b', unit.lower())
+                    if weight_match:
+                        packaging_weight_gm = float(weight_match.group(1))
+                    else:
+                        # Handle common unit names without explicit weight
+                        unit_lower = unit.lower().strip()
+                        if 'half dozen' in unit_lower or 'half-dozen' in unit_lower:
+                            # Half dozen of banana/similar is typically ~500gm
+                            packaging_weight_gm = 500
+                        elif 'dozen' in unit_lower and 'half' not in unit_lower:
+                            # Full dozen is typically ~1000gm (1kg)
+                            packaging_weight_gm = 1000
+                        elif 'bunch' in unit_lower:
+                            # Bunch is typically used for leafy items, ~100gm
+                            packaging_weight_gm = 100
             
             # If we have packaging weight in gm, convert qty to kg; otherwise assume qty is already in kg
             if packaging_weight_gm > 0:

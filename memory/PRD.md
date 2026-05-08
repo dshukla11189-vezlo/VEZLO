@@ -46,7 +46,14 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Hindi language E2E testing
 - AI-powered demand forecasting
 
-### Completed (This Session - 05 May 2026)
+### Completed (This Session - 08 May 2026)
+- **Retailer Invoice Rejection Enrichment** ✅ (Verified)
+  - Older invoices created before rejection tracking now show rejection data
+  - Dynamic enrichment queries `retailer_rejections` collection using `dispatch_ids`
+  - Handles legacy string-serialized `dispatch_ids` via `ast.literal_eval`
+  - Invoice modal displays: Rejection total (-₹665.00), per-item rejection counts (-3, -1)
+
+### Completed (Previous Session - 05 May 2026)
 - **Record Rejection Performance Fix** ✅
   - Created batch API endpoint `/api/retailer-rejections/history-batch` 
   - Fetches rejection history for ALL products in one call instead of N individual calls

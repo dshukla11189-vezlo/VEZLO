@@ -6931,10 +6931,157 @@ async def get_stock_status_history(
     product_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get historical stock status data"""
+    """
+    Get historical stock status data with proper opening stock and purchases calculated.
+    Opening stock = previous day's closing stock
+    Purchases = from procurements for that date
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # If viewing a single specific date, calculate opening and purchases dynamically
+    if from_date and to_date and from_date == to_date:
+        target_date = from_date
+        # Calculate previous day for opening stock
+        from datetime import datetime, timedelta
+        target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+        previous_day = (target_dt - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # Get previous day's closed stock status (for opening)
+        previous_status = await db.daily_stock_status.find(
+            {"date": previous_day, "status": "closed"},
+            {"_id": 0}
+        ).to_list(1000)
+        previous_map = {s["product_id"]: s for s in previous_status}
+        
+        # Get target date's status
+        target_status = await db.daily_stock_status.find(
+            {"date": target_date},
+            {"_id": 0}
+        ).to_list(1000)
+        target_map = {s["product_id"]: s for s in target_status}
+        
+        # Get procurements for target date (purchases from farmers)
+        procurements = await db.procurements.find({
+            "date": {"$regex": f"^{target_date}"}
+        }, {"_id": 0}).to_list(1000)
+        
+        # Calculate purchases by product
+        purchases_by_product = {}
+        for proc in procurements:
+            for item in proc.get("products", []):
+                product_id_item = item.get("product_id")
+                qty = item.get("quantity", 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                rate = item.get("rate", 0)
+                total_value = item.get("total", qty * rate)
+                
+                # Convert to Kg if unit is Bunch/Piece with a unit_size
+                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
+                else:
+                    qty_kg = qty
+                
+                if product_id_item not in purchases_by_product:
+                    purchases_by_product[product_id_item] = {"qty": 0, "value": 0}
+                purchases_by_product[product_id_item]["qty"] += qty_kg
+                purchases_by_product[product_id_item]["value"] += total_value
+        
+        # Get all products
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        products_map = {p["id"]: p for p in products}
+        
+        # Build result with proper opening and purchases
+        result = []
+        processed_products = set()
+        
+        # First, process products that have data in target_status
+        for prod_id, status in target_map.items():
+            processed_products.add(prod_id)
+            prev_status = previous_map.get(prod_id, {})
+            purchase_data = purchases_by_product.get(prod_id, {"qty": 0, "value": 0})
+            
+            # Opening = previous day's closing (if closed)
+            opening_qty = prev_status.get("closing_qty", 0) or 0
+            opening_value = prev_status.get("closing_value", 0) or 0
+            
+            # If status has opening but prev doesn't have closing, use the status opening
+            if opening_qty == 0 and status.get("opening_qty", 0) > 0:
+                opening_qty = status.get("opening_qty", 0)
+                opening_value = status.get("opening_value", 0)
+            
+            result.append({
+                **status,
+                "opening_qty": round(opening_qty, 2),
+                "opening_value": round(opening_value, 2),
+                "purchase_qty": round(purchase_data["qty"], 2),
+                "purchase_value": round(purchase_data["value"], 2)
+            })
+        
+        # Then, add products that have purchases but no status record
+        for prod_id, purchase_data in purchases_by_product.items():
+            if prod_id not in processed_products and purchase_data["qty"] > 0:
+                processed_products.add(prod_id)
+                product = products_map.get(prod_id, {})
+                prev_status = previous_map.get(prod_id, {})
+                
+                opening_qty = prev_status.get("closing_qty", 0) or 0
+                opening_value = prev_status.get("closing_value", 0) or 0
+                
+                result.append({
+                    "id": f"{target_date}-{prod_id}",
+                    "date": target_date,
+                    "product_id": prod_id,
+                    "product_name": product.get("name", "Unknown"),
+                    "unit": product.get("default_unit", "Kg"),
+                    "opening_qty": round(opening_qty, 2),
+                    "opening_value": round(opening_value, 2),
+                    "purchase_qty": round(purchase_data["qty"], 2),
+                    "purchase_value": round(purchase_data["value"], 2),
+                    "dispatch_qty": 0,
+                    "dispatch_value": 0,
+                    "wastage_qty": 0,
+                    "wastage_value": 0,
+                    "closing_qty": 0,
+                    "closing_value": 0,
+                    "status": "open"
+                })
+        
+        # Finally, add products that have opening from previous day but no activity today
+        for prod_id, prev_status in previous_map.items():
+            if prod_id not in processed_products:
+                closing_qty = prev_status.get("closing_qty", 0) or 0
+                if closing_qty > 0:
+                    processed_products.add(prod_id)
+                    product = products_map.get(prod_id, {})
+                    
+                    result.append({
+                        "id": f"{target_date}-{prod_id}",
+                        "date": target_date,
+                        "product_id": prod_id,
+                        "product_name": product.get("name", prev_status.get("product_name", "Unknown")),
+                        "unit": product.get("default_unit", prev_status.get("unit", "Kg")),
+                        "opening_qty": round(closing_qty, 2),
+                        "opening_value": round(prev_status.get("closing_value", 0) or 0, 2),
+                        "purchase_qty": 0,
+                        "purchase_value": 0,
+                        "dispatch_qty": 0,
+                        "dispatch_value": 0,
+                        "wastage_qty": 0,
+                        "wastage_value": 0,
+                        "closing_qty": 0,
+                        "closing_value": 0,
+                        "status": "open"
+                    })
+        
+        return result
+    
+    # For date ranges, return raw historical data
     query = {}
     if from_date:
         query["date"] = {"$gte": from_date}

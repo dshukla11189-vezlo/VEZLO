@@ -9023,6 +9023,83 @@ async def get_retailer_invoices(
         query["retailer_id"] = retailer_id
     
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(1000)
+    
+    # Enrich invoices with rejection data if not already present
+    # This handles older invoices that don't have rejection_amount or rejected_qty in items
+    for invoice in invoices:
+        # Get all dispatch_ids for this invoice
+        dispatch_ids = invoice.get("dispatch_ids", [])
+        
+        # Handle case where dispatch_ids is stored as a string (e.g., "['id1', 'id2']")
+        if isinstance(dispatch_ids, str):
+            try:
+                import ast
+                dispatch_ids = ast.literal_eval(dispatch_ids)
+            except:
+                dispatch_ids = []
+        
+        if not dispatch_ids or not isinstance(dispatch_ids, list) or len(dispatch_ids) == 0:
+            continue
+        
+        # If invoice already has rejection data calculated (non-zero), skip
+        if (invoice.get("rejection_amount") or 0) > 0:
+            continue
+        
+        # Get dispatches to find the dispatch dates and retailer
+        try:
+            dispatches = await db.retailer_dispatches.find(
+                {"id": {"$in": dispatch_ids}},
+                {"_id": 0, "dispatch_date": 1, "retailer_id": 1}
+            ).to_list(100)
+        except:
+            continue
+        
+        if not dispatches:
+            continue
+        
+        retailer_id = invoice.get("retailer_id") or dispatches[0].get("retailer_id")
+        dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+        
+        if not dispatch_dates:
+            continue
+        
+        # Fetch rejections for these dispatch dates and retailer
+        rejection_query = {
+            "retailer_id": retailer_id,
+            "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+        }
+        rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+        
+        # Group rejections by product
+        rejections_by_product = {}
+        for rej in rejections:
+            product_id = rej.get("product_id")
+            product_name = rej.get("product_name", "").strip()
+            key = product_id or product_name
+            if key not in rejections_by_product:
+                rejections_by_product[key] = {"qty": 0, "value": 0}
+            rejections_by_product[key]["qty"] += rej.get("quantity", 0) or 0
+            rejections_by_product[key]["value"] += rej.get("rejection_value", 0) or 0
+        
+        # Update invoice items with rejected_qty
+        total_rejection_value = 0
+        for item in invoice.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "").strip()
+            key = product_id or product_name
+            
+            if key in rejections_by_product:
+                item["rejected_qty"] = rejections_by_product[key]["qty"]
+                item["rejection_value"] = rejections_by_product[key]["value"]
+                total_rejection_value += rejections_by_product[key]["value"]
+        
+        # Update invoice-level rejection amount
+        if total_rejection_value > 0:
+            invoice["rejection_amount"] = round(total_rejection_value, 2)
+            # Recalculate gross_value (if needed)
+            if invoice.get("gross_value", 0) == 0:
+                invoice["gross_value"] = round((invoice.get("total_mrp_value", 0) or 0) + total_rejection_value, 2)
+    
     return invoices
 
 @api_router.get("/retailer-invoices/{invoice_id}")

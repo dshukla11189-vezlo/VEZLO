@@ -7461,9 +7461,15 @@ async def get_closable_products_for_date(
             continue
             
         product_name = product["name"]
-        opening_qty = existing.get("opening_qty", 0)
         status = existing.get("status", "open")
         closing_qty = existing.get("closing_qty", None)
+        
+        # For opening_qty, ALWAYS use yesterday's closing if available
+        # This ensures opening stock is correctly carried over from previous day
+        if product_id in yesterday_map:
+            opening_qty = yesterday_map[product_id].get("closing_qty", 0) or 0
+        else:
+            opening_qty = existing.get("opening_qty", 0) or 0
         
         # For OPEN entries, always use FRESH procurement and dispatch data (real-time sync)
         if status == "open":
@@ -7474,10 +7480,10 @@ async def get_closable_products_for_date(
             if opening_qty == 0 and purchase_qty == 0 and dispatch_qty == 0:
                 continue
             
-            # Update the stored entry with fresh data
+            # Update the stored entry with fresh data AND correct opening
             await db.daily_stock_status.update_one(
                 {"id": existing["id"]},
-                {"$set": {"purchase_qty": purchase_qty, "dispatch_qty": dispatch_qty}}
+                {"$set": {"purchase_qty": purchase_qty, "dispatch_qty": dispatch_qty, "opening_qty": opening_qty}}
             )
         else:
             # For CLOSED entries, use stored values

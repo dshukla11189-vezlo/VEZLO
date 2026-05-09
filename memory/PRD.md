@@ -47,6 +47,13 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - AI-powered demand forecasting
 
 ### Completed (This Session - 08 May 2026)
+- **Dashboard P&L Wastage Fix** ✅ (Verified)
+  - Fixed `/api/reports/pnl` endpoint to use fresh procurement data for wastage calculation
+  - Dashboard Overview, Products tab, and Date-wise Details popup now show correct wastage
+  - Apple - Royal Gala on May 8: Was showing ₹1,599 (68.3%), Now shows ₹39 (5.0%) ✅
+  - Created `fresh_purchases_by_date_product` lookup to recalculate wastage dynamically
+  - Both wastage total calculation and product_wastage_summary now use fresh procurement data
+
 - **Stock Status Wastage Calculation Bug Fix** ✅ (Verified)
   - ROOT CAUSE: `purchase_qty` was being corrupted (multiplied ~3x) in `daily_stock_status` collection due to duplicate API calls or race conditions
   - FIX: Modified `/stock-status/close` endpoint to use FRESH procurement data instead of stored `purchase_qty`

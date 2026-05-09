@@ -4606,7 +4606,45 @@ async def get_pnl_report(
             product_by_date[proc_date][product]["purchase"] += total_item
             product_by_date[proc_date][product]["purchase_qty"] += qty_kg
     
-    # ========== WASTAGE (from Daily Stock Status) ==========
+    # ========== Build fresh purchases lookup for wastage recalculation ==========
+    # Get all procurements in date range to calculate fresh purchase_qty per product/date
+    fresh_purchases_by_date_product = {}  # {date: {product_id: {qty: X, value: Y}}}
+    for proc in procurements:
+        proc_date = proc.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str < from_date or proc_date_str > to_date:
+            continue
+        
+        if proc_date_str not in fresh_purchases_by_date_product:
+            fresh_purchases_by_date_product[proc_date_str] = {}
+        
+        for item in proc.get("products", []):
+            product_id = item.get("product_id")
+            qty = item.get("quantity", 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            total_value = item.get("total", qty * item.get("rate", 0))
+            
+            # Convert to Kg
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    weight_per_unit_gm = float(unit_size)
+                    qty_kg = (qty * weight_per_unit_gm) / 1000
+                except (ValueError, TypeError):
+                    qty_kg = qty
+            else:
+                qty_kg = qty
+            
+            if product_id not in fresh_purchases_by_date_product[proc_date_str]:
+                fresh_purchases_by_date_product[proc_date_str][product_id] = {"qty": 0, "value": 0}
+            fresh_purchases_by_date_product[proc_date_str][product_id]["qty"] += qty_kg
+            fresh_purchases_by_date_product[proc_date_str][product_id]["value"] += total_value
+    
+    # ========== WASTAGE (from Daily Stock Status - recalculated with fresh procurement data) ==========
     stock_status = await db.daily_stock_status.find({
         "date": {"$gte": from_date, "$lte": to_date},
         "status": "closed"
@@ -4622,13 +4660,23 @@ async def get_pnl_report(
     unsold_wastage_by_date = {}  # date -> {product_name: {qty, value, avg_price}}
     
     for status in stock_status:
-        wastage_qty = status.get("wastage_qty", 0) or 0
-        purchase_qty = status.get("purchase_qty", 0) or 0
-        purchase_value = status.get("purchase_value", 0) or 0
-        dispatch_qty = status.get("dispatch_qty", 0) or 0
         status_date = status.get("date", "")[:10]
         product = status.get("product_name", "Unknown")
         product_id = status.get("product_id")
+        opening_qty = status.get("opening_qty", 0) or 0
+        dispatch_qty = status.get("dispatch_qty", 0) or 0
+        closing_qty = status.get("closing_qty", 0) or 0
+        
+        # Use FRESH procurement data instead of stored purchase_qty to prevent corruption
+        fresh_purchase = {}
+        if status_date in fresh_purchases_by_date_product and product_id:
+            fresh_purchase = fresh_purchases_by_date_product[status_date].get(product_id, {"qty": 0, "value": 0})
+        purchase_qty = round(fresh_purchase.get("qty", 0), 2)
+        purchase_value = round(fresh_purchase.get("value", 0), 2)
+        
+        # Recalculate wastage using fresh procurement data
+        total_available = opening_qty + purchase_qty - dispatch_qty
+        wastage_qty = max(0, total_available - closing_qty)
         
         # Calculate wastage_value dynamically from current procurement rate
         avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
@@ -4645,8 +4693,10 @@ async def get_pnl_report(
         if avg_price == 0:
             wastage_value = status.get("wastage_value", 0) or 0
             # Try to get avg_price from the stored value
-            if wastage_qty > 0 and wastage_value > 0:
-                avg_price = wastage_value / wastage_qty
+            stored_wastage_qty = status.get("wastage_qty", 0) or 0
+            if stored_wastage_qty > 0 and wastage_value > 0:
+                avg_price = wastage_value / stored_wastage_qty
+            wastage_value = round(wastage_qty * avg_price, 2) if avg_price > 0 else 0
         else:
             wastage_value = round(wastage_qty * avg_price, 2)
         
@@ -4998,19 +5048,36 @@ async def get_pnl_report(
         
         # Build product-level wastage summary with correct wastage % calculation
         # Get wastage data from daily_stock_status which has opening, purchase, wastage, and wastage_percent
+        # Use FRESH procurement data to prevent showing corrupted values
         product_wastage_summary = {}
         date_stock_statuses = [s for s in stock_status if s.get("date") == date_key]
         
         for stock in date_stock_statuses:
             prod_name = stock.get("product_name", "")
+            product_id = stock.get("product_id", "")
             if not prod_name:
                 continue
             
             opening_qty = stock.get("opening_qty", 0) or 0
-            purchase_qty = stock.get("purchase_qty", 0) or 0
-            wastage_qty = stock.get("wastage_qty", 0) or 0
-            wastage_value = stock.get("wastage_value", 0) or 0
             dispatch_qty = stock.get("dispatch_qty", 0) or 0
+            closing_qty = stock.get("closing_qty", 0) or 0
+            
+            # Use FRESH procurement data instead of stored values
+            fresh_purchase = {}
+            if date_key in fresh_purchases_by_date_product and product_id:
+                fresh_purchase = fresh_purchases_by_date_product[date_key].get(product_id, {"qty": 0, "value": 0})
+            purchase_qty = round(fresh_purchase.get("qty", 0), 2)
+            purchase_value = round(fresh_purchase.get("value", 0), 2)
+            
+            # Recalculate wastage using fresh procurement data
+            total_available = opening_qty + purchase_qty - dispatch_qty
+            wastage_qty = max(0, total_available - closing_qty)
+            
+            # Calculate wastage_value from avg_price
+            avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+            if avg_price == 0 and product_id:
+                avg_price = product_recent_prices.get(product_id, 0)
+            wastage_value = round(wastage_qty * avg_price, 2)
             
             # Wastage % = Wastage / (Opening + Purchase) - matches Wastage Dashboard
             total_input = opening_qty + purchase_qty

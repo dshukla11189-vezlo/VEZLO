@@ -7943,6 +7943,39 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # Get fresh purchase data from procurements
+    procurements = await db.procurements.find({}, {"_id": 0}).to_list(10000)
+    purchases_by_product = {}
+    for proc in procurements:
+        proc_date = proc.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str == date:
+            for item in proc.get("products", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                total_value = item.get("total", qty * item.get("rate", 0))
+                
+                # Convert to Kg
+                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
+                else:
+                    qty_kg = qty
+                
+                if product_id not in purchases_by_product:
+                    purchases_by_product[product_id] = {"qty": 0, "value": 0}
+                purchases_by_product[product_id]["qty"] += qty_kg
+                purchases_by_product[product_id]["value"] += total_value
+    
     # Get all stock status for the given date
     day_records = await db.daily_stock_status.find(
         {"date": date},
@@ -7974,16 +8007,25 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
         product_name = record.get("product_name", "Unknown")
         product_id = record.get("product_id", "")
         
-        # Get values
-        wastage_qty = record.get("wastage_qty", 0) or 0
+        # Use FRESH purchase data from procurements instead of stored values
+        fresh_purchase = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
+        purchase_qty = round(fresh_purchase["qty"], 2)
+        purchase_value = round(fresh_purchase["value"], 2)
+        
+        # Get other values from stored record
         opening_qty = record.get("opening_qty", 0) or 0
-        purchase_qty = record.get("purchase_qty", 0) or 0
-        purchase_value = record.get("purchase_value", 0) or 0
         dispatch_qty = record.get("dispatch_qty", 0) or 0
         closing_qty = record.get("closing_qty", 0) or 0
         status = record.get("status", "pending")
         
-        # Calculate avg_price from current procurement data, or fallback to historical
+        # Recalculate wastage using fresh purchase data
+        if status == "closed":
+            total_available = opening_qty + purchase_qty - dispatch_qty
+            wastage_qty = max(0, total_available - closing_qty)
+        else:
+            wastage_qty = record.get("wastage_qty", 0) or 0
+        
+        # Calculate avg_price from fresh procurement data, or fallback to historical
         avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
         
         # FALLBACK: Use historical price if no purchases today

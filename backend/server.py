@@ -7044,13 +7044,36 @@ async def get_stock_status_history(
                 opening_qty = status.get("opening_qty", 0)
                 opening_value = status.get("opening_value", 0)
             
-            result.append({
+            # Use fresh purchase data
+            fresh_purchase_qty = round(purchase_data["qty"], 2)
+            
+            # Build result object
+            result_item = {
                 **status,
                 "opening_qty": round(opening_qty, 2),
                 "opening_value": round(opening_value, 2),
-                "purchase_qty": round(purchase_data["qty"], 2),
+                "purchase_qty": fresh_purchase_qty,
                 "purchase_value": round(purchase_data["value"], 2)
-            })
+            }
+            
+            # For CLOSED entries, recalculate wastage using fresh purchase data
+            # This prevents showing corrupted wastage values from database
+            if status.get("status") == "closed":
+                dispatch_qty = status.get("dispatch_qty", 0) or 0
+                closing_qty = status.get("closing_qty", 0) or 0
+                avg_price = status.get("avg_price", 0) or 0
+                
+                total_available = opening_qty + fresh_purchase_qty - dispatch_qty
+                wastage_qty = max(0, total_available - closing_qty)
+                total_input = opening_qty + fresh_purchase_qty
+                wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
+                wastage_value = wastage_qty * avg_price
+                
+                result_item["wastage_qty"] = round(wastage_qty, 2)
+                result_item["wastage_value"] = round(wastage_value, 2)
+                result_item["wastage_percent"] = round(wastage_percent, 2)
+            
+            result.append(result_item)
         
         # Then, add products that have purchases but no status record
         for prod_id, purchase_data in purchases_by_product.items():

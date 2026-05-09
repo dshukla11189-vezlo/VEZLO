@@ -47,6 +47,14 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - AI-powered demand forecasting
 
 ### Completed (This Session - 08 May 2026)
+- **Stock Status Wastage Calculation Bug Fix** ✅ (Verified)
+  - ROOT CAUSE: `purchase_qty` was being corrupted (multiplied ~3x) in `daily_stock_status` collection due to duplicate API calls or race conditions
+  - FIX: Modified `/stock-status/close` endpoint to use FRESH procurement data instead of stored `purchase_qty`
+  - FIX: Modified `/stock-status/closable-products` to also use fresh procurement data for closed entries
+  - Created new endpoint `/api/stock-status/fix-corrupted-purchase-qty` to repair existing corrupted data
+  - Fixed 17 corrupted records including: Apple (9→3), Mango (9→3), Watermelon (36→12), Muskmelon (7.5→2.5)
+  - Wastage now correctly calculated: e.g., Apple 0.15kg (was 6.15kg), Watermelon 0kg (was 24kg)
+
 - **Retailer Invoice Rejection Enrichment** ✅ (Verified)
   - Older invoices created before rejection tracking now show rejection data
   - Dynamic enrichment queries `retailer_rejections` collection using `dispatch_ids`

@@ -5970,7 +5970,8 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
         
         closing_qty = entry.closing_qty
         opening_qty = status.get("opening_qty", 0)
-        purchase_qty = status.get("purchase_qty", 0)
+        # Use FRESH procurement data instead of stored value to prevent corruption from duplicate API calls
+        purchase_qty = round(purchases_by_product.get(entry.product_id, 0), 2)
         dispatch_qty = status.get("dispatch_qty", 0)
         avg_price = status.get("avg_price", 0)
         
@@ -6013,8 +6014,9 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
         total_input = opening_qty + purchase_qty
         wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
         
-        # Update status
+        # Update status - include purchase_qty to ensure correct value is stored (prevents corruption from duplicate API calls)
         update_data = {
+            "purchase_qty": purchase_qty,  # Store the fresh calculated value
             "closing_qty": round(closing_qty, 2),
             "wastage_qty": round(wastage_qty, 2),
             "wastage_value": round(wastage_value, 2),
@@ -7355,6 +7357,136 @@ async def fix_all_wastage_values(
         raise HTTPException(status_code=500, detail=f"Error fixing wastage values: {str(e)}")
 
 
+
+@api_router.post("/stock-status/fix-corrupted-purchase-qty")
+async def fix_corrupted_purchase_qty(
+    target_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fix corrupted purchase_qty in daily_stock_status by recalculating from actual procurement records.
+    This fixes issues where purchase_qty was incorrectly multiplied due to duplicate API calls.
+    
+    If target_date is provided, only fixes that date. Otherwise fixes all dates.
+    Also recalculates wastage_qty and wastage_percent for closed entries.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix stock status data")
+    
+    try:
+        # Get all procurements
+        all_procurements = await db.procurements.find({}, {"_id": 0}).to_list(10000)
+        
+        # Build purchases_by_date_product: {date: {product_id: {qty: X, value: Y}}}
+        purchases_by_date_product = {}
+        for proc in all_procurements:
+            proc_date = proc.get("date", "")
+            if isinstance(proc_date, datetime):
+                proc_date_str = proc_date.strftime('%Y-%m-%d')
+            else:
+                proc_date_str = str(proc_date)[:10]
+            
+            if target_date and proc_date_str != target_date:
+                continue
+            
+            if proc_date_str not in purchases_by_date_product:
+                purchases_by_date_product[proc_date_str] = {}
+            
+            for item in proc.get("products", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                total_value = item.get("total", qty * item.get("rate", 0))
+                
+                # Convert to Kg
+                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                    try:
+                        weight_per_unit_gm = float(unit_size)
+                        qty_kg = (qty * weight_per_unit_gm) / 1000
+                    except (ValueError, TypeError):
+                        qty_kg = qty
+                else:
+                    qty_kg = qty
+                
+                if product_id not in purchases_by_date_product[proc_date_str]:
+                    purchases_by_date_product[proc_date_str][product_id] = {"qty": 0, "value": 0}
+                purchases_by_date_product[proc_date_str][product_id]["qty"] += qty_kg
+                purchases_by_date_product[proc_date_str][product_id]["value"] += total_value
+        
+        # Get all stock status records to fix
+        query = {"date": target_date} if target_date else {}
+        all_statuses = await db.daily_stock_status.find(query, {"_id": 0}).to_list(10000)
+        
+        fixed_count = 0
+        corrupted_found = []
+        
+        for status in all_statuses:
+            date = status.get("date", "")
+            product_id = status.get("product_id", "")
+            product_name = status.get("product_name", "Unknown")
+            stored_purchase_qty = status.get("purchase_qty", 0) or 0
+            
+            # Get expected purchase_qty from procurements
+            expected_purchase = 0
+            if date in purchases_by_date_product and product_id in purchases_by_date_product[date]:
+                expected_purchase = round(purchases_by_date_product[date][product_id]["qty"], 2)
+            
+            # Check if corrupted (difference > 0.01)
+            if abs(stored_purchase_qty - expected_purchase) > 0.01:
+                corrupted_found.append({
+                    "date": date,
+                    "product_name": product_name,
+                    "stored": stored_purchase_qty,
+                    "expected": expected_purchase
+                })
+                
+                # Build update
+                update_data = {"purchase_qty": expected_purchase}
+                
+                # If closed, also recalculate wastage
+                if status.get("status") == "closed":
+                    opening_qty = status.get("opening_qty", 0) or 0
+                    dispatch_qty = status.get("dispatch_qty", 0) or 0
+                    closing_qty = status.get("closing_qty", 0) or 0
+                    avg_price = status.get("avg_price", 0) or 0
+                    
+                    total_available = opening_qty + expected_purchase - dispatch_qty
+                    wastage_qty = max(0, total_available - closing_qty)
+                    total_input = opening_qty + expected_purchase
+                    wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
+                    wastage_value = wastage_qty * avg_price
+                    
+                    update_data["wastage_qty"] = round(wastage_qty, 2)
+                    update_data["wastage_value"] = round(wastage_value, 2)
+                    update_data["wastage_percent"] = round(wastage_percent, 2)
+                
+                # Use product_id + date as unique identifier if id is missing
+                if status.get("id"):
+                    await db.daily_stock_status.update_one(
+                        {"id": status["id"]},
+                        {"$set": update_data}
+                    )
+                else:
+                    await db.daily_stock_status.update_one(
+                        {"date": date, "product_id": product_id},
+                        {"$set": update_data}
+                    )
+                fixed_count += 1
+        
+        return {
+            "message": f"Fixed {fixed_count} corrupted stock status records",
+            "corrupted_records": corrupted_found,
+            "total_scanned": len(all_statuses)
+        }
+        
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error in fix_corrupted_purchase_qty: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Error fixing corrupted data: {str(e)}")
+
+
 @api_router.get("/stock-status/closable-products")
 async def get_closable_products_for_date(
     date: str,
@@ -7513,9 +7645,9 @@ async def get_closable_products_for_date(
                 {"$set": {"purchase_qty": purchase_qty, "dispatch_qty": dispatch_qty, "opening_qty": opening_qty}}
             )
         else:
-            # For CLOSED entries, use stored values
-            purchase_qty = existing.get("purchase_qty", 0)
-            dispatch_qty = existing.get("dispatch_qty", 0)
+            # For CLOSED entries, also use fresh procurement data (prevents showing corrupted values)
+            purchase_qty = round(purchases_by_product.get(product_id, 0), 2)
+            dispatch_qty = round(dispatches_by_product.get(product_id, 0), 2)
         
         closable_products.append({
             "product_id": product_id,

@@ -211,7 +211,9 @@ export default function LaborCosts() {
       return selectedFields.map(field => {
         switch(field) {
           case 'name': return lb.labour_name || lb.name || '';
-          case 'bank_account_number': return labourDetails.bank_account_number || '';
+          case 'bank_account_number': 
+            // Return bank account as-is (will be formatted as text in CSV)
+            return labourDetails.bank_account_number || '';
           case 'ifsc_code': return labourDetails.ifsc_code || '';
           case 'amount': return (lb.total_payment || 0).toFixed(2);
           case 'days_present': return lb.days_present || 0;
@@ -225,9 +227,22 @@ export default function LaborCosts() {
       });
     });
 
+    // Format cells for CSV - use ="value" format for bank accounts and IFSC to preserve leading zeros
+    const formatCell = (value, fieldName) => {
+      if (fieldName === 'bank_account_number' || fieldName === 'ifsc_code' || fieldName === 'phone') {
+        // Use ="value" format to force Excel to treat as text and preserve leading zeros
+        return value ? `="${value}"` : '""';
+      }
+      // Escape quotes in the value and wrap in quotes
+      const escaped = String(value).replace(/"/g, '""');
+      return `"${escaped}"`;
+    };
+
     const csvContent = [
       headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ...rows.map((row, rowIdx) => 
+        row.map((cell, colIdx) => formatCell(cell, selectedFields[colIdx])).join(',')
+      )
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

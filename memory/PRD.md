@@ -46,7 +46,17 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Hindi language E2E testing
 - AI-powered demand forecasting
 
-### Completed (This Session - 08 May 2026)
+### Completed (This Session - 11 May 2026)
+- **Labor Costs Export & Payroll Processing Features** ✅ (Verified)
+  - Added **Export CSV button** on Daily Costs tab for attendance download (name, days present, overtime hours, total payment)
+  - Added **Payroll Processing tab** next to Manage Labourers with:
+    - Date range selector
+    - Summary cards (Total Payroll, Labourers count, Man Days, OT Hours)
+    - Detailed payroll table with: #, Name, Bank A/C, IFSC, Days, OT Hrs, Amount
+    - **Export for Netbanking** button with customizable field selection modal
+  - Export modal allows selecting fields based on bank requirements (Name, Bank Account, IFSC, Amount, Days, OT Hours, Daily Rate, OT Rate, Date Range, Phone)
+  - CSV download for uploading to netbanking portals
+
 - **Dashboard P&L Wastage Fix** ✅ (Verified)
   - Fixed `/api/reports/pnl` endpoint to use fresh procurement data for wastage calculation
   - Dashboard Overview, Products tab, and Date-wise Details popup now show correct wastage

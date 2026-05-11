@@ -6,10 +6,11 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Users, Plus, Edit2, Trash2, RefreshCw, Calendar, DollarSign, 
   Clock, User, Phone, Save, X, ChevronDown, ChevronRight, Building2, CalendarDays,
-  Copy, CheckCircle2, XCircle, AlertCircle
+  Copy, CheckCircle2, XCircle, AlertCircle, Download, FileSpreadsheet, CreditCard
 } from 'lucide-react';
 import {
   Dialog,
@@ -21,7 +22,7 @@ import {
 
 export default function LaborCosts() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('costs'); // 'costs', 'attendance', or 'labours'
+  const [activeTab, setActiveTab] = useState('costs'); // 'costs', 'attendance', 'labours', or 'payroll'
   const today = new Date().toISOString().split('T')[0];
   
   // Labours state
@@ -67,6 +68,29 @@ export default function LaborCosts() {
   const [copyToDateEnd, setCopyToDateEnd] = useState('');
   const [copying, setCopying] = useState(false);
 
+  // Payroll Processing state
+  const [payrollDateFrom, setPayrollDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [payrollDateTo, setPayrollDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [payrollData, setPayrollData] = useState(null);
+  const [loadingPayroll, setLoadingPayroll] = useState(false);
+  const [showPayrollExportModal, setShowPayrollExportModal] = useState(false);
+  const [payrollExportFields, setPayrollExportFields] = useState({
+    name: true,
+    bank_account_number: true,
+    ifsc_code: true,
+    amount: true,
+    days_present: false,
+    overtime_hours: false,
+    daily_rate: false,
+    overtime_rate: false,
+    date_range: true,
+    phone: false
+  });
+
   // Load labours
   const loadLabours = useCallback(async () => {
     setLoadingLabours(true);
@@ -102,6 +126,122 @@ export default function LaborCosts() {
       loadCostsSummary();
     }
   }, [activeTab, loadCostsSummary]);
+
+  // Load payroll data
+  const loadPayrollData = useCallback(async () => {
+    setLoadingPayroll(true);
+    try {
+      const response = await api.get(`/api/labour-costs/summary?from_date=${payrollDateFrom}&to_date=${payrollDateTo}`);
+      setPayrollData(response.data);
+    } catch (error) {
+      toast.error('Failed to load payroll data');
+    } finally {
+      setLoadingPayroll(false);
+    }
+  }, [payrollDateFrom, payrollDateTo]);
+
+  useEffect(() => {
+    if (activeTab === 'payroll') {
+      loadPayrollData();
+    }
+  }, [activeTab, loadPayrollData]);
+
+  // Export attendance CSV (Daily Costs tab)
+  const exportAttendanceCSV = () => {
+    if (!costsSummary || !costsSummary.labour_breakdown) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const headers = ['Name', 'Days Present', 'Overtime Hours', 'Total Payment'];
+    const rows = costsSummary.labour_breakdown.map(lb => [
+      lb.labour_name || lb.name,
+      lb.days_present,
+      (lb.total_overtime_hours || lb.overtime_hours || 0).toFixed(1),
+      (lb.total_payment || 0).toFixed(2)
+    ]);
+
+    const csvContent = [
+      `Attendance Report: ${dateFrom} to ${dateTo}`,
+      '',
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `attendance_${dateFrom}_to_${dateTo}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Attendance exported successfully');
+  };
+
+  // Export payroll CSV with selected fields
+  const exportPayrollCSV = () => {
+    if (!payrollData || !payrollData.labour_breakdown) {
+      toast.error('No payroll data to export');
+      return;
+    }
+
+    // Build headers based on selected fields
+    const headerMap = {
+      name: 'Name',
+      bank_account_number: 'Bank Account Number',
+      ifsc_code: 'IFSC Code',
+      amount: 'Amount',
+      days_present: 'Days Present',
+      overtime_hours: 'Overtime Hours',
+      daily_rate: 'Daily Rate',
+      overtime_rate: 'Overtime Rate',
+      date_range: 'Date Range',
+      phone: 'Phone'
+    };
+
+    const selectedFields = Object.keys(payrollExportFields).filter(key => payrollExportFields[key]);
+    const headers = selectedFields.map(field => headerMap[field]);
+
+    // Build rows - match labour breakdown with labours to get bank details
+    const rows = payrollData.labour_breakdown.map(lb => {
+      const labourDetails = labours.find(l => l.id === lb.labour_id) || {};
+      
+      return selectedFields.map(field => {
+        switch(field) {
+          case 'name': return lb.labour_name || lb.name || '';
+          case 'bank_account_number': return labourDetails.bank_account_number || '';
+          case 'ifsc_code': return labourDetails.ifsc_code || '';
+          case 'amount': return (lb.total_payment || 0).toFixed(2);
+          case 'days_present': return lb.days_present || 0;
+          case 'overtime_hours': return (lb.total_overtime_hours || lb.overtime_hours || 0).toFixed(1);
+          case 'daily_rate': return labourDetails.default_daily_rate || '';
+          case 'overtime_rate': return labourDetails.default_overtime_rate || '';
+          case 'date_range': return `${payrollDateFrom} to ${payrollDateTo}`;
+          case 'phone': return labourDetails.phone || '';
+          default: return '';
+        }
+      });
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `payroll_${payrollDateFrom}_to_${payrollDateTo}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setShowPayrollExportModal(false);
+    toast.success('Payroll exported successfully');
+  };
 
   // Load attendance for a specific date
   const loadAttendance = useCallback(async () => {
@@ -475,6 +615,15 @@ export default function LaborCosts() {
           >
             <Users size={16} className="mr-1" /> Manage Labourers
           </Button>
+          <Button
+            variant={activeTab === 'payroll' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('payroll')}
+            className={activeTab === 'payroll' ? 'bg-[#14532D]' : ''}
+            data-testid="tab-payroll"
+          >
+            <CreditCard size={16} className="mr-1" /> Payroll Processing
+          </Button>
         </div>
 
         {/* Daily Costs Tab */}
@@ -499,6 +648,15 @@ export default function LaborCosts() {
               />
               <Button variant="outline" size="sm" onClick={loadCostsSummary} data-testid="refresh-costs">
                 <RefreshCw size={14} className="mr-1" /> Refresh
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={exportAttendanceCSV}
+                disabled={!costsSummary || !costsSummary.labour_breakdown?.length}
+                data-testid="export-attendance"
+              >
+                <Download size={14} className="mr-1" /> Export CSV
               </Button>
             </div>
 
@@ -1272,6 +1430,246 @@ export default function LaborCosts() {
                     <Copy size={16} className="mr-1" /> Copy Attendance
                   </>
                 )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Payroll Processing Tab */}
+        {activeTab === 'payroll' && (
+          <div className="space-y-4">
+            {/* Date Filter */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <Input
+                type="date"
+                value={payrollDateFrom}
+                onChange={(e) => setPayrollDateFrom(e.target.value)}
+                className="w-36 h-8 text-sm"
+                data-testid="payroll-date-from"
+              />
+              <span className="text-gray-400">to</span>
+              <Input
+                type="date"
+                value={payrollDateTo}
+                onChange={(e) => setPayrollDateTo(e.target.value)}
+                className="w-36 h-8 text-sm"
+                data-testid="payroll-date-to"
+              />
+              <Button variant="outline" size="sm" onClick={loadPayrollData} data-testid="refresh-payroll">
+                <RefreshCw size={14} className="mr-1" /> Refresh
+              </Button>
+              <Button 
+                size="sm" 
+                onClick={() => setShowPayrollExportModal(true)}
+                disabled={!payrollData || !payrollData.labour_breakdown?.length}
+                className="bg-[#14532D]"
+                data-testid="export-payroll-btn"
+              >
+                <FileSpreadsheet size={14} className="mr-1" /> Export for Netbanking
+              </Button>
+            </div>
+
+            {/* Summary Cards */}
+            {payrollData && payrollData.summary && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-green-600 rounded-lg">
+                        <DollarSign className="text-white" size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-green-800 font-medium uppercase">Total Payroll</p>
+                        <p className="text-lg font-bold text-green-900">
+                          ₹{(payrollData.summary.total_payment || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-blue-600 rounded-lg">
+                        <Users className="text-white" size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-blue-800 font-medium uppercase">Labourers</p>
+                        <p className="text-lg font-bold text-blue-900">{payrollData.labour_breakdown?.length || 0}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-purple-600 rounded-lg">
+                        <Calendar className="text-white" size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-purple-800 font-medium uppercase">Man Days</p>
+                        <p className="text-lg font-bold text-purple-900">{payrollData.summary.total_man_days || 0}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-orange-600 rounded-lg">
+                        <Clock className="text-white" size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-orange-800 font-medium uppercase">OT Hours</p>
+                        <p className="text-lg font-bold text-orange-900">{(payrollData.summary.total_overtime_hours || 0).toFixed(1)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Payroll Table */}
+            {payrollData && payrollData.labour_breakdown.length > 0 && (
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center justify-between">
+                    <span>Payroll Details</span>
+                    <span className="text-xs text-gray-500 font-normal">
+                      {payrollDateFrom} to {payrollDateTo}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-gray-500">#</th>
+                          <th className="p-2 text-left font-medium text-gray-500">NAME</th>
+                          <th className="p-2 text-left font-medium text-gray-500">BANK A/C</th>
+                          <th className="p-2 text-left font-medium text-gray-500">IFSC</th>
+                          <th className="p-2 text-center font-medium text-gray-500">DAYS</th>
+                          <th className="p-2 text-center font-medium text-gray-500">OT HRS</th>
+                          <th className="p-2 text-right font-medium text-gray-500">AMOUNT</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollData.labour_breakdown.map((lb, idx) => {
+                          const labourDetails = labours.find(l => l.id === lb.labour_id) || {};
+                          return (
+                            <tr key={lb.labour_id} className="border-b hover:bg-gray-50">
+                              <td className="p-2 text-gray-400">{idx + 1}</td>
+                              <td className="p-2 font-medium">{lb.labour_name}</td>
+                              <td className="p-2 text-gray-600 font-mono text-[10px]">
+                                {labourDetails.bank_account_number || <span className="text-gray-400">-</span>}
+                              </td>
+                              <td className="p-2 text-gray-600 font-mono text-[10px]">
+                                {labourDetails.ifsc_code || <span className="text-gray-400">-</span>}
+                              </td>
+                              <td className="p-2 text-center">{lb.days_present}</td>
+                              <td className="p-2 text-center text-orange-600">{(lb.total_overtime_hours || 0).toFixed(1)}</td>
+                              <td className="p-2 text-right font-semibold text-green-700">
+                                ₹{(lb.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-gray-100 font-semibold">
+                          <td className="p-2" colSpan={4}>TOTAL</td>
+                          <td className="p-2 text-center">{payrollData.summary?.total_man_days || 0}</td>
+                          <td className="p-2 text-center text-orange-600">{(payrollData.summary?.total_overtime_hours || 0).toFixed(1)}</td>
+                          <td className="p-2 text-right text-green-700">
+                            ₹{(payrollData.summary?.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {loadingPayroll && (
+              <div className="text-center py-8 text-gray-500">
+                <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                Loading payroll data...
+              </div>
+            )}
+
+            {!loadingPayroll && payrollData && payrollData.labour_breakdown.length === 0 && (
+              <Card>
+                <CardContent className="py-8 text-center text-gray-500">
+                  No payroll data found for the selected date range
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* Payroll Export Modal */}
+        <Dialog open={showPayrollExportModal} onOpenChange={setShowPayrollExportModal}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileSpreadsheet size={20} /> Export Payroll for Netbanking
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <p className="text-sm text-gray-600">
+                Select the fields to include in the CSV export. You can customize based on your bank's requirements.
+              </p>
+              
+              <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                {[
+                  { key: 'name', label: 'Beneficiary Name', required: true },
+                  { key: 'bank_account_number', label: 'Bank Account Number', required: true },
+                  { key: 'ifsc_code', label: 'IFSC Code', required: true },
+                  { key: 'amount', label: 'Amount (₹)', required: true },
+                  { key: 'days_present', label: 'Days Present' },
+                  { key: 'overtime_hours', label: 'Overtime Hours' },
+                  { key: 'daily_rate', label: 'Daily Rate' },
+                  { key: 'overtime_rate', label: 'Overtime Rate' },
+                  { key: 'date_range', label: 'Date Range (Period)' },
+                  { key: 'phone', label: 'Phone Number' }
+                ].map(field => (
+                  <div key={field.key} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`field-${field.key}`}
+                      checked={payrollExportFields[field.key]}
+                      onCheckedChange={(checked) => setPayrollExportFields({
+                        ...payrollExportFields,
+                        [field.key]: checked
+                      })}
+                      disabled={field.required}
+                    />
+                    <label 
+                      htmlFor={`field-${field.key}`} 
+                      className={`text-sm cursor-pointer ${field.required ? 'font-medium' : ''}`}
+                    >
+                      {field.label}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              <Card className="bg-blue-50 border-blue-200">
+                <CardContent className="p-3 text-xs text-blue-800">
+                  <AlertCircle size={14} className="inline mr-1" />
+                  Fields marked with * are typically required by banks for NEFT/IMPS transfers.
+                </CardContent>
+              </Card>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPayrollExportModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={exportPayrollCSV} className="bg-[#14532D]" data-testid="confirm-payroll-export">
+                <Download size={16} className="mr-1" /> Download CSV
               </Button>
             </DialogFooter>
           </DialogContent>

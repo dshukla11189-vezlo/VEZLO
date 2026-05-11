@@ -9363,6 +9363,21 @@ async def get_retailer_invoices(
             # Recalculate gross_value (if needed)
             if invoice.get("gross_value", 0) == 0:
                 invoice["gross_value"] = round((invoice.get("total_mrp_value", 0) or 0) + total_rejection_value, 2)
+            
+            # IMPORTANT: Recalculate net_payable to account for rejection
+            # net_payable = gross_value - rejection_amount - commission_amount
+            gross_value = invoice.get("gross_value", 0) or invoice.get("total_mrp_value", 0) or 0
+            commission_percentage = invoice.get("commission_percentage", 0) or 0
+            
+            # Net MRP after rejections
+            net_mrp_value = gross_value - total_rejection_value
+            commission_amount = net_mrp_value * (commission_percentage / 100)
+            new_net_payable = net_mrp_value - commission_amount
+            
+            # Update the invoice fields
+            invoice["total_mrp_value"] = round(net_mrp_value, 2)
+            invoice["commission_amount"] = round(commission_amount, 2)
+            invoice["net_payable"] = round(new_net_payable, 2)
     
     return invoices
 

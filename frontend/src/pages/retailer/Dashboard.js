@@ -27,6 +27,7 @@ export default function RetailerDashboard() {
   const [dispatches, setDispatches] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [rejections, setRejections] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [products, setProducts] = useState([]);
   const [packagings, setPackagings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -144,7 +145,7 @@ export default function RetailerDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
@@ -152,7 +153,8 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-rejections'),
         api.get('/api/products'),
         api.get('/api/qc-packaging'),
-        api.get('/api/retailer-grn')
+        api.get('/api/retailer-grn'),
+        api.get('/api/retailer-payments')
       ]);
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
@@ -161,6 +163,7 @@ export default function RetailerDashboard() {
       setRejections(rejectionsRes.data);
       setProducts(productsRes.data);
       setPackagings(packagingsRes.data);
+      setPayments(paymentsRes.data || []);
       
       // Build a map of dispatch_id -> GRN confirmed status
       const grnMap = {};
@@ -1603,8 +1606,16 @@ export default function RetailerDashboard() {
               const totalCommission = netMrpValue * retailerCommPct / 100;
               const payableByRetailer = netMrpValue - totalCommission;
               
+              // Filter payments by date range
+              const filteredPayments = payments.filter(p => {
+                const payDate = p.payment_date?.split('T')[0];
+                return payDate >= dashboardDateFrom && payDate <= dashboardDateTo;
+              });
+              const totalPaidInPeriod = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+              const pendingAmount = Math.max(0, payableByRetailer - totalPaidInPeriod);
+              
               return (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
                   {/* Items Received */}
                   <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white">
                     <CardContent className="p-4 text-center">
@@ -1679,7 +1690,20 @@ export default function RetailerDashboard() {
                         </div>
                       </div>
                       <p className="text-xs text-teal-600 font-medium mb-1">{t('retailer.paidAmount') || 'Paid Amount'}</p>
-                      <p className="text-xl font-bold text-teal-700">{formatCurrency(summary.total_paid)}</p>
+                      <p className="text-xl font-bold text-teal-700">{formatCurrency(totalPaidInPeriod)}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Pending Amount */}
+                  <Card className="border-orange-200 bg-gradient-to-br from-orange-50 to-white">
+                    <CardContent className="p-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        <div className="p-2 bg-orange-100 rounded-lg">
+                          <Clock size={20} className="text-orange-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-orange-600 font-medium mb-1">Pending Amount</p>
+                      <p className="text-xl font-bold text-orange-700">{formatCurrency(pendingAmount)}</p>
                     </CardContent>
                   </Card>
                 </div>

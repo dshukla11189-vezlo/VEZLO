@@ -9705,6 +9705,8 @@ async def get_uninvoiced_dispatches(
 @api_router.get("/retailer-dashboard")
 async def get_retailer_dashboard(
     retailer_id: str = None,
+    from_date: str = None,
+    to_date: str = None,
     current_user: dict = Depends(get_current_user)
 ):
     # Determine which retailer's data to show
@@ -9720,21 +9722,47 @@ async def get_retailer_dashboard(
     if not retailer:
         raise HTTPException(status_code=404, detail="Retailer not found")
     
-    # Get all dispatches for this retailer
+    # Build date filter for queries
+    dispatch_date_filter = {"retailer_id": target_retailer_id}
+    rejection_date_filter = {"retailer_id": target_retailer_id}
+    payment_date_filter = {"retailer_id": target_retailer_id}
+    
+    if from_date:
+        dispatch_date_filter["dispatch_date"] = {"$gte": from_date}
+        rejection_date_filter["rejection_date"] = {"$gte": from_date}
+        payment_date_filter["payment_date"] = {"$gte": from_date}
+    
+    if to_date:
+        if "dispatch_date" in dispatch_date_filter:
+            dispatch_date_filter["dispatch_date"]["$lte"] = to_date
+        else:
+            dispatch_date_filter["dispatch_date"] = {"$lte": to_date}
+        
+        if "rejection_date" in rejection_date_filter:
+            rejection_date_filter["rejection_date"]["$lte"] = to_date
+        else:
+            rejection_date_filter["rejection_date"] = {"$lte": to_date}
+        
+        if "payment_date" in payment_date_filter:
+            payment_date_filter["payment_date"]["$lte"] = to_date
+        else:
+            payment_date_filter["payment_date"] = {"$lte": to_date}
+    
+    # Get all dispatches for this retailer (filtered by date if provided)
     dispatches = await db.retailer_dispatches.find(
-        {"retailer_id": target_retailer_id}, 
+        dispatch_date_filter, 
         {"_id": 0}
     ).to_list(1000)
     
-    # Get all rejections
+    # Get all rejections (filtered by date if provided)
     rejections = await db.retailer_rejections.find(
-        {"retailer_id": target_retailer_id},
+        rejection_date_filter,
         {"_id": 0}
     ).to_list(1000)
     
-    # Get all payments
+    # Get all payments (filtered by date if provided)
     payments = await db.retailer_payments.find(
-        {"retailer_id": target_retailer_id},
+        payment_date_filter,
         {"_id": 0}
     ).to_list(1000)
     

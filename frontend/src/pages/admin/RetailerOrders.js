@@ -18,7 +18,7 @@ import {
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw
 } from 'lucide-react';
 
 // Export utility function
@@ -231,6 +231,13 @@ export default function RetailerOrders() {
   const [unpaidInvoices, setUnpaidInvoices] = useState([]);
   const [selectedInvoicesForSummary, setSelectedInvoicesForSummary] = useState({});
   const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
+  
+  // Payment Audit state (for finding and deleting orphan payments)
+  const [showPaymentAuditModal, setShowPaymentAuditModal] = useState(false);
+  const [paymentAuditRetailerId, setPaymentAuditRetailerId] = useState('');
+  const [paymentAuditData, setPaymentAuditData] = useState(null);
+  const [paymentAuditLoading, setPaymentAuditLoading] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState(null);
   
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
@@ -614,6 +621,50 @@ export default function RetailerOrders() {
     link.remove();
     window.URL.revokeObjectURL(url);
     toast.success('Payment summary exported');
+  };
+
+  // Payment Audit - Load all payments for a retailer
+  const loadPaymentAudit = async (retailerId) => {
+    if (!retailerId) {
+      toast.error('Please select a retailer');
+      return;
+    }
+    
+    setPaymentAuditLoading(true);
+    try {
+      const response = await api.get(`/api/retailer-payments/detailed/${retailerId}`);
+      setPaymentAuditData(response.data);
+      setShowPaymentAuditModal(true);
+    } catch (error) {
+      console.error('Failed to load payment audit:', error);
+      toast.error('Failed to load payment data');
+    } finally {
+      setPaymentAuditLoading(false);
+    }
+  };
+
+  // Payment Audit - Delete a specific payment
+  const deletePaymentFromAudit = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment? This action cannot be undone.')) {
+      return;
+    }
+    
+    setDeletingPaymentId(paymentId);
+    try {
+      await api.delete(`/api/retailer-payments/${paymentId}`);
+      toast.success('Payment deleted successfully');
+      // Reload the audit data
+      if (paymentAuditRetailerId) {
+        await loadPaymentAudit(paymentAuditRetailerId);
+      }
+      // Also reload main payments data
+      await loadPayments();
+    } catch (error) {
+      console.error('Failed to delete payment:', error);
+      toast.error('Failed to delete payment');
+    } finally {
+      setDeletingPaymentId(null);
+    }
   };
 
   // Build a map of products for quick lookup (by id and name)
@@ -3340,6 +3391,22 @@ export default function RetailerOrders() {
                   >
                     <FileText size={14} className="mr-1" /> Payment Summary
                   </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      if (!invoiceForm.retailer_id) {
+                        toast.error('Please select a retailer first');
+                        return;
+                      }
+                      setPaymentAuditRetailerId(invoiceForm.retailer_id);
+                      loadPaymentAudit(invoiceForm.retailer_id);
+                    }}
+                    className="text-red-700 border-red-300 hover:bg-red-50"
+                    disabled={paymentAuditLoading}
+                  >
+                    <AlertTriangle size={14} className="mr-1" /> Payment Audit
+                  </Button>
                   <select
                     value={invoiceForm.retailer_id}
                     onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
@@ -4519,6 +4586,177 @@ export default function RetailerOrders() {
                     <Download size={14} className="mr-1" /> Download CSV
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT AUDIT MODAL ==================== */}
+        {showPaymentAuditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b bg-red-50">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="text-red-600" size={20} />
+                  <h3 className="text-lg font-semibold text-red-800">Payment Audit</h3>
+                  {paymentAuditData?.retailer && (
+                    <span className="text-sm text-red-600">- {paymentAuditData.retailer.name}</span>
+                  )}
+                </div>
+                <button onClick={() => { setShowPaymentAuditModal(false); setPaymentAuditData(null); }} className="p-1 hover:bg-red-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-4 flex-1 overflow-y-auto">
+                {paymentAuditLoading ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <RefreshCw size={32} className="mx-auto mb-3 animate-spin" />
+                    <p>Loading payment data...</p>
+                  </div>
+                ) : !paymentAuditData ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <AlertTriangle size={40} className="mx-auto mb-3 opacity-50" />
+                    <p>No payment data found</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary */}
+                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                        <div>
+                          <p className="text-xs text-gray-500">Total Payments</p>
+                          <p className="text-xl font-bold text-gray-800">{paymentAuditData.total_payments_count}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Total Amount</p>
+                          <p className="text-xl font-bold text-green-700">₹{paymentAuditData.total_amount?.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Linked to Invoice</p>
+                          <p className="text-xl font-bold text-blue-700">
+                            {paymentAuditData.payments?.filter(p => p.linked_invoice).length || 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Orphan Payments</p>
+                          <p className="text-xl font-bold text-red-700">
+                            {paymentAuditData.payments?.filter(p => !p.linked_invoice).length || 0}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Warning for orphan payments */}
+                    {paymentAuditData.payments?.some(p => !p.linked_invoice) && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+                        <AlertTriangle className="text-red-600 flex-shrink-0 mt-0.5" size={16} />
+                        <div className="text-sm text-red-700">
+                          <span className="font-medium">Orphan payments detected!</span> These payments are not linked to any invoice 
+                          and may cause discrepancies in the retailer's dashboard summary. Review and delete if necessary.
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Payments Table */}
+                    <div className="border rounded-lg overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100 sticky top-0">
+                          <tr>
+                            <th className="p-2 text-center text-gray-600">#</th>
+                            <th className="p-2 text-left text-gray-600">Payment Date</th>
+                            <th className="p-2 text-right text-gray-600">Amount</th>
+                            <th className="p-2 text-left text-gray-600">Mode</th>
+                            <th className="p-2 text-left text-gray-600">Linked Invoice</th>
+                            <th className="p-2 text-center text-gray-600">Status</th>
+                            <th className="p-2 text-center text-gray-600">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paymentAuditData.payments?.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="p-8 text-center text-gray-400">No payments found</td>
+                            </tr>
+                          ) : paymentAuditData.payments?.map((payment, idx) => {
+                            const isOrphan = !payment.linked_invoice;
+                            return (
+                              <tr key={payment.id} className={`border-t ${isOrphan ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
+                                <td className="p-2 text-center text-gray-500">{idx + 1}</td>
+                                <td className="p-2 text-left">
+                                  {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('en-IN', {
+                                    day: '2-digit', month: 'short', year: 'numeric'
+                                  }) : '-'}
+                                  {payment.created_at && (
+                                    <div className="text-[10px] text-gray-400">
+                                      Created: {new Date(payment.created_at).toLocaleString('en-IN')}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className={`p-2 text-right font-medium ${isOrphan ? 'text-red-700' : 'text-green-700'}`}>
+                                  ₹{payment.amount?.toLocaleString()}
+                                </td>
+                                <td className="p-2 text-left text-gray-600">{payment.payment_mode || '-'}</td>
+                                <td className="p-2 text-left">
+                                  {payment.linked_invoice ? (
+                                    <div>
+                                      <span className="font-medium text-blue-700">{payment.invoice_number}</span>
+                                      <div className="text-[10px] text-gray-400">
+                                        Net: ₹{payment.linked_invoice.net_payable?.toLocaleString()}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-red-600 font-medium">NOT LINKED</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center">
+                                  {isOrphan ? (
+                                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                      ORPHAN
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      OK
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => deletePaymentFromAudit(payment.id)}
+                                    disabled={deletingPaymentId === payment.id}
+                                    className="text-red-600 hover:text-red-800 hover:bg-red-100"
+                                    title="Delete this payment"
+                                  >
+                                    {deletingPaymentId === payment.id ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Trash2 size={14} />
+                                    )}
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setShowPaymentAuditModal(false); setPaymentAuditData(null); }}>
+                  Close
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => loadPaymentAudit(paymentAuditRetailerId)}
+                  disabled={paymentAuditLoading}
+                  className="text-blue-700"
+                >
+                  <RefreshCw size={14} className={`mr-1 ${paymentAuditLoading ? 'animate-spin' : ''}`} /> Refresh
+                </Button>
               </div>
             </div>
           </div>

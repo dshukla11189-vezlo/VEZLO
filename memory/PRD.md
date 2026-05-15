@@ -47,7 +47,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - AI-powered demand forecasting
 
 ### Completed (This Session - 15 May 2026)
-- **Edit Payment & Timestamp Display Feature** ✅ (Verified)
+- **Edit Payment & Timestamp Display Feature for Retailer Orders** ✅ (Verified)
   - Added **Edit Payment functionality** in Payment History modal:
     - Blue edit icon (Edit2) next to each payment in history
     - Opens Edit Payment modal with pre-filled data (amount, date, mode, reference, remarks)
@@ -63,6 +63,21 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - **Timestamp display** added to Payment History modal:
     - Shows "Recorded: DD MMM YYYY, HH:MM" for each payment's `created_at`
     - Shows "Last Updated: DD MMM YYYY, HH:MM" if payment was edited
+
+- **Procurement Payment Edit/Delete & History Feature** ✅ (Verified)
+  - Created new `procurement_payments` collection for tracking multiple payments per procurement
+  - Added backend APIs:
+    - `GET /api/procurement/{id}/payments` - Get payment history
+    - `POST /api/procurement/{id}/payments` - Create new payment
+    - `PUT /api/procurement-payments/{id}` - Edit existing payment
+    - `DELETE /api/procurement-payments/{id}` - Delete payment
+  - Updated Procurement.js frontend:
+    - **Payment History section** in Record Payment modal showing all previous payments with timestamps
+    - **Edit button** (pencil icon) next to each payment in history
+    - **Delete button** (trash icon) next to each payment in history
+    - **Edit Payment Modal** with full form: amount, date, mode, paid by (Company/Employee), reference, remarks
+    - **View Payments button** (Eye icon) for fully paid procurements
+    - Automatically recalculates procurement `paid_amount`, `pending_amount`, and `payment_status` on any payment change
 
 ### Completed (Previous Session - 11 May 2026)
 - **Labor Costs Export & Payroll Processing Features** ✅ (Verified)

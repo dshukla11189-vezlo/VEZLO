@@ -1703,6 +1703,230 @@ async def migrate_procurement_paid_by_type(current_user: dict = Depends(get_curr
 
 
 # ============================================================================
+# SECTION: PROCUREMENT PAYMENTS
+# ============================================================================
+
+@api_router.get("/procurement/{procurement_id}/payments")
+async def get_procurement_payments(procurement_id: str, current_user: dict = Depends(get_current_user)):
+    """Get all payments for a procurement"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    payments = await db.procurement_payments.find(
+        {"procurement_id": procurement_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return payments
+
+@api_router.post("/procurement/{procurement_id}/payments")
+async def create_procurement_payment(procurement_id: str, payment_data: dict, current_user: dict = Depends(get_current_user)):
+    """Record a new payment for a procurement"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the procurement
+    procurement = await db.procurements.find_one({"id": procurement_id}, {"_id": 0})
+    if not procurement:
+        raise HTTPException(status_code=404, detail="Procurement not found")
+    
+    amount = payment_data.get("amount", 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be positive")
+    
+    # Get paid_by value
+    paid_by_type = payment_data.get("paid_by_type", "company")
+    paid_by_employee_id = payment_data.get("paid_by_employee_id")
+    paid_by = payment_data.get("paid_by", "Company")
+    
+    if paid_by_type == "employee" and paid_by_employee_id:
+        user = await db.users.find_one({"id": paid_by_employee_id}, {"_id": 0})
+        if user:
+            paid_by = user.get("name") or user.get("email")
+    
+    # Create payment record
+    payment_id = str(uuid.uuid4())
+    payment_doc = {
+        "id": payment_id,
+        "procurement_id": procurement_id,
+        "vendor_id": procurement.get("vendor_id"),
+        "vendor_name": procurement.get("vendor_name"),
+        "amount": round(amount, 2),
+        "payment_date": payment_data.get("payment_date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+        "payment_mode": payment_data.get("payment_mode", "cash"),
+        "reference_number": payment_data.get("reference_number"),
+        "remarks": payment_data.get("remarks"),
+        "paid_by_type": paid_by_type,
+        "paid_by": paid_by,
+        "paid_by_employee_id": paid_by_employee_id,
+        "settlement_status": "pending_reimbursement" if paid_by_type == "employee" else "settled",
+        "recorded_by": current_user["user_id"],
+        "recorded_by_name": current_user.get("name") or current_user.get("email"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": None
+    }
+    
+    await db.procurement_payments.insert_one(payment_doc)
+    
+    # Recalculate procurement totals from all payments
+    all_payments = await db.procurement_payments.find({"procurement_id": procurement_id}).to_list(100)
+    new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
+    total_amount = procurement.get("total_amount", 0)
+    pending_amount = max(0, total_amount - new_paid_amount)
+    
+    # Determine payment status
+    if new_paid_amount >= total_amount:
+        payment_status = "paid"
+    elif new_paid_amount > 0:
+        payment_status = "partial"
+    else:
+        payment_status = "pending"
+    
+    # Determine settlement status (if any employee payment is pending)
+    has_pending_reimbursement = any(p.get("settlement_status") == "pending_reimbursement" for p in all_payments)
+    settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
+    
+    # Update procurement
+    await db.procurements.update_one(
+        {"id": procurement_id},
+        {"$set": {
+            "paid_amount": round(new_paid_amount, 2),
+            "pending_amount": round(pending_amount, 2),
+            "payment_status": payment_status,
+            "settlement_status": settlement_status
+        }}
+    )
+    
+    return {"id": payment_id, "message": "Payment recorded successfully"}
+
+@api_router.put("/procurement-payments/{payment_id}")
+async def update_procurement_payment(payment_id: str, payment_data: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing procurement payment"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update payments")
+    
+    # Get the original payment
+    original_payment = await db.procurement_payments.find_one({"id": payment_id})
+    if not original_payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    procurement_id = original_payment.get("procurement_id")
+    new_amount = payment_data.get("amount", original_payment.get("amount", 0))
+    
+    # Validate new amount
+    if new_amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be positive")
+    
+    # Get paid_by value
+    paid_by_type = payment_data.get("paid_by_type", original_payment.get("paid_by_type", "company"))
+    paid_by_employee_id = payment_data.get("paid_by_employee_id", original_payment.get("paid_by_employee_id"))
+    paid_by = payment_data.get("paid_by", original_payment.get("paid_by", "Company"))
+    
+    if paid_by_type == "employee" and paid_by_employee_id:
+        user = await db.users.find_one({"id": paid_by_employee_id}, {"_id": 0})
+        if user:
+            paid_by = user.get("name") or user.get("email")
+    
+    # Update the payment
+    update_data = {
+        "amount": round(new_amount, 2),
+        "payment_mode": payment_data.get("payment_mode", original_payment.get("payment_mode")),
+        "reference_number": payment_data.get("reference_number", original_payment.get("reference_number")),
+        "remarks": payment_data.get("remarks", original_payment.get("remarks")),
+        "payment_date": payment_data.get("payment_date", original_payment.get("payment_date")),
+        "paid_by_type": paid_by_type,
+        "paid_by": paid_by,
+        "paid_by_employee_id": paid_by_employee_id,
+        "settlement_status": "pending_reimbursement" if paid_by_type == "employee" else "settled",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    await db.procurement_payments.update_one(
+        {"id": payment_id},
+        {"$set": update_data}
+    )
+    
+    # Recalculate procurement totals
+    if procurement_id:
+        procurement = await db.procurements.find_one({"id": procurement_id}, {"_id": 0})
+        if procurement:
+            all_payments = await db.procurement_payments.find({"procurement_id": procurement_id}).to_list(100)
+            new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
+            total_amount = procurement.get("total_amount", 0)
+            pending_amount = max(0, total_amount - new_paid_amount)
+            
+            if new_paid_amount >= total_amount:
+                payment_status = "paid"
+            elif new_paid_amount > 0:
+                payment_status = "partial"
+            else:
+                payment_status = "pending"
+            
+            has_pending_reimbursement = any(p.get("settlement_status") == "pending_reimbursement" for p in all_payments)
+            settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
+            
+            await db.procurements.update_one(
+                {"id": procurement_id},
+                {"$set": {
+                    "paid_amount": round(new_paid_amount, 2),
+                    "pending_amount": round(pending_amount, 2),
+                    "payment_status": payment_status,
+                    "settlement_status": settlement_status
+                }}
+            )
+    
+    return {"message": "Payment updated successfully"}
+
+@api_router.delete("/procurement-payments/{payment_id}")
+async def delete_procurement_payment(payment_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a procurement payment"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete payments")
+    
+    # Get the payment first
+    payment = await db.procurement_payments.find_one({"id": payment_id})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    procurement_id = payment.get("procurement_id")
+    
+    # Delete the payment
+    await db.procurement_payments.delete_one({"id": payment_id})
+    
+    # Recalculate procurement totals
+    if procurement_id:
+        procurement = await db.procurements.find_one({"id": procurement_id}, {"_id": 0})
+        if procurement:
+            remaining_payments = await db.procurement_payments.find({"procurement_id": procurement_id}).to_list(100)
+            new_paid_amount = sum(p.get("amount", 0) for p in remaining_payments)
+            total_amount = procurement.get("total_amount", 0)
+            pending_amount = max(0, total_amount - new_paid_amount)
+            
+            if new_paid_amount >= total_amount:
+                payment_status = "paid"
+            elif new_paid_amount > 0:
+                payment_status = "partial"
+            else:
+                payment_status = "pending"
+            
+            has_pending_reimbursement = any(p.get("settlement_status") == "pending_reimbursement" for p in remaining_payments)
+            settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
+            
+            await db.procurements.update_one(
+                {"id": procurement_id},
+                {"$set": {
+                    "paid_amount": round(new_paid_amount, 2),
+                    "pending_amount": round(pending_amount, 2),
+                    "payment_status": payment_status,
+                    "settlement_status": settlement_status if remaining_payments else None
+                }}
+            )
+    
+    return {"message": "Payment deleted successfully"}
+
+
+# ============================================================================
 # SECTION: PROCUREMENT TEMPLATES
 # ============================================================================
 @api_router.get("/procurement-templates")

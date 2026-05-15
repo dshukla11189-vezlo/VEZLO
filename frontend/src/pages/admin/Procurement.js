@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -163,6 +163,23 @@ export default function Procurement() {
     payment_mode: 'cash',
     reference: '',
     paid_by_type: 'company', // 'company' or 'employee'
+    paid_by_employee_id: '',
+    payment_date: new Date().toISOString().split('T')[0]
+  });
+
+  // Payment history states
+  const [procurementPayments, setProcurementPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+  const [editingProcurementPayment, setEditingProcurementPayment] = useState(null);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    amount: '',
+    payment_mode: 'cash',
+    reference_number: '',
+    remarks: '',
+    payment_date: '',
+    paid_by_type: 'company',
     paid_by_employee_id: ''
   });
 
@@ -725,29 +742,56 @@ export default function Procurement() {
     }
   };
 
-  const handleRecordPayment = (procurement) => {
+  const handleRecordPayment = async (procurement) => {
     setSelectedProcurement(procurement);
     setPaymentForm({
       amount: procurement.pending_amount || 0,
       payment_mode: 'cash',
       reference: '',
       paid_by_type: 'company',
-      paid_by_employee_id: ''
+      paid_by_employee_id: '',
+      payment_date: new Date().toISOString().split('T')[0]
     });
     setOpenPayment(true);
+    
+    // Load existing payments for this procurement
+    if (procurement.paid_amount > 0) {
+      setLoadingPayments(true);
+      try {
+        const response = await api.get(`/api/procurement/${procurement.id}/payments`);
+        setProcurementPayments(response.data || []);
+      } catch (error) {
+        console.error('Failed to load payments:', error);
+        setProcurementPayments([]);
+      } finally {
+        setLoadingPayments(false);
+      }
+    } else {
+      setProcurementPayments([]);
+    }
   };
 
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
     try {
-      // Determine paid_by value
+      // Use new procurement payments API
+      await api.post(`/api/procurement/${selectedProcurement.id}/payments`, {
+        amount: paymentForm.amount,
+        payment_date: paymentForm.payment_date || new Date().toISOString().split('T')[0],
+        payment_mode: paymentForm.payment_mode,
+        reference_number: paymentForm.reference || '',
+        remarks: '',
+        paid_by_type: paymentForm.paid_by_type,
+        paid_by_employee_id: paymentForm.paid_by_employee_id || null
+      });
+      
+      // Also record to general payments for farmer tracking (backward compatible)
       let paidByValue = 'Company';
       if (paymentForm.paid_by_type === 'employee' && paymentForm.paid_by_employee_id) {
         const emp = staffUsers.find(u => u.id === paymentForm.paid_by_employee_id);
         paidByValue = emp?.name || emp?.email || paymentForm.paid_by_employee_id;
       }
       
-      // Record payment
       await api.post('/api/payments', {
         date: new Date().toISOString(),
         party_type: 'farmer',
@@ -761,33 +805,94 @@ export default function Procurement() {
         paid_by_employee_id: paymentForm.paid_by_employee_id
       });
       
-      // Update procurement record with new payment info
-      const newPaidAmount = (selectedProcurement.paid_amount || 0) + paymentForm.amount;
-      const newPendingAmount = selectedProcurement.total_amount - newPaidAmount;
-      const newPaymentStatus = newPendingAmount <= 0 ? 'paid' : newPaidAmount > 0 ? 'partial' : 'pending';
-      
-      // Determine settlement status based on who paid
-      const settlementStatus = paymentForm.paid_by_type === 'employee' ? 'pending_reimbursement' : 'settled';
-      
-      await api.put(`/api/procurement/${selectedProcurement.id}`, {
-        paid_amount: newPaidAmount,
-        pending_amount: newPendingAmount,
-        payment_status: newPaymentStatus,
-        // Payment detail fields
-        payment_date: new Date().toISOString().split('T')[0],
-        payment_mode: paymentForm.payment_mode,
-        payment_reference: paymentForm.reference || '',
-        paid_by_type: paymentForm.paid_by_type,
-        paid_by: paidByValue,
-        paid_by_employee_id: paymentForm.paid_by_employee_id || null,
-        settlement_status: settlementStatus
-      });
-      
       toast.success('Payment recorded successfully');
       setOpenPayment(false);
       loadData();
     } catch (error) {
-      toast.error('Failed to record payment');
+      toast.error(error.response?.data?.detail || 'Failed to record payment');
+    }
+  };
+
+  // View payment history for a procurement
+  const openPaymentHistoryModal = async (procurement) => {
+    setSelectedProcurement(procurement);
+    setLoadingPayments(true);
+    setShowPaymentHistoryModal(true);
+    try {
+      const response = await api.get(`/api/procurement/${procurement.id}/payments`);
+      setProcurementPayments(response.data || []);
+    } catch (error) {
+      console.error('Failed to load payments:', error);
+      setProcurementPayments([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  // Edit a procurement payment
+  const handleEditProcurementPayment = (payment) => {
+    setEditingProcurementPayment(payment);
+    setEditPaymentForm({
+      amount: payment.amount?.toString() || '',
+      payment_mode: payment.payment_mode || 'cash',
+      reference_number: payment.reference_number || '',
+      remarks: payment.remarks || '',
+      payment_date: payment.payment_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      paid_by_type: payment.paid_by_type || 'company',
+      paid_by_employee_id: payment.paid_by_employee_id || ''
+    });
+    setShowEditPaymentModal(true);
+  };
+
+  // Submit edited payment
+  const handleSubmitEditPayment = async (e) => {
+    e.preventDefault();
+    if (!editingProcurementPayment || !editPaymentForm.amount) {
+      toast.error('Please enter payment amount');
+      return;
+    }
+    
+    try {
+      await api.put(`/api/procurement-payments/${editingProcurementPayment.id}`, {
+        amount: parseFloat(editPaymentForm.amount),
+        payment_mode: editPaymentForm.payment_mode,
+        reference_number: editPaymentForm.reference_number,
+        remarks: editPaymentForm.remarks,
+        payment_date: editPaymentForm.payment_date,
+        paid_by_type: editPaymentForm.paid_by_type,
+        paid_by_employee_id: editPaymentForm.paid_by_employee_id || null
+      });
+      toast.success('Payment updated successfully');
+      setShowEditPaymentModal(false);
+      setEditingProcurementPayment(null);
+      
+      // Reload payment history
+      if (selectedProcurement) {
+        const response = await api.get(`/api/procurement/${selectedProcurement.id}/payments`);
+        setProcurementPayments(response.data || []);
+      }
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update payment');
+    }
+  };
+
+  // Delete a procurement payment
+  const handleDeleteProcurementPayment = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) return;
+    
+    try {
+      await api.delete(`/api/procurement-payments/${paymentId}`);
+      toast.success('Payment deleted successfully');
+      
+      // Reload payment history
+      if (selectedProcurement) {
+        const response = await api.get(`/api/procurement/${selectedProcurement.id}/payments`);
+        setProcurementPayments(response.data || []);
+      }
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete payment');
     }
   };
 
@@ -2517,7 +2622,7 @@ export default function Procurement() {
                             >
                               <Trash2 size={14} className="text-red-600" />
                             </Button>
-                            {(proc.pending_amount || 0) > 0 && (
+                            {(proc.pending_amount || 0) > 0 ? (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -2527,7 +2632,18 @@ export default function Procurement() {
                               >
                                 <IndianRupee size={14} />
                               </Button>
-                            )}
+                            ) : (proc.paid_amount || 0) > 0 ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                onClick={() => handleRecordPayment(proc)}
+                                data-testid={`view-payments-${proc.id}`}
+                                title="View/Edit Payments"
+                              >
+                                <Eye size={14} />
+                              </Button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -2825,12 +2941,12 @@ export default function Procurement() {
 
       {/* Payment Dialog */}
       <Dialog open={openPayment} onOpenChange={setOpenPayment}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Record Payment to Farmer</DialogTitle>
           </DialogHeader>
           {selectedProcurement && (
-            <form onSubmit={handleSubmitPayment} className="space-y-4">
+            <form onSubmit={handleSubmitPayment} className="space-y-4 overflow-y-auto flex-1">
               <div className="bg-gray-50 p-4 rounded-lg space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Farmer:</span>
@@ -2854,54 +2970,257 @@ export default function Procurement() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="payment-amount">Payment Amount *</Label>
+              {/* Earlier Payments Section */}
+              {(selectedProcurement.paid_amount > 0) && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <h4 className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-2">
+                    <Clock size={14} /> Payment History
+                  </h4>
+                  {loadingPayments ? (
+                    <p className="text-xs text-gray-500">Loading...</p>
+                  ) : procurementPayments.length === 0 ? (
+                    <p className="text-xs text-gray-500">No payment records found (legacy payment)</p>
+                  ) : (
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {procurementPayments.map((payment, idx) => (
+                        <div key={payment.id || idx} className="bg-white border border-green-100 rounded p-2 text-xs">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold text-green-700">₹{payment.amount?.toFixed(2)}</span>
+                                <span className="text-gray-500 uppercase text-[10px] bg-gray-100 px-1 rounded">{payment.payment_mode}</span>
+                              </div>
+                              <div className="text-gray-600">
+                                <span>Paid on: {formatDate(payment.payment_date)}</span>
+                                <span className="ml-2">by {payment.paid_by_type === 'employee' ? payment.paid_by : 'Company'}</span>
+                              </div>
+                              {payment.created_at && (
+                                <div className="text-gray-400 text-[10px] mt-1">
+                                  Recorded: {new Date(payment.created_at).toLocaleString('en-IN', { 
+                                    day: '2-digit', 
+                                    month: 'short', 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  })}
+                                  {payment.updated_at && ` | Updated: ${new Date(payment.updated_at).toLocaleString('en-IN', { 
+                                    day: '2-digit', 
+                                    month: 'short', 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  })}`}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-1 flex-shrink-0">
+                              <Button 
+                                type="button"
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-blue-500 hover:bg-blue-50 h-6 w-6 p-0"
+                                onClick={() => handleEditProcurementPayment(payment)}
+                                title="Edit Payment"
+                              >
+                                <Edit2 size={12} />
+                              </Button>
+                              <Button 
+                                type="button"
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-red-500 hover:bg-red-50 h-6 w-6 p-0"
+                                onClick={() => handleDeleteProcurementPayment(payment.id)}
+                                title="Delete Payment"
+                              >
+                                <Trash2 size={12} />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Only show form if there's pending amount */}
+              {(selectedProcurement.pending_amount || 0) > 0 && (
+                <>
+                  <div>
+                    <Label htmlFor="payment-date">Payment Date *</Label>
+                    <Input
+                      id="payment-date"
+                      type="date"
+                      value={paymentForm.payment_date}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="payment-amount">Payment Amount *</Label>
+                    <Input
+                      id="payment-amount"
+                      type="number"
+                      step="0.01"
+                      data-testid="payment-amount-input"
+                      value={paymentForm.amount}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) || 0 })}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="payment-mode">Payment Mode *</Label>
+                    <Select value={paymentForm.payment_mode} onValueChange={(value) => setPaymentForm({ ...paymentForm, payment_mode: value })}>
+                      <SelectTrigger data-testid="payment-mode-select">
+                        <SelectValue placeholder="Select mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="payment-reference">Reference / Note</Label>
+                    <Input
+                      id="payment-reference"
+                      placeholder="Transaction ID, Cheque number, etc."
+                      data-testid="payment-reference-input"
+                      value={paymentForm.reference}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Paid By Section */}
+                  <div>
+                    <Label className="mb-2 block">Paid By</Label>
+                    <div className="flex gap-4 mb-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio"
+                          checked={paymentForm.paid_by_type === 'company'}
+                          onChange={() => setPaymentForm({ ...paymentForm, paid_by_type: 'company', paid_by_employee_id: '' })}
+                          className="w-4 h-4 text-green-600"
+                        />
+                        <span className="text-sm">Company</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio"
+                          checked={paymentForm.paid_by_type === 'employee'}
+                          onChange={() => setPaymentForm({ ...paymentForm, paid_by_type: 'employee' })}
+                          className="w-4 h-4 text-green-600"
+                        />
+                        <span className="text-sm">Employee</span>
+                      </label>
+                    </div>
+                    {paymentForm.paid_by_type === 'employee' && (
+                      <Select 
+                        value={paymentForm.paid_by_employee_id} 
+                        onValueChange={(v) => setPaymentForm({ ...paymentForm, paid_by_employee_id: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select employee" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {staffUsers.map(user => (
+                            <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-payment-button">
+                    Record Payment
+                  </Button>
+                </>
+              )}
+
+              {/* If fully paid, show close button */}
+              {(selectedProcurement.pending_amount || 0) <= 0 && (
+                <Button type="button" variant="outline" className="w-full" onClick={() => setOpenPayment(false)}>
+                  Close
+                </Button>
+              )}
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Payment Modal */}
+      {showEditPaymentModal && editingProcurementPayment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Edit2 size={20} className="text-blue-600" />
+                Edit Payment
+              </h3>
+              <button onClick={() => { setShowEditPaymentModal(false); setEditingProcurementPayment(null); }} className="p-1 hover:bg-gray-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleSubmitEditPayment} className="p-4 space-y-4">
+              {/* Original Payment Info */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                <p className="text-blue-800 font-medium mb-1">Editing Payment</p>
+                <p className="text-blue-600">
+                  Original: ₹{editingProcurementPayment.amount?.toFixed(2)} on {formatDate(editingProcurementPayment.payment_date)}
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Payment Amount *</Label>
                 <Input
-                  id="payment-amount"
                   type="number"
                   step="0.01"
-                  data-testid="payment-amount-input"
-                  value={paymentForm.amount}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) || 0 })}
+                  placeholder="Enter payment amount"
+                  value={editPaymentForm.amount}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, amount: e.target.value})}
+                  className="w-full"
                   required
                 />
               </div>
-
-              <div>
-                <Label htmlFor="payment-mode">Payment Mode *</Label>
-                <Select value={paymentForm.payment_mode} onValueChange={(value) => setPaymentForm({ ...paymentForm, payment_mode: value })}>
-                  <SelectTrigger data-testid="payment-mode-select">
-                    <SelectValue placeholder="Select mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="upi">UPI</SelectItem>
-                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="cheque">Cheque</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="payment-reference">Reference / Note</Label>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Payment Date *</Label>
                 <Input
-                  id="payment-reference"
-                  placeholder="Transaction ID, Cheque number, etc."
-                  data-testid="payment-reference-input"
-                  value={paymentForm.reference}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+                  type="date"
+                  value={editPaymentForm.payment_date}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, payment_date: e.target.value})}
+                  className="w-full"
+                  required
                 />
               </div>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Payment Mode *</Label>
+                <select
+                  value={editPaymentForm.payment_mode}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, payment_mode: e.target.value})}
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                  required
+                >
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="cheque">Cheque</option>
+                </select>
+              </div>
 
-              {/* Paid By Section */}
-              <div>
-                <Label className="mb-2 block">Paid By</Label>
+              {/* Paid By Section for Edit */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Paid By</Label>
                 <div className="flex gap-4 mb-2">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input 
                       type="radio"
-                      checked={paymentForm.paid_by_type === 'company'}
-                      onChange={() => setPaymentForm({ ...paymentForm, paid_by_type: 'company', paid_by_employee_id: '' })}
+                      checked={editPaymentForm.paid_by_type === 'company'}
+                      onChange={() => setEditPaymentForm({ ...editPaymentForm, paid_by_type: 'company', paid_by_employee_id: '' })}
                       className="w-4 h-4 text-green-600"
                     />
                     <span className="text-sm">Company</span>
@@ -2909,37 +3228,61 @@ export default function Procurement() {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input 
                       type="radio"
-                      checked={paymentForm.paid_by_type === 'employee'}
-                      onChange={() => setPaymentForm({ ...paymentForm, paid_by_type: 'employee' })}
+                      checked={editPaymentForm.paid_by_type === 'employee'}
+                      onChange={() => setEditPaymentForm({ ...editPaymentForm, paid_by_type: 'employee' })}
                       className="w-4 h-4 text-green-600"
                     />
                     <span className="text-sm">Employee</span>
                   </label>
                 </div>
-                {paymentForm.paid_by_type === 'employee' && (
-                  <Select 
-                    value={paymentForm.paid_by_employee_id} 
-                    onValueChange={(v) => setPaymentForm({ ...paymentForm, paid_by_employee_id: v })}
+                {editPaymentForm.paid_by_type === 'employee' && (
+                  <select
+                    value={editPaymentForm.paid_by_employee_id}
+                    onChange={(e) => setEditPaymentForm({ ...editPaymentForm, paid_by_employee_id: e.target.value })}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm"
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select employee" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {staffUsers.map(user => (
-                        <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <option value="">Select employee</option>
+                    {staffUsers.map(user => (
+                      <option key={user.id} value={user.id}>{user.name}</option>
+                    ))}
+                  </select>
                 )}
               </div>
-
-              <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-payment-button">
-                Record Payment
-              </Button>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Reference Number</Label>
+                <Input
+                  type="text"
+                  placeholder="Transaction ID / Reference"
+                  value={editPaymentForm.reference_number}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, reference_number: e.target.value})}
+                  className="w-full"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Remarks</Label>
+                <Input
+                  type="text"
+                  placeholder="Optional notes"
+                  value={editPaymentForm.remarks}
+                  onChange={(e) => setEditPaymentForm({...editPaymentForm, remarks: e.target.value})}
+                  className="w-full"
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowEditPaymentModal(false); setEditingProcurementPayment(null); }}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700">
+                  <Save size={14} className="mr-1" /> Update Payment
+                </Button>
+              </div>
             </form>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      )}
 
       {/* Bulk Payment Dialog */}
       <Dialog open={openBulkPayment} onOpenChange={setOpenBulkPayment}>

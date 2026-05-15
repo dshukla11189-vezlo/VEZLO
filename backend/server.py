@@ -10004,24 +10004,80 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can run this fix")
     
-    # Find invoices where status is 'partial' but should be 'paid'
+    # Get all invoices via the main API (which calculates net_payable correctly)
+    # We'll simulate this by getting all invoices including rejections
     fixed_count = 0
-    invoices = await db.retailer_invoices.find(
+    
+    # First, get all partial/pending invoices from the database
+    raw_invoices = await db.retailer_invoices.find(
         {"status": {"$in": ["partial", "pending"]}},
         {"_id": 0}
     ).to_list(1000)
     
-    for invoice in invoices:
-        paid_amount = invoice.get("paid_amount", 0)
-        net_payable = invoice.get("net_payable", 0)
+    logger.info(f"Found {len(raw_invoices)} partial/pending invoices to check")
+    
+    for invoice in raw_invoices:
+        invoice_id = invoice.get("id")
+        paid_amount = float(invoice.get("paid_amount", 0) or 0)
+        
+        # Get dispatch IDs for this invoice
+        dispatch_ids = invoice.get("dispatch_ids", [])
+        if not dispatch_ids or not isinstance(dispatch_ids, list):
+            # Try to get dispatches by invoice_id reference
+            dispatches = await db.retailer_dispatches.find(
+                {"invoice_id": invoice_id},
+                {"_id": 0}
+            ).to_list(100)
+        else:
+            # Get dispatches by IDs
+            dispatches = await db.retailer_dispatches.find(
+                {"id": {"$in": dispatch_ids}},
+                {"_id": 0}
+            ).to_list(100)
+        
+        if not dispatches:
+            continue
+        
+        retailer_id = invoice.get("retailer_id") or dispatches[0].get("retailer_id")
+        dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+        
+        if not dispatch_dates:
+            continue
+        
+        # Fetch rejections for these dispatch dates and retailer
+        rejection_query = {
+            "retailer_id": retailer_id,
+            "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+        }
+        rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+        
+        # Calculate total rejection value
+        total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+        
+        # Recalculate net_payable
+        gross_value = float(invoice.get("gross_value", 0) or invoice.get("total_mrp_value", 0) or 0)
+        commission_percentage = float(invoice.get("commission_percentage", 0) or 0)
+        
+        # If no gross_value stored, calculate from total_mrp + rejections
+        if gross_value == 0:
+            gross_value = (invoice.get("total_mrp_value", 0) or 0) + total_rejection_value
+        
+        # Net MRP after rejections
+        net_mrp_value = gross_value - total_rejection_value
+        commission_amount = net_mrp_value * (commission_percentage / 100)
+        net_payable = net_mrp_value - commission_amount
+        
+        logger.info(f"Checking invoice {invoice.get('invoice_number')}: paid={paid_amount}, rejection={total_rejection_value}, calculated_net={net_payable}")
         
         # Check if paid_amount >= net_payable (with tolerance)
         if paid_amount >= net_payable - 0.01 and net_payable > 0:
-            await db.retailer_invoices.update_one(
-                {"id": invoice["id"]},
+            result = await db.retailer_invoices.update_one(
+                {"id": invoice_id},
                 {"$set": {"status": "paid"}}
             )
-            fixed_count += 1
+            logger.info(f"Updated invoice {invoice.get('invoice_number')} to PAID")
+            if result.modified_count > 0:
+                fixed_count += 1
     
     return {
         "message": f"Fixed {fixed_count} invoices",

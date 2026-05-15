@@ -3522,6 +3522,10 @@ export default function RetailerOrders() {
                                       <span className="text-gray-500">Commission ({invoice.commission_percentage}%):</span>
                                       <p className="font-medium text-green-600">-{formatCurrency(invoice.commission_amount)}</p>
                                     </div>
+                                    <div className="border-t pt-2 mt-2">
+                                      <span className="text-gray-700 font-semibold">Final Payable:</span>
+                                      <p className="font-bold text-lg text-blue-700">{formatCurrency(invoice.net_payable)}</p>
+                                    </div>
                                   </div>
                                 </div>
                                 <table className="w-full text-xs">

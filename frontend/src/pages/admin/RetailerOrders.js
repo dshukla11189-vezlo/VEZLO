@@ -3505,7 +3505,7 @@ export default function RetailerOrders() {
                               <td colSpan={10} className="p-3">
                                 {/* Invoice Details */}
                                 <div className="mb-3 p-3 bg-white rounded-lg border">
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
                                     <div>
                                       <span className="text-gray-500">Gross Value:</span>
                                       <p className="font-medium">{formatCurrency(getInvoiceGrossValue(invoice))}</p>
@@ -3522,9 +3522,9 @@ export default function RetailerOrders() {
                                       <span className="text-gray-500">Commission ({invoice.commission_percentage}%):</span>
                                       <p className="font-medium text-green-600">-{formatCurrency(invoice.commission_amount)}</p>
                                     </div>
-                                    <div className="border-t pt-2 mt-2">
+                                    <div>
                                       <span className="text-gray-700 font-semibold">Final Payable:</span>
-                                      <p className="font-bold text-lg text-blue-700">{formatCurrency(invoice.net_payable)}</p>
+                                      <p className="font-bold text-blue-700">{formatCurrency(invoice.net_payable)}</p>
                                     </div>
                                   </div>
                                 </div>

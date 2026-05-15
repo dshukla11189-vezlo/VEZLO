@@ -1439,6 +1439,7 @@ export default function AdminDashboard() {
                                         className="border-b bg-emerald-50 hover:bg-emerald-100 cursor-pointer"
                                         onClick={() => toggleVerticalExpand(`${day.date}_Retail`)}
                                       >
+                                        <td className="p-2 text-center"></td>
                                         <td className="p-2 text-center pl-6">
                                           {expandedVerticals[`${day.date}_Retail`] ? <ChevronDown size={12} className="text-emerald-500" /> : <ChevronRight size={12} className="text-emerald-500" />}
                                         </td>
@@ -1496,6 +1497,7 @@ export default function AdminDashboard() {
                                               className="border-b bg-emerald-100/50 hover:bg-emerald-100 cursor-pointer"
                                               onClick={() => toggleCustomerExpand(custKey)}
                                             >
+                                              <td className="p-2 text-center"></td>
                                               <td className="p-2 text-center pl-10">
                                                 {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-emerald-400" /> : <ChevronRight size={10} className="text-emerald-400" />}
                                               </td>

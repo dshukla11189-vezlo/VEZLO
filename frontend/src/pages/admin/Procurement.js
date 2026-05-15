@@ -1511,7 +1511,7 @@ export default function Procurement() {
             </Button>
           </DialogTrigger>
           <DialogContent 
-            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden"
+            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden w-[95vw]"
             onInteractOutside={(e) => e.preventDefault()}
             onPointerDownOutside={(e) => e.preventDefault()}
           >
@@ -1938,8 +1938,8 @@ export default function Procurement() {
               </div>
 
               {/* Single-row table matching Yesterday's Purchases layout */}
-              <div className="bg-white rounded border">
-                <div style={{ minWidth: '900px' }}>
+              <div className="bg-white rounded border overflow-x-auto">
+                <div style={{ minWidth: '850px' }}>
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100">
                       <tr>
@@ -2177,14 +2177,14 @@ export default function Procurement() {
               
               {/* Payment Details for Paid/Partial Procurements */}
               {editMode && (procurementForm.payment_status === 'paid' || procurementForm.payment_status === 'partial' || procurementForm.paid_amount > 0) && (
-                <div className="border-t pt-3 mt-2">
-                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                    <h4 className="text-sm font-semibold text-gray-700">Payment Details</h4>
+                <div className="border-t pt-3 mt-2 overflow-hidden">
+                  <div className="flex items-center justify-between mb-3 gap-2">
+                    <h4 className="text-sm font-semibold text-gray-700 flex-shrink-0">Payment Details</h4>
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      className="text-red-600 border-red-300 hover:bg-red-50 h-7 text-xs"
+                      variant="destructive"
+                      className="h-7 text-xs whitespace-nowrap"
                       onClick={() => {
                         if (window.confirm('Are you sure you want to delete this payment? This will reset the procurement to unpaid status.')) {
                           setProcurementForm(prev => ({
@@ -2204,7 +2204,7 @@ export default function Procurement() {
                         }
                       }}
                     >
-                      <Trash2 size={12} className="mr-1" /> Delete
+                      <Trash2 size={14} /> Delete Payment
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

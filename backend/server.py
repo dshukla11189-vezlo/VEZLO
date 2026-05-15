@@ -9231,6 +9231,66 @@ async def create_retailer_payment(input: RetailerPaymentCreate, current_user: di
     await db.retailer_payments.insert_one(doc)
     return {"id": payment.id, "message": "Payment recorded successfully"}
 
+@api_router.put("/retailer-payments/{payment_id}")
+async def update_retailer_payment(payment_id: str, payment_data: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing payment"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update payments")
+    
+    # Get the original payment
+    original_payment = await db.retailer_payments.find_one({"id": payment_id})
+    if not original_payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    invoice_id = original_payment.get("invoice_id")
+    old_amount = original_payment.get("amount", 0)
+    new_amount = payment_data.get("amount", old_amount)
+    
+    # Validate new amount
+    if new_amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be positive")
+    
+    # Update the payment
+    update_data = {
+        "amount": round(new_amount, 2),
+        "payment_mode": payment_data.get("payment_mode", original_payment.get("payment_mode")),
+        "reference_number": payment_data.get("reference_number", original_payment.get("reference_number")),
+        "remarks": payment_data.get("remarks", original_payment.get("remarks")),
+        "payment_date": payment_data.get("payment_date", original_payment.get("payment_date")),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    await db.retailer_payments.update_one(
+        {"id": payment_id},
+        {"$set": update_data}
+    )
+    
+    # If payment was linked to an invoice, recalculate invoice paid_amount and status
+    if invoice_id:
+        invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+        if invoice:
+            # Recalculate total paid from all payments
+            all_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+            new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
+            net_payable = invoice.get("net_payable", 0)
+            
+            # Determine new status
+            if new_paid_amount >= net_payable:
+                new_status = "paid"
+            elif new_paid_amount > 0:
+                new_status = "partial"
+            else:
+                new_status = "pending"
+            
+            # Update invoice
+            await db.retailer_invoices.update_one(
+                {"id": invoice_id},
+                {"$set": {"paid_amount": round(new_paid_amount, 2), "status": new_status}}
+            )
+    
+    return {"message": "Payment updated successfully"}
+
 @api_router.delete("/retailer-payments/{payment_id}")
 async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:

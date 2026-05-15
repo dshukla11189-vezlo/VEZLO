@@ -163,6 +163,17 @@ export default function RetailerOrders() {
   const [invoicePaymentHistory, setInvoicePaymentHistory] = useState([]);
   const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
   
+  // Edit Payment state
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    amount: '',
+    payment_mode: 'cash',
+    reference_number: '',
+    remarks: '',
+    payment_date: ''
+  });
+  
   // Invoice filter state
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all'); // all, pending, partial, paid
   
@@ -2408,6 +2419,57 @@ export default function RetailerOrders() {
       loadPayments();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete payment');
+    }
+  };
+
+  // Open edit payment modal
+  const openEditPaymentModal = (payment) => {
+    setEditingPayment(payment);
+    setEditPaymentForm({
+      amount: payment.amount?.toString() || '',
+      payment_mode: payment.payment_mode || 'cash',
+      reference_number: payment.reference_number || '',
+      remarks: payment.remarks || '',
+      payment_date: payment.payment_date?.split('T')[0] || new Date().toISOString().split('T')[0]
+    });
+    setShowEditPaymentModal(true);
+  };
+
+  // Handle edit payment submission
+  const handleEditPayment = async (e) => {
+    e.preventDefault();
+    if (!editingPayment || !editPaymentForm.amount) {
+      toast.error('Please enter payment amount');
+      return;
+    }
+    
+    // Validate reference number for non-cash payments
+    if (editPaymentForm.payment_mode !== 'cash' && !editPaymentForm.reference_number.trim()) {
+      toast.error('Reference number is required for non-cash payments');
+      return;
+    }
+    
+    try {
+      await api.put(`/api/retailer-payments/${editingPayment.id}`, {
+        amount: parseFloat(editPaymentForm.amount),
+        payment_mode: editPaymentForm.payment_mode,
+        reference_number: editPaymentForm.reference_number,
+        remarks: editPaymentForm.remarks,
+        payment_date: editPaymentForm.payment_date
+      });
+      toast.success('Payment updated successfully');
+      setShowEditPaymentModal(false);
+      setEditingPayment(null);
+      
+      // Reload payment history
+      if (selectedInvoiceForHistory) {
+        const response = await api.get(`/api/retailer-invoices/${selectedInvoiceForHistory.id}/payments`);
+        setInvoicePaymentHistory(response.data);
+      }
+      loadInvoices();
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update payment');
     }
   };
 
@@ -5671,15 +5733,26 @@ export default function RetailerOrders() {
                               <span className="text-lg font-bold text-green-700">{formatCurrency(payment.amount)}</span>
                               <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 uppercase">{payment.payment_mode}</span>
                             </div>
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="text-red-500 hover:bg-red-50 h-7 w-7 p-0"
-                              onClick={() => handleDeletePaymentFromHistory(payment.id)}
-                              title="Delete Payment"
-                            >
-                              <Trash2 size={14} />
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-blue-500 hover:bg-blue-50 h-7 w-7 p-0"
+                                onClick={() => openEditPaymentModal(payment)}
+                                title="Edit Payment"
+                              >
+                                <Edit2 size={14} />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-red-500 hover:bg-red-50 h-7 w-7 p-0"
+                                onClick={() => handleDeletePaymentFromHistory(payment.id)}
+                                title="Delete Payment"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                             <div>
@@ -5700,6 +5773,30 @@ export default function RetailerOrders() {
                               <div className="col-span-2">
                                 <span className="text-gray-500">Remarks:</span>{' '}
                                 <span className="font-medium">{payment.remarks}</span>
+                              </div>
+                            )}
+                            {/* Show created_at timestamp */}
+                            {payment.created_at && (
+                              <div className="col-span-2 pt-1 border-t border-green-200 mt-1">
+                                <span className="text-gray-500">Recorded:</span>{' '}
+                                <span className="font-medium text-gray-700">
+                                  {new Date(payment.created_at).toLocaleString('en-IN', { 
+                                    dateStyle: 'medium', 
+                                    timeStyle: 'short' 
+                                  })}
+                                </span>
+                              </div>
+                            )}
+                            {/* Show updated_at timestamp if payment was edited */}
+                            {payment.updated_at && (
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Last Updated:</span>{' '}
+                                <span className="font-medium text-blue-600">
+                                  {new Date(payment.updated_at).toLocaleString('en-IN', { 
+                                    dateStyle: 'medium', 
+                                    timeStyle: 'short' 
+                                  })}
+                                </span>
                               </div>
                             )}
                           </div>
@@ -5727,6 +5824,106 @@ export default function RetailerOrders() {
                   Close
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== EDIT PAYMENT MODAL ==================== */}
+        {showEditPaymentModal && editingPayment && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Edit2 size={20} className="text-blue-600" />
+                  Edit Payment
+                </h3>
+                <button onClick={() => { setShowEditPaymentModal(false); setEditingPayment(null); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleEditPayment} className="p-4 space-y-4">
+                {/* Original Payment Info */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                  <p className="text-blue-800 font-medium mb-1">Editing Payment</p>
+                  <p className="text-blue-600">
+                    Original: {formatCurrency(editingPayment.amount)} on {formatDate(editingPayment.payment_date)}
+                  </p>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Payment Amount *</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="Enter payment amount"
+                    value={editPaymentForm.amount}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, amount: e.target.value})}
+                    className="w-full"
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Payment Date *</label>
+                  <Input
+                    type="date"
+                    value={editPaymentForm.payment_date}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, payment_date: e.target.value})}
+                    className="w-full"
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Payment Mode *</label>
+                  <select
+                    value={editPaymentForm.payment_mode}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, payment_mode: e.target.value})}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                    required
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                    <option value="bank_transfer">Bank Transfer (NEFT/IMPS)</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="card">Card</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                
+                {editPaymentForm.payment_mode !== 'cash' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">Reference Number *</label>
+                    <Input
+                      type="text"
+                      placeholder="Transaction ID / Reference"
+                      value={editPaymentForm.reference_number}
+                      onChange={(e) => setEditPaymentForm({...editPaymentForm, reference_number: e.target.value})}
+                      className="w-full"
+                    />
+                  </div>
+                )}
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Remarks</label>
+                  <Input
+                    type="text"
+                    placeholder="Optional notes"
+                    value={editPaymentForm.remarks}
+                    onChange={(e) => setEditPaymentForm({...editPaymentForm, remarks: e.target.value})}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div className="flex gap-3 pt-2">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowEditPaymentModal(false); setEditingPayment(null); }}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700">
+                    <Save size={14} className="mr-1" /> Update Payment
+                  </Button>
+                </div>
+              </form>
             </div>
           </div>
         )}

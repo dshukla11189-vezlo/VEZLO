@@ -4759,7 +4759,7 @@ export default function RetailerOrders() {
         {/* ==================== DISPATCH MODAL ==================== */}
         {showDispatchModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
                 <div>
                   <h3 className="text-lg font-semibold">
@@ -4804,22 +4804,84 @@ export default function RetailerOrders() {
                         Fill All Quantities
                       </Button>
                     )}
+                    <Button 
+                      type="button"
+                      size="sm" 
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const response = await api.get('/api/retailer-dispatches/yesterday-mrp');
+                          const mrpMap = {};
+                          response.data.forEach(item => {
+                            const key = `${item.product_id}|${item.variant_id || ''}`;
+                            mrpMap[key] = item.mrp;
+                          });
+                          
+                          let filledCount = 0;
+                          setDispatchForm(prev => ({
+                            ...prev,
+                            items: prev.items.map(item => {
+                              const key = `${item.product_id}|${item.variant_id || ''}`;
+                              if (mrpMap[key] && mrpMap[key] > 0) {
+                                filledCount++;
+                                return { 
+                                  ...item, 
+                                  mrp: mrpMap[key],
+                                  total_value: (item.supplied_qty || 0) * mrpMap[key]
+                                };
+                              }
+                              return item;
+                            })
+                          }));
+                          
+                          if (filledCount > 0) {
+                            toast.success(`Filled MRP for ${filledCount} items from yesterday`);
+                          } else {
+                            toast.info('No matching MRP found from yesterday\'s dispatches');
+                          }
+                        } catch (error) {
+                          toast.error('Failed to fetch yesterday\'s MRP');
+                        }
+                      }}
+                      className="text-xs"
+                      title="Fill MRP from yesterday's dispatches for matching products and variants"
+                    >
+                      Fill Yesterday's MRP
+                    </Button>
                   </div>
-                  <div className="border rounded overflow-hidden">
-                    <table className="w-full text-sm">
+                  <div className="border rounded overflow-hidden overflow-x-auto">
+                    <table className="w-full text-sm" style={{ minWidth: '700px' }}>
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="p-2 text-left">Product</th>
+                          <th className="p-2 text-center">Variant</th>
                           <th className="p-2 text-center">Indent Qty</th>
                           <th className="p-2 text-center">Supply Qty</th>
                           <th className="p-2 text-center">MRP *</th>
                           <th className="p-2 text-right">Total</th>
+                          {editingDispatch && <th className="p-2 text-center w-10"></th>}
                         </tr>
                       </thead>
                       <tbody>
                         {dispatchForm.items.map((item, index) => (
                           <tr key={index} className="border-t">
-                            <td className="p-2">{getProductName(item)} {item.variant_name && `(${item.variant_name})`}</td>
+                            <td className="p-2">{getProductName(item)}</td>
+                            <td className="p-2 text-center">
+                              <select
+                                value={item.variant_id || ''}
+                                onChange={(e) => {
+                                  const variant = packagings.find(p => p.id === e.target.value);
+                                  updateDispatchItem(index, 'variant_id', e.target.value);
+                                  updateDispatchItem(index, 'variant_name', variant?.name || '');
+                                }}
+                                className="w-28 h-7 text-xs border rounded px-1"
+                              >
+                                <option value="">Select</option>
+                                {packagings.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </td>
                             <td className="p-2 text-center text-gray-500">{item.indent_qty}</td>
                             <td className="p-2 text-center">
                               <Input
@@ -4843,12 +4905,35 @@ export default function RetailerOrders() {
                               />
                             </td>
                             <td className="p-2 text-right font-medium">{formatCurrency(item.total_value)}</td>
+                            {editingDispatch && (
+                              <td className="p-2 text-center">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-red-500 hover:bg-red-50"
+                                  onClick={() => {
+                                    if (dispatchForm.items.length > 1) {
+                                      setDispatchForm(prev => ({
+                                        ...prev,
+                                        items: prev.items.filter((_, i) => i !== index)
+                                      }));
+                                    } else {
+                                      toast.error('Cannot delete the last item');
+                                    }
+                                  }}
+                                  title="Delete this item"
+                                >
+                                  <X size={14} />
+                                </Button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-gray-50 font-semibold">
                         <tr>
-                          <td colSpan={4} className="p-2 text-right">Total MRP Value:</td>
+                          <td colSpan={editingDispatch ? 6 : 5} className="p-2 text-right">Total MRP Value:</td>
                           <td className="p-2 text-right">{formatCurrency(dispatchForm.items.reduce((sum, i) => sum + i.total_value, 0))}</td>
                         </tr>
                       </tfoot>

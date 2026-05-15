@@ -48,36 +48,22 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 ### Completed (This Session - 15 May 2026)
 - **Edit Payment & Timestamp Display Feature for Retailer Orders** ✅ (Verified)
-  - Added **Edit Payment functionality** in Payment History modal:
-    - Blue edit icon (Edit2) next to each payment in history
-    - Opens Edit Payment modal with pre-filled data (amount, date, mode, reference, remarks)
-    - Backend `PUT /api/retailer-payments/{payment_id}` updates payment and recalculates invoice status
-    - Tracks `updated_at` and `updated_by` fields for audit trail
-  - Added **View button for Partial invoices**:
-    - Eye icon shown for both Paid AND Partial status invoices
-    - Allows viewing/editing existing payments before making additional payments
-  - Added **Earlier Payments section** in Add Payment modal:
-    - Shows all previous payments when adding payment to partial invoice
-    - Displays: amount, payment mode, payment date, and **recorded timestamp**
-    - Format: "Paid on: 14 May 2026 (Recorded: 14 May, 06:32 pm)"
-  - **Timestamp display** added to Payment History modal:
-    - Shows "Recorded: DD MMM YYYY, HH:MM" for each payment's `created_at`
-    - Shows "Last Updated: DD MMM YYYY, HH:MM" if payment was edited
+  - Added **Edit Payment functionality** in Payment History modal
+  - Added **View button for Partial invoices**
+  - Added **Earlier Payments section** with timestamps
 
 - **Procurement Payment Edit/Delete & History Feature** ✅ (Verified)
-  - Created new `procurement_payments` collection for tracking multiple payments per procurement
-  - Added backend APIs:
-    - `GET /api/procurement/{id}/payments` - Get payment history
-    - `POST /api/procurement/{id}/payments` - Create new payment
-    - `PUT /api/procurement-payments/{id}` - Edit existing payment
-    - `DELETE /api/procurement-payments/{id}` - Delete payment
-  - Updated Procurement.js frontend:
-    - **Payment History section** in Record Payment modal showing all previous payments with timestamps
-    - **Edit button** (pencil icon) next to each payment in history
-    - **Delete button** (trash icon) next to each payment in history
-    - **Edit Payment Modal** with full form: amount, date, mode, paid by (Company/Employee), reference, remarks
-    - **View Payments button** (Eye icon) for fully paid procurements
-    - Automatically recalculates procurement `paid_amount`, `pending_amount`, and `payment_status` on any payment change
+  - Created new `procurement_payments` collection
+  - Added CRUD APIs for procurement payments
+  - Updated Procurement.js with edit/delete buttons and payment history display
+  - Partial payment status now shows employee name and settlement status
+
+- **Dispatch Edit Enhancements** ✅ (Verified)
+  - Added **Delete button (X)** for each dispatch line item when editing
+  - Added **Variant dropdown** to edit packaging variant in dispatch
+  - Added **"Fill Yesterday's MRP" button** to auto-populate MRP from yesterday's dispatches (matched by product + variant)
+  - Added backend API: `GET /api/retailer-dispatches/yesterday-mrp`
+  - Widened dispatch modal from `max-w-2xl` to `max-w-4xl` to fit all columns
 
 ### Completed (Previous Session - 11 May 2026)
 - **Labor Costs Export & Payroll Processing Features** ✅ (Verified)

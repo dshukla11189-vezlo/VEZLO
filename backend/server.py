@@ -9138,6 +9138,42 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
     
     return {"message": "Dispatch deleted successfully"}
 
+@api_router.get("/retailer-dispatches/yesterday-mrp")
+async def get_yesterday_mrp(current_user: dict = Depends(get_current_user)):
+    """Get yesterday's MRP for all products by variant from retailer dispatches"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get yesterday's date range
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_start = today - timedelta(days=1)
+    yesterday_end = today
+    
+    # Get dispatches from yesterday
+    dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": yesterday_start.isoformat(), "$lt": yesterday_end.isoformat()}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Build MRP map: product_id + variant_id -> mrp
+    mrp_map = {}
+    for dispatch in dispatches:
+        for item in dispatch.get('items', []):
+            product_id = item.get('product_id', '')
+            variant_id = item.get('variant_id', '')
+            mrp = item.get('mrp', 0)
+            
+            if product_id and mrp > 0:
+                key = f"{product_id}|{variant_id or ''}"
+                # Use the most recent MRP (last dispatch wins)
+                mrp_map[key] = {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "variant_name": item.get('variant_name', ''),
+                    "mrp": mrp
+                }
+    
+    return list(mrp_map.values())
+
 # ------------ RETAILER GRN ------------
 @api_router.get("/retailer-grn")
 async def get_retailer_grn(

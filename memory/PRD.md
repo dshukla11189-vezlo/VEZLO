@@ -46,7 +46,25 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Hindi language E2E testing
 - AI-powered demand forecasting
 
-### Completed (This Session - 11 May 2026)
+### Completed (This Session - 15 May 2026)
+- **Edit Payment & Timestamp Display Feature** ✅ (Verified)
+  - Added **Edit Payment functionality** in Payment History modal:
+    - Blue edit icon (Edit2) next to each payment in history
+    - Opens Edit Payment modal with pre-filled data (amount, date, mode, reference, remarks)
+    - Backend `PUT /api/retailer-payments/{payment_id}` updates payment and recalculates invoice status
+    - Tracks `updated_at` and `updated_by` fields for audit trail
+  - Added **View button for Partial invoices**:
+    - Eye icon shown for both Paid AND Partial status invoices
+    - Allows viewing/editing existing payments before making additional payments
+  - Added **Earlier Payments section** in Add Payment modal:
+    - Shows all previous payments when adding payment to partial invoice
+    - Displays: amount, payment mode, payment date, and **recorded timestamp**
+    - Format: "Paid on: 14 May 2026 (Recorded: 14 May, 06:32 pm)"
+  - **Timestamp display** added to Payment History modal:
+    - Shows "Recorded: DD MMM YYYY, HH:MM" for each payment's `created_at`
+    - Shows "Last Updated: DD MMM YYYY, HH:MM" if payment was edited
+
+### Completed (Previous Session - 11 May 2026)
 - **Labor Costs Export & Payroll Processing Features** ✅ (Verified)
   - Added **Export CSV button** on Daily Costs tab for attendance download (name, days present, overtime hours, total payment)
   - Added **Payroll Processing tab** next to Manage Labourers with:

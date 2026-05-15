@@ -17,7 +17,7 @@ import {
 } from '../../components/ui/alert-dialog';
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
-  Edit, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
+  Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye
 } from 'lucide-react';
 
@@ -156,6 +156,8 @@ export default function RetailerOrders() {
     payment_date: new Date().toISOString().split('T')[0]
   });
   const [staffUsers, setStaffUsers] = useState([]); // Admin and Staff users for "Received By"
+  const [invoiceExistingPayments, setInvoiceExistingPayments] = useState([]); // Existing payments for partial invoices
+  const [loadingExistingPayments, setLoadingExistingPayments] = useState(false);
   
   // Payment History Modal state (for viewing/editing paid invoices)
   const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
@@ -2370,7 +2372,7 @@ export default function RetailerOrders() {
   };
 
   // Open invoice payment modal
-  const openInvoicePaymentModal = (invoice) => {
+  const openInvoicePaymentModal = async (invoice) => {
     setSelectedInvoiceForPayment(invoice);
     const remainingAmount = (invoice.net_payable || 0) - (invoice.paid_amount || 0);
     const currentUserId = getCurrentUserId();
@@ -2385,6 +2387,22 @@ export default function RetailerOrders() {
       payment_date: new Date().toISOString().split('T')[0]
     });
     setShowInvoicePaymentModal(true);
+    
+    // Load existing payments if invoice has partial payments
+    if (invoice.paid_amount > 0) {
+      setLoadingExistingPayments(true);
+      try {
+        const response = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
+        setInvoiceExistingPayments(response.data || []);
+      } catch (error) {
+        console.error('Failed to load existing payments:', error);
+        setInvoiceExistingPayments([]);
+      } finally {
+        setLoadingExistingPayments(false);
+      }
+    } else {
+      setInvoiceExistingPayments([]);
+    }
   };
 
   // Open payment history modal (for viewing/editing paid invoices)
@@ -3429,6 +3447,27 @@ export default function RetailerOrders() {
                                   >
                                     <Eye size={14} className="mr-1" /> View
                                   </Button>
+                                ) : status === 'partial' ? (
+                                  <>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                      onClick={() => openPaymentHistoryModal(invoice)}
+                                      title="View/Edit Payments"
+                                    >
+                                      <Eye size={14} />
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      className="text-green-600 border-green-300 hover:bg-green-50"
+                                      onClick={() => openInvoicePaymentModal(invoice)}
+                                      title="Add More Payment"
+                                    >
+                                      <IndianRupee size={14} className="mr-1" /> Pay
+                                    </Button>
+                                  </>
                                 ) : (
                                   <Button 
                                     size="sm" 
@@ -5572,6 +5611,44 @@ export default function RetailerOrders() {
                     </span>
                   </div>
                 </div>
+                
+                {/* Show existing payments with timestamps if invoice has partial payments */}
+                {(selectedInvoiceForPayment.paid_amount > 0) && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <h4 className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-2">
+                      <Clock size={14} /> Earlier Payments
+                    </h4>
+                    {loadingExistingPayments ? (
+                      <p className="text-xs text-gray-500">Loading...</p>
+                    ) : invoiceExistingPayments.length === 0 ? (
+                      <p className="text-xs text-gray-500">No payment records found</p>
+                    ) : (
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {invoiceExistingPayments.map((payment, idx) => (
+                          <div key={payment.id || idx} className="bg-white border border-green-100 rounded p-2 text-xs">
+                            <div className="flex justify-between items-center">
+                              <span className="font-semibold text-green-700">{formatCurrency(payment.amount)}</span>
+                              <span className="text-gray-500 uppercase text-[10px]">{payment.payment_mode}</span>
+                            </div>
+                            <div className="text-gray-600 mt-1">
+                              <span>Paid on: {formatDate(payment.payment_date)}</span>
+                              {payment.created_at && (
+                                <span className="ml-2 text-gray-400">
+                                  (Recorded: {new Date(payment.created_at).toLocaleString('en-IN', { 
+                                    day: '2-digit', 
+                                    month: 'short', 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  })})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date *</label>

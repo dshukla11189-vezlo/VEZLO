@@ -1511,7 +1511,8 @@ export default function Procurement() {
             </Button>
           </DialogTrigger>
           <DialogContent 
-            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden w-[95vw]"
+            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto"
+            style={{ width: '95vw', maxWidth: 'min(900px, 95vw)', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}
             onInteractOutside={(e) => e.preventDefault()}
             onPointerDownOutside={(e) => e.preventDefault()}
           >
@@ -1521,11 +1522,11 @@ export default function Procurement() {
             
             {/* Previous Day Procurements Section - NEW DESIGN: Editable Table with Checkboxes */}
             {!editMode && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg mb-4 box-border" style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
                 {/* Date Picker Row */}
-                <div className="flex items-center gap-4 mb-4 pb-3 border-b border-amber-200">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-4 pb-3 border-b border-amber-200">
                   <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium text-amber-800">Record purchases for:</label>
+                    <label className="text-sm font-medium text-amber-800 whitespace-nowrap">Record purchases for:</label>
                     <Input
                       type="date"
                       value={referenceDateForPurchase}
@@ -1610,10 +1611,18 @@ export default function Procurement() {
                       </div>
                     </div>
                 
-                {/* Editable Table */}
-                <div className="bg-white rounded border overflow-x-auto max-h-80 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-amber-100 sticky top-0">
+                {/* Editable Table with horizontal scroll for mobile */}
+                <div className="px-2 sm:px-4 pb-4">
+                  <div 
+                    className="bg-white rounded border max-h-80 overflow-auto"
+                    style={{ 
+                      WebkitOverflowScrolling: 'touch',
+                      maxWidth: '100%',
+                      display: 'block'
+                    }}
+                  >
+                    <table className="text-sm border-collapse" style={{ minWidth: '750px', tableLayout: 'fixed' }}>
+                      <thead className="bg-amber-100 sticky top-0">
                       <tr>
                         <th className="p-2 w-10 text-center">#</th>
                         <th className="p-2 w-8 text-center">
@@ -1901,9 +1910,10 @@ export default function Procurement() {
                     </span>
                   </div>
                 )}
+                  </div>
                   </>
                 ) : (
-                  <div className="text-center py-4 text-amber-700">
+                  <div className="text-center py-4 text-amber-700 px-4">
                     <p>No purchases found for {new Date(new Date(referenceDateForPurchase).getTime() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                     <p className="text-sm text-amber-600 mt-1">Try selecting a different date, or add purchases manually below</p>
                   </div>
@@ -1939,8 +1949,7 @@ export default function Procurement() {
 
               {/* Single-row table matching Yesterday's Purchases layout */}
               <div className="bg-white rounded border overflow-x-auto">
-                <div style={{ minWidth: '850px' }}>
-                  <table className="w-full text-sm">
+                <table className="w-full text-sm" style={{ minWidth: '850px' }}>
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="p-2 text-left font-medium text-gray-600" style={{ width: '140px' }}>{t('procurement.farmer')}</th>
@@ -2128,7 +2137,6 @@ export default function Procurement() {
                     ))}
                   </tbody>
                 </table>
-                </div>
               </div>
 
               {/* Add Item Button */}

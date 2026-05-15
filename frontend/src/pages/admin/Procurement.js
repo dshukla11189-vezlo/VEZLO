@@ -1511,7 +1511,7 @@ export default function Procurement() {
             </Button>
           </DialogTrigger>
           <DialogContent 
-            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto"
+            className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden"
             onInteractOutside={(e) => e.preventDefault()}
             onPointerDownOutside={(e) => e.preventDefault()}
           >
@@ -2147,44 +2147,44 @@ export default function Procurement() {
               </div>
 
               {/* Summary Row */}
-              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
-                <div className="flex items-center gap-6">
+              <div className="bg-gray-50 p-3 rounded-lg border">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                   <div className="text-sm">
                     <span className="text-gray-600">{t('procurement.totalAmount')}:</span>
-                    <span className="ml-2 font-bold text-lg text-[#14532D]" data-testid="grand-total">
+                    <span className="ml-1 font-bold text-[#14532D]" data-testid="grand-total">
                       ₹{procurementForm.total_amount.toFixed(0)}
                     </span>
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-600">{t('procurement.paidAmount')}:</span>
-                    <span className="ml-2 font-semibold text-green-700">
+                    <span className="ml-1 font-semibold text-green-700">
                       ₹{(procurementForm.paid_amount || 0).toFixed(0)}
                     </span>
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-600">{t('procurement.pendingAmount')}:</span>
-                    <span className="ml-2 font-semibold text-red-600" data-testid="pending-amount-display">
+                    <span className="ml-1 font-semibold text-red-600" data-testid="pending-amount-display">
                       ₹{procurementForm.pending_amount.toFixed(0)}
                     </span>
                   </div>
+                  {procurementForm.payment_status !== 'pending' && (
+                    <span className={`text-xs px-2 py-1 rounded ${procurementForm.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                      {procurementForm.payment_status.toUpperCase()}
+                    </span>
+                  )}
                 </div>
-                {procurementForm.payment_status !== 'pending' && (
-                  <span className={`text-xs px-2 py-1 rounded ${procurementForm.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {procurementForm.payment_status.toUpperCase()}
-                  </span>
-                )}
               </div>
               
-              {/* Payment Details for Paid Procurements */}
-              {editMode && procurementForm.payment_status === 'paid' && (
+              {/* Payment Details for Paid/Partial Procurements */}
+              {editMode && (procurementForm.payment_status === 'paid' || procurementForm.payment_status === 'partial' || procurementForm.paid_amount > 0) && (
                 <div className="border-t pt-3 mt-2">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                     <h4 className="text-sm font-semibold text-gray-700">Payment Details</h4>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="text-red-600 border-red-300 hover:bg-red-50 h-7"
+                      className="text-red-600 border-red-300 hover:bg-red-50 h-7 text-xs"
                       onClick={() => {
                         if (window.confirm('Are you sure you want to delete this payment? This will reset the procurement to unpaid status.')) {
                           setProcurementForm(prev => ({
@@ -2204,7 +2204,7 @@ export default function Procurement() {
                         }
                       }}
                     >
-                      <Trash2 size={12} className="mr-1" /> Delete Payment
+                      <Trash2 size={12} className="mr-1" /> Delete
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

@@ -1194,24 +1194,24 @@ export default function AdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-gray-50 border-b">
+                    <thead className="bg-gray-50 border-b sticky top-0 z-10">
                       <tr>
-                        <th className="p-2 text-center font-medium text-gray-500 w-10">#</th>
-                        <th className="p-2 text-left font-medium text-gray-500 w-8"></th>
-                        <th className="p-2 text-left font-medium text-gray-500">DATE / VERTICAL / CUSTOMER</th>
-                        <th className="p-2 text-right font-medium text-gray-500">SALES</th>
-                        <th className="p-2 text-right font-medium text-gray-500">QTY</th>
-                        <th className="p-2 text-right font-medium text-green-600 text-[10px]">SP/Kg</th>
-                        <th className="p-2 text-right font-medium text-gray-500">PURCHASE</th>
-                        <th className="p-2 text-right font-medium text-orange-600 text-[10px]">PP/Kg</th>
-                        <th className="p-2 text-right font-medium text-gray-500">WASTAGE</th>
-                        <th className="p-2 text-right font-medium text-red-500">REJECTION</th>
-                        <th className="p-2 text-right font-medium text-amber-600">COMMISSION</th>
-                        <th className="p-2 text-right font-medium text-gray-500">GROSS P/L</th>
-                        <th className="p-2 text-right font-medium text-gray-500">GM %</th>
-                        <th className="p-2 text-right font-medium text-gray-500">₹/UNIT</th>
+                        <th className="p-2 text-center font-medium text-gray-500 w-10 bg-gray-50">#</th>
+                        <th className="p-2 text-left font-medium text-gray-500 w-8 bg-gray-50"></th>
+                        <th className="p-2 text-left font-medium text-gray-500 bg-gray-50">DATE / VERTICAL / CUSTOMER</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">SALES</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">QTY</th>
+                        <th className="p-2 text-right font-medium text-green-600 text-[10px] bg-gray-50">SP/Kg</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">PURCHASE</th>
+                        <th className="p-2 text-right font-medium text-orange-600 text-[10px] bg-gray-50">PP/Kg</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">WASTAGE</th>
+                        <th className="p-2 text-right font-medium text-red-500 bg-gray-50">REJECTION</th>
+                        <th className="p-2 text-right font-medium text-amber-600 bg-gray-50">COMMISSION</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">GROSS P/L</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">GM %</th>
+                        <th className="p-2 text-right font-medium text-gray-500 bg-gray-50">₹/UNIT</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1310,6 +1310,7 @@ export default function AdminDashboard() {
                                         className="border-b bg-blue-50 hover:bg-blue-100 cursor-pointer"
                                         onClick={() => toggleVerticalExpand(`${day.date}_QC`)}
                                       >
+                                        <td className="p-2 text-center"></td>
                                         <td className="p-2 text-center pl-6">
                                           {expandedVerticals[`${day.date}_QC`] ? <ChevronDown size={12} className="text-blue-500" /> : <ChevronRight size={12} className="text-blue-500" />}
                                         </td>
@@ -1361,6 +1362,7 @@ export default function AdminDashboard() {
                                               className="border-b bg-blue-100/50 hover:bg-blue-100 cursor-pointer"
                                               onClick={() => toggleCustomerExpand(custKey)}
                                             >
+                                              <td className="p-2 text-center"></td>
                                               <td className="p-2 text-center pl-10">
                                                 {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-blue-400" /> : <ChevronRight size={10} className="text-blue-400" />}
                                               </td>
@@ -1399,6 +1401,7 @@ export default function AdminDashboard() {
                                               
                                               return (
                                                 <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
+                                                  <td className="p-2 pl-14"></td>
                                                   <td className="p-2 pl-14"></td>
                                                   <td className="p-2 pl-14">
                                                     <span className="text-sm text-gray-800 font-medium">{item.product}</span>
@@ -1538,6 +1541,7 @@ export default function AdminDashboard() {
                                               return (
                                                 <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
                                                   <td className="p-2 pl-14"></td>
+                                                  <td className="p-2 pl-14"></td>
                                                   <td className="p-2 pl-14">
                                                     <span className="text-sm text-gray-800 font-medium">{item.product}</span>
                                                     <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
@@ -1574,7 +1578,7 @@ export default function AdminDashboard() {
                                   {day.unsold_wastage && day.unsold_wastage.length > 0 && (
                                     <>
                                       <tr className="bg-amber-50 border-t border-amber-200">
-                                        <td className="p-2 pl-6 font-medium text-amber-800 text-xs" colSpan={6}>
+                                        <td className="p-2 pl-6 font-medium text-amber-800 text-xs" colSpan={8}>
                                           Cumulative Unsold Wastage (Products with no sales)
                                         </td>
                                         <td className="p-2 text-right text-amber-700 font-medium text-xs">
@@ -1584,7 +1588,7 @@ export default function AdminDashboard() {
                                       </tr>
                                       {day.unsold_wastage.map((item, widx) => (
                                         <tr key={`uw-${widx}`} className="bg-amber-50/50 border-t border-amber-100">
-                                          <td className="p-2 pl-10 text-xs text-amber-700" colSpan={5}>
+                                          <td className="p-2 pl-10 text-xs text-amber-700" colSpan={7}>
                                             {item.product}
                                           </td>
                                           <td className="p-2 text-right text-xs text-amber-600">
@@ -1602,7 +1606,7 @@ export default function AdminDashboard() {
                                   {/* No data message */}
                                   {qcItems.length === 0 && retailItems.length === 0 && (!day.unsold_wastage || day.unsold_wastage.length === 0) && (
                                     <tr className="bg-gray-50">
-                                      <td colSpan={13} className="p-2 pl-8 text-xs text-gray-400 italic">
+                                      <td colSpan={14} className="p-2 pl-8 text-xs text-gray-400 italic">
                                         No detailed line items available for this date
                                       </td>
                                     </tr>

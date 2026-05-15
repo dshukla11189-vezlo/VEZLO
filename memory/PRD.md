@@ -47,6 +47,16 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - AI-powered demand forecasting
 
 ### Completed (This Session - 15 May 2026)
+- **Dashboard P&L Table Column Alignment & Sticky Header** ✅ (Verified)
+  - Fixed QC and Retail vertical rows to have 14 columns (was 12-13)
+  - Fixed QC Customer rows and Product/Item rows column alignment
+  - Added **sticky header** that stays visible when scrolling through expanded rows
+  - Added `max-h-[70vh] overflow-y-auto` container for table scrollability
+
+- **Retailer Invoice "Final Payable" Inline Display** ✅ (Verified)
+  - "Final Payable" now displays inline with Commission in 5-column grid
+  - Styled with `font-bold text-blue-700` for visibility
+
 - **Edit Payment & Timestamp Display Feature for Retailer Orders** ✅ (Verified)
   - Added **Edit Payment functionality** in Payment History modal
   - Added **View button for Partial invoices**

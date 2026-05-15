@@ -1003,9 +1003,9 @@ export default function Procurement() {
     }
   };
 
-  // Get unsettled employee-paid procurements
+  // Get unsettled employee-paid procurements (includes both paid and partial)
   const unsettledEmployeeProcurements = procurements.filter(
-    p => p.paid_by_type === 'employee' && p.settlement_status !== 'settled' && p.payment_status === 'paid'
+    p => p.paid_by_type === 'employee' && p.settlement_status !== 'settled' && (p.payment_status === 'paid' || p.payment_status === 'partial')
   );
 
   // Delete procurement
@@ -2588,7 +2588,7 @@ export default function Procurement() {
                   </thead>
                   <tbody>
                     {filteredProcurements.map((proc) => {
-                      const isPendingSettlement = proc.payment_status === 'paid' && 
+                      const isPendingSettlement = (proc.payment_status === 'paid' || proc.payment_status === 'partial') && 
                         proc.paid_by_type === 'employee' && 
                         proc.settlement_status !== 'settled';
                       return (
@@ -2627,13 +2627,13 @@ export default function Procurement() {
                             }`}>
                               {proc.payment_status || 'pending'}
                             </span>
-                            {proc.paid_by_type === 'employee' && proc.payment_status === 'paid' && (
+                            {proc.paid_by_type === 'employee' && (proc.payment_status === 'paid' || proc.payment_status === 'partial') && (
                               <span className="text-xs text-purple-600">by {proc.paid_by}</span>
                             )}
                           </div>
                         </td>
                         <td>
-                          {proc.payment_status === 'paid' && proc.paid_by_type === 'employee' ? (
+                          {(proc.payment_status === 'paid' || proc.payment_status === 'partial') && proc.paid_by_type === 'employee' ? (
                             proc.settlement_status === 'settled' ? (
                               <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">Settled</span>
                             ) : (

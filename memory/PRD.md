@@ -47,6 +47,13 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - AI-powered demand forecasting
 
 ### Completed (This Session - 15 May 2026)
+- **Retailer Portal Enhancements** ✅ (Verified)
+  - **Serial Number in Invoice Details**: Added `#` column showing 1, 2, 3... for each item in expanded invoices
+  - **Pending Orders Date-wise Collapsible View**: Replaced scrollable list with expandable date rows showing Date, Count of Orders, No of Items, Status columns
+  - **Invoice Tab - Paid Amount Column**: Added PAID AMOUNT column between Commission and Net Payable
+  - **PDF Download Restriction**: Download PDF icon only enabled for fully paid invoices (grayed out for pending)
+  - **Payment Timestamp in Expanded Invoice**: Shows "Payment Details:" section at bottom with payment date, time, amount, and payment mode
+
 - **Dashboard P&L Table Column Alignment & Sticky Header** ✅ (Verified)
   - Fixed QC and Retail vertical rows to have 14 columns (was 12-13)
   - Fixed QC Customer rows and Product/Item rows column alignment

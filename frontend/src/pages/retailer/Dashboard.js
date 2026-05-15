@@ -1845,56 +1845,104 @@ export default function RetailerDashboard() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="p-3 text-left font-medium text-gray-500">DATE</th>
-                          <th className="p-3 text-left font-medium text-gray-500">ITEMS</th>
-                          <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
-                          <th className="p-3 text-left font-medium text-gray-500">REMARKS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {indents.filter(i => i.status === 'pending' || i.status === 'partial').length === 0 ? (
-                          <tr><td colSpan={4} className="p-6 text-center text-gray-400">No pending orders</td></tr>
-                        ) : indents.filter(i => i.status === 'pending' || i.status === 'partial').map(indent => (
-                          <tr key={indent.id} className="border-b hover:bg-gray-50">
-                            <td className="p-3">
-                              <div className="font-medium">{formatDate(indent.indent_date)}</div>
-                              {indent.is_auto_generated && (
-                                <span className="inline-block mt-0.5 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
-                                  Auto Generated
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-3">
-                              <div className="max-h-[80px] overflow-y-auto text-xs space-y-1">
-                                {indent.items?.map((item, idx) => (
-                                  <div key={idx} className="flex items-center gap-1">
-                                    <span className="font-medium">{getProductName(item)}</span>
-                                    {item.variant_name && item.variant_name !== 'Kg' && (
-                                      <span className="text-orange-600 text-[10px] bg-orange-50 px-1 rounded">{item.variant_name}</span>
-                                    )}
-                                    <span className="text-gray-500">×{item.quantity}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="p-3 text-center">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                indent.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-blue-100 text-blue-700'
-                              }`}>
-                                {indent.status === 'pending' ? (t('retailer.awaitingDispatch') || 'Awaiting Dispatch') : 'Partial'}
-                              </span>
-                            </td>
-                            <td className="p-3 text-gray-500 text-xs">{indent.remarks || '-'}</td>
+                  {(() => {
+                    // Group pending indents by date
+                    const pendingIndents = indents.filter(i => i.status === 'pending' || i.status === 'partial');
+                    const indentsByDate = pendingIndents.reduce((acc, indent) => {
+                      const date = indent.indent_date?.split('T')[0] || 'Unknown';
+                      if (!acc[date]) acc[date] = [];
+                      acc[date].push(indent);
+                      return acc;
+                    }, {});
+                    
+                    // Sort dates descending
+                    const sortedDates = Object.keys(indentsByDate).sort((a, b) => b.localeCompare(a));
+                    
+                    if (sortedDates.length === 0) {
+                      return (
+                        <div className="p-8 text-center text-gray-400">No pending orders</div>
+                      );
+                    }
+                    
+                    return (
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="p-3 text-left w-8"></th>
+                            <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                            <th className="p-3 text-center font-medium text-gray-500">COUNT OF ORDERS</th>
+                            <th className="p-3 text-center font-medium text-gray-500">NO OF ITEMS</th>
+                            <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {sortedDates.map(date => {
+                            const dateIndents = indentsByDate[date];
+                            const isExpanded = expandedOrderDates[date];
+                            const totalItems = dateIndents.reduce((sum, indent) => sum + (indent.items?.length || 0), 0);
+                            const hasPartial = dateIndents.some(i => i.status === 'partial');
+                            
+                            return (
+                              <React.Fragment key={date}>
+                                {/* Date Row - Clickable */}
+                                <tr 
+                                  className="border-b bg-yellow-50/50 hover:bg-yellow-100 cursor-pointer"
+                                  onClick={() => setExpandedOrderDates(prev => ({ ...prev, [date]: !prev[date] }))}
+                                >
+                                  <td className="p-3 text-center">
+                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                  </td>
+                                  <td className="p-3 font-semibold text-gray-800">{formatDate(date)}</td>
+                                  <td className="p-3 text-center font-medium">{dateIndents.length}</td>
+                                  <td className="p-3 text-center font-medium">{totalItems}</td>
+                                  <td className="p-3 text-center">
+                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                      hasPartial ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+                                    }`}>
+                                      {hasPartial ? 'Partial' : (t('retailer.awaitingDispatch') || 'Awaiting Dispatch')}
+                                    </span>
+                                  </td>
+                                </tr>
+                                
+                                {/* Expanded Order Details */}
+                                {isExpanded && dateIndents.map((indent, iIdx) => (
+                                  <tr key={indent.id} className="border-b bg-white hover:bg-gray-50">
+                                    <td className="p-2 pl-6"></td>
+                                    <td colSpan={4} className="p-3">
+                                      <div className="space-y-2">
+                                        {indent.is_auto_generated && (
+                                          <span className="inline-block mb-1 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
+                                            Auto Generated
+                                          </span>
+                                        )}
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                          {indent.items?.map((item, idx) => (
+                                            <div key={idx} className="flex items-center gap-1 text-sm bg-gray-50 px-2 py-1 rounded">
+                                              <span className="text-gray-400 text-xs">{idx + 1}.</span>
+                                              <span className="font-medium">{getProductName(item)}</span>
+                                              {item.variant_name && item.variant_name !== 'Kg' && (
+                                                <span className="text-orange-600 text-[10px] bg-orange-50 px-1 rounded">{item.variant_name}</span>
+                                              )}
+                                              <span className="text-gray-500">×{item.quantity}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                        {indent.remarks && (
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            <span className="font-medium">Remarks:</span> {indent.remarks}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             )}
@@ -2033,6 +2081,7 @@ export default function RetailerDashboard() {
                           <th className="p-3 text-right font-medium text-gray-500">GROSS VALUE</th>
                           <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
                           <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
+                          <th className="p-3 text-right font-medium text-blue-600">PAID AMOUNT</th>
                           <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
                           <th className="p-3 text-center font-medium text-gray-500">PDF</th>
                           <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
@@ -2048,6 +2097,14 @@ export default function RetailerDashboard() {
                           const commissionAmt = invoice.commission_amount || (netValue * (invoice.commission_percentage || 0) / 100);
                           const payableAmt = netValue - commissionAmt;
                           const isPaid = invoice.status === 'paid' || invoice.status === 'closed';
+                          const isPartial = invoice.status === 'partial';
+                          
+                          // Get paid amount from invoice or payments
+                          const paidAmount = invoice.paid_amount || 0;
+                          const remainingPayable = payableAmt - paidAmount;
+                          
+                          // Get payment details for this invoice
+                          const invoicePayments = payments.filter(p => p.invoice_id === invoice.id);
                           
                           return (
                             <React.Fragment key={invoice.id}>
@@ -2065,16 +2122,37 @@ export default function RetailerDashboard() {
                                 <td className="p-3 text-right text-green-600">
                                   {formatCurrency(commissionAmt)} ({invoice.commission_percentage || 0}%)
                                 </td>
-                                <td className="p-3 text-right font-bold">{formatCurrency(payableAmt)}</td>
+                                <td className="p-3 text-right text-blue-600 font-medium">
+                                  {paidAmount > 0 ? formatCurrency(paidAmount) : '-'}
+                                </td>
+                                <td className="p-3 text-right font-bold">
+                                  {isPaid ? (
+                                    <span className="text-green-700">{formatCurrency(payableAmt)}</span>
+                                  ) : (
+                                    <span className={remainingPayable > 0 ? 'text-orange-600' : 'text-gray-800'}>
+                                      {formatCurrency(remainingPayable > 0 ? remainingPayable : payableAmt)}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
-                                  <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
-                                    <Download size={14} className="text-blue-600" />
-                                  </Button>
+                                  {isPaid ? (
+                                    <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
+                                      <Download size={14} className="text-blue-600" />
+                                    </Button>
+                                  ) : (
+                                    <span className="text-gray-300" title="PDF available after full payment">
+                                      <Download size={14} />
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="p-3 text-center">
                                   {isPaid ? (
                                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
                                       <CheckCircle size={12} className="mr-1" /> {t('retailer.paymentCleared') || 'Payment Cleared'}
+                                    </span>
+                                  ) : isPartial ? (
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                      <Clock size={12} className="mr-1" /> Partial
                                     </span>
                                   ) : (
                                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
@@ -2090,6 +2168,7 @@ export default function RetailerDashboard() {
                                       <table className="w-full text-sm">
                                         <thead className="bg-gray-100">
                                           <tr>
+                                            <th className="p-2 text-center font-medium text-gray-500 w-12">#</th>
                                             <th className="p-2 text-left font-medium">Product</th>
                                             <th className="p-2 text-left font-medium">Variant</th>
                                             <th className="p-2 text-center font-medium">Supplied</th>
@@ -2109,6 +2188,7 @@ export default function RetailerDashboard() {
                                             
                                             return (
                                               <tr key={idx} className={`border-t ${rejectedQty > 0 ? 'bg-red-50/50' : ''}`}>
+                                                <td className="p-2 text-center text-gray-500">{idx + 1}</td>
                                                 <td className="p-2 font-medium">{getProductName(item)}</td>
                                                 <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
                                                 <td className="p-2 text-center">{suppliedQty}</td>
@@ -2123,6 +2203,57 @@ export default function RetailerDashboard() {
                                           })}
                                         </tbody>
                                       </table>
+                                      
+                                      {/* Payment Details Section */}
+                                      {(invoicePayments.length > 0 || isPaid) && (
+                                        <div className="border-t bg-gray-50 p-3">
+                                          <div className="text-xs font-medium text-gray-700 mb-2">Payment Details:</div>
+                                          {invoicePayments.length > 0 ? (
+                                            <div className="space-y-1">
+                                              {invoicePayments.map((payment, pIdx) => (
+                                                <div key={pIdx} className="flex items-center justify-between text-xs bg-white px-2 py-1.5 rounded border">
+                                                  <div className="flex items-center gap-3">
+                                                    <span className="text-gray-500">#{pIdx + 1}</span>
+                                                    <span className="font-medium text-green-700">{formatCurrency(payment.amount)}</span>
+                                                    {payment.payment_mode && (
+                                                      <span className="text-gray-500">via {payment.payment_mode}</span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-gray-500">
+                                                    {payment.payment_date ? (
+                                                      <>
+                                                        Paid on {formatDate(payment.payment_date)}
+                                                        {payment.created_at && (
+                                                          <span className="ml-1 text-gray-400">
+                                                            at {new Date(payment.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                                          </span>
+                                                        )}
+                                                      </>
+                                                    ) : payment.created_at ? (
+                                                      <>
+                                                        Recorded on {new Date(payment.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                        <span className="ml-1 text-gray-400">
+                                                          at {new Date(payment.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                      </>
+                                                    ) : null}
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : isPaid && (
+                                            <div className="text-xs text-green-700 bg-green-50 px-2 py-1.5 rounded">
+                                              <CheckCircle size={12} className="inline mr-1" />
+                                              Payment completed - {formatCurrency(payableAmt)}
+                                              {invoice.payment_date && (
+                                                <span className="ml-2 text-gray-500">
+                                                  on {formatDate(invoice.payment_date)}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>

@@ -9535,8 +9535,8 @@ async def update_retailer_payment(payment_id: str, payment_data: dict, current_u
             new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
             net_payable = invoice.get("net_payable", 0)
             
-            # Determine new status
-            if new_paid_amount >= net_payable:
+            # Determine new status (use tolerance for floating point comparison)
+            if new_paid_amount >= net_payable - 0.01:
                 new_status = "paid"
             elif new_paid_amount > 0:
                 new_status = "partial"
@@ -9941,8 +9941,8 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
     new_paid = current_paid + amount
     net_payable = invoice.get("net_payable", 0)
     
-    # Determine payment status
-    if new_paid >= net_payable:
+    # Determine payment status (use tolerance for floating point comparison)
+    if new_paid >= net_payable - 0.01:  # Tolerance of 0.01 for floating point precision
         new_status = "paid"
     elif new_paid > 0:
         new_status = "partial"
@@ -9997,6 +9997,36 @@ async def get_invoice_payments(invoice_id: str, current_user: dict = Depends(get
         {"_id": 0}
     ).sort("payment_date", -1).to_list(100)
     return payments
+
+@api_router.post("/retailer-invoices/fix-status")
+async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
+    """Utility to fix invoice statuses where paid_amount equals net_payable but status is not 'paid'"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run this fix")
+    
+    # Find invoices where status is 'partial' but should be 'paid'
+    fixed_count = 0
+    invoices = await db.retailer_invoices.find(
+        {"status": {"$in": ["partial", "pending"]}},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    for invoice in invoices:
+        paid_amount = invoice.get("paid_amount", 0)
+        net_payable = invoice.get("net_payable", 0)
+        
+        # Check if paid_amount >= net_payable (with tolerance)
+        if paid_amount >= net_payable - 0.01 and net_payable > 0:
+            await db.retailer_invoices.update_one(
+                {"id": invoice["id"]},
+                {"$set": {"status": "paid"}}
+            )
+            fixed_count += 1
+    
+    return {
+        "message": f"Fixed {fixed_count} invoices",
+        "fixed_count": fixed_count
+    }
 
 # Get uninvoiced dispatches for a retailer (for creating invoices)
 # Now returns items that haven't been invoiced yet (item-level filtering)

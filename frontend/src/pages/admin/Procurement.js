@@ -1522,7 +1522,7 @@ export default function Procurement() {
             
             {/* Previous Day Procurements Section - NEW DESIGN: Editable Table with Checkboxes */}
             {!editMode && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg mb-4 box-border" style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg mb-4">
                 {/* Date Picker Row */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-4 pb-3 border-b border-amber-200">
                   <div className="flex items-center gap-2">
@@ -1541,7 +1541,7 @@ export default function Procurement() {
                 
                 {previousDayProcurements.length > 0 ? (
                   <>
-                    <div className="flex flex-col gap-2 mb-3">
+                    <div className="flex flex-col gap-2 p-4 pb-0">
                       <div className="flex items-center justify-between">
                         <h4 className="font-semibold text-amber-800">
                           Last 7 Days' Purchases ({previousDayProcurements.reduce((sum, p) => sum + (p.products?.length || 0), 0)} unique items)
@@ -1590,7 +1590,7 @@ export default function Procurement() {
                     </div>
                     
                     {/* Search Bar for Yesterday's Items */}
-                    <div className="mb-3">
+                    <div className="px-4 mb-3">
                       <div className="relative">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <Input

@@ -1391,16 +1391,26 @@ export default function RetailerOrders() {
     
     setDispatchForm({
       dispatch_date: new Date().toISOString().split('T')[0],
-      items: itemsToDispatch.map(item => ({
-        product_id: item.product_id,
-        product_name: item.product_name,
-        variant_id: item.variant_id,
-        variant_name: item.variant_name,
-        indent_qty: item.quantity || item.remaining_qty,
-        supplied_qty: '',  // Empty by default - user fills only what they dispatch
-        mrp: 0,
-        total_value: 0
-      })),
+      items: itemsToDispatch.map(item => {
+        // Look up variant_id from variant_name if not set
+        let variantId = item.variant_id;
+        if (!variantId && item.variant_name) {
+          const matchingVariant = packagings.find(p => p.name === item.variant_name);
+          if (matchingVariant) {
+            variantId = matchingVariant.id;
+          }
+        }
+        return {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          variant_id: variantId || '',
+          variant_name: item.variant_name || '',
+          indent_qty: item.quantity || item.remaining_qty,
+          supplied_qty: '',  // Empty by default - user fills only what they dispatch
+          mrp: 0,
+          total_value: 0
+        };
+      }),
       remarks: '',
       transport_charges: 0
     });
@@ -3033,20 +3043,20 @@ export default function RetailerOrders() {
                           </td>
                           <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => openEditIndentModal(indent)}>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditIndentModal(indent); }}>
                                 <Edit size={14} className="text-blue-600" />
                               </Button>
                               {indent.status === 'pending' && (
-                                <Button size="sm" variant="outline" onClick={() => openDispatchModal(indent)}>
+                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openDispatchModal(indent); }}>
                                   <Truck size={14} className="mr-1" /> Dispatch
                                 </Button>
                               )}
                               {(indent.status === 'partial' || (indent.status === 'dispatched' && getIndentRemainingQtys(indent).length > 0)) && (
-                                <Button size="sm" variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-50" onClick={() => openDispatchModal(indent, true)}>
+                                <Button size="sm" variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-50" onClick={(e) => { e.stopPropagation(); openDispatchModal(indent, true); }}>
                                   <Truck size={14} className="mr-1" /> Dispatch Remaining
                                 </Button>
                               )}
-                              <Button size="sm" variant="ghost" onClick={() => handleDeleteIndent(indent.id)}>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDeleteIndent(indent.id); }}>
                                 <Trash2 size={14} className="text-red-600" />
                               </Button>
                             </div>

@@ -45,7 +45,7 @@ class RegisterRequest(BaseModel):
     commission_percentage: Optional[float] = 0
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    identifier: str  # Can be email or mobile number
     password: str
 
 class UserResponse(BaseModel):

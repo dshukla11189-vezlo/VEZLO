@@ -323,7 +323,16 @@ async def register(input: RegisterRequest):
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(input: LoginRequest):
-    user = await db.users.find_one({"email": input.email}, {"_id": 0})
+    # Check if identifier is email or mobile number
+    identifier = input.identifier.strip()
+    
+    # Search by email first, then by contact (mobile)
+    user = await db.users.find_one({"email": identifier}, {"_id": 0})
+    
+    if not user:
+        # Try searching by mobile/contact number
+        user = await db.users.find_one({"contact": identifier}, {"_id": 0})
+    
     if not user or not verify_password(input.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     

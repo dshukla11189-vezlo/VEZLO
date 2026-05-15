@@ -2178,8 +2178,60 @@ export default function Procurement() {
               {/* Payment Details for Paid Procurements */}
               {editMode && procurementForm.payment_status === 'paid' && (
                 <div className="border-t pt-3 mt-2">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Payment Details</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-700">Payment Details</h4>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 border-red-300 hover:bg-red-50 h-7"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to delete this payment? This will reset the procurement to unpaid status.')) {
+                          setProcurementForm(prev => ({
+                            ...prev,
+                            paid_amount: 0,
+                            pending_amount: prev.total_amount || 0,
+                            payment_status: 'pending',
+                            payment_date: null,
+                            payment_mode: null,
+                            payment_reference: null,
+                            paid_by_type: null,
+                            paid_by: null,
+                            paid_by_employee_id: null,
+                            settlement_status: null
+                          }));
+                          toast.success('Payment cleared. Click "Edit Purchase" to save changes.');
+                        }
+                      }}
+                    >
+                      <Trash2 size={12} className="mr-1" /> Delete Payment
+                    </Button>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-gray-500">Paid Amount *</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={procurementForm.paid_amount || ''}
+                        onChange={(e) => {
+                          const newPaidAmount = parseFloat(e.target.value) || 0;
+                          const totalAmount = procurementForm.total_amount || 0;
+                          const newPending = Math.max(0, totalAmount - newPaidAmount);
+                          let newStatus = 'pending';
+                          if (newPaidAmount >= totalAmount) newStatus = 'paid';
+                          else if (newPaidAmount > 0) newStatus = 'partial';
+                          
+                          setProcurementForm(prev => ({ 
+                            ...prev, 
+                            paid_amount: newPaidAmount,
+                            pending_amount: newPending,
+                            payment_status: newStatus
+                          }));
+                        }}
+                        className="h-8 text-sm mt-1"
+                      />
+                    </div>
                     <div>
                       <Label className="text-xs text-gray-500">Payment Date</Label>
                       <Input

@@ -9274,6 +9274,34 @@ async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(
     
     return {"message": "Payment deleted successfully"}
 
+
+@api_router.get("/retailer-payments/orphans")
+async def get_orphan_payments(current_user: dict = Depends(get_current_user)):
+    """Find payments that are not linked to any existing invoice"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view orphan payments")
+    
+    # Get all payments
+    all_payments = await db.retailer_payments.find({}, {"_id": 0}).to_list(10000)
+    
+    # Get all invoice numbers
+    all_invoices = await db.retailer_invoices.find({}, {"_id": 0, "invoice_number": 1}).to_list(10000)
+    invoice_numbers = {inv["invoice_number"] for inv in all_invoices if inv.get("invoice_number")}
+    
+    # Find orphan payments (not linked to any existing invoice)
+    orphan_payments = []
+    for payment in all_payments:
+        invoice_num = payment.get("invoice_number")
+        if invoice_num and invoice_num not in invoice_numbers:
+            orphan_payments.append(payment)
+    
+    return {
+        "total_payments": len(all_payments),
+        "orphan_count": len(orphan_payments),
+        "orphan_payments": orphan_payments
+    }
+
+
 # ------------ RETAILER INVOICES ------------
 @api_router.get("/retailer-invoices")
 async def get_retailer_invoices(

@@ -722,7 +722,13 @@ export default function RetailerOrders() {
     const totalMrpValue = dispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
     // Net Receivable should be based on INVOICES (after rejections and commission)
     const totalInvoiced = invoices.reduce((sum, i) => sum + (i.net_payable || 0), 0);
-    const totalPaymentsReceived = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    
+    // Filter payments by date range (same as rejection loss date filter)
+    const filteredPayments = payments.filter(p => {
+      const payDate = p.payment_date?.split('T')[0];
+      return payDate >= rejectionLossDateFrom && payDate <= rejectionLossDateTo;
+    });
+    const totalPaymentsReceived = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const totalRejections = rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
     
     // Net Receivable = Total invoiced amount (this is what retailer owes us)
@@ -738,7 +744,7 @@ export default function RetailerOrders() {
       totalRejections,
       pendingAmount: totalInvoiced - totalPaymentsReceived  // Pending = Invoiced - Paid
     });
-  }, [indents, dispatches, invoices, payments, rejections]);
+  }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo]);
 
   const formatDate = (date) => {
     if (!date) return '-';

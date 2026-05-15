@@ -9631,6 +9631,45 @@ async def get_orphan_payments(current_user: dict = Depends(get_current_user)):
     }
 
 
+@api_router.get("/retailer-payments/detailed/{retailer_id}")
+async def get_retailer_payments_detailed(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get ALL payments for a specific retailer with full details - for debugging"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view detailed payments")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "name": 1, "email": 1})
+    
+    # Get all payments for this retailer
+    payments = await db.retailer_payments.find({"retailer_id": retailer_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    
+    # Get all invoices for this retailer to cross-reference
+    invoices = await db.retailer_invoices.find({"retailer_id": retailer_id}, {"_id": 0, "id": 1, "invoice_number": 1, "net_payable": 1, "paid_amount": 1, "status": 1}).to_list(1000)
+    invoice_map = {inv["id"]: inv for inv in invoices}
+    
+    # Enrich payments with invoice info and identify orphans
+    enriched_payments = []
+    total_amount = 0
+    for payment in payments:
+        invoice_id = payment.get("invoice_id")
+        invoice_info = invoice_map.get(invoice_id) if invoice_id else None
+        
+        enriched_payments.append({
+            **payment,
+            "linked_invoice": invoice_info,
+            "is_orphan": invoice_id and not invoice_info
+        })
+        total_amount += payment.get("amount", 0)
+    
+    return {
+        "retailer": retailer,
+        "retailer_id": retailer_id,
+        "total_payments_count": len(payments),
+        "total_amount": round(total_amount, 2),
+        "payments": enriched_payments
+    }
+
+
 # ------------ RETAILER INVOICES ------------
 @api_router.get("/retailer-invoices")
 async def get_retailer_invoices(

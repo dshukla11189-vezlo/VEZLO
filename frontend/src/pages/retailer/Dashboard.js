@@ -36,25 +36,33 @@ export default function RetailerDashboard() {
   const [expandedOrderDates, setExpandedOrderDates] = useState({});
   const [expandedRejectionDates, setExpandedRejectionDates] = useState({});
   
+  // Helper function to get local date in YYYY-MM-DD format (avoids timezone issues with toISOString)
+  const getLocalDateString = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Orders date filter
   const [ordersDateFrom, setOrdersDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return getLocalDateString(d);
   });
-  const [ordersDateTo, setOrdersDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [ordersDateTo, setOrdersDateTo] = useState(getLocalDateString());
   
   // Inventory view date (for daily inventory tab)
-  const [inventoryDate, setInventoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [inventoryDate, setInventoryDate] = useState(getLocalDateString());
   const [inventorySearchTerm, setInventorySearchTerm] = useState('');
   const [inventoryData, setInventoryData] = useState([]); // Combined inventory view
   
   // Simplified Closing Inventory state
-  const [closingDate, setClosingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [closingDate, setClosingDate] = useState(getLocalDateString());
   const [showRecordClosingModal, setShowRecordClosingModal] = useState(false);
   const [closingItems, setClosingItems] = useState([]); // All products with closing qty inputs
   const [closingHistory, setClosingHistory] = useState([]); // View closing for a selected date
-  const [closingHistoryDate, setClosingHistoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [closingHistoryDate, setClosingHistoryDate] = useState(getLocalDateString());
   const [recordedDates, setRecordedDates] = useState([]); // Dates that have closing recorded
   const [savingClosing, setSavingClosing] = useState(false);
   const [loadingClosing, setLoadingClosing] = useState(false);
@@ -124,14 +132,14 @@ export default function RetailerDashboard() {
   const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return getLocalDateString(d);
   });
-  const [dashboardDateTo, setDashboardDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [dashboardDateTo, setDashboardDateTo] = useState(getLocalDateString());
   
   // Indent form
   const [showIndentModal, setShowIndentModal] = useState(false);
   const [indentForm, setIndentForm] = useState({
-    indent_date: new Date().toISOString().split('T')[0],
+    indent_date: getLocalDateString(),
     items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
     remarks: ''
   });
@@ -252,7 +260,7 @@ export default function RetailerDashboard() {
 
   const resetIndentForm = () => {
     setIndentForm({
-      indent_date: new Date().toISOString().split('T')[0],
+      indent_date: getLocalDateString(),
       items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
       remarks: ''
     });
@@ -486,7 +494,7 @@ export default function RetailerDashboard() {
       // Get previous day for opening qty
       const prevDate = new Date(date);
       prevDate.setDate(prevDate.getDate() - 1);
-      const prevDateStr = prevDate.toISOString().split('T')[0];
+      const prevDateStr = getLocalDateString(prevDate);
       
       // Load previous day closing (for opening qty) - now includes variant
       let prevClosingMap = {};
@@ -797,7 +805,7 @@ export default function RetailerDashboard() {
     
     const prevDate = new Date(targetDate);
     prevDate.setDate(prevDate.getDate() - 1);
-    const prevDateStr = prevDate.toISOString().split('T')[0];
+    const prevDateStr = getLocalDateString(prevDate);
     
     // Set the closing date to the target date
     setClosingDate(targetDate);
@@ -987,10 +995,10 @@ export default function RetailerDashboard() {
       return;
     }
     
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const prevDate = new Date();
     prevDate.setDate(prevDate.getDate() - 1);
-    const prevDateStr = prevDate.toISOString().split('T')[0];
+    const prevDateStr = getLocalDateString(prevDate);
     
     try {
       // Build a map of actual variant names from ALL dispatch history
@@ -1204,7 +1212,7 @@ export default function RetailerDashboard() {
         has_variants: false
       }));
       setClosingItems(allProducts);
-      setClosingDate(new Date().toISOString().split('T')[0]);
+      setClosingDate(getLocalDateString());
       setEditingClosingDate(null);
       setClosingSearchTerm('');
       setShowRecordClosingModal(true);
@@ -2450,7 +2458,7 @@ export default function RetailerDashboard() {
               ) : (
                 <div>
                   {/* Edit/Delete buttons - only for today */}
-                  {closingHistoryDate === new Date().toISOString().split('T')[0] && (
+                  {closingHistoryDate === getLocalDateString() && (
                     <div className="flex justify-end gap-2 mb-3">
                       <Button
                         size="sm"
@@ -2541,7 +2549,7 @@ export default function RetailerDashboard() {
                               )}
                             </td>
                             <td className="px-3 py-1.5 text-center">
-                              {editingItemId !== item.id && closingHistoryDate === new Date().toISOString().split('T')[0] && (
+                              {editingItemId !== item.id && closingHistoryDate === getLocalDateString() && (
                                 <div className="flex items-center justify-center gap-1">
                                   <Button 
                                     size="sm" 
@@ -2563,7 +2571,7 @@ export default function RetailerDashboard() {
                                   </Button>
                                 </div>
                               )}
-                              {closingHistoryDate !== new Date().toISOString().split('T')[0] && (
+                              {closingHistoryDate !== getLocalDateString() && (
                                 <span className="text-xs text-gray-400">View only</span>
                               )}
                             </td>
@@ -2866,7 +2874,7 @@ export default function RetailerDashboard() {
                     {editingClosingDate ? (
                       <>Editing: {formatDate(closingDate)}</>
                     ) : (
-                      <>Recording for Today: {formatDate(new Date().toISOString().split('T')[0])}</>
+                      <>Recording for Today: {formatDate(getLocalDateString())}</>
                     )}
                   </span>
                 </div>

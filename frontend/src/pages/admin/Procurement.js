@@ -828,6 +828,7 @@ export default function Procurement() {
     setSelectedProcurement(procurement);
     setLoadingPayments(true);
     setShowPaymentHistoryModal(true);
+    setOpenPayment(true);  // Also open the payment dialog to show payment history
     try {
       const response = await api.get(`/api/procurement/${procurement.id}/payments`);
       setProcurementPayments(response.data || []);
@@ -2613,7 +2614,11 @@ export default function Procurement() {
                       <tr 
                         key={proc.id} 
                         data-testid={`procurement-row-${proc.id}`}
-                        className={isPendingSettlement ? 'bg-purple-50' : ''}
+                        className={isPendingSettlement ? 'employee-pending-settlement' : ''}
+                        style={isPendingSettlement ? { 
+                          backgroundColor: '#DDD6FE', 
+                          borderLeft: '4px solid #7C3AED' 
+                        } : {}}
                       >
                         <td>
                           {isPendingSettlement && (
@@ -2692,7 +2697,8 @@ export default function Procurement() {
                             >
                               <Trash2 size={14} className="text-red-600" />
                             </Button>
-                            {(proc.pending_amount || 0) > 0 ? (
+                            {/* Show Pay button when there's pending amount */}
+                            {(proc.pending_amount || 0) > 0 && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -2702,18 +2708,20 @@ export default function Procurement() {
                               >
                                 <IndianRupee size={14} />
                               </Button>
-                            ) : (proc.paid_amount || 0) > 0 ? (
+                            )}
+                            {/* Show View button when there's any paid amount (including partial) */}
+                            {(proc.paid_amount || 0) > 0 && (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="text-blue-600 border-blue-300 hover:bg-blue-50"
-                                onClick={() => handleRecordPayment(proc)}
+                                onClick={() => openPaymentHistoryModal(proc)}
                                 data-testid={`view-payments-${proc.id}`}
                                 title="View/Edit Payments"
                               >
                                 <Eye size={14} />
                               </Button>
-                            ) : null}
+                            )}
                           </div>
                         </td>
                       </tr>

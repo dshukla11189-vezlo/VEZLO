@@ -65,6 +65,7 @@ export default function Cashflow() {
       // Load all data in parallel
       const [
         procurementsRes,
+        procurementPaymentsRes,
         variableExpensesRes,
         fixedExpensesRes,
         labourSummaryRes,
@@ -74,6 +75,7 @@ export default function Cashflow() {
         retailerPaymentsRes
       ] = await Promise.all([
         api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`),
+        api.get(`/api/procurement-payments?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/variable?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/fixed`),
         api.get(`/api/labour-costs/summary?from_date=${fromDate}&to_date=${toDate}`),
@@ -88,6 +90,9 @@ export default function Cashflow() {
       (retailersRes.data || []).forEach(r => {
         retailerMap[r.id] = r.company_name || r.name || 'Unknown';
       });
+      
+      // Get all procurement payments for employee reimbursement tracking
+      const allProcurementPayments = procurementPaymentsRes.data || [];
       
       // Process Procurements (Payables)
       const procurements = procurementsRes.data || [];
@@ -207,15 +212,20 @@ export default function Cashflow() {
       }));
       setLabourDetails(labourDetailsList);
       
-      // Build Employee Reimbursements (from Procurement, Variable & Fixed Expenses)
+      // Build Employee Reimbursements (from Procurement Payments, Variable & Fixed Expenses)
       const employeeReimbursements = {};
       
-      // From Procurement (paid_by_type === 'employee' and not settled)
-      // Check both at the procurement level AND at individual payment level
+      // Build a map of procurement info for payment descriptions
+      const procurementMap = {};
       procurements.forEach(p => {
-        // Check if procurement itself was paid by employee
-        if (p.paid_by_type === 'employee' && p.settlement_status !== 'settled' && p.paid_amount > 0) {
-          const empName = p.paid_by || 'Unknown';
+        procurementMap[p.id] = p;
+      });
+      
+      // From Individual Procurement Payments (paid_by_type === 'employee' and not settled)
+      // This is more accurate than checking at procurement level
+      allProcurementPayments.forEach(payment => {
+        if (payment.paid_by_type === 'employee' && payment.settlement_status !== 'settled') {
+          const empName = payment.paid_by || 'Unknown';
           if (!employeeReimbursements[empName]) {
             employeeReimbursements[empName] = {
               name: empName,
@@ -225,14 +235,15 @@ export default function Cashflow() {
               fixed: { amount: 0, items: [] }
             };
           }
-          // Use paid_amount instead of total_amount for reimbursement
-          const amount = p.paid_amount || 0;
+          const amount = payment.amount || 0;
+          const proc = procurementMap[payment.procurement_id];
           employeeReimbursements[empName].total += amount;
           employeeReimbursements[empName].procurement.amount += amount;
           employeeReimbursements[empName].procurement.items.push({
-            id: p.id,
-            date: p.date,
-            description: `${p.farmer_name} - ${p.products?.length || 0} items`,
+            id: payment.id,
+            procurement_id: payment.procurement_id,
+            date: payment.payment_date || proc?.date,
+            description: `${proc?.farmer_name || payment.vendor_name || 'Vendor'} - Payment of ₹${amount.toLocaleString()}`,
             amount: amount
           });
         }

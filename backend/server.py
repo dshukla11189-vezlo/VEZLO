@@ -1715,6 +1715,29 @@ async def migrate_procurement_paid_by_type(current_user: dict = Depends(get_curr
 # SECTION: PROCUREMENT PAYMENTS
 # ============================================================================
 
+
+@api_router.get("/procurement-payments")
+async def get_all_procurement_payments(
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all procurement payments with optional date filtering"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if from_date and to_date:
+        query["payment_date"] = {"$gte": from_date, "$lte": to_date}
+    elif from_date:
+        query["payment_date"] = {"$gte": from_date}
+    elif to_date:
+        query["payment_date"] = {"$lte": to_date}
+    
+    payments = await db.procurement_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    return payments
+
+
 @api_router.get("/procurement/{procurement_id}/payments")
 async def get_procurement_payments(procurement_id: str, current_user: dict = Depends(get_current_user)):
     """Get all payments for a procurement"""
@@ -1791,18 +1814,32 @@ async def create_procurement_payment(procurement_id: str, payment_data: dict, cu
     else:
         payment_status = "pending"
     
-    # Determine settlement status (if any employee payment is pending)
+    # Determine settlement status and paid_by fields based on all payments
     has_pending_reimbursement = any(p.get("settlement_status") == "pending_reimbursement" for p in all_payments)
     settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
     
-    # Update procurement
+    # Determine paid_by_type and paid_by for the procurement based on ALL payments
+    # If ANY payment was made by an employee, mark the procurement as employee-paid
+    employee_payments = [p for p in all_payments if p.get("paid_by_type") == "employee"]
+    if employee_payments:
+        # Use the latest employee payment's paid_by info
+        latest_employee_payment = max(employee_payments, key=lambda x: x.get("created_at", ""))
+        procurement_paid_by_type = "employee"
+        procurement_paid_by = latest_employee_payment.get("paid_by", "Employee")
+    else:
+        procurement_paid_by_type = "company"
+        procurement_paid_by = "Company"
+    
+    # Update procurement with all relevant fields
     await db.procurements.update_one(
         {"id": procurement_id},
         {"$set": {
             "paid_amount": round(new_paid_amount, 2),
             "pending_amount": round(pending_amount, 2),
             "payment_status": payment_status,
-            "settlement_status": settlement_status
+            "settlement_status": settlement_status,
+            "paid_by_type": procurement_paid_by_type,
+            "paid_by": procurement_paid_by
         }}
     )
     
@@ -1875,13 +1912,25 @@ async def update_procurement_payment(payment_id: str, payment_data: dict, curren
             has_pending_reimbursement = any(p.get("settlement_status") == "pending_reimbursement" for p in all_payments)
             settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
             
+            # Determine paid_by_type and paid_by based on ALL payments
+            employee_payments = [p for p in all_payments if p.get("paid_by_type") == "employee"]
+            if employee_payments:
+                latest_employee_payment = max(employee_payments, key=lambda x: x.get("created_at", ""))
+                procurement_paid_by_type = "employee"
+                procurement_paid_by = latest_employee_payment.get("paid_by", "Employee")
+            else:
+                procurement_paid_by_type = "company"
+                procurement_paid_by = "Company"
+            
             await db.procurements.update_one(
                 {"id": procurement_id},
                 {"$set": {
                     "paid_amount": round(new_paid_amount, 2),
                     "pending_amount": round(pending_amount, 2),
                     "payment_status": payment_status,
-                    "settlement_status": settlement_status
+                    "settlement_status": settlement_status,
+                    "paid_by_type": procurement_paid_by_type,
+                    "paid_by": procurement_paid_by
                 }}
             )
     
@@ -1922,13 +1971,29 @@ async def delete_procurement_payment(payment_id: str, current_user: dict = Depen
             has_pending_reimbursement = any(p.get("settlement_status") == "pending_reimbursement" for p in remaining_payments)
             settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
             
+            # Determine paid_by_type and paid_by based on remaining payments
+            employee_payments = [p for p in remaining_payments if p.get("paid_by_type") == "employee"]
+            if employee_payments:
+                latest_employee_payment = max(employee_payments, key=lambda x: x.get("created_at", ""))
+                procurement_paid_by_type = "employee"
+                procurement_paid_by = latest_employee_payment.get("paid_by", "Employee")
+            elif remaining_payments:
+                procurement_paid_by_type = "company"
+                procurement_paid_by = "Company"
+            else:
+                # No payments remaining - reset to null
+                procurement_paid_by_type = None
+                procurement_paid_by = None
+            
             await db.procurements.update_one(
                 {"id": procurement_id},
                 {"$set": {
                     "paid_amount": round(new_paid_amount, 2),
                     "pending_amount": round(pending_amount, 2),
                     "payment_status": payment_status,
-                    "settlement_status": settlement_status if remaining_payments else None
+                    "settlement_status": settlement_status if remaining_payments else None,
+                    "paid_by_type": procurement_paid_by_type,
+                    "paid_by": procurement_paid_by
                 }}
             )
     

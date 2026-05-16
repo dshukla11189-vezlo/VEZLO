@@ -141,6 +141,16 @@
   background: rgba(249, 250, 251, 0.5);
 }
 
+/* Employee reimbursement pending row highlighting */
+.data-table tbody tr.employee-pending-settlement {
+  background: #F3E8FF !important;
+  border-left: 4px solid #9333EA;
+}
+
+.data-table tbody tr.employee-pending-settlement:hover {
+  background: #EDE9FE !important;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

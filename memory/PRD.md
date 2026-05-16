@@ -33,7 +33,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - **Unit conversion: Bunches/Packets/Pieces to kg for stock tracking**
 
 ### In Progress
-- **Codebase refactoring Phase 2** (server.py ~11,850 lines, reduced from 12,200+)
+- **Codebase refactoring Phase 2** (server.py ~13,400 lines - CRITICAL)
   - ✅ Labour Management routes moved to `/app/backend/routes/labour.py`
   - Pending: More route extractions to reach target <8,000 lines
 - Labor "Inactive" UI clarity improvements (soft-delete confusion)
@@ -46,7 +46,20 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Hindi language E2E testing
 - AI-powered demand forecasting
 
-### Completed (This Session - 15 May 2026)
+### Completed (This Session - 16 May 2026)
+- **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
+  - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting
+  - **Issue**: Reimbursement summary in Cashflow NOT updating for employee payments
+  - **Issue**: View button missing for partially paid procurements
+  - **Backend Fix**: `create_procurement_payment` endpoint now sets `paid_by_type` and `paid_by` on parent procurement document (not just on payment record)
+  - **Backend Fix**: `update_procurement_payment` and `delete_procurement_payment` endpoints now recalculate `paid_by_type` based on all remaining payments
+  - **Backend Fix**: Added new `/api/procurement-payments` endpoint with date filtering for Cashflow reimbursement tracking
+  - **Frontend Fix**: View button (Eye icon) now shows for partial payments alongside Pay button (both visible when `pending_amount > 0` AND `paid_amount > 0`)
+  - **Frontend Fix**: Purple row highlighting via inline styles for employee pending settlements
+  - **Frontend Fix**: Cashflow Reimbursements tab now fetches payment-level data for accurate employee reimbursement tracking
+  - Test data verified: Procurement with ₹200 partial payment by Shradha Salunke shows correct purple highlighting and appears in Cashflow Reimbursements
+
+### Completed (Previous Session - 15 May 2026)
 - **Retailer Portal Enhancements** ✅ (Verified)
   - **Serial Number in Invoice Details**: Added `#` column showing 1, 2, 3... for each item in expanded invoices
   - **Pending Orders Date-wise Collapsible View**: Replaced scrollable list with expandable date rows showing Date, Count of Orders, No of Items, Status columns

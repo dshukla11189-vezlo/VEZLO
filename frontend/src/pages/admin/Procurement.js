@@ -162,6 +162,7 @@ export default function Procurement() {
     amount: 0,
     payment_mode: 'cash',
     reference: '',
+    remarks: '',
     paid_by_type: 'company', // 'company' or 'employee'
     paid_by_employee_id: '',
     payment_date: new Date().toISOString().split('T')[0]
@@ -748,6 +749,7 @@ export default function Procurement() {
       amount: procurement.pending_amount || 0,
       payment_mode: 'cash',
       reference: '',
+      remarks: '',
       paid_by_type: 'company',
       paid_by_employee_id: '',
       payment_date: new Date().toISOString().split('T')[0]
@@ -773,6 +775,13 @@ export default function Procurement() {
 
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
+    
+    // Validate transaction number for non-cash payments
+    if (paymentForm.payment_mode !== 'cash' && !paymentForm.reference?.trim()) {
+      toast.error('Transaction number is required for non-cash payments');
+      return;
+    }
+    
     try {
       // Use new procurement payments API
       await api.post(`/api/procurement/${selectedProcurement.id}/payments`, {
@@ -780,7 +789,7 @@ export default function Procurement() {
         payment_date: paymentForm.payment_date || new Date().toISOString().split('T')[0],
         payment_mode: paymentForm.payment_mode,
         reference_number: paymentForm.reference || '',
-        remarks: '',
+        remarks: paymentForm.remarks || '',
         paid_by_type: paymentForm.paid_by_type,
         paid_by_employee_id: paymentForm.paid_by_employee_id || null
       });
@@ -800,6 +809,7 @@ export default function Procurement() {
         amount: paymentForm.amount,
         payment_mode: paymentForm.payment_mode,
         reference: paymentForm.reference || `Payment for procurement on ${formatDate(selectedProcurement.date)}`,
+        remarks: paymentForm.remarks || '',
         paid_by_type: paymentForm.paid_by_type,
         paid_by: paidByValue,
         paid_by_employee_id: paymentForm.paid_by_employee_id
@@ -3144,13 +3154,30 @@ export default function Procurement() {
                   </div>
 
                   <div>
-                    <Label htmlFor="payment-reference">Reference / Note</Label>
+                    <Label htmlFor="payment-reference">
+                      Transaction Number {paymentForm.payment_mode !== 'cash' && <span className="text-red-500">*</span>}
+                    </Label>
                     <Input
                       id="payment-reference"
                       placeholder="Transaction ID, Cheque number, etc."
                       data-testid="payment-reference-input"
                       value={paymentForm.reference}
                       onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+                      required={paymentForm.payment_mode !== 'cash'}
+                    />
+                    {paymentForm.payment_mode !== 'cash' && !paymentForm.reference && (
+                      <p className="text-xs text-red-500 mt-1">Required for non-cash payments</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="payment-remarks">Remarks</Label>
+                    <Input
+                      id="payment-remarks"
+                      placeholder="Additional notes..."
+                      data-testid="payment-remarks-input"
+                      value={paymentForm.remarks}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
                     />
                   </div>
 

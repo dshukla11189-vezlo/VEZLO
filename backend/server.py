@@ -10444,7 +10444,7 @@ async def sync_from_production(
             login_response = await client.post(
                 f"{production_url}/api/auth/login",
                 json={
-                    "email": request.admin_email,
+                    "identifier": request.admin_email,
                     "password": request.admin_password
                 }
             )
@@ -10656,7 +10656,7 @@ async def sync_from_production_direct(
             login_response = await client.post(
                 f"{production_url}/api/auth/login",
                 json={
-                    "email": request.admin_email,
+                    "identifier": request.admin_email,
                     "password": request.admin_password
                 }
             )

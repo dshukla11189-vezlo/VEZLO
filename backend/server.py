@@ -2000,6 +2000,87 @@ async def delete_procurement_payment(payment_id: str, current_user: dict = Depen
     return {"message": "Payment deleted successfully"}
 
 
+
+@api_router.post("/procurement/fix-legacy-employee-payments")
+async def fix_legacy_employee_payments(current_user: dict = Depends(get_current_user)):
+    """
+    Migration endpoint to fix legacy procurements that have employee payments
+    but missing paid_by_type on the parent document.
+    This ensures purple highlighting works for historical data.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run migrations")
+    
+    fixed_count = 0
+    skipped_count = 0
+    
+    # Get all procurements that have paid_amount > 0 but no paid_by_type set
+    procurements = await db.procurements.find(
+        {"paid_amount": {"$gt": 0}},
+        {"_id": 0, "id": 1, "paid_by_type": 1, "paid_by": 1, "settlement_status": 1}
+    ).to_list(10000)
+    
+    for proc in procurements:
+        proc_id = proc.get("id")
+        
+        # Get all payments for this procurement
+        payments = await db.procurement_payments.find(
+            {"procurement_id": proc_id},
+            {"_id": 0}
+        ).to_list(100)
+        
+        if not payments:
+            skipped_count += 1
+            continue
+        
+        # Check if any payment was made by employee
+        employee_payments = [p for p in payments if p.get("paid_by_type") == "employee"]
+        
+        if employee_payments:
+            # Use the latest employee payment info
+            latest_emp_payment = max(employee_payments, key=lambda x: x.get("created_at", ""))
+            
+            # Determine settlement status
+            has_pending_reimbursement = any(
+                p.get("settlement_status") == "pending_reimbursement" 
+                for p in payments if p.get("paid_by_type") == "employee"
+            )
+            settlement_status = "pending_reimbursement" if has_pending_reimbursement else "settled"
+            
+            # Update procurement with employee payment info
+            await db.procurements.update_one(
+                {"id": proc_id},
+                {"$set": {
+                    "paid_by_type": "employee",
+                    "paid_by": latest_emp_payment.get("paid_by", "Employee"),
+                    "settlement_status": settlement_status
+                }}
+            )
+            fixed_count += 1
+        else:
+            # All payments are company payments
+            current_paid_by_type = proc.get("paid_by_type")
+            if not current_paid_by_type:
+                await db.procurements.update_one(
+                    {"id": proc_id},
+                    {"$set": {
+                        "paid_by_type": "company",
+                        "paid_by": "Company",
+                        "settlement_status": "settled"
+                    }}
+                )
+                fixed_count += 1
+            else:
+                skipped_count += 1
+    
+    return {
+        "message": f"Migration complete. Fixed {fixed_count} procurements, skipped {skipped_count}.",
+        "fixed": fixed_count,
+        "skipped": skipped_count
+    }
+
+
+
 # ============================================================================
 # SECTION: PROCUREMENT TEMPLATES
 # ============================================================================

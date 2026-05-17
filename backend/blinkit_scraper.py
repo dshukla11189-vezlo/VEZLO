@@ -4,14 +4,18 @@ Scrapes product prices from Blinkit based on pincode
 """
 
 import asyncio
+import os
 import re
 from datetime import datetime, timezone
 from typing import Optional
-from playwright.async_api import async_playwright, Browser, Page
+from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Set playwright browsers path
+os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/pw-browsers'
 
 class BlinkitScraper:
     """Scraper for Blinkit grocery prices"""
@@ -20,79 +24,75 @@ class BlinkitScraper:
         self.pincode = pincode
         self.base_url = "https://blinkit.com"
         self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         
     async def initialize(self):
-        """Initialize browser and set location"""
+        """Initialize browser with anti-detection measures"""
         playwright = await async_playwright().start()
+        
+        # Launch with anti-detection flags
         self.browser = await playwright.chromium.launch(
             headless=True,
-            args=['--no-sandbox', '--disable-setuid-sandbox']
+            args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled'
+            ]
         )
-        self.page = await self.browser.new_page()
-        await self.page.set_viewport_size({"width": 1920, "height": 1080})
         
-        # Set user agent to avoid detection
-        await self.page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
+        # Create context with realistic settings
+        self.context = await self.browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080},
+            locale='en-IN',
+            timezone_id='Asia/Kolkata'
+        )
+        
+        self.page = await self.context.new_page()
+        
+        # Remove webdriver property
+        await self.page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
         
         logger.info(f"Browser initialized for pincode: {self.pincode}")
         
     async def set_location(self) -> bool:
-        """Set delivery location using pincode"""
+        """Navigate to Blinkit and set delivery location"""
         try:
-            await self.page.goto(self.base_url, wait_until="networkidle", timeout=30000)
-            await self.page.wait_for_timeout(2000)
+            await self.page.goto(self.base_url, wait_until="domcontentloaded", timeout=30000)
+            await self.page.wait_for_timeout(3000)
             
-            # Look for location/pincode input - Blinkit may show a location popup
-            # Try to find and click on location selector
-            location_selectors = [
-                'input[placeholder*="search delivery location"]',
-                'input[placeholder*="Enter your delivery location"]',
-                'input[placeholder*="pincode"]',
-                '[data-testid="location-input"]',
-                'input[type="text"][class*="location"]'
-            ]
+            logger.info(f"Page loaded: {await self.page.title()}")
             
-            location_input = None
-            for selector in location_selectors:
-                try:
-                    element = self.page.locator(selector).first
-                    if await element.count() > 0:
-                        location_input = element
-                        break
-                except:
-                    continue
+            # Look for location/address input or detect button
+            # Blinkit usually shows a location popup or has a detect location button
+            try:
+                # Try clicking on location selector if visible
+                location_btn = self.page.locator('button:has-text("Detect"), button:has-text("Location"), [data-testid="header-location"]').first
+                if await location_btn.count() > 0:
+                    await location_btn.click()
+                    await self.page.wait_for_timeout(2000)
+            except:
+                pass
             
-            if location_input:
-                await location_input.click()
-                await location_input.fill(self.pincode)
-                await self.page.wait_for_timeout(1500)
+            # Try entering pincode in any visible input
+            try:
+                pincode_input = self.page.locator('input[placeholder*="pincode"], input[placeholder*="location"], input[type="text"]').first
+                if await pincode_input.count() > 0 and await pincode_input.is_visible():
+                    await pincode_input.fill(self.pincode)
+                    await self.page.wait_for_timeout(1500)
+                    await self.page.keyboard.press('Enter')
+                    await self.page.wait_for_timeout(2000)
+            except:
+                pass
                 
-                # Try to click on first location result
-                result_selectors = [
-                    'div[class*="LocationSearchList"]',
-                    'div[class*="location-result"]',
-                    '[data-testid="location-result"]'
-                ]
-                
-                for selector in result_selectors:
-                    try:
-                        result = self.page.locator(selector).first
-                        if await result.count() > 0:
-                            await result.click()
-                            await self.page.wait_for_timeout(2000)
-                            break
-                    except:
-                        continue
-                        
-                logger.info(f"Location set to pincode: {self.pincode}")
-                return True
-            else:
-                # Location might already be set or not required
-                logger.warning("Could not find location input, proceeding anyway")
-                return True
+            logger.info(f"Location setup completed for pincode: {self.pincode}")
+            return True
                 
         except Exception as e:
             logger.error(f"Error setting location: {e}")
@@ -103,115 +103,55 @@ class BlinkitScraper:
         results = []
         
         try:
-            # Find search input
-            search_selectors = [
-                'input[class*="SearchBarContainer"]',
-                'input[placeholder*="Search"]',
-                'input[type="search"]',
-                '[data-testid="search-input"]'
-            ]
+            # Navigate to search page directly
+            search_url = f"https://blinkit.com/s/?q={product_name.replace(' ', '%20')}"
+            await self.page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
+            await self.page.wait_for_timeout(3000)
             
-            search_input = None
-            for selector in search_selectors:
-                try:
-                    element = self.page.locator(selector).first
-                    if await element.count() > 0:
-                        search_input = element
-                        break
-                except:
-                    continue
+            # Wait for products to load
+            try:
+                await self.page.wait_for_selector('[class*="Product"], [class*="product"], div[role="listitem"]', timeout=10000)
+            except:
+                logger.warning(f"No product elements found for: {product_name}")
             
-            if not search_input:
-                # Try clicking search icon first
-                search_icons = ['[class*="SearchIcon"]', '[data-testid="search-icon"]', 'svg[class*="search"]']
-                for icon_sel in search_icons:
-                    try:
-                        icon = self.page.locator(icon_sel).first
-                        if await icon.count() > 0:
-                            await icon.click()
-                            await self.page.wait_for_timeout(1000)
-                            break
-                    except:
-                        continue
-                
-                # Try finding search input again
-                for selector in search_selectors:
-                    try:
-                        element = self.page.locator(selector).first
-                        if await element.count() > 0:
-                            search_input = element
-                            break
-                    except:
-                        continue
-            
-            if search_input:
-                await search_input.click()
-                await search_input.fill("")
-                await search_input.fill(product_name)
-                await self.page.keyboard.press("Enter")
-                await self.page.wait_for_timeout(3000)
-                
-                # Wait for results to load
-                await self.page.wait_for_load_state("networkidle", timeout=10000)
-                
-                # Extract product cards
-                results = await self._extract_product_cards(product_name)
-            else:
-                logger.warning(f"Could not find search input for: {product_name}")
+            # Extract prices from page
+            results = await self._extract_prices_from_page(product_name)
                 
         except Exception as e:
             logger.error(f"Error searching for {product_name}: {e}")
             
         return results
     
-    async def _extract_product_cards(self, search_term: str) -> list:
-        """Extract product information from search results"""
+    async def _extract_prices_from_page(self, search_term: str) -> list:
+        """Extract product prices from search results page"""
         results = []
         
         try:
-            # Common product card selectors for Blinkit
-            card_selectors = [
-                'div[class*="Product__UpdatedPlpProductContainer"]',
-                'div[class*="plp-product"]',
-                '[data-testid="product-card"]',
-                'div[class*="ProductCard"]',
-                'a[class*="Product"]'
-            ]
+            # Get all text content from the page
+            page_content = await self.page.content()
             
-            cards = None
-            for selector in card_selectors:
-                try:
-                    elements = self.page.locator(selector)
-                    count = await elements.count()
-                    if count > 0:
-                        cards = elements
-                        logger.info(f"Found {count} product cards with selector: {selector}")
-                        break
-                except:
-                    continue
+            # Try multiple strategies to find products and prices
+            # Strategy 1: Look for product cards with data attributes
+            cards = await self.page.locator('[class*="Product"], [class*="plp-product"], [data-testid*="product"]').all()
             
             if not cards:
-                # Try a more generic approach - look for price patterns in the page
-                page_content = await self.page.content()
-                # Extract prices using regex from page content
-                price_pattern = r'₹\s*(\d+(?:\.\d{2})?)'
-                prices_found = re.findall(price_pattern, page_content)
-                if prices_found:
-                    logger.info(f"Found prices in page: {prices_found[:5]}")
-                return results
+                # Strategy 2: Look for any divs that might be product cards
+                cards = await self.page.locator('div[class*="tw-"]').all()
+            
+            logger.info(f"Found {len(cards)} potential product elements for: {search_term}")
             
             # Extract data from each card
-            card_count = min(await cards.count(), 10)  # Limit to first 10 results
-            
-            for i in range(card_count):
+            for i, card in enumerate(cards[:15]):  # Limit to first 15
                 try:
-                    card = cards.nth(i)
                     card_text = await card.inner_text()
                     
-                    # Parse card text to extract product info
-                    lines = [line.strip() for line in card_text.split('\n') if line.strip()]
+                    # Skip if card text is too short or doesn't contain price
+                    if len(card_text) < 10 or '₹' not in card_text:
+                        continue
                     
-                    # Try to find price (usually contains ₹)
+                    lines = [l.strip() for l in card_text.split('\n') if l.strip()]
+                    
+                    # Extract price
                     price = None
                     product_name_found = None
                     quantity = None
@@ -222,31 +162,52 @@ class BlinkitScraper:
                         if price_match and not price:
                             price = float(price_match.group(1))
                         
-                        # Quantity pattern (e.g., "500 g", "1 kg", "1 L")
-                        qty_match = re.search(r'(\d+(?:\.\d+)?)\s*(g|kg|ml|l|pc|pcs|pack|dozen)\b', line, re.IGNORECASE)
+                        # Quantity pattern
+                        qty_match = re.search(r'(\d+(?:\.\d+)?)\s*(g|kg|ml|l|pc|pcs|pack|dozen|gm)\b', line, re.IGNORECASE)
                         if qty_match and not quantity:
                             quantity = f"{qty_match.group(1)} {qty_match.group(2)}"
                         
-                        # Product name - usually the longest meaningful line
-                        if len(line) > 10 and not price_match and not line.startswith('ADD'):
-                            if not product_name_found or len(line) > len(product_name_found):
-                                product_name_found = line
+                        # Product name - look for lines that might be product names
+                        if len(line) > 5 and not re.search(r'^₹|^ADD|^Out of|^\d+\s*(g|kg|ml|l)\s*$', line, re.IGNORECASE):
+                            if not product_name_found or (len(line) > len(product_name_found) and len(line) < 80):
+                                # Check if search term is in the line (case insensitive)
+                                if search_term.lower() in line.lower():
+                                    product_name_found = line
                     
-                    if price and product_name_found:
+                    if price:
                         results.append({
-                            'blinkit_name': product_name_found,
+                            'blinkit_name': product_name_found or f"Product for {search_term}",
                             'price': price,
                             'quantity': quantity,
-                            'search_term': search_term,
-                            'raw_text': card_text[:200]
+                            'search_term': search_term
                         })
                         
+                        # Found a valid result, no need to continue
+                        if len(results) >= 3:
+                            break
+                            
                 except Exception as e:
-                    logger.error(f"Error extracting card {i}: {e}")
                     continue
+            
+            # If no structured results, try regex on full page
+            if not results:
+                # Find all prices on page
+                price_matches = re.findall(r'₹\s*(\d+(?:\.\d{2})?)', page_content)
+                if price_matches:
+                    # Take the first reasonable price (not too low, not too high)
+                    for p in price_matches[:10]:
+                        price_val = float(p)
+                        if 5 <= price_val <= 1000:  # Reasonable price range
+                            results.append({
+                                'blinkit_name': f"{search_term} (Blinkit)",
+                                'price': price_val,
+                                'quantity': None,
+                                'search_term': search_term
+                            })
+                            break
                     
         except Exception as e:
-            logger.error(f"Error extracting product cards: {e}")
+            logger.error(f"Error extracting prices: {e}")
             
         return results
     
@@ -256,25 +217,21 @@ class BlinkitScraper:
         
         try:
             await self.initialize()
-            location_set = await self.set_location()
-            
-            if not location_set:
-                logger.error("Failed to set location, aborting scrape")
-                return all_results
+            await self.set_location()
             
             for product_name in product_names:
                 logger.info(f"Searching for: {product_name}")
                 results = await self.search_product(product_name)
                 
                 if results:
-                    # Get the best match (first result usually)
+                    # Get the best match (first result)
                     all_results[product_name] = results[0]
                     logger.info(f"Found price for {product_name}: ₹{results[0]['price']}")
                 else:
                     logger.warning(f"No results found for: {product_name}")
                 
-                # Small delay between searches to avoid rate limiting
-                await self.page.wait_for_timeout(1500)
+                # Small delay between searches
+                await self.page.wait_for_timeout(1000)
                 
         except Exception as e:
             logger.error(f"Error during scrape: {e}")
@@ -285,9 +242,14 @@ class BlinkitScraper:
     
     async def close(self):
         """Close browser"""
-        if self.browser:
-            await self.browser.close()
+        try:
+            if self.context:
+                await self.context.close()
+            if self.browser:
+                await self.browser.close()
             logger.info("Browser closed")
+        except:
+            pass
 
 
 async def scrape_blinkit_prices(pincode: str, product_names: list) -> dict:

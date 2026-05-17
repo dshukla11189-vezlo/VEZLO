@@ -10862,58 +10862,83 @@ async def run_blinkit_scrape_async(pincode: str, products: list):
     try:
         results = await scrape_blinkit_prices(pincode, product_names)
         
-        # Store results in database
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        scraped_at = datetime.now(timezone.utc).isoformat()
-        
-        saved_count = 0
-        for product_name, data in results.items():
-            if product_name in product_map:
-                product = product_map[product_name]
-                
-                price_doc = {
-                    "id": str(uuid.uuid4()),
-                    "product_id": product["id"],
-                    "product_name": product_name,
-                    "category": product.get("category"),
-                    "blinkit_name": data.get("blinkit_name"),
-                    "blinkit_price": data.get("price"),
-                    "quantity": data.get("quantity"),
-                    "pincode": pincode,
-                    "date": date_str,
-                    "scraped_at": scraped_at
-                }
-                
-                # Upsert - update if exists for same product/date/pincode
-                await db.blinkit_prices.update_one(
-                    {"product_id": product["id"], "date": date_str, "pincode": pincode},
-                    {"$set": price_doc},
-                    upsert=True
-                )
-                saved_count += 1
-        
         return {
-            "message": f"Scrape completed",
-            "total_products": len(products),
-            "prices_found": len(results),
-            "saved": saved_count,
+            "results": results,
+            "product_map": product_map,
             "pincode": pincode,
-            "date": date_str
+            "total_products": len(products)
         }
         
     except Exception as e:
         logger.error(f"Blinkit scrape failed: {e}")
-        return {"message": f"Scrape failed: {str(e)}", "status": "error"}
+        return {"error": str(e)}
 
 
 def run_blinkit_scrape(pincode: str, products: list):
-    """Wrapper to run async scrape in background task"""
+    """Wrapper to run async scrape in background task and save results"""
     import asyncio
+    from motor.motor_asyncio import AsyncIOMotorClient
+    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
     try:
-        result = loop.run_until_complete(run_blinkit_scrape_async(pincode, products))
-        logger.info(f"Blinkit scrape result: {result}")
+        # Run the scraper
+        scrape_result = loop.run_until_complete(run_blinkit_scrape_async(pincode, products))
+        
+        if "error" in scrape_result:
+            logger.error(f"Blinkit scrape error: {scrape_result['error']}")
+            return
+        
+        results = scrape_result.get("results", {})
+        product_map = scrape_result.get("product_map", {})
+        
+        if not results:
+            logger.warning("No Blinkit prices found")
+            return
+        
+        # Save results to database synchronously
+        async def save_results():
+            # Create a new MongoDB connection for this loop
+            mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+            db_name = os.environ.get('DB_NAME', 'freshflow_db')
+            client = AsyncIOMotorClient(mongo_url)
+            local_db = client[db_name]
+            
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            scraped_at = datetime.now(timezone.utc).isoformat()
+            saved_count = 0
+            
+            for product_name, data in results.items():
+                if product_name in product_map:
+                    product = product_map[product_name]
+                    
+                    price_doc = {
+                        "id": str(uuid.uuid4()),
+                        "product_id": product["id"],
+                        "product_name": product_name,
+                        "category": product.get("category"),
+                        "blinkit_name": data.get("blinkit_name"),
+                        "blinkit_price": data.get("price"),
+                        "quantity": data.get("quantity"),
+                        "pincode": pincode,
+                        "date": date_str,
+                        "scraped_at": scraped_at
+                    }
+                    
+                    await local_db.blinkit_prices.update_one(
+                        {"product_id": product["id"], "date": date_str, "pincode": pincode},
+                        {"$set": price_doc},
+                        upsert=True
+                    )
+                    saved_count += 1
+            
+            client.close()
+            return saved_count
+        
+        saved = loop.run_until_complete(save_results())
+        logger.info(f"Blinkit scrape completed: {len(results)} prices found, {saved} saved")
+        
     except Exception as e:
         logger.error(f"Blinkit background scrape failed: {e}")
     finally:

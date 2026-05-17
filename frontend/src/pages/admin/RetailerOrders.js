@@ -3825,7 +3825,7 @@ export default function RetailerOrders() {
                         
                         const isExpanded = expandedMrpCategories[category] !== false; // Default to expanded
                         const categoryEntries = mrpData.filter(e => e.category === category);
-                        const categoryTotal = categoryEntries.reduce((sum, e) => sum + (e.mrp || 0), 0);
+                        const zeroMrpCount = categoryEntries.filter(e => !e.mrp || e.mrp === 0).length;
                         const isEditable = canEditMrpForDate(mrpDate);
                         
                         return (
@@ -3841,7 +3841,11 @@ export default function RetailerOrders() {
                                 <span className="text-xs opacity-75">({categoryProducts.length} products, {categoryEntries.length} with MRP)</span>
                               </div>
                               <div className="flex items-center gap-4 text-xs">
-                                <span>Total MRP: <strong className="text-green-700">₹{categoryTotal.toFixed(2)}</strong></span>
+                                {zeroMrpCount > 0 ? (
+                                  <span className="text-red-600 font-medium">{zeroMrpCount} items with ₹0 MRP</span>
+                                ) : categoryEntries.length > 0 ? (
+                                  <span className="text-green-600">All priced ✓</span>
+                                ) : null}
                               </div>
                             </div>
                             
@@ -4023,11 +4027,16 @@ export default function RetailerOrders() {
                         );
                       })}
                       
-                      {/* Grand Total and Save Button */}
+                      {/* Summary Footer */}
                       <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex flex-col md:flex-row justify-between items-center gap-3">
-                        <div className="font-semibold">
-                          <span>Grand Total ({mrpData.length} items)</span>
-                          <span className="text-green-700 ml-4">Total MRP: ₹{mrpData.reduce((sum, e) => sum + (e.mrp || 0), 0).toFixed(2)}</span>
+                        <div className="flex flex-wrap gap-4 text-sm">
+                          <span className="font-semibold">{mrpData.length} items with MRP</span>
+                          <span className="text-gray-500">|</span>
+                          <span className="text-gray-600">{products.length - mrpData.length} products without MRP</span>
+                          <span className="text-gray-500">|</span>
+                          <span className="text-red-600 font-medium">
+                            {mrpData.filter(e => !e.mrp || e.mrp === 0).length} items with ₹0 MRP
+                          </span>
                         </div>
                         {canEditMrpForDate(mrpDate) && mrpHasUnsavedChanges && (
                           <Button 

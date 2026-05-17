@@ -12987,205 +12987,191 @@ async def calculate_daily_purchase_requirement(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Calculate daily purchase requirement based on historical same-weekday sales data.
+    Calculate daily purchase requirement based on indents for the target date.
     
     Logic:
-    1. Find the last 7 occurrences of the same weekday (e.g., if target is Monday, find last 7 Mondays)
-    2. For each product, calculate average items sold across those weekdays
-    3. For wastage, calculate average rejection qty across those weekdays
-    4. Only divide by the number of weekdays with data (not always 7)
-    5. Aggregate by product_id (not variant) to avoid duplicates
+    1. Fetch all indents for the target date (optionally filtered by retailer)
+    2. Aggregate items by product_id (combining all variants into one row)
+    3. Get product category from products collection
+    4. Calculate average wastage % from last 7 days of rejections for each product
+    5. Calculate requirement in KG: Qty_in_KG / (1 - wastage%)
     """
     from datetime import datetime, timedelta
     
     try:
+        # Parse target date
         target = datetime.strptime(target_date, "%Y-%m-%d").date()
-        target_weekday = target.weekday()  # 0=Monday, 6=Sunday
-        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         
-        # Build retailer filter
-        retailer_filter = {}
+        # Build indent query - match indents for the target date
+        indent_query = {}
         retailer_name = "All Retailers"
+        
         if retailer_id:
-            retailer_filter["retailer_id"] = retailer_id
+            indent_query["retailer_id"] = retailer_id
             retailer = await db.users.find_one({"id": retailer_id})
             if retailer:
                 retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
         
-        # Get all closing inventory records (source of items sold data)
-        closing_records = await db.retailer_closing_inventory.find(
-            retailer_filter, {"_id": 0}
-        ).sort("closing_date", -1).to_list(500)
+        # Fetch all indents for the target date
+        all_indents = await db.retailer_indents.find(indent_query, {"_id": 0}).to_list(500)
         
-        # Filter to only include same weekday (last 7 occurrences before target date)
-        same_weekday_records = []
-        seen_dates = set()
-        for record in closing_records:
-            try:
-                record_date_str = record.get("closing_date")
-                if not record_date_str:
-                    continue
-                record_date = datetime.strptime(record_date_str, "%Y-%m-%d").date()
-                if record_date.weekday() == target_weekday and record_date < target:
-                    date_key = f"{record_date}_{record.get('retailer_id', 'all')}"
-                    if date_key not in seen_dates:
-                        same_weekday_records.append(record)
-                        seen_dates.add(date_key)
-                        # Stop after 7 unique dates
-                        if len(seen_dates) >= 7:
-                            break
-            except:
-                continue
+        # Filter indents for target date (handle both date string and datetime formats)
+        target_indents = []
+        for indent in all_indents:
+            indent_date_raw = indent.get("indent_date", "")
+            if isinstance(indent_date_raw, str):
+                indent_date_str = indent_date_raw[:10]
+            else:
+                indent_date_str = str(indent_date_raw)[:10]
+            
+            if indent_date_str == target_date:
+                target_indents.append(indent)
         
-        # Get rejections for the same weekdays for wastage calculation
-        rejection_filter = {}
-        if retailer_id:
-            rejection_filter["retailer_id"] = retailer_id
-        
-        all_rejections = await db.retailer_rejections.find(
-            rejection_filter, {"_id": 0}
-        ).sort("rejection_date", -1).to_list(500)
-        
-        # Filter rejections to same weekdays
-        same_weekday_rejections = []
-        rejection_seen_dates = set()
-        for rejection in all_rejections:
-            try:
-                rej_date_str = str(rejection.get("rejection_date", ""))[:10]
-                if not rej_date_str:
-                    continue
-                rej_date = datetime.strptime(rej_date_str, "%Y-%m-%d").date()
-                if rej_date.weekday() == target_weekday and rej_date < target:
-                    same_weekday_rejections.append(rejection)
-                    rejection_seen_dates.add(rej_date_str)
-            except:
-                continue
-        
-        # Calculate number of unique weekday dates found
-        unique_closing_dates = set()
-        for record in same_weekday_records:
-            unique_closing_dates.add(record.get("closing_date"))
-        num_weekdays_with_data = len(unique_closing_dates)
-        
-        if num_weekdays_with_data == 0:
+        if not target_indents:
             return {
                 "success": False,
-                "message": f"No historical sales data found for {weekday_names[target_weekday]}s. Please record closing inventory for at least one {weekday_names[target_weekday]}.",
+                "message": f"No indents found for {target_date}. Please create indents for this date first.",
                 "items": [],
                 "target_date": target_date,
-                "weekday": weekday_names[target_weekday],
-                "weekdays_analyzed": 0
+                "retailer_name": retailer_name,
+                "indent_count": 0
             }
         
-        # Aggregate items sold by PRODUCT_ID only (not variant to avoid duplicates)
-        product_sales = {}  # product_id -> {total_sold, occurrences, product_name}
+        # Get all products for category lookup
+        all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+        product_info_map = {}
+        for p in all_products:
+            product_info_map[p.get("id")] = {
+                "name": p.get("name", "Unknown"),
+                "category": p.get("category", "Other"),
+                "variants": p.get("variants", [])
+            }
         
-        for record in same_weekday_records:
-            product_id = record.get("product_id")
-            product_name = record.get("product_name", "Unknown")
-            
-            # Calculate items sold for this record
-            # Items Sold = Opening + Received - Rejection - Closing
-            opening = record.get("opening_qty", 0) or 0
-            received = record.get("received_qty", 0) or 0
-            closing = record.get("closing_qty", 0) or 0
-            rejection = record.get("rejection_qty", 0) or 0
-            items_sold = max(0, opening + received - rejection - closing)
-            
-            if product_id:
-                if product_id not in product_sales:
-                    product_sales[product_id] = {
-                        "product_name": product_name,
-                        "total_sold": 0,
-                        "occurrences": 0,
-                        "dates_with_data": set()
-                    }
-                product_sales[product_id]["total_sold"] += items_sold
-                product_sales[product_id]["dates_with_data"].add(record.get("closing_date"))
+        # Build variant to weight mapping (variant_id -> weight_in_kg)
+        variant_weight_map = {}
+        for p in all_products:
+            for v in p.get("variants", []):
+                variant_id = v.get("id")
+                variant_name = v.get("name", "").lower()
+                # Parse weight from variant name (e.g., "500 gm", "1 kg", "240-260 gm")
+                weight_kg = parse_variant_weight(variant_name)
+                if variant_id:
+                    variant_weight_map[variant_id] = weight_kg
         
-        # Update occurrences count based on unique dates with data
-        for product_id, data in product_sales.items():
-            data["occurrences"] = len(data["dates_with_data"])
+        # Calculate average wastage % from last 7 days of rejections
+        seven_days_ago = (target - timedelta(days=7)).strftime("%Y-%m-%d")
+        rejection_query = {
+            "rejection_date": {"$gte": seven_days_ago, "$lt": target_date}
+        }
+        if retailer_id:
+            rejection_query["retailer_id"] = retailer_id
         
-        # Aggregate wastage by product from rejections
-        product_wastage = {}  # product_id -> {total_wastage, occurrences}
+        recent_rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(1000)
         
-        unique_rejection_dates = set()
-        for rejection in same_weekday_rejections:
-            unique_rejection_dates.add(str(rejection.get("rejection_date", ""))[:10])
-        num_rejection_weekdays = len(unique_rejection_dates)
+        # Also fetch dispatches for the same period to calculate wastage %
+        dispatch_query = {
+            "dispatch_date": {"$gte": seven_days_ago, "$lt": target_date}
+        }
+        if retailer_id:
+            dispatch_query["retailer_id"] = retailer_id
         
-        for rejection in same_weekday_rejections:
+        recent_dispatches = await db.retailer_dispatches.find(dispatch_query, {"_id": 0}).to_list(500)
+        
+        # Aggregate dispatched quantities by product
+        product_dispatched = {}  # product_id -> total_qty_dispatched
+        for dispatch in recent_dispatches:
+            for item in dispatch.get("items", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0) or 0
+                if product_id:
+                    product_dispatched[product_id] = product_dispatched.get(product_id, 0) + qty
+        
+        # Aggregate rejection quantities by product
+        product_rejected = {}  # product_id -> total_qty_rejected
+        for rejection in recent_rejections:
             product_id = rejection.get("product_id")
             qty = rejection.get("quantity", 0) or 0
-            rej_date = str(rejection.get("rejection_date", ""))[:10]
-            
             if product_id:
-                if product_id not in product_wastage:
-                    product_wastage[product_id] = {
-                        "total_wastage": 0,
-                        "dates_with_data": set()
-                    }
-                product_wastage[product_id]["total_wastage"] += qty
-                product_wastage[product_id]["dates_with_data"].add(rej_date)
+                product_rejected[product_id] = product_rejected.get(product_id, 0) + qty
         
-        # Get all products to fill in names if missing
-        all_products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "name_hi": 1}).to_list(500)
-        product_name_map = {p["id"]: p.get("name", "Unknown") for p in all_products}
+        # Calculate wastage % for each product
+        product_wastage_pct = {}  # product_id -> wastage %
+        for product_id, dispatched_qty in product_dispatched.items():
+            rejected_qty = product_rejected.get(product_id, 0)
+            if dispatched_qty > 0:
+                wastage_pct = (rejected_qty / dispatched_qty) * 100
+                product_wastage_pct[product_id] = round(min(wastage_pct, 100), 1)  # Cap at 100%
+        
+        # Aggregate indent items by product (combining all variants)
+        product_aggregation = {}  # product_id -> {total_units, total_kg, product_name, category}
+        
+        for indent in target_indents:
+            for item in indent.get("items", []):
+                product_id = item.get("product_id")
+                product_name = item.get("product_name", "Unknown")
+                variant_id = item.get("variant_id")
+                variant_name = item.get("variant_name", "")
+                quantity = item.get("quantity", 0) or 0
+                
+                if not product_id:
+                    continue
+                
+                # Get weight from variant
+                weight_kg = variant_weight_map.get(variant_id, parse_variant_weight(variant_name))
+                item_kg = quantity * weight_kg
+                
+                if product_id not in product_aggregation:
+                    product_info = product_info_map.get(product_id, {})
+                    product_aggregation[product_id] = {
+                        "product_name": product_info.get("name", product_name),
+                        "category": product_info.get("category", "Other"),
+                        "total_units": 0,
+                        "total_kg": 0
+                    }
+                
+                product_aggregation[product_id]["total_units"] += quantity
+                product_aggregation[product_id]["total_kg"] += item_kg
         
         # Build result items
         result_items = []
-        seen_products = set()
-        
-        for product_id, data in product_sales.items():
-            if product_id in seen_products:
-                continue
-            seen_products.add(product_id)
+        for product_id, data in product_aggregation.items():
+            wastage_pct = product_wastage_pct.get(product_id, 0)
+            total_kg = data["total_kg"]
             
-            # Calculate averages - divide by number of weekdays that had data for this product
-            num_occurrences = data["occurrences"]
-            avg_sold = data["total_sold"] / num_occurrences if num_occurrences > 0 else 0
-            
-            # Get wastage average
-            wastage_data = product_wastage.get(product_id, {})
-            wastage_occurrences = len(wastage_data.get("dates_with_data", set())) or 1
-            avg_wastage = wastage_data.get("total_wastage", 0) / wastage_occurrences if wastage_data else 0
-            
-            # Round to 2 decimal places
-            avg_sold = round(avg_sold, 2)
-            avg_wastage = round(avg_wastage, 2)
-            total_required = round(avg_sold + avg_wastage, 2)
-            
-            product_name = product_name_map.get(product_id, data["product_name"])
+            # Calculate requirement considering wastage
+            # If wastage is 50%, we need to procure 2x to get the required amount
+            # Requirement = total_kg / (1 - wastage_pct/100)
+            if wastage_pct >= 100:
+                requirement_kg = total_kg * 2  # Cap at 2x if wastage is 100%
+            elif wastage_pct > 0:
+                requirement_kg = total_kg / (1 - wastage_pct / 100)
+            else:
+                requirement_kg = total_kg
             
             result_items.append({
                 "product_id": product_id,
-                "product_name": product_name,
-                "variant_name": "Kg",  # Aggregate view, no specific variant
-                "indent_qty": avg_sold,  # Average items sold
-                "kg_required": avg_sold,  # Same as indent qty for aggregate view
-                "est_wastage_kg": avg_wastage,
-                "total_kg_required": total_required,
-                "weekdays_with_sales_data": num_occurrences,
-                "rate_per_kg": "",
-                "amount_paid": "",
-                "remarks": ""
+                "product_name": data["product_name"],
+                "category": data["category"],
+                "qty_units": round(data["total_units"], 2),
+                "qty_kg": round(total_kg, 2),
+                "wastage_pct": wastage_pct,
+                "requirement_kg": round(requirement_kg, 2)
             })
         
-        # Sort by product name
-        result_items.sort(key=lambda x: x["product_name"])
+        # Sort by category then product name
+        category_order = {"Fruits": 1, "Vegetables": 2, "Leafy": 3, "Exotic": 4, "Other": 5}
+        result_items.sort(key=lambda x: (category_order.get(x["category"], 99), x["product_name"]))
         
         return {
             "success": True,
             "target_date": target_date,
-            "weekday": weekday_names[target_weekday],
-            "weekdays_analyzed": num_weekdays_with_data,
-            "rejection_weekdays_analyzed": num_rejection_weekdays,
             "retailer_name": retailer_name,
+            "indent_count": len(target_indents),
             "items": result_items,
-            "total_indent_qty": sum(item["indent_qty"] for item in result_items),
-            "total_kg_required": sum(item["total_kg_required"] for item in result_items),
-            "message": f"Calculated based on {num_weekdays_with_data} {weekday_names[target_weekday]}(s) of sales data"
+            "total_qty_units": sum(item["qty_units"] for item in result_items),
+            "total_qty_kg": round(sum(item["qty_kg"] for item in result_items), 2),
+            "total_requirement_kg": round(sum(item["requirement_kg"] for item in result_items), 2),
+            "message": f"Calculated from {len(target_indents)} indent(s) for {target_date}"
         }
         
     except Exception as e:
@@ -13196,6 +13182,45 @@ async def calculate_daily_purchase_requirement(
             "message": f"Error calculating requirement: {str(e)}",
             "items": []
         }
+
+
+def parse_variant_weight(variant_name: str) -> float:
+    """Parse weight in KG from variant name like '500 gm', '1 kg', '240-260 gm', 'Half Dozen'"""
+    import re
+    
+    if not variant_name:
+        return 1.0  # Default to 1 kg if unknown
+    
+    variant_lower = variant_name.lower().strip()
+    
+    # Handle special cases
+    if "dozen" in variant_lower:
+        return 1.0  # Treat dozen as 1 unit for now
+    if "piece" in variant_lower or "pcs" in variant_lower:
+        return 0.25  # Estimate piece as 250gm
+    if "bunch" in variant_lower:
+        return 0.5  # Estimate bunch as 500gm
+    
+    # Try to find kg pattern first (e.g., "1 kg", "2kg")
+    kg_match = re.search(r'(\d+\.?\d*)\s*kg', variant_lower)
+    if kg_match:
+        return float(kg_match.group(1))
+    
+    # Try to find gm/gram pattern (e.g., "500 gm", "240-260 gm")
+    gm_match = re.search(r'(\d+)[-\s]*(\d*)\s*g[rm]', variant_lower)
+    if gm_match:
+        # If range like "240-260", take average
+        first_num = int(gm_match.group(1))
+        second_num = int(gm_match.group(2)) if gm_match.group(2) else first_num
+        avg_gm = (first_num + second_num) / 2
+        return avg_gm / 1000  # Convert to kg
+    
+    # Try to find just number with gm
+    simple_gm = re.search(r'(\d+)\s*gm', variant_lower)
+    if simple_gm:
+        return int(simple_gm.group(1)) / 1000
+    
+    return 1.0  # Default to 1 kg if can't parse
 
 
 @app.post("/api/retailer-daily-requirement")

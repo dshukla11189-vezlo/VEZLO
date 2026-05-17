@@ -1171,7 +1171,7 @@ export default function RetailerOrders() {
     setDailyReqSaved(false);
     
     try {
-      // Call the new backend endpoint that calculates based on same-weekday historical data
+      // Call the backend endpoint that calculates based on indents for the date
       let url = `/api/retailer-daily-requirement/calculate?target_date=${dailyReqDate}`;
       if (dailyReqRetailer) {
         url += `&retailer_id=${dailyReqRetailer}`;
@@ -1186,7 +1186,7 @@ export default function RetailerOrders() {
       }
       
       if (!result.items || result.items.length === 0) {
-        setDailyReqError(`No sales data found for ${result.weekday || 'this day'}. Please ensure closing inventory is recorded.`);
+        setDailyReqError(`No indents found for ${dailyReqDate}. Please create indents for this date first.`);
         return;
       }
       
@@ -1194,22 +1194,17 @@ export default function RetailerOrders() {
       const requirementData = result.items.map(item => ({
         productId: item.product_id,
         productName: item.product_name,
-        variantId: null,  // Aggregated by product, not variant
-        variantName: item.variant_name || 'Kg',
-        indentQty: item.indent_qty,
-        kgRequired: item.kg_required,
-        estWastageKg: item.est_wastage_kg,
-        totalKgRequired: item.total_kg_required,
-        weekdaysWithData: item.weekdays_with_sales_data,
-        ratePerKg: item.rate_per_kg || '',
-        amountPaid: item.amount_paid || '',
-        remarks: item.remarks || ''
+        category: item.category || 'Other',
+        qtyUnits: item.qty_units,
+        qtyKg: item.qty_kg,
+        wastagePct: item.wastage_pct,
+        requirementKg: item.requirement_kg
       }));
       
       setDailyReqData(requirementData);
       
       // Show info about the calculation
-      toast.success(`Calculated based on ${result.weekdays_analyzed} ${result.weekday}(s) of sales data`);
+      toast.success(`Calculated from ${result.indent_count} indent(s) for ${dailyReqDate}`);
       
     } catch (error) {
       console.error('Failed to calculate daily requirement:', error);
@@ -1239,6 +1234,11 @@ export default function RetailerOrders() {
             th { background-color: #f0f0f0; font-weight: bold; }
             .text-right { text-align: right; }
             .text-center { text-align: center; }
+            .category { font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+            .cat-fruits { background: #fed7aa; color: #c2410c; }
+            .cat-vegetables { background: #bbf7d0; color: #166534; }
+            .cat-leafy { background: #a7f3d0; color: #065f46; }
+            .cat-exotic { background: #e9d5ff; color: #7c3aed; }
             .footer { margin-top: 30px; text-align: right; font-size: 12px; color: #666; }
             @media print { 
               body { padding: 0; }
@@ -1250,43 +1250,37 @@ export default function RetailerOrders() {
           <h1>Daily Purchase Requirement</h1>
           <h2>Date: ${new Date(dailyReqDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>
           ${dailyReqRetailer ? `<p style="text-align:center;">Retailer: ${retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || 'All'}</p>` : '<p style="text-align:center;">All Retailers</p>'}
-          <p class="info">Calculated from average sales of same weekdays + average wastage</p>
+          <p class="info">Calculated from indents. Wastage % from last 7 days average.</p>
           <table>
             <thead>
               <tr>
                 <th style="width:5%">#</th>
-                <th style="width:25%">Product Name</th>
-                <th style="width:10%">Unit</th>
-                <th style="width:10%" class="text-center">Avg Sold</th>
-                <th style="width:10%" class="text-right">Kg Required</th>
-                <th style="width:10%" class="text-right">Avg Wastage</th>
-                <th style="width:10%" class="text-right">Total Kg</th>
-                <th style="width:10%" class="text-right">Rate/Kg</th>
-                <th style="width:10%" class="text-right">Amount</th>
+                <th style="width:30%">Product Name</th>
+                <th style="width:12%">Category</th>
+                <th style="width:10%" class="text-center">Qty (Units)</th>
+                <th style="width:10%" class="text-center">Qty (Kg)</th>
+                <th style="width:12%" class="text-center">Wastage %</th>
+                <th style="width:15%" class="text-right">Requirement (Kg)</th>
               </tr>
             </thead>
             <tbody>
               ${dailyReqData.map((item, idx) => `
                 <tr>
                   <td class="text-center">${idx + 1}</td>
-                  <td>${getProductName(item)}</td>
-                  <td>${item.variantName || 'Kg'}</td>
-                  <td class="text-center">${(item.indentQty || 0).toFixed(2)}</td>
-                  <td class="text-right">${(item.kgRequired || 0).toFixed(2)}</td>
-                  <td class="text-right">${(item.estWastageKg || 0).toFixed(2)}</td>
-                  <td class="text-right">${(item.totalKgRequired || item.kgRequired || 0).toFixed(2)}</td>
-                  <td class="text-right">${item.ratePerKg || ''}</td>
-                  <td class="text-right">${item.amountPaid || ''}</td>
+                  <td>${item.productName}</td>
+                  <td><span class="category cat-${(item.category || 'other').toLowerCase()}">${item.category || 'Other'}</span></td>
+                  <td class="text-center">${item.qtyUnits}</td>
+                  <td class="text-center">${(item.qtyKg || 0).toFixed(2)}</td>
+                  <td class="text-center">${(item.wastagePct || 0).toFixed(1)}%</td>
+                  <td class="text-right" style="font-weight:bold;">${(item.requirementKg || 0).toFixed(2)}</td>
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
                 <td colspan="3">TOTAL</td>
-                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.indentQty) || 0), 0).toFixed(2)}</td>
-                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
-                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.estWastageKg) || 0), 0).toFixed(2)} Kg</td>
-                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalKgRequired) || 0), 0).toFixed(2)} Kg</td>
-                <td></td>
-                <td class="text-right">₹${dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0).toFixed(2)}</td>
+                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0).toFixed(0)}</td>
+                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyKg || 0), 0).toFixed(2)} Kg</td>
+                <td class="text-center">-</td>
+                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} Kg</td>
               </tr>
             </tbody>
           </table>
@@ -1363,16 +1357,15 @@ export default function RetailerOrders() {
         items: dailyReqData.map(item => ({
           product_id: item.productId,
           product_name: item.productName,
-          variant_id: item.variantId || null,
-          variant_name: item.variantName || '',
-          indent_qty: item.indentQty,
-          kg_required: item.kgRequired,
-          rate_per_kg: parseFloat(item.ratePerKg) || 0,
-          amount: parseFloat(item.amountPaid) || 0,
-          remarks: item.remarks || ''
+          category: item.category || 'Other',
+          qty_units: item.qtyUnits,
+          qty_kg: item.qtyKg,
+          wastage_pct: item.wastagePct,
+          requirement_kg: item.requirementKg
         })),
-        total_kg: dailyReqData.reduce((sum, item) => sum + item.kgRequired, 0),
-        total_amount: dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0)
+        total_qty_units: dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0),
+        total_qty_kg: dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0),
+        total_requirement_kg: dailyReqData.reduce((sum, item) => sum + item.requirementKg, 0)
       };
       
       await api.post('/api/retailer-daily-requirement', payload);
@@ -2796,7 +2789,7 @@ export default function RetailerOrders() {
                     <ShoppingCart size={16} className="text-green-600" />
                     Daily Purchase Requirement
                   </CardTitle>
-                  <p className="text-xs text-gray-500 mt-1">Calculates based on average sales of same weekdays (up to 7 weeks)</p>
+                  <p className="text-xs text-gray-500 mt-1">Calculates from indents for the selected date, with wastage % from last 7 days</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <select
@@ -2877,58 +2870,65 @@ export default function RetailerOrders() {
               {!dailyReqError && dailyReqData.length === 0 && !dailyReqLoading && (
                 <div className="text-center py-12 text-gray-500">
                   <ShoppingCart size={48} className="mx-auto mb-4 opacity-30" />
-                  <p>Select a date and click "Calculate" to view purchase requirements based on historical sales</p>
-                  <p className="text-xs mt-2">Uses average of items sold on same weekdays (e.g., last 7 Mondays for a Monday)</p>
+                  <p>Select a date and click "Calculate" to view purchase requirements from indents</p>
+                  <p className="text-xs mt-2">Combines all retailer indents for the date and calculates wastage % from last 7 days</p>
                 </div>
               )}
               
               {dailyReqData.length > 0 && (
                 <div className="overflow-x-auto">
-                  <p className="text-xs text-gray-500 mb-2">Calculated from average sales of same weekdays (up to 7 weeks) + average wastage</p>
+                  <p className="text-xs text-gray-500 mb-2">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days average.</p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">
-                        <th className="p-3 text-left w-8">#</th>
+                        <th className="p-3 text-left w-12">#</th>
                         <th className="p-3 text-left">Product Name</th>
-                        <th className="p-3 text-left">Unit</th>
-                        <th className="p-3 text-center">Avg Sold</th>
-                        <th className="p-3 text-center w-24">Kg Required</th>
-                        <th className="p-3 text-center w-24">Avg Wastage (Kg)</th>
-                        <th className="p-3 text-center w-24">Total Kg</th>
-                        <th className="p-3 text-right w-24">Rate/Kg (₹)</th>
-                        <th className="p-3 text-right w-24">Amount (₹)</th>
-                        <th className="p-3 text-left w-32">Remarks</th>
+                        <th className="p-3 text-left w-24">Category</th>
+                        <th className="p-3 text-center w-20">Qty (Units)</th>
+                        <th className="p-3 text-center w-20">Qty (Kg)</th>
+                        <th className="p-3 text-center w-28">Wastage %</th>
+                        <th className="p-3 text-center w-28">Requirement (Kg)</th>
                         <th className="p-3 text-center w-12">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyReqData.map((item, idx) => (
-                        <tr key={`${item.productId}-${item.variantId}-${idx}`} className="border-b hover:bg-gray-50">
+                        <tr key={`${item.productId}-${idx}`} className="border-b hover:bg-gray-50">
                           <td className="p-3 text-gray-500">{idx + 1}</td>
-                          <td className="p-3 font-medium">{getProductName(item)}</td>
-                          <td className="p-3 text-gray-600">{item.variantName || '-'}</td>
-                          <td className="p-3 text-center font-semibold">{item.indentQty}</td>
+                          <td className="p-3 font-medium">{item.productName}</td>
                           <td className="p-3">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="Kg"
-                              value={item.kgRequired}
-                              onChange={(e) => updateKgRequired(idx, e.target.value)}
-                              className="h-8 w-20 text-center text-sm font-semibold text-green-700"
-                            />
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              item.category === 'Fruits' ? 'bg-orange-100 text-orange-700' :
+                              item.category === 'Vegetables' ? 'bg-green-100 text-green-700' :
+                              item.category === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
+                              item.category === 'Exotic' ? 'bg-purple-100 text-purple-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {item.category}
+                            </span>
                           </td>
+                          <td className="p-3 text-center font-semibold">{item.qtyUnits}</td>
+                          <td className="p-3 text-center text-gray-600">{item.qtyKg.toFixed(2)}</td>
                           <td className="p-3">
                             <Input
                               type="number"
-                              step="0.01"
-                              placeholder="Est Wastage"
-                              value={item.estWastageKg || 0}
+                              step="0.1"
+                              min="0"
+                              max="100"
+                              placeholder="Wastage %"
+                              value={item.wastagePct}
                               onChange={(e) => {
                                 const newData = [...dailyReqData];
-                                const newWastage = parseFloat(e.target.value) || 0;
-                                newData[idx].estWastageKg = newWastage;
-                                newData[idx].totalKgRequired = parseFloat((newData[idx].kgRequired + newWastage).toFixed(2));
+                                const newWastagePct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
+                                newData[idx].wastagePct = newWastagePct;
+                                // Recalculate requirement: qty_kg / (1 - wastage_pct/100)
+                                if (newWastagePct >= 100) {
+                                  newData[idx].requirementKg = item.qtyKg * 2;
+                                } else if (newWastagePct > 0) {
+                                  newData[idx].requirementKg = parseFloat((item.qtyKg / (1 - newWastagePct / 100)).toFixed(2));
+                                } else {
+                                  newData[idx].requirementKg = item.qtyKg;
+                                }
                                 setDailyReqData(newData);
                                 setDailyReqSaved(false);
                               }}
@@ -2936,67 +2936,32 @@ export default function RetailerOrders() {
                             />
                           </td>
                           <td className="p-3 text-center font-bold text-blue-700">
-                            {item.totalKgRequired?.toFixed(2) || item.kgRequired?.toFixed(2)}
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="Rate"
-                              value={item.ratePerKg}
-                              onChange={(e) => updateRatePerKg(idx, e.target.value)}
-                              className="h-8 w-20 text-right text-sm"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="Amount"
-                              value={item.amountPaid}
-                              onChange={(e) => updateAmountPaid(idx, e.target.value)}
-                              className="h-8 w-20 text-right text-sm"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="text"
-                              placeholder="Remarks"
-                              value={item.remarks}
-                              onChange={(e) => {
-                                const newData = [...dailyReqData];
-                                newData[idx].remarks = e.target.value;
-                                setDailyReqData(newData);
-                                setDailyReqSaved(false);
-                              }}
-                              className="h-8 text-sm"
-                            />
+                            {item.requirementKg.toFixed(2)}
                           </td>
                           <td className="p-3 text-center">
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => deleteRequirementRow(idx)}
-                              className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                const newData = dailyReqData.filter((_, i) => i !== idx);
+                                setDailyReqData(newData);
+                                setDailyReqSaved(false);
+                              }}
+                              className="text-red-500 hover:text-red-700 h-7 w-7 p-0"
                             >
-                              <Trash2 size={14} />
+                              <X size={14} />
                             </Button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr className="bg-gray-100 font-semibold">
-                        <td colSpan={3} className="p-3 text-right">TOTAL</td>
-                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.indentQty) || 0), 0).toFixed(2)}</td>
-                        <td className="p-3 text-center text-green-700">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
-                        <td className="p-3 text-center text-amber-600">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.estWastageKg) || 0), 0).toFixed(2)} Kg</td>
-                        <td className="p-3 text-center text-blue-700 font-bold">{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.totalKgRequired) || parseFloat(item.kgRequired) || 0), 0).toFixed(2)} Kg</td>
-                        <td className="p-3"></td>
-                        <td className="p-3 text-right">
-                          ₹{dailyReqData.reduce((sum, item) => sum + (parseFloat(item.amountPaid) || 0), 0).toFixed(2)}
-                        </td>
-                        <td className="p-3"></td>
+                      <tr className="border-t-2 bg-gray-100 font-semibold">
+                        <td className="p-3" colSpan="3">Total</td>
+                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0).toFixed(0)}</td>
+                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0).toFixed(2)}</td>
+                        <td className="p-3 text-center">-</td>
+                        <td className="p-3 text-center text-blue-700">{dailyReqData.reduce((sum, item) => sum + item.requirementKg, 0).toFixed(2)}</td>
                         <td className="p-3"></td>
                       </tr>
                     </tfoot>

@@ -287,6 +287,8 @@ export default function RetailerOrders() {
   const [blinkitPrices, setBlinkitPrices] = useState({});
   const [blinkitLoading, setBlinkitLoading] = useState(false);
   const [scrapingBlinkit, setScrapingBlinkit] = useState(false);
+  const [mrpIndentProducts, setMrpIndentProducts] = useState([]); // Products from day's indents for MRP filtering
+  const [mrpIndentLoading, setMrpIndentLoading] = useState(false);
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -1513,22 +1515,68 @@ export default function RetailerOrders() {
     }
   }, [products]);
 
-  // Auto-load MRP data when MRP tab is selected
+  // Load unique products from day's indents for MRP filtering (mirrors Stickers logic)
+  const loadMrpIndentProducts = useCallback(async (date) => {
+    if (!date) return;
+    setMrpIndentLoading(true);
+    setMrpIndentProducts([]);
+    
+    try {
+      const response = await api.get(`/api/retailer-indents?from_date=${date}&to_date=${date}`);
+      const allIndents = response.data || [];
+      
+      // Filter indents to only include those matching the exact selected date
+      const indents = allIndents.filter(indent => {
+        const indentDateStr = (indent.indent_date || '').toString().slice(0, 10);
+        return indentDateStr === date;
+      });
+      
+      if (indents.length === 0) {
+        setMrpIndentLoading(false);
+        return;
+      }
+      
+      // Build set of unique product IDs from all indents
+      const uniqueProductIds = new Set();
+      for (const indent of indents) {
+        for (const item of (indent.items || [])) {
+          if (item.product_id) {
+            uniqueProductIds.add(item.product_id);
+          }
+        }
+      }
+      
+      // Filter products list to only those in indents
+      const indentProducts = products.filter(p => uniqueProductIds.has(p.id));
+      setMrpIndentProducts(indentProducts);
+      
+    } catch (error) {
+      console.error('Failed to load indent products for MRP:', error);
+    } finally {
+      setMrpIndentLoading(false);
+    }
+  }, [products]);
+
+  // Auto-load MRP data and indent products when MRP tab is selected
   useEffect(() => {
     if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'mrp' && mrpDate) {
       loadMrpData(mrpDate);
+      loadMrpIndentProducts(mrpDate);
     }
-  }, [activeTab, dailyReqSubTab, mrpDate, loadMrpData]);
+  }, [activeTab, dailyReqSubTab, mrpDate, loadMrpData, loadMrpIndentProducts]);
 
   // Get retail-applicable packagings
   const retailPackagings = useMemo(() => {
     return packagings.filter(p => p.vertical === 'retail' || p.vertical === 'both' || !p.vertical);
   }, [packagings]);
 
-  // Group products by category for MRP
+  // Group products by category for MRP - filtered to only products from day's indents
   const mrpProductsByCategory = useMemo(() => {
+    // Use indent-filtered products if available, otherwise empty (no indents for that day)
+    const productsToShow = mrpIndentProducts.length > 0 ? mrpIndentProducts : [];
+    
     const grouped = {};
-    products.forEach(p => {
+    productsToShow.forEach(p => {
       const cat = p.category || 'Others';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(p);
@@ -1538,7 +1586,18 @@ export default function RetailerOrders() {
       grouped[cat].sort((a, b) => a.name.localeCompare(b.name));
     });
     return grouped;
-  }, [products]);
+  }, [mrpIndentProducts]);
+
+  // Auto-expand categories when indent products load
+  useEffect(() => {
+    if (mrpIndentProducts.length > 0) {
+      const cats = {};
+      mrpIndentProducts.forEach(p => {
+        cats[p.category || 'Others'] = true;
+      });
+      setExpandedMrpCategories(cats);
+    }
+  }, [mrpIndentProducts]);
 
   // Load Blinkit prices
   const loadBlinkitPrices = useCallback(async (pincode = '411045') => {
@@ -1763,15 +1822,45 @@ export default function RetailerOrders() {
   const initializeMrpData = async () => {
     setSavingMrp(true);
     try {
-      // Fetch products directly to ensure we have them
-      let productsToUse = products;
+      // Use products from day's indents (mrpIndentProducts)
+      let productsToUse = mrpIndentProducts;
+      
+      // If indent products not loaded yet, try to fetch them
       if (!productsToUse || productsToUse.length === 0) {
-        const productsRes = await api.get('/api/products');
-        productsToUse = productsRes.data || [];
+        // Fetch indents for the mrpDate to get unique products
+        const indentsRes = await api.get(`/api/retailer-indents?from_date=${mrpDate}&to_date=${mrpDate}`);
+        const allIndents = (indentsRes.data || []).filter(indent => {
+          const indentDateStr = (indent.indent_date || '').toString().slice(0, 10);
+          return indentDateStr === mrpDate;
+        });
+        
+        if (allIndents.length === 0) {
+          toast.error('No indents found for this date. Cannot initialize MRP.');
+          setSavingMrp(false);
+          return;
+        }
+        
+        // Get unique product IDs from indents
+        const uniqueProductIds = new Set();
+        for (const indent of allIndents) {
+          for (const item of (indent.items || [])) {
+            if (item.product_id) uniqueProductIds.add(item.product_id);
+          }
+        }
+        
+        // Fetch all products if not loaded
+        let allProducts = products;
+        if (!allProducts || allProducts.length === 0) {
+          const productsRes = await api.get('/api/products');
+          allProducts = productsRes.data || [];
+        }
+        
+        // Filter to only indent products
+        productsToUse = allProducts.filter(p => uniqueProductIds.has(p.id));
       }
       
       if (productsToUse.length === 0) {
-        toast.error('No products found. Please add products first.');
+        toast.error('No products found in day\'s indents. Please ensure retailers have submitted indents.');
         setSavingMrp(false);
         return;
       }
@@ -1805,7 +1894,7 @@ export default function RetailerOrders() {
       
       await api.post('/api/daily-mrp', { date: mrpDate, items: entries });
       await loadMrpData(mrpDate);
-      toast.success(`MRP sheet initialized with ${entries.length} products`);
+      toast.success(`MRP sheet initialized with ${entries.length} products from day's indents`);
     } catch (error) {
       console.error('Initialize MRP error:', error);
       toast.error('Failed to initialize MRP data');
@@ -3901,10 +3990,10 @@ export default function RetailerOrders() {
                           </span>
                         )}
                       </Button>
-                      {mrpData.length === 0 && (
+                      {mrpData.length === 0 && mrpIndentProducts.length > 0 && (
                         <Button 
                           onClick={initializeMrpData}
-                          disabled={savingMrp || mrpLoading || !canEditMrpForDate(mrpDate)}
+                          disabled={savingMrp || mrpLoading || mrpIndentLoading || !canEditMrpForDate(mrpDate)}
                           className="h-9 bg-[#14532D]"
                         >
                           {savingMrp ? (
@@ -3915,7 +4004,7 @@ export default function RetailerOrders() {
                           ) : (
                             <span className="flex items-center gap-2">
                               <Plus size={14} />
-                              Initialize All Products
+                              Initialize ({mrpIndentProducts.length} Products)
                             </span>
                           )}
                         </Button>
@@ -3943,21 +4032,27 @@ export default function RetailerOrders() {
                   </div>
 
                   {/* Loading State */}
-                  {mrpLoading ? (
+                  {(mrpLoading || mrpIndentLoading) ? (
                     <div className="text-center py-12">
                       <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                      <p className="text-gray-500">Loading MRP data...</p>
+                      <p className="text-gray-500">{mrpIndentLoading ? 'Loading indent products...' : 'Loading MRP data...'}</p>
+                    </div>
+                  ) : mrpIndentProducts.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <IndianRupee size={48} className="mx-auto mb-4 opacity-30" />
+                      <p>No retailer indents found for {mrpDate}</p>
+                      <p className="text-xs mt-2">MRP tab shows products from the day's combined retailer indents. Please ensure retailers have submitted their indents for this date.</p>
                     </div>
                   ) : mrpData.length === 0 ? (
                     <div className="text-center py-12 text-gray-500">
                       <IndianRupee size={48} className="mx-auto mb-4 opacity-30" />
                       <p>No MRP data for {mrpDate}</p>
-                      <p className="text-xs mt-2">Click "Initialize All Products" to create entries with last sold variants, or "Copy from Previous Date"</p>
+                      <p className="text-xs mt-2">{mrpIndentProducts.length} products found in day's indents. Click "Initialize All Products" to create MRP entries, or "Copy from Previous Date"</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <p className="text-xs text-gray-500">
-                        MRP entries for {mrpDate} • {mrpData.length} saved items out of {products.length} products
+                        MRP entries for {mrpDate} • {mrpData.length} saved items out of {mrpIndentProducts.length} products from day's indents
                         {mrpHasUnsavedChanges && <span className="text-orange-600 ml-2">• Unsaved changes</span>}
                       </p>
                       
@@ -4203,7 +4298,7 @@ export default function RetailerOrders() {
                         <div className="flex flex-wrap gap-4 text-sm">
                           <span className="font-semibold">{mrpData.length} items with MRP</span>
                           <span className="text-gray-500">|</span>
-                          <span className="text-gray-600">{products.length - mrpData.length} products without MRP</span>
+                          <span className="text-gray-600">{mrpIndentProducts.length - mrpData.length} products without MRP</span>
                           <span className="text-gray-500">|</span>
                           <span className="text-red-600 font-medium">
                             {mrpData.filter(e => !e.mrp || e.mrp === 0).length} items with ₹0 MRP

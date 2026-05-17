@@ -35,6 +35,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 ### Completed (This Session - 17 May 2026 - Continued)
 - **Daily MRP Tab for Retail Products** ✅ (Verified)
   - New "MRP" sub-tab added in Daily Requirement section (after Purchase and Stickers)
+  - **Products filtered by day's indents**: Only shows unique products present in that day's combined retailer indents (mirrors Stickers tab logic)
   - Products grouped by category with **all categories expanded by default** (click to collapse)
   - Table columns: S.No (#), Product Name, Variant (dropdown), MRP (₹ input), **Blinkit (₹)** (comparison price), Actions (delete)
   - **Variants pre-populated from last sold variants** - fetched from recent dispatches
@@ -49,7 +50,8 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - **Category header shows**: "X items with ₹0 MRP" instead of total sum
   - "Save MRP" button: Batches all pending changes and saves at once
   - "Copy from Previous Date" button: Copies all MRP entries from the previous day
-  - "Initialize All Products" button: Auto-populates all products with their last sold variants
+  - "Initialize (X Products)" button: Auto-populates products from day's indents with their last sold variants
+  - **Empty state**: Shows helpful message when no indents exist for selected date
   - Admin-only editing for past dates: Staff can only edit today/future, Admins can edit any date
   
 - **Blinkit Price Scraper Integration** ✅ (Verified)

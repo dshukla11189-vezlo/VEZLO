@@ -13059,31 +13059,56 @@ async def calculate_daily_purchase_requirement(
                     variant_weight_map[variant_id] = weight_kg
         
         # Calculate average wastage % from last 7 days of rejections
-        seven_days_ago = (target - timedelta(days=7)).strftime("%Y-%m-%d")
-        rejection_query = {
-            "rejection_date": {"$gte": seven_days_ago, "$lt": target_date}
-        }
-        if retailer_id:
-            rejection_query["retailer_id"] = retailer_id
+        seven_days_ago = (target - timedelta(days=7))
         
-        recent_rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(1000)
+        # Fetch ALL rejections and dispatches, then filter in Python for date handling
+        rejection_base_query = {}
+        if retailer_id:
+            rejection_base_query["retailer_id"] = retailer_id
+        
+        all_rejections = await db.retailer_rejections.find(rejection_base_query, {"_id": 0}).to_list(2000)
+        
+        # Filter rejections to last 7 days
+        recent_rejections = []
+        for rej in all_rejections:
+            try:
+                rej_date_raw = rej.get("rejection_date", "")
+                rej_date_str = str(rej_date_raw)[:10] if rej_date_raw else ""
+                if rej_date_str:
+                    rej_date = datetime.strptime(rej_date_str, "%Y-%m-%d").date()
+                    if seven_days_ago <= rej_date < target:
+                        recent_rejections.append(rej)
+            except:
+                continue
         
         # Also fetch dispatches for the same period to calculate wastage %
-        dispatch_query = {
-            "dispatch_date": {"$gte": seven_days_ago, "$lt": target_date}
-        }
+        dispatch_base_query = {}
         if retailer_id:
-            dispatch_query["retailer_id"] = retailer_id
+            dispatch_base_query["retailer_id"] = retailer_id
         
-        recent_dispatches = await db.retailer_dispatches.find(dispatch_query, {"_id": 0}).to_list(500)
+        all_dispatches = await db.retailer_dispatches.find(dispatch_base_query, {"_id": 0}).to_list(1000)
+        
+        # Filter dispatches to last 7 days
+        recent_dispatches = []
+        for dispatch in all_dispatches:
+            try:
+                dispatch_date_raw = dispatch.get("dispatch_date", "")
+                dispatch_date_str = str(dispatch_date_raw)[:10] if dispatch_date_raw else ""
+                if dispatch_date_str:
+                    dispatch_date = datetime.strptime(dispatch_date_str, "%Y-%m-%d").date()
+                    if seven_days_ago <= dispatch_date < target:
+                        recent_dispatches.append(dispatch)
+            except:
+                continue
         
         # Aggregate dispatched quantities by product
         product_dispatched = {}  # product_id -> total_qty_dispatched
         for dispatch in recent_dispatches:
             for item in dispatch.get("items", []):
                 product_id = item.get("product_id")
-                qty = item.get("quantity", 0) or 0
-                if product_id:
+                # Use supplied_qty (not quantity) - this is the actual dispatched quantity
+                qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
+                if product_id and qty > 0:
                     product_dispatched[product_id] = product_dispatched.get(product_id, 0) + qty
         
         # Aggregate rejection quantities by product
@@ -13096,6 +13121,8 @@ async def calculate_daily_purchase_requirement(
         
         # Calculate wastage % for each product
         product_wastage_pct = {}  # product_id -> wastage %
+        common_ids = set(product_dispatched.keys()) & set(product_rejected.keys())
+        
         for product_id, dispatched_qty in product_dispatched.items():
             rejected_qty = product_rejected.get(product_id, 0)
             if dispatched_qty > 0:

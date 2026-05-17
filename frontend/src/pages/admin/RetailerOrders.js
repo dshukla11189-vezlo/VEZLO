@@ -2208,9 +2208,11 @@ export default function RetailerOrders() {
           }
         }
         
-        // Lookup MRP from the daily MRP table using product_id + variant_id
-        const mrpKey = `${item.product_id}_${variantId || ''}`;
-        const mrpValue = mrpMap[mrpKey] || 0;
+        // Lookup MRP from the daily MRP table
+        // Try exact match first (product_id + variant_id), then fallback to product-only
+        const exactKey = `${item.product_id}_${variantId || ''}`;
+        const fallbackKey = `${item.product_id}_`;
+        const mrpValue = mrpMap[exactKey] || mrpMap[fallbackKey] || 0;
         
         return {
           product_id: item.product_id,
@@ -6433,8 +6435,10 @@ export default function RetailerOrders() {
                         setDispatchForm(prev => ({
                           ...prev,
                           items: prev.items.map(item => {
-                            const mrpKey = `${item.product_id}_${item.variant_id || ''}`;
-                            const mrpValue = mrpMap[mrpKey];
+                            // Try exact match first, then fallback to product-only
+                            const exactKey = `${item.product_id}_${item.variant_id || ''}`;
+                            const fallbackKey = `${item.product_id}_`;
+                            const mrpValue = mrpMap[exactKey] || mrpMap[fallbackKey];
                             if (mrpValue && mrpValue > 0) {
                               filledCount++;
                               return {
@@ -6554,8 +6558,10 @@ export default function RetailerOrders() {
                                   try {
                                     const mrpRes = await api.get(`/api/daily-mrp/for-dispatch?date=${dispatchForm.dispatch_date}`);
                                     const mrpMap = mrpRes.data || {};
-                                    const mrpKey = `${item.product_id}_${e.target.value || ''}`;
-                                    const mrpValue = mrpMap[mrpKey];
+                                    // Try exact match first, then fallback to product-only
+                                    const exactKey = `${item.product_id}_${e.target.value || ''}`;
+                                    const fallbackKey = `${item.product_id}_`;
+                                    const mrpValue = mrpMap[exactKey] || mrpMap[fallbackKey];
                                     if (mrpValue && mrpValue > 0) {
                                       updateDispatchItem(index, 'mrp', mrpValue);
                                       toast.info(`MRP auto-filled: ₹${mrpValue}`);

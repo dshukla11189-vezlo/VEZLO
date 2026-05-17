@@ -10536,44 +10536,51 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
     
     for inv in invoices:
         invoice_id = inv.get('id')
-        net_payable = inv.get('net_payable', 0) or 0
+        net_payable = float(inv.get('net_payable', 0) or 0)
         current_status = inv.get('status', 'pending')
         
-        # Recalculate paid amount from all payments
+        # Recalculate paid amount from all payments linked to this invoice
         all_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
-        actual_paid = sum(p.get("amount", 0) for p in all_payments)
+        actual_paid = sum(float(p.get("amount", 0) or 0) for p in all_payments)
         
-        # Determine correct status
-        if net_payable > 0 and actual_paid >= net_payable - 0.01:
+        # Also check paid_amount stored directly on invoice (may be more accurate)
+        stored_paid = float(inv.get('paid_amount', 0) or 0)
+        
+        # Use the higher of the two (actual payments vs stored paid_amount)
+        effective_paid = max(actual_paid, stored_paid)
+        
+        # Determine correct status with tolerance for floating point
+        if net_payable > 0 and effective_paid >= net_payable - 0.01:
             correct_status = 'paid'
-        elif actual_paid > 0:
+        elif effective_paid > 0:
             correct_status = 'partial'
         else:
             correct_status = 'pending'
         
         # Check if update needed
-        stored_paid = inv.get('paid_amount', 0) or 0
-        if current_status != correct_status or abs(stored_paid - actual_paid) > 0.01:
+        if current_status != correct_status:
             await db.retailer_invoices.update_one(
                 {'id': invoice_id},
                 {'$set': {
                     'status': correct_status,
-                    'paid_amount': round(actual_paid, 2)
+                    'paid_amount': round(effective_paid, 2)
                 }}
             )
             fixed_invoices.append({
                 'invoice_number': inv.get('invoice_number'),
                 'old_status': current_status,
                 'new_status': correct_status,
+                'net_payable': net_payable,
                 'old_paid': stored_paid,
-                'new_paid': actual_paid
+                'payments_sum': actual_paid,
+                'effective_paid': effective_paid
             })
             fixed_count += 1
     
     return {
         "message": f"Fixed {fixed_count} invoices",
         "total_checked": len(invoices),
-        "fixed_invoices": fixed_invoices[:50]  # Limit response size
+        "fixed_invoices": fixed_invoices[:100]  # Show more for debugging
     }
 
 # Get payment history for an invoice
@@ -10832,7 +10839,7 @@ async def get_mrp_for_dispatch(
     date: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get MRP entries for a dispatch date, keyed by product_id+variant_id"""
+    """Get MRP entries for a dispatch date, keyed by product_id+variant_id and product_id (fallback)"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -10842,11 +10849,30 @@ async def get_mrp_for_dispatch(
         {"_id": 0}
     ).to_list(1000)
     
-    # Create a map keyed by product_id+variant_id for quick lookup
+    # Create maps for lookup
+    # 1. Exact match: product_id + variant_id
+    # 2. Fallback: product_id only (first MRP found for that product)
     mrp_map = {}
+    product_mrp_fallback = {}  # product_id -> first MRP found
+    
     for entry in mrp_entries:
-        key = f"{entry.get('product_id')}_{entry.get('variant_id')}"
-        mrp_map[key] = entry.get('mrp', 0)
+        product_id = entry.get('product_id')
+        variant_id = entry.get('variant_id')
+        mrp = entry.get('mrp', 0)
+        
+        # Exact match key
+        exact_key = f"{product_id}_{variant_id}"
+        mrp_map[exact_key] = mrp
+        
+        # Product-only fallback (use first non-zero MRP found)
+        if product_id and product_id not in product_mrp_fallback and mrp > 0:
+            product_mrp_fallback[product_id] = mrp
+    
+    # Add product-only keys to the map for fallback lookup
+    for product_id, mrp in product_mrp_fallback.items():
+        fallback_key = f"{product_id}_"
+        if fallback_key not in mrp_map:
+            mrp_map[fallback_key] = mrp
     
     return mrp_map
 

@@ -1563,8 +1563,12 @@ export default function RetailerOrders() {
   useEffect(() => {
     if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'mrp') {
       loadBlinkitPrices();
+      // Also ensure products and packagings are loaded
+      if (products.length === 0 || packagings.length === 0) {
+        loadBaseData();
+      }
     }
-  }, [activeTab, dailyReqSubTab, loadBlinkitPrices]);
+  }, [activeTab, dailyReqSubTab, loadBlinkitPrices, products.length, packagings.length, loadBaseData]);
 
   // Get MRP entry for a product
   const getMrpEntry = (productId, variantId = null) => {
@@ -1717,13 +1721,34 @@ export default function RetailerOrders() {
   const initializeMrpData = async () => {
     setSavingMrp(true);
     try {
+      // Fetch products directly to ensure we have them
+      let productsToUse = products;
+      if (!productsToUse || productsToUse.length === 0) {
+        const productsRes = await api.get('/api/products');
+        productsToUse = productsRes.data || [];
+      }
+      
+      if (productsToUse.length === 0) {
+        toast.error('No products found. Please add products first.');
+        setSavingMrp(false);
+        return;
+      }
+      
+      // Fetch packagings directly if not loaded
+      let packagingsToUse = retailPackagings;
+      if (!packagingsToUse || packagingsToUse.length === 0) {
+        const packagingsRes = await api.get('/api/qc-packaging');
+        const allPackagings = packagingsRes.data || [];
+        packagingsToUse = allPackagings.filter(p => p.vertical === 'retail' || p.vertical === 'both' || !p.vertical);
+      }
+      
       const entries = [];
-      products.forEach(product => {
+      productsToUse.forEach(product => {
         const lastVariant = lastVariants[product.id];
         // Use last variant if available, otherwise use first retail packaging
         const variant = lastVariant 
-          ? retailPackagings.find(p => p.id === lastVariant.variant_id) 
-          : retailPackagings[0];
+          ? packagingsToUse.find(p => p.id === lastVariant.variant_id) 
+          : packagingsToUse[0];
         
         // Always add the product, even if no variant found (use empty variant)
         entries.push({
@@ -1740,6 +1765,7 @@ export default function RetailerOrders() {
       await loadMrpData(mrpDate);
       toast.success(`MRP sheet initialized with ${entries.length} products`);
     } catch (error) {
+      console.error('Initialize MRP error:', error);
       toast.error('Failed to initialize MRP data');
     } finally {
       setSavingMrp(false);

@@ -286,26 +286,26 @@ export default function RetailerDashboard() {
   };
 
   // ==================== NEW CREATE INDENT MODAL HANDLERS ====================
-  // Group products by type for the create indent modal
-  const productsByType = useMemo(() => {
+  // Group products by category for the create indent modal (same as Admin portal)
+  const productsByCategory = useMemo(() => {
     const grouped = {};
     products.forEach(p => {
-      const type = p.product_type || 'Others';
-      if (!grouped[type]) grouped[type] = [];
-      grouped[type].push(p);
+      const category = p.category || 'Others';
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(p);
     });
-    // Sort products within each type
-    Object.keys(grouped).forEach(type => {
-      grouped[type].sort((a, b) => a.name.localeCompare(b.name));
+    // Sort products within each category
+    Object.keys(grouped).forEach(cat => {
+      grouped[cat].sort((a, b) => a.name.localeCompare(b.name));
     });
     return grouped;
   }, [products]);
 
-  // Get sorted type names
-  const sortedTypeNames = useMemo(() => {
-    const typeOrder = { 'Vegetables': 1, 'Leafy': 2, 'Fruits': 3, 'Exotic': 4, 'Herbs': 5, 'Mushrooms': 6, 'Others': 99 };
-    return Object.keys(productsByType).sort((a, b) => (typeOrder[a] || 99) - (typeOrder[b] || 99));
-  }, [productsByType]);
+  // Get sorted category names
+  const sortedCategoryNames = useMemo(() => {
+    const categoryOrder = { 'Vegetables': 1, 'Leafy': 2, 'Fruits': 3, 'Exotic': 4, 'Herbs': 5, 'Mushrooms': 6, 'Others': 99 };
+    return Object.keys(productsByCategory).sort((a, b) => (categoryOrder[a] || 99) - (categoryOrder[b] || 99));
+  }, [productsByCategory]);
 
   const openCreateIndentModal = (existingIndent = null) => {
     // Set date to tomorrow by default
@@ -327,14 +327,14 @@ export default function RetailerDashboard() {
       });
       setCreateIndentItems(items);
       
-      // Expand all types that have items
-      const expandTypes = {};
+      // Expand all categories that have items
+      const expandCats = {};
       products.forEach(p => {
         if (items[p.id]) {
-          expandTypes[p.product_type || 'Others'] = true;
+          expandCats[p.category || 'Others'] = true;
         }
       });
-      setExpandedCreateTypes(expandTypes);
+      setExpandedCreateTypes(expandCats);
     } else {
       // Create new mode
       setEditingIndentId(null);
@@ -3475,22 +3475,22 @@ export default function RetailerDashboard() {
               {/* Products List - Scrollable */}
               <div className="overflow-y-auto flex-1 p-2 sm:p-4">
                 <div className="space-y-2 sm:space-y-3">
-                  {sortedTypeNames.map((typeName) => {
-                    const typeProducts = productsByType[typeName] || [];
-                    const isExpanded = expandedCreateTypes[typeName];
-                    const selectedCount = typeProducts.filter(p => createIndentItems[p.id]?.quantity > 0).length;
+                  {sortedCategoryNames.map((categoryName) => {
+                    const categoryProducts = productsByCategory[categoryName] || [];
+                    const isExpanded = expandedCreateTypes[categoryName];
+                    const selectedCount = categoryProducts.filter(p => createIndentItems[p.id]?.quantity > 0).length;
                     
                     return (
-                      <div key={typeName} className={`border rounded-lg overflow-hidden ${getTypeColorClasses(typeName).split(' ')[2]}`}>
-                        {/* Type Header */}
+                      <div key={categoryName} className={`border rounded-lg overflow-hidden ${getTypeColorClasses(categoryName).split(' ')[2]}`}>
+                        {/* Category Header */}
                         <div
-                          className={`flex items-center justify-between p-2 sm:p-3 cursor-pointer ${getTypeColorClasses(typeName).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
-                          onClick={() => toggleCreateType(typeName)}
+                          className={`flex items-center justify-between p-2 sm:p-3 cursor-pointer ${getTypeColorClasses(categoryName).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                          onClick={() => toggleCreateType(categoryName)}
                         >
                           <div className="flex items-center gap-2 sm:gap-3">
                             {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                            <span className="font-semibold text-sm">{typeName}</span>
-                            <span className="text-[10px] sm:text-xs opacity-75">({typeProducts.length})</span>
+                            <span className="font-semibold text-sm">{categoryName}</span>
+                            <span className="text-[10px] sm:text-xs opacity-75">({categoryProducts.length})</span>
                           </div>
                           {selectedCount > 0 && (
                             <span className="px-2 py-0.5 bg-white/50 rounded-full text-[10px] sm:text-xs font-medium">
@@ -3499,10 +3499,10 @@ export default function RetailerDashboard() {
                           )}
                         </div>
                         
-                        {/* Type Products */}
+                        {/* Category Products */}
                         {isExpanded && (
                           <div className="bg-white divide-y">
-                            {typeProducts.map((product) => {
+                            {categoryProducts.map((product) => {
                               const itemData = createIndentItems[product.id] || { variant_id: '', quantity: 0 };
                               const imageUrl = product.image_url?.startsWith('/') 
                                 ? `${process.env.REACT_APP_BACKEND_URL}${product.image_url}` 
@@ -3583,7 +3583,7 @@ export default function RetailerDashboard() {
                     );
                   })}
                   
-                  {sortedTypeNames.length === 0 && (
+                  {sortedCategoryNames.length === 0 && (
                     <div className="text-center text-gray-500 py-8 text-sm">
                       No products available. Please contact admin to add products.
                     </div>

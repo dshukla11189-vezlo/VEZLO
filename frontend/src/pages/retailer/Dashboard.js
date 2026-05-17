@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
 import { 
   Package, Truck, DollarSign, AlertTriangle, Plus, X,
   TrendingUp, Clock, CheckCircle, FileText, Download,
@@ -77,6 +78,19 @@ export default function RetailerDashboard() {
   const [yesterdayClosingMissing, setYesterdayClosingMissing] = useState(false);
   const [yesterdayDate, setYesterdayDate] = useState('');
   const [showYesterdayBanner, setShowYesterdayBanner] = useState(true); // Track if banner is dismissed
+  
+  // Create Indent Modal state
+  const [showCreateIndentModal, setShowCreateIndentModal] = useState(false);
+  const [createIndentDate, setCreateIndentDate] = useState(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return getLocalDateString(tomorrow);
+  });
+  const [createIndentItems, setCreateIndentItems] = useState({});
+  const [expandedCreateTypes, setExpandedCreateTypes] = useState({});
+  const [productTypes, setProductTypes] = useState([]);
+  const [savingIndent, setSavingIndent] = useState(false);
+  const [editingIndentId, setEditingIndentId] = useState(null);
   
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
@@ -153,7 +167,7 @@ export default function RetailerDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
@@ -162,7 +176,8 @@ export default function RetailerDashboard() {
         api.get('/api/products'),
         api.get('/api/qc-packaging'),
         api.get('/api/retailer-grn'),
-        api.get('/api/retailer-payments')
+        api.get('/api/retailer-payments'),
+        api.get('/api/product-types')
       ]);
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
@@ -172,6 +187,7 @@ export default function RetailerDashboard() {
       setProducts(productsRes.data);
       setPackagings(packagingsRes.data);
       setPayments(paymentsRes.data || []);
+      setProductTypes(typesRes.data || []);
       
       // Build a map of dispatch_id -> GRN confirmed status
       const grnMap = {};
@@ -264,6 +280,169 @@ export default function RetailerDashboard() {
       items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: 0, status: 'pending' }],
       remarks: ''
     });
+  };
+
+  // ==================== NEW CREATE INDENT MODAL HANDLERS ====================
+  // Group products by type for the create indent modal
+  const productsByType = useMemo(() => {
+    const grouped = {};
+    products.forEach(p => {
+      const type = p.product_type || 'Others';
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push(p);
+    });
+    // Sort products within each type
+    Object.keys(grouped).forEach(type => {
+      grouped[type].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    return grouped;
+  }, [products]);
+
+  // Get sorted type names
+  const sortedTypeNames = useMemo(() => {
+    const typeOrder = { 'Vegetables': 1, 'Leafy': 2, 'Fruits': 3, 'Exotic': 4, 'Herbs': 5, 'Mushrooms': 6, 'Others': 99 };
+    return Object.keys(productsByType).sort((a, b) => (typeOrder[a] || 99) - (typeOrder[b] || 99));
+  }, [productsByType]);
+
+  const openCreateIndentModal = (existingIndent = null) => {
+    // Set date to tomorrow by default
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    if (existingIndent) {
+      // Edit mode
+      setEditingIndentId(existingIndent.id);
+      setCreateIndentDate(existingIndent.indent_date?.split('T')[0] || getLocalDateString(tomorrow));
+      
+      // Convert existing items to format {productId: {variantId, quantity}}
+      const items = {};
+      (existingIndent.items || []).forEach(item => {
+        items[item.product_id] = {
+          variant_id: item.variant_id || '',
+          quantity: item.quantity || 0
+        };
+      });
+      setCreateIndentItems(items);
+      
+      // Expand all types that have items
+      const expandTypes = {};
+      products.forEach(p => {
+        if (items[p.id]) {
+          expandTypes[p.product_type || 'Others'] = true;
+        }
+      });
+      setExpandedCreateTypes(expandTypes);
+    } else {
+      // Create new mode
+      setEditingIndentId(null);
+      setCreateIndentDate(getLocalDateString(tomorrow));
+      setCreateIndentItems({});
+      setExpandedCreateTypes({});
+    }
+    setShowCreateIndentModal(true);
+  };
+
+  const toggleCreateType = (type) => {
+    setExpandedCreateTypes(prev => ({
+      ...prev,
+      [type]: !prev[type]
+    }));
+  };
+
+  const updateCreateIndentItem = (productId, field, value) => {
+    setCreateIndentItems(prev => {
+      const current = prev[productId] || { variant_id: '', quantity: 0 };
+      const updated = { ...current, [field]: value };
+      
+      // If quantity is 0 and variant is empty, remove the item
+      if (updated.quantity === 0 && !updated.variant_id) {
+        const newItems = { ...prev };
+        delete newItems[productId];
+        return newItems;
+      }
+      
+      return { ...prev, [productId]: updated };
+    });
+  };
+
+  const handleSubmitCreateIndent = async () => {
+    // Filter items with quantity > 0
+    const items = Object.entries(createIndentItems)
+      .filter(([_, data]) => data.quantity > 0)
+      .map(([productId, data]) => {
+        const product = products.find(p => p.id === productId);
+        const variant = packagings.find(v => v.id === data.variant_id);
+        return {
+          product_id: productId,
+          product_name: product?.name || '',
+          variant_id: data.variant_id || '',
+          variant_name: variant?.name || '',
+          quantity: data.quantity,
+          status: 'pending'
+        };
+      });
+
+    if (items.length === 0) {
+      toast.error('Please add at least one product with quantity');
+      return;
+    }
+
+    setSavingIndent(true);
+    try {
+      if (editingIndentId) {
+        await api.put(`/api/retailer-indents/${editingIndentId}`, {
+          retailer_id: dashboardData?.retailer?.id,
+          indent_date: new Date(createIndentDate).toISOString(),
+          items: items,
+          remarks: ''
+        });
+        toast.success('Indent updated successfully');
+      } else {
+        await api.post('/api/retailer-indents', {
+          retailer_id: dashboardData?.retailer?.id,
+          indent_date: new Date(createIndentDate).toISOString(),
+          items: items,
+          remarks: ''
+        });
+        toast.success('Indent created successfully');
+      }
+      setShowCreateIndentModal(false);
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save indent');
+    } finally {
+      setSavingIndent(false);
+    }
+  };
+
+  // Check if indent can be edited (before 10 PM IST on indent date)
+  const canEditIndent = (indent) => {
+    if (!indent || indent.status !== 'pending') return false;
+    const indentDate = indent.indent_date?.split('T')[0];
+    if (!indentDate) return false;
+    
+    // Current time in IST
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+    const nowIST = new Date(now.getTime() + istOffset);
+    
+    // Cutoff is 10 PM IST on the indent date
+    const cutoff = new Date(indentDate + 'T22:00:00');
+    
+    return nowIST < cutoff;
+  };
+
+  // Get type color classes
+  const getTypeColorClasses = (type) => {
+    switch (type) {
+      case 'Fruits': return 'bg-orange-100 text-orange-700 border-orange-200';
+      case 'Vegetables': return 'bg-green-100 text-green-700 border-green-200';
+      case 'Leafy': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      case 'Exotic': return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'Herbs': return 'bg-teal-100 text-teal-700 border-teal-200';
+      case 'Mushrooms': return 'bg-amber-100 text-amber-700 border-amber-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
   };
 
   const addIndentItem = () => {
@@ -1792,44 +1971,45 @@ export default function RetailerDashboard() {
         {activeTab === 'orders' && (
           <div className="space-y-4">
             {/* Sub-tabs for Orders */}
-            <div className="flex border-b">
-              <button
-                onClick={() => setOrdersSubTab('pending')}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  ordersSubTab === 'pending'
-                    ? 'border-yellow-500 text-yellow-700 bg-yellow-50'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <ShoppingBag size={14} className="inline mr-1.5" />
-                {t('retailer.pendingOrders') || 'Pending Orders'}
-                {indents.filter(i => i.status === 'pending' || i.status === 'partial').length > 0 && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-xs rounded-full">
-                    {indents.filter(i => i.status === 'pending' || i.status === 'partial').length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setOrdersSubTab('dispatched')}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  ordersSubTab === 'dispatched'
-                    ? 'border-green-500 text-green-700 bg-green-50'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <Truck size={14} className="inline mr-1.5" />
-                {t('retailer.dispatchedOrders') || 'Dispatched Orders'}
-                {dispatches.length > 0 && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-green-200 text-green-800 text-xs rounded-full">
-                    {dispatches.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setOrdersSubTab('invoiced')}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  ordersSubTab === 'invoiced'
-                    ? 'border-blue-500 text-blue-700 bg-blue-50'
+            <div className="flex border-b justify-between items-center">
+              <div className="flex">
+                <button
+                  onClick={() => setOrdersSubTab('pending')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    ordersSubTab === 'pending'
+                      ? 'border-yellow-500 text-yellow-700 bg-yellow-50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <ShoppingBag size={14} className="inline mr-1.5" />
+                  {'Orders'}
+                  {indents.filter(i => i.status === 'pending' || i.status === 'partial').length > 0 && (
+                    <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-xs rounded-full">
+                      {indents.filter(i => i.status === 'pending' || i.status === 'partial').length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setOrdersSubTab('dispatched')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    ordersSubTab === 'dispatched'
+                      ? 'border-green-500 text-green-700 bg-green-50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Truck size={14} className="inline mr-1.5" />
+                  {t('retailer.dispatchedOrders') || 'Dispatched Orders'}
+                  {dispatches.length > 0 && (
+                    <span className="ml-2 px-1.5 py-0.5 bg-green-200 text-green-800 text-xs rounded-full">
+                      {dispatches.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setOrdersSubTab('invoiced')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    ordersSubTab === 'invoiced'
+                      ? 'border-blue-500 text-blue-700 bg-blue-50'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -1841,15 +2021,25 @@ export default function RetailerDashboard() {
                   </span>
                 )}
               </button>
+              </div>
+              {/* Create Indent Button */}
+              <Button 
+                size="sm" 
+                className="bg-[#14532D] hover:bg-[#166534] mb-1"
+                onClick={() => openCreateIndentModal()}
+              >
+                <Plus size={14} className="mr-1" />
+                Create Indent
+              </Button>
             </div>
 
-            {/* Pending Orders Sub-tab */}
+            {/* Orders Sub-tab */}
             {ordersSubTab === 'pending' && (
               <Card>
-                <CardHeader className="py-3 border-b bg-yellow-50">
+                <CardHeader className="py-3 border-b bg-yellow-50 flex flex-row items-center justify-between">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <ShoppingBag size={16} className="text-yellow-600" />
-                    {t('retailer.pendingOrders') || 'Pending Orders'}
+                    {'Orders'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -1918,11 +2108,32 @@ export default function RetailerDashboard() {
                                     <td className="p-2 pl-6"></td>
                                     <td colSpan={4} className="p-3">
                                       <div className="space-y-2">
-                                        {indent.is_auto_generated && (
-                                          <span className="inline-block mb-1 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
-                                            Auto Generated
-                                          </span>
-                                        )}
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          {indent.created_by_retailer && (
+                                            <span className="inline-block px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded font-medium">
+                                              Generated by Retailer
+                                            </span>
+                                          )}
+                                          {indent.is_auto_generated && (
+                                            <span className="inline-block px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
+                                              Auto Generated
+                                            </span>
+                                          )}
+                                          {indent.status === 'pending' && canEditIndent(indent) && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-6 text-xs px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openCreateIndentModal(indent);
+                                              }}
+                                            >
+                                              <Edit2 size={12} className="mr-1" />
+                                              Edit
+                                            </Button>
+                                          )}
+                                        </div>
                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                                           {indent.items?.map((item, idx) => (
                                             <div key={idx} className="flex items-center gap-1 text-sm bg-gray-50 px-2 py-1 rounded">
@@ -3216,6 +3427,142 @@ export default function RetailerDashboard() {
                   <Button type="submit" className="flex-1 bg-[#14532D]">Confirm GRN</Button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== CREATE INDENT MODAL ==================== */}
+        {showCreateIndentModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+              <div className="p-4 border-b bg-[#14532D] text-white flex justify-between items-center">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Plus size={20} />
+                  {editingIndentId ? 'Edit Indent' : 'Create New Indent'}
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCreateIndentModal(false)}
+                  className="text-white hover:bg-white/20"
+                >
+                  <X size={20} />
+                </Button>
+              </div>
+              
+              <div className="p-4 border-b bg-gray-50 flex items-center gap-4">
+                <Label className="font-medium">Indent Date:</Label>
+                <Input
+                  type="date"
+                  value={createIndentDate}
+                  onChange={(e) => setCreateIndentDate(e.target.value)}
+                  className="w-48"
+                  min={getLocalDateString()}
+                />
+                <span className="text-xs text-gray-500">
+                  (You can edit this indent until 10 PM IST on the selected date)
+                </span>
+              </div>
+              
+              <div className="overflow-y-auto max-h-[60vh] p-4">
+                <div className="space-y-3">
+                  {sortedTypeNames.map((typeName) => {
+                    const typeProducts = productsByType[typeName] || [];
+                    const isExpanded = expandedCreateTypes[typeName];
+                    const selectedCount = typeProducts.filter(p => createIndentItems[p.id]?.quantity > 0).length;
+                    
+                    return (
+                      <div key={typeName} className={`border rounded-lg overflow-hidden ${getTypeColorClasses(typeName).split(' ')[2]}`}>
+                        {/* Type Header */}
+                        <div
+                          className={`flex items-center justify-between p-3 cursor-pointer ${getTypeColorClasses(typeName).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                          onClick={() => toggleCreateType(typeName)}
+                        >
+                          <div className="flex items-center gap-3">
+                            {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            <span className="font-semibold">{typeName}</span>
+                            <span className="text-xs opacity-75">({typeProducts.length} products)</span>
+                          </div>
+                          {selectedCount > 0 && (
+                            <span className="px-2 py-0.5 bg-white/50 rounded-full text-xs font-medium">
+                              {selectedCount} selected
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Type Products */}
+                        {isExpanded && (
+                          <div className="bg-white divide-y">
+                            {typeProducts.map((product) => {
+                              const itemData = createIndentItems[product.id] || { variant_id: '', quantity: 0 };
+                              return (
+                                <div key={product.id} className="flex items-center gap-3 p-3 hover:bg-gray-50">
+                                  <div className="flex-1 min-w-0">
+                                    <span className="font-medium text-sm">{product.name}</span>
+                                    {product.category && (
+                                      <span className="ml-2 text-[10px] px-1 py-0.5 bg-gray-100 text-gray-500 rounded">
+                                        {product.category}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      value={itemData.variant_id}
+                                      onChange={(e) => updateCreateIndentItem(product.id, 'variant_id', e.target.value)}
+                                      className="h-8 px-2 text-sm border rounded min-w-[140px]"
+                                    >
+                                      <option value="">Select Variant</option>
+                                      {packagings.map(v => (
+                                        <option key={v.id} value={v.id}>{v.name}</option>
+                                      ))}
+                                    </select>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      placeholder="Qty"
+                                      value={itemData.quantity || ''}
+                                      onChange={(e) => updateCreateIndentItem(product.id, 'quantity', parseInt(e.target.value) || 0)}
+                                      className="w-20 h-8 text-center"
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {sortedTypeNames.length === 0 && (
+                    <div className="text-center text-gray-500 py-8">
+                      No products available. Please contact admin to add products.
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
+                <div className="text-sm text-gray-600">
+                  {Object.values(createIndentItems).filter(i => i.quantity > 0).length} items selected
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCreateIndentModal(false)}
+                    disabled={savingIndent}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="bg-[#14532D] hover:bg-[#166534]"
+                    onClick={handleSubmitCreateIndent}
+                    disabled={savingIndent || Object.values(createIndentItems).filter(i => i.quantity > 0).length === 0}
+                  >
+                    {savingIndent ? 'Saving...' : (editingIndentId ? 'Update Indent' : 'Submit Indent')}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         )}

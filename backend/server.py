@@ -333,7 +333,13 @@ async def login(input: LoginRequest):
         # Try searching by mobile/contact number
         user = await db.users.find_one({"contact": identifier}, {"_id": 0})
     
-    if not user or not verify_password(input.password, user["password"]):
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not user.get("password"):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    if not verify_password(input.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     token = create_token(user["id"], user["email"], user["role"])
@@ -9221,6 +9227,9 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
     doc["indent_date"] = doc["indent_date"].isoformat()
     doc["created_at"] = doc["created_at"].isoformat()
     
+    # Mark if created by retailer
+    doc["created_by_retailer"] = current_user["role"] == "retailer"
+    
     await db.retailer_indents.insert_one(doc)
     return {"id": indent.id, "message": "Indent created successfully"}
 
@@ -9236,6 +9245,19 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
             raise HTTPException(status_code=403, detail="Not authorized")
         if existing["status"] != "pending":
             raise HTTPException(status_code=400, detail="Cannot edit non-pending indent")
+        
+        # Time restriction: Retailers can only edit until 10 PM IST on the indent date
+        # IST is UTC+5:30
+        import pytz
+        ist = pytz.timezone('Asia/Kolkata')
+        now_ist = datetime.now(ist)
+        indent_date_str = existing.get("indent_date", "")
+        if indent_date_str:
+            indent_date = datetime.fromisoformat(indent_date_str.replace('Z', '+00:00')).date() if 'T' in indent_date_str else datetime.strptime(indent_date_str[:10], "%Y-%m-%d").date()
+            # Cutoff is 10 PM IST on the indent date
+            cutoff_time = ist.localize(datetime.combine(indent_date, datetime.strptime("22:00", "%H:%M").time()))
+            if now_ist > cutoff_time:
+                raise HTTPException(status_code=400, detail="Cannot edit indent after 10 PM on the indent date")
     
     # Get all dispatches for this indent to recalculate status
     all_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)

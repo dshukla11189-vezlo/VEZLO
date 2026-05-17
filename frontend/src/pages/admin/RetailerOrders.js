@@ -3270,6 +3270,15 @@ export default function RetailerOrders() {
                   <Tag size={14} className="mr-1" />
                   Stickers
                 </Button>
+                <Button
+                  variant={dailyReqSubTab === 'mrp' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setDailyReqSubTab('mrp')}
+                  className={dailyReqSubTab === 'mrp' ? 'bg-[#14532D]' : ''}
+                >
+                  <IndianRupee size={14} className="mr-1" />
+                  MRP
+                </Button>
               </div>
 
               {/* Purchase Sub-tab */}
@@ -3548,6 +3557,254 @@ export default function RetailerOrders() {
                       <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex justify-between items-center font-semibold">
                         <span>Grand Total ({filteredStickersData.length} items)</span>
                         <span className="text-blue-700">Quantity: {filteredStickersData.reduce((sum, item) => sum + item.quantity, 0)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* MRP Sub-tab */}
+              {dailyReqSubTab === 'mrp' && (
+                <div>
+                  {/* Header with Date Selector and Actions */}
+                  <div className="flex flex-col md:flex-row gap-3 mb-4">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-700">Date:</label>
+                      <Input
+                        type="date"
+                        value={mrpDate}
+                        onChange={(e) => setMrpDate(e.target.value)}
+                        className="h-9 w-40"
+                      />
+                    </div>
+                    <div className="flex gap-2 ml-auto">
+                      <Button 
+                        onClick={() => loadMrpData(mrpDate)}
+                        disabled={mrpLoading}
+                        variant="outline"
+                        className="h-9"
+                      >
+                        {mrpLoading ? (
+                          <span className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                            Loading...
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <RefreshCw size={14} />
+                            Refresh
+                          </span>
+                        )}
+                      </Button>
+                      {mrpData.length === 0 && (
+                        <Button 
+                          onClick={initializeMrpData}
+                          disabled={savingMrp || mrpLoading}
+                          className="h-9 bg-[#14532D]"
+                        >
+                          {savingMrp ? (
+                            <span className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              Initializing...
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              <Plus size={14} />
+                              Initialize from Last Variants
+                            </span>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Loading State */}
+                  {mrpLoading ? (
+                    <div className="text-center py-12">
+                      <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-gray-500">Loading MRP data...</p>
+                    </div>
+                  ) : mrpData.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <IndianRupee size={48} className="mx-auto mb-4 opacity-30" />
+                      <p>No MRP data for {mrpDate}</p>
+                      <p className="text-xs mt-2">Click "Initialize from Last Variants" to create entries based on recent sales, or add products manually below</p>
+                      
+                      {/* Show categories for manual addition even when no data */}
+                      <div className="mt-6 text-left">
+                        <p className="text-sm font-medium text-gray-700 mb-3">Or add products manually:</p>
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                          {Object.keys(mrpProductsByCategory).sort().map(category => (
+                            <div key={category} className="border rounded-lg overflow-hidden">
+                              <div 
+                                className={`flex items-center justify-between p-2 cursor-pointer ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                                onClick={() => toggleMrpCategory(category)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {expandedMrpCategories[category] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                  <span className="font-medium text-sm">{category}</span>
+                                  <span className="text-xs opacity-75">({mrpProductsByCategory[category].length} products)</span>
+                                </div>
+                              </div>
+                              {expandedMrpCategories[category] && (
+                                <div className="bg-white p-2 space-y-1">
+                                  {mrpProductsByCategory[category].map(product => (
+                                    <div key={product.id} className="flex items-center justify-between p-1 hover:bg-gray-50 rounded text-sm">
+                                      <span>{product.name}</span>
+                                      <Button size="sm" variant="ghost" onClick={() => addMrpEntry(product)} className="h-6 px-2 text-xs">
+                                        <Plus size={12} className="mr-1" /> Add
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">
+                        MRP entries for {mrpDate} • {mrpData.length} items
+                      </p>
+                      
+                      {/* Category-wise collapsible sections */}
+                      {Object.keys(mrpProductsByCategory).sort().map((category) => {
+                        const categoryEntries = mrpData.filter(e => e.category === category);
+                        if (categoryEntries.length === 0) {
+                          // Check if any products in this category don't have entries
+                          const productsWithoutEntries = mrpProductsByCategory[category].filter(
+                            p => !mrpData.some(e => e.product_id === p.id)
+                          );
+                          if (productsWithoutEntries.length === 0) return null;
+                        }
+                        
+                        const isExpanded = expandedMrpCategories[category];
+                        const categoryTotal = categoryEntries.reduce((sum, e) => sum + (e.mrp || 0), 0);
+                        
+                        return (
+                          <div key={category} className={`border rounded-lg overflow-hidden ${getCategoryColorClasses(category).split(' ')[2]}`}>
+                            {/* Category Header - Clickable */}
+                            <div 
+                              className={`flex items-center justify-between p-3 cursor-pointer ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                              onClick={() => toggleMrpCategory(category)}
+                            >
+                              <div className="flex items-center gap-3">
+                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                <span className="font-semibold text-sm">{category}</span>
+                                <span className="text-xs opacity-75">({categoryEntries.length} items)</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs">
+                                <span>Total MRP: <strong className="text-green-700">₹{categoryTotal.toFixed(2)}</strong></span>
+                              </div>
+                            </div>
+                            
+                            {/* Category Items - Collapsible */}
+                            {isExpanded && (
+                              <div className="bg-white">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b bg-gray-50 text-xs">
+                                      <th className="p-2 text-left w-10">#</th>
+                                      <th className="p-2 text-left">Product</th>
+                                      <th className="p-2 text-left w-48">Variant</th>
+                                      <th className="p-2 text-right w-28">MRP (₹)</th>
+                                      <th className="p-2 text-center w-16">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {categoryEntries.map((entry, localIdx) => (
+                                      <tr key={entry.id} className="border-b hover:bg-gray-50">
+                                        <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                        <td className="p-2 font-medium">{entry.product_name}</td>
+                                        <td className="p-2">
+                                          <select
+                                            value={entry.variant_id || ''}
+                                            onChange={(e) => updateMrpEntry(entry.id, 'variant_id', e.target.value)}
+                                            className="w-full h-8 px-2 rounded border border-gray-200 text-sm"
+                                          >
+                                            <option value="">Select variant</option>
+                                            {packagings
+                                              .filter(p => p.vertical === 'retail' || p.vertical === 'both')
+                                              .map(pkg => (
+                                                <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
+                                              ))}
+                                          </select>
+                                        </td>
+                                        <td className="p-2 text-right">
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={entry.mrp || ''}
+                                            onChange={(e) => updateMrpEntry(entry.id, 'mrp', e.target.value)}
+                                            className="h-8 w-24 text-right ml-auto"
+                                            placeholder="0.00"
+                                          />
+                                        </td>
+                                        <td className="p-2 text-center">
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => deleteMrpEntry(entry.id)}
+                                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                          >
+                                            <Trash2 size={14} />
+                                          </Button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                
+                                {/* Add new item button for this category */}
+                                <div className="p-2 border-t bg-gray-50">
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      id={`add-product-${category}`}
+                                      className="flex-1 h-8 px-2 rounded border border-gray-200 text-sm"
+                                      defaultValue=""
+                                    >
+                                      <option value="">Select product to add...</option>
+                                      {mrpProductsByCategory[category]
+                                        .filter(p => !mrpData.some(e => e.product_id === p.id))
+                                        .map(product => (
+                                          <option key={product.id} value={product.id}>{product.name}</option>
+                                        ))}
+                                    </select>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 px-3"
+                                      onClick={() => {
+                                        const select = document.getElementById(`add-product-${category}`);
+                                        const productId = select.value;
+                                        if (!productId) {
+                                          toast.error('Please select a product');
+                                          return;
+                                        }
+                                        const product = mrpProductsByCategory[category].find(p => p.id === productId);
+                                        if (product) {
+                                          addMrpEntry(product);
+                                          select.value = '';
+                                        }
+                                      }}
+                                    >
+                                      <Plus size={14} className="mr-1" /> Add
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      
+                      {/* Grand Total */}
+                      <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex justify-between items-center font-semibold">
+                        <span>Grand Total ({mrpData.length} items)</span>
+                        <span className="text-green-700">Total MRP: ₹{mrpData.reduce((sum, e) => sum + (e.mrp || 0), 0).toFixed(2)}</span>
                       </div>
                     </div>
                   )}

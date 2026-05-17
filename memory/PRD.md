@@ -32,8 +32,29 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - **Paid By filters with employee dropdown in Variable Expenses**
 - **Unit conversion: Bunches/Packets/Pieces to kg for stock tracking**
 
+### Completed (This Session - 17 May 2026 - Continued)
+- **Daily MRP Tab for Retail Products** ✅ (Verified)
+  - New "MRP" sub-tab added in Daily Requirement section (after Purchase and Stickers)
+  - Products grouped by category with collapsible headers (click to expand/collapse)
+  - Table columns: S.No (#), Product Name, Variant (dropdown), MRP (₹ input), Actions (delete)
+  - Variant dropdown filtered to show only retail-applicable variants
+  - Inline editing: MRP values and variants editable directly in the table
+  - Delete functionality: Remove individual entries with trash icon
+  - Add new products: "Select product to add..." dropdown per category with "Add" button
+  - Date selector: Pick date to view/edit MRP for that date
+  - "Initialize from Last Variants" button: Auto-populates all products with their last sold variants from recent dispatches
+  - Backend APIs:
+    - `GET /api/daily-mrp?date=YYYY-MM-DD` - Fetch MRP entries for a date
+    - `POST /api/daily-mrp` - Bulk initialize MRP entries for a date
+    - `POST /api/daily-mrp/entry` - Add single MRP entry
+    - `PUT /api/daily-mrp/{entry_id}` - Update MRP entry (variant, mrp value)
+    - `DELETE /api/daily-mrp/{entry_id}` - Delete MRP entry
+    - `GET /api/daily-mrp/last-variants` - Get last sold variant per product from recent dispatches
+  - New MongoDB collection: `daily_mrp` storing date-wise product MRP entries
+  - UI features: Category total MRP display, Grand total, Auto-expand categories on load, Refresh button
+
 ### In Progress
-- **Codebase refactoring Phase 2** (server.py ~13,400 lines - CRITICAL)
+- **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)
   - ✅ Labour Management routes moved to `/app/backend/routes/labour.py`
   - Pending: More route extractions to reach target <8,000 lines
 - Labor "Inactive" UI clarity improvements (soft-delete confusion)

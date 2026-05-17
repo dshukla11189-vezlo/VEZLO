@@ -10766,6 +10766,31 @@ async def get_last_sold_variants(
     
     return last_variants
 
+
+@api_router.get("/daily-mrp/for-dispatch")
+async def get_mrp_for_dispatch(
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get MRP entries for a dispatch date, keyed by product_id+variant_id"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get MRP entries for the given date
+    mrp_entries = await db.daily_mrp.find(
+        {"date": date},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Create a map keyed by product_id+variant_id for quick lookup
+    mrp_map = {}
+    for entry in mrp_entries:
+        key = f"{entry.get('product_id')}_{entry.get('variant_id')}"
+        mrp_map[key] = entry.get('mrp', 0)
+    
+    return mrp_map
+
+
 # ==================== BLINKIT PRICE SCRAPER ====================
 
 @api_router.get("/blinkit-prices")
@@ -10981,6 +11006,38 @@ async def update_product_mapping(
     )
     
     return {"message": "Mapping updated", "product_id": product_id}
+
+
+@api_router.post("/blinkit-prices/manual")
+async def save_manual_blinkit_price(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Save manually entered Blinkit price"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    price_doc = {
+        "id": str(uuid.uuid4()),
+        "product_id": data.get("product_id"),
+        "product_name": data.get("product_name"),
+        "category": data.get("category"),
+        "blinkit_name": f"{data.get('product_name')} (Manual)",
+        "blinkit_price": float(data.get("blinkit_price", 0)),
+        "quantity": None,
+        "pincode": data.get("pincode", "411045"),
+        "date": data.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
+        "manual_entry": True
+    }
+    
+    await db.blinkit_prices.update_one(
+        {"product_id": data.get("product_id"), "date": price_doc["date"], "pincode": price_doc["pincode"]},
+        {"$set": price_doc},
+        upsert=True
+    )
+    
+    return {"message": "Blinkit price saved", "product_id": data.get("product_id")}
 
 
 def run_blinkit_scrape_scheduled():

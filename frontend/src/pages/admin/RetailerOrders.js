@@ -1570,6 +1570,38 @@ export default function RetailerOrders() {
     }
   }, [activeTab, dailyReqSubTab, loadBlinkitPrices, products.length, packagings.length, loadBaseData]);
 
+  // Update Blinkit price for a product
+  const updateBlinkitPrice = async (productId, price) => {
+    const priceVal = parseFloat(price) || 0;
+    
+    // Update local state immediately
+    setBlinkitPrices(prev => ({
+      ...prev,
+      [productId]: {
+        ...(prev[productId] || {}),
+        product_id: productId,
+        blinkit_price: priceVal
+      }
+    }));
+    
+    // Save to backend
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const product = products.find(p => p.id === productId);
+      
+      await api.post('/api/blinkit-prices/manual', {
+        product_id: productId,
+        product_name: product?.name || '',
+        category: product?.category || '',
+        blinkit_price: priceVal,
+        pincode: '411045',
+        date: date
+      });
+    } catch (error) {
+      console.error('Failed to save Blinkit price:', error);
+    }
+  };
+
   // Get MRP entry for a product
   const getMrpEntry = (productId, variantId = null) => {
     if (variantId) {
@@ -2013,9 +2045,21 @@ export default function RetailerOrders() {
     return remainingItems;
   };
   
-  const openDispatchModal = (indent, dispatchRemaining = false) => {
+  const openDispatchModal = async (indent, dispatchRemaining = false) => {
     setSelectedIndent(indent);
     setEditingDispatch(null);
+    
+    // Get today's date for MRP lookup
+    const dispatchDate = new Date().toISOString().split('T')[0];
+    
+    // Fetch MRP data for the dispatch date
+    let mrpMap = {};
+    try {
+      const mrpRes = await api.get(`/api/daily-mrp/for-dispatch?date=${dispatchDate}`);
+      mrpMap = mrpRes.data || {};
+    } catch (error) {
+      console.error('Failed to fetch MRP data:', error);
+    }
     
     // Get items with remaining quantities if dispatching remaining
     let itemsToDispatch = indent.items;
@@ -2032,7 +2076,7 @@ export default function RetailerOrders() {
     }
     
     setDispatchForm({
-      dispatch_date: new Date().toISOString().split('T')[0],
+      dispatch_date: dispatchDate,
       items: itemsToDispatch.map(item => {
         // Look up variant_id from variant_name if not set
         let variantId = item.variant_id;
@@ -2042,6 +2086,11 @@ export default function RetailerOrders() {
             variantId = matchingVariant.id;
           }
         }
+        
+        // Lookup MRP from the daily MRP table using product_id + variant_id
+        const mrpKey = `${item.product_id}_${variantId || ''}`;
+        const mrpValue = mrpMap[mrpKey] || 0;
+        
         return {
           product_id: item.product_id,
           product_name: item.product_name,
@@ -2049,7 +2098,7 @@ export default function RetailerOrders() {
           variant_name: item.variant_name || '',
           indent_qty: item.quantity || item.remaining_qty,
           supplied_qty: '',  // Empty by default - user fills only what they dispatch
-          mrp: 0,
+          mrp: mrpValue,
           total_value: 0
         };
       }),
@@ -3992,19 +4041,16 @@ export default function RetailerOrders() {
                                               />
                                             </td>
                                             <td className="p-2 text-right">
-                                              {blinkitData ? (
-                                                <span className={`text-sm font-medium ${
-                                                  entry.mrp && blinkitData.blinkit_price > entry.mrp 
-                                                    ? 'text-green-600' 
-                                                    : entry.mrp && blinkitData.blinkit_price < entry.mrp 
-                                                      ? 'text-red-600' 
-                                                      : 'text-orange-600'
-                                                }`} title={blinkitData.blinkit_name || ''}>
-                                                  ₹{blinkitData.blinkit_price}
-                                                </span>
-                                              ) : (
-                                                <span className="text-gray-300 text-xs">-</span>
-                                              )}
+                                              <Input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={blinkitData?.blinkit_price || ''}
+                                                onChange={(e) => updateBlinkitPrice(entry.product_id, e.target.value)}
+                                                disabled={!isEditable}
+                                                className={`h-8 w-20 text-right ml-auto text-orange-600 ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                placeholder="0.00"
+                                              />
                                             </td>
                                             <td className="p-2 text-center flex gap-1 justify-center">
                                               {isEditable && (
@@ -4043,13 +4089,16 @@ export default function RetailerOrders() {
                                           </td>
                                           <td className="p-2 text-right text-gray-400">-</td>
                                           <td className="p-2 text-right">
-                                            {blinkitData ? (
-                                              <span className="text-orange-600 text-sm font-medium" title={blinkitData.blinkit_name || ''}>
-                                                ₹{blinkitData.blinkit_price}
-                                              </span>
-                                            ) : (
-                                              <span className="text-gray-300 text-xs">-</span>
-                                            )}
+                                            <Input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              value={blinkitData?.blinkit_price || ''}
+                                              onChange={(e) => updateBlinkitPrice(product.id, e.target.value)}
+                                              disabled={!isEditable}
+                                              className={`h-8 w-20 text-right ml-auto text-orange-600 ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                              placeholder="0.00"
+                                            />
                                           </td>
                                           <td className="p-2 text-center">
                                             {isEditable && (
@@ -6196,7 +6245,40 @@ export default function RetailerOrders() {
                   <Input
                     type="date"
                     value={dispatchForm.dispatch_date}
-                    onChange={(e) => setDispatchForm(prev => ({ ...prev, dispatch_date: e.target.value }))}
+                    onChange={async (e) => {
+                      const newDate = e.target.value;
+                      setDispatchForm(prev => ({ ...prev, dispatch_date: newDate }));
+                      
+                      // Reload MRP for the new date
+                      try {
+                        const mrpRes = await api.get(`/api/daily-mrp/for-dispatch?date=${newDate}`);
+                        const mrpMap = mrpRes.data || {};
+                        
+                        let filledCount = 0;
+                        setDispatchForm(prev => ({
+                          ...prev,
+                          items: prev.items.map(item => {
+                            const mrpKey = `${item.product_id}_${item.variant_id || ''}`;
+                            const mrpValue = mrpMap[mrpKey];
+                            if (mrpValue && mrpValue > 0) {
+                              filledCount++;
+                              return {
+                                ...item,
+                                mrp: mrpValue,
+                                total_value: (item.supplied_qty || 0) * mrpValue
+                              };
+                            }
+                            return item;
+                          })
+                        }));
+                        
+                        if (filledCount > 0) {
+                          toast.success(`Auto-filled MRP for ${filledCount} items from ${newDate}`);
+                        }
+                      } catch (error) {
+                        console.error('Failed to fetch MRP for date:', error);
+                      }
+                    }}
                     required
                   />
                 </div>
@@ -6288,10 +6370,24 @@ export default function RetailerOrders() {
                             <td className="p-2 text-center">
                               <select
                                 value={item.variant_id || ''}
-                                onChange={(e) => {
+                                onChange={async (e) => {
                                   const variant = packagings.find(p => p.id === e.target.value);
                                   updateDispatchItem(index, 'variant_id', e.target.value);
                                   updateDispatchItem(index, 'variant_name', variant?.name || '');
+                                  
+                                  // Lookup MRP for the new variant
+                                  try {
+                                    const mrpRes = await api.get(`/api/daily-mrp/for-dispatch?date=${dispatchForm.dispatch_date}`);
+                                    const mrpMap = mrpRes.data || {};
+                                    const mrpKey = `${item.product_id}_${e.target.value || ''}`;
+                                    const mrpValue = mrpMap[mrpKey];
+                                    if (mrpValue && mrpValue > 0) {
+                                      updateDispatchItem(index, 'mrp', mrpValue);
+                                      toast.info(`MRP auto-filled: ₹${mrpValue}`);
+                                    }
+                                  } catch (error) {
+                                    console.error('Failed to fetch MRP for variant:', error);
+                                  }
                                 }}
                                 className="w-28 h-7 text-xs border rounded px-1"
                               >

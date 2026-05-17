@@ -103,6 +103,16 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Static files served from `/uploads/products/` directory
   - Product model updated with `image_url` field
 
+- **Retailer Indent: Product Images & Hindi Support** ✅ (Verified)
+  - Create Indent modal shows product images (48x48 thumbnails)
+  - Click on image to enlarge (opens full-screen modal with product name)
+  - Zoom icon overlay appears on hover
+  - Hindi translations shown when language is set to Hindi:
+    - Primary name shows Hindi (e.g., "हरा चौलाई")
+    - English name shown as secondary text below
+  - Placeholder icon shown for products without images
+  - Variant dropdown and Qty input labels also translate to Hindi
+
 ### Completed (Previous Session - 16 May 2026)
 - **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
   - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting

@@ -12,7 +12,7 @@ import {
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
   ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check, Edit2,
-  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon, LogOut
+  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon, LogOut, ImageIcon, ZoomIn
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -91,6 +91,9 @@ export default function RetailerDashboard() {
   const [productTypes, setProductTypes] = useState([]);
   const [savingIndent, setSavingIndent] = useState(false);
   const [editingIndentId, setEditingIndentId] = useState(null);
+  
+  // Image enlargement state
+  const [enlargedImage, setEnlargedImage] = useState(null);
   
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
@@ -3495,23 +3498,62 @@ export default function RetailerDashboard() {
                           <div className="bg-white divide-y">
                             {typeProducts.map((product) => {
                               const itemData = createIndentItems[product.id] || { variant_id: '', quantity: 0 };
+                              const imageUrl = product.image_url?.startsWith('/') 
+                                ? `${process.env.REACT_APP_BACKEND_URL}${product.image_url}` 
+                                : product.image_url;
+                              const isHindi = i18n.language === 'hi';
+                              
                               return (
                                 <div key={product.id} className="flex items-center gap-3 p-3 hover:bg-gray-50">
+                                  {/* Product Image */}
+                                  <div className="flex-shrink-0">
+                                    {product.image_url ? (
+                                      <div 
+                                        className="relative group cursor-pointer"
+                                        onClick={() => setEnlargedImage({ url: imageUrl, name: product.name })}
+                                      >
+                                        <img 
+                                          src={imageUrl}
+                                          alt={product.name}
+                                          className="w-12 h-12 object-cover rounded-md border"
+                                        />
+                                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 rounded-md flex items-center justify-center transition-all">
+                                          <ZoomIn size={16} className="text-white opacity-0 group-hover:opacity-100" />
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="w-12 h-12 bg-gray-100 rounded-md flex items-center justify-center">
+                                        <ImageIcon size={18} className="text-gray-400" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Product Name with Hindi Translation */}
                                   <div className="flex-1 min-w-0">
-                                    <span className="font-medium text-sm">{product.name}</span>
+                                    <div className="font-medium text-sm">
+                                      {isHindi && product.name_hi ? product.name_hi : product.name}
+                                    </div>
+                                    {isHindi && product.name_hi && (
+                                      <div className="text-xs text-gray-500">{product.name}</div>
+                                    )}
+                                    {!isHindi && product.name_hi && (
+                                      <div className="text-xs text-gray-500">{product.name_hi}</div>
+                                    )}
                                     {product.category && (
-                                      <span className="ml-2 text-[10px] px-1 py-0.5 bg-gray-100 text-gray-500 rounded">
+                                      <span className="inline-block mt-0.5 text-[10px] px-1 py-0.5 bg-gray-100 text-gray-500 rounded">
                                         {product.category}
                                       </span>
                                     )}
                                   </div>
+                                  
+                                  {/* Variant & Quantity */}
                                   <div className="flex items-center gap-2">
                                     <select
                                       value={itemData.variant_id}
                                       onChange={(e) => updateCreateIndentItem(product.id, 'variant_id', e.target.value)}
                                       className="h-8 px-2 text-sm border rounded min-w-[140px]"
                                     >
-                                      <option value="">Select Variant</option>
+                                      <option value="">{isHindi ? 'वेरिएंट चुनें' : 'Select Variant'}</option>
                                       {packagings
                                         .filter(v => !v.verticals || v.verticals.length === 0 || v.verticals.includes('retail'))
                                         .map(v => (
@@ -3521,7 +3563,7 @@ export default function RetailerDashboard() {
                                     <Input
                                       type="number"
                                       min="0"
-                                      placeholder="Qty"
+                                      placeholder={isHindi ? 'मात्रा' : 'Qty'}
                                       value={itemData.quantity || ''}
                                       onChange={(e) => updateCreateIndentItem(product.id, 'quantity', parseInt(e.target.value) || 0)}
                                       className="w-20 h-8 text-center"
@@ -3565,6 +3607,29 @@ export default function RetailerDashboard() {
                   </Button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Image Enlargement Modal */}
+        {enlargedImage && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[60] p-4"
+            onClick={() => setEnlargedImage(null)}
+          >
+            <div className="relative max-w-3xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setEnlargedImage(null)}
+                className="absolute -top-10 right-0 text-white hover:text-gray-300"
+              >
+                <X size={28} />
+              </button>
+              <img 
+                src={enlargedImage.url}
+                alt={enlargedImage.name}
+                className="max-w-full max-h-[80vh] object-contain rounded-lg"
+              />
+              <p className="text-white text-center mt-3 text-lg font-medium">{enlargedImage.name}</p>
             </div>
           </div>
         )}

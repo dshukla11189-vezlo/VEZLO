@@ -4633,6 +4633,29 @@ export default function RetailerOrders() {
                   >
                     <AlertTriangle size={14} className="mr-1" /> Payment Audit
                   </Button>
+                  {getCurrentUserRole() === 'admin' && (
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const res = await api.post('/api/retailer-invoices/fix-statuses');
+                          toast.success(res.data.message);
+                          // Reload invoices
+                          if (invoiceForm.retailer_id) {
+                            const invRes = await api.get(`/api/retailer-invoices?retailer_id=${invoiceForm.retailer_id}`);
+                            setInvoices(invRes.data || []);
+                          }
+                        } catch (error) {
+                          toast.error('Failed to fix statuses');
+                        }
+                      }}
+                      className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                      title="Recalculate invoice statuses from payment records"
+                    >
+                      <RefreshCw size={14} className="mr-1" /> Fix Statuses
+                    </Button>
+                  )}
                   <select
                     value={invoiceForm.retailer_id}
                     onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}

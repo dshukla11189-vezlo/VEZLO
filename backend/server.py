@@ -10521,6 +10521,61 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
         "message": "Payment recorded successfully"
     }
 
+# Fix invoice statuses - recalculate from payments
+@api_router.post("/retailer-invoices/fix-statuses")
+async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
+    """Recalculate and fix invoice payment statuses based on actual payments"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix statuses")
+    
+    # Get all retailer invoices
+    invoices = await db.retailer_invoices.find({}, {"_id": 0}).to_list(5000)
+    
+    fixed_count = 0
+    fixed_invoices = []
+    
+    for inv in invoices:
+        invoice_id = inv.get('id')
+        net_payable = inv.get('net_payable', 0) or 0
+        current_status = inv.get('status', 'pending')
+        
+        # Recalculate paid amount from all payments
+        all_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+        actual_paid = sum(p.get("amount", 0) for p in all_payments)
+        
+        # Determine correct status
+        if net_payable > 0 and actual_paid >= net_payable - 0.01:
+            correct_status = 'paid'
+        elif actual_paid > 0:
+            correct_status = 'partial'
+        else:
+            correct_status = 'pending'
+        
+        # Check if update needed
+        stored_paid = inv.get('paid_amount', 0) or 0
+        if current_status != correct_status or abs(stored_paid - actual_paid) > 0.01:
+            await db.retailer_invoices.update_one(
+                {'id': invoice_id},
+                {'$set': {
+                    'status': correct_status,
+                    'paid_amount': round(actual_paid, 2)
+                }}
+            )
+            fixed_invoices.append({
+                'invoice_number': inv.get('invoice_number'),
+                'old_status': current_status,
+                'new_status': correct_status,
+                'old_paid': stored_paid,
+                'new_paid': actual_paid
+            })
+            fixed_count += 1
+    
+    return {
+        "message": f"Fixed {fixed_count} invoices",
+        "total_checked": len(invoices),
+        "fixed_invoices": fixed_invoices[:50]  # Limit response size
+    }
+
 # Get payment history for an invoice
 @api_router.get("/retailer-invoices/{invoice_id}/payments")
 async def get_invoice_payments(invoice_id: str, current_user: dict = Depends(get_current_user)):

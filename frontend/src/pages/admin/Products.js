@@ -31,7 +31,7 @@ export default function Products() {
   const [packagingLoading, setPackagingLoading] = useState(false);
   const [showPackagingDialog, setShowPackagingDialog] = useState(false);
   const [editingPackaging, setEditingPackaging] = useState(null);
-  const [packagingForm, setPackagingForm] = useState({ name: '', weight_gm: '' });
+  const [packagingForm, setPackagingForm] = useState({ name: '', weight_gm: '', verticals: 'both' });
   
   // Categories & Types state
   const [categories, setCategories] = useState([]);
@@ -215,13 +215,10 @@ export default function Products() {
     }
     try {
       if (editingPackaging) {
-        await api.put(`/api/qc-packaging/${editingPackaging.id}`, {
-          name: packagingForm.name,
-          weight_gm: parseFloat(packagingForm.weight_gm)
-        });
+        await api.put(`/api/qc-packaging/${editingPackaging.id}?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}&verticals=${packagingForm.verticals}`);
         toast.success('Packaging updated successfully');
       } else {
-        await api.post(`/api/qc-packaging?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}`);
+        await api.post(`/api/qc-packaging?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}&verticals=${packagingForm.verticals}`);
         toast.success('Packaging added successfully');
       }
       resetPackagingForm();
@@ -239,7 +236,18 @@ export default function Products() {
 
   const handleEditPackaging = (pkg) => {
     setEditingPackaging(pkg);
-    setPackagingForm({ name: pkg.name, weight_gm: pkg.weight_gm?.toString() || '' });
+    // Determine verticals from array
+    let verticalsValue = 'both';
+    if (pkg.verticals) {
+      if (pkg.verticals.includes('qc') && pkg.verticals.includes('retail')) {
+        verticalsValue = 'both';
+      } else if (pkg.verticals.includes('qc')) {
+        verticalsValue = 'qc';
+      } else if (pkg.verticals.includes('retail')) {
+        verticalsValue = 'retail';
+      }
+    }
+    setPackagingForm({ name: pkg.name, weight_gm: pkg.weight_gm?.toString() || '', verticals: verticalsValue });
     setShowPackagingDialog(true);
   };
 
@@ -286,7 +294,7 @@ export default function Products() {
   };
 
   const resetPackagingForm = () => {
-    setPackagingForm({ name: '', weight_gm: '' });
+    setPackagingForm({ name: '', weight_gm: '', verticals: 'both' });
     setEditingPackaging(null);
     setShowPackagingDialog(false);
   };
@@ -1106,6 +1114,20 @@ export default function Products() {
                       required
                     />
                   </div>
+                  <div>
+                    <Label htmlFor="pkg-verticals">Applicable For *</Label>
+                    <select
+                      id="pkg-verticals"
+                      value={packagingForm.verticals}
+                      onChange={(e) => setPackagingForm({ ...packagingForm, verticals: e.target.value })}
+                      className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
+                    >
+                      <option value="both">Both (QC & Retail)</option>
+                      <option value="qc">QC Only</option>
+                      <option value="retail">Retail Only</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Choose where this variant will be available</p>
+                  </div>
                   <div className="flex gap-3 pt-4">
                     <Button type="button" variant="outline" className="flex-1" onClick={resetPackagingForm}>
                       Cancel
@@ -1135,6 +1157,7 @@ export default function Products() {
                   <tr>
                     <th className="px-4 py-3 text-left font-medium text-gray-600">Name</th>
                     <th className="px-4 py-3 text-center font-medium text-gray-600">Weight (gm)</th>
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">Applicable For</th>
                     <th className="px-4 py-3 text-center font-medium text-gray-600">Actions</th>
                   </tr>
                 </thead>
@@ -1149,6 +1172,22 @@ export default function Products() {
                           <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
                             {pkg.weight_gm} gm
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {(!pkg.verticals || pkg.verticals.length === 0 || (pkg.verticals.includes('qc') && pkg.verticals.includes('retail'))) ? (
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">Both</span>
+                            ) : (
+                              <>
+                                {pkg.verticals.includes('qc') && (
+                                  <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-medium">QC</span>
+                                )}
+                                {pkg.verticals.includes('retail') && (
+                                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">Retail</span>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-2">

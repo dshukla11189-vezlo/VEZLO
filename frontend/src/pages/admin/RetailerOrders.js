@@ -2835,9 +2835,10 @@ export default function RetailerOrders() {
     p.name_hi?.includes(productSearch)
   );
 
-  // Filter variants based on search
+  // Filter variants based on search and vertical (retail for retailer indents)
   const filteredVariants = packagings.filter(p => 
-    p.name?.toLowerCase().includes(variantSearch.toLowerCase())
+    p.name?.toLowerCase().includes(variantSearch.toLowerCase()) &&
+    (!p.verticals || p.verticals.length === 0 || p.verticals.includes('retail'))
   );
 
   // Filtered retailers for search-based selection

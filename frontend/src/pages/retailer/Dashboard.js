@@ -3512,9 +3512,11 @@ export default function RetailerDashboard() {
                                       className="h-8 px-2 text-sm border rounded min-w-[140px]"
                                     >
                                       <option value="">Select Variant</option>
-                                      {packagings.map(v => (
-                                        <option key={v.id} value={v.id}>{v.name}</option>
-                                      ))}
+                                      {packagings
+                                        .filter(v => !v.verticals || v.verticals.length === 0 || v.verticals.includes('retail'))
+                                        .map(v => (
+                                          <option key={v.id} value={v.id}>{v.name}</option>
+                                        ))}
                                     </select>
                                     <Input
                                       type="number"

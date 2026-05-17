@@ -1143,7 +1143,7 @@ async def get_qc_packaging(current_user: dict = Depends(get_current_user)):
     return packagings
 
 @api_router.post("/qc-packaging")
-async def create_qc_packaging(name: str, weight_gm: float = 0, current_user: dict = Depends(get_current_user)):
+async def create_qc_packaging(name: str, weight_gm: float = 0, verticals: str = "both", current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -1151,16 +1151,28 @@ async def create_qc_packaging(name: str, weight_gm: float = 0, current_user: dic
     if weight_gm == 0:
         weight_gm = extract_weight_from_packaging_name(name)
     
+    # Parse verticals - can be 'qc', 'retail', or 'both'
+    vertical_list = []
+    if verticals.lower() in ['both', 'all']:
+        vertical_list = ['qc', 'retail']
+    elif verticals.lower() == 'qc':
+        vertical_list = ['qc']
+    elif verticals.lower() == 'retail':
+        vertical_list = ['retail']
+    else:
+        vertical_list = ['qc', 'retail']  # default to both
+    
     packaging = {
         "id": str(uuid.uuid4()),
         "name": name,
-        "weight_gm": weight_gm
+        "weight_gm": weight_gm,
+        "verticals": vertical_list
     }
     await db.qc_packaging.insert_one(packaging)
     return {"id": packaging["id"], "message": "Packaging created"}
 
 @api_router.put("/qc-packaging/{packaging_id}")
-async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: float = None, current_user: dict = Depends(get_current_user)):
+async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: float = None, verticals: str = None, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -1169,6 +1181,14 @@ async def update_qc_packaging(packaging_id: str, name: str = None, weight_gm: fl
         update_data["name"] = name
     if weight_gm is not None:
         update_data["weight_gm"] = weight_gm
+    if verticals is not None:
+        # Parse verticals
+        if verticals.lower() in ['both', 'all']:
+            update_data["verticals"] = ['qc', 'retail']
+        elif verticals.lower() == 'qc':
+            update_data["verticals"] = ['qc']
+        elif verticals.lower() == 'retail':
+            update_data["verticals"] = ['retail']
     
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")

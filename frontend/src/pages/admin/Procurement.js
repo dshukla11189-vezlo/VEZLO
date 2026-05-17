@@ -197,6 +197,7 @@ export default function Procurement() {
     remarks: ''
   });
   const [selectedForSettlement, setSelectedForSettlement] = useState([]);  // For bulk settlement
+  const [fixingLegacyData, setFixingLegacyData] = useState(false);  // For legacy data migration
 
   // Farmer form
   const [farmerForm, setFarmerForm] = useState({
@@ -1018,6 +1019,25 @@ export default function Procurement() {
   const unsettledEmployeeProcurements = procurements.filter(
     p => p.paid_by_type === 'employee' && p.settlement_status !== 'settled' && (p.payment_status === 'paid' || p.payment_status === 'partial')
   );
+
+  // Fix legacy employee payments data (migration)
+  const handleFixLegacyData = async () => {
+    if (!window.confirm('This will scan all procurements and fix employee payment tracking for historical data. Continue?')) {
+      return;
+    }
+    
+    setFixingLegacyData(true);
+    try {
+      const response = await api.post('/api/procurement/fix-legacy-employee-payments');
+      toast.success(`Fixed ${response.data.fixed} procurements. ${response.data.skipped} were already correct.`);
+      loadData(); // Reload to see updated data
+    } catch (error) {
+      console.error('Fix legacy data error:', error);
+      toast.error('Failed to fix legacy data');
+    } finally {
+      setFixingLegacyData(false);
+    }
+  };
 
   // Delete procurement
   const handleDelete = async (procurementId) => {
@@ -2473,7 +2493,7 @@ export default function Procurement() {
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-purple-700 font-bold">
-                  ₹{unsettledEmployeeProcurements.reduce((sum, p) => sum + (p.total_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  ₹{unsettledEmployeeProcurements.reduce((sum, p) => sum + (p.paid_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </span>
                 {selectedForSettlement.length > 0 && (
                   <Button
@@ -2486,9 +2506,45 @@ export default function Procurement() {
                 )}
               </div>
             </div>
-            <p className="text-xs text-purple-600 mt-1">
-              {unsettledEmployeeProcurements.length} procurements paid by employees - awaiting company reimbursement
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-purple-600 mt-1">
+                {unsettledEmployeeProcurements.length} procurements paid by employees - awaiting company reimbursement
+              </p>
+              <button 
+                onClick={handleFixLegacyData}
+                disabled={fixingLegacyData}
+                className="text-xs text-purple-500 hover:text-purple-700 underline"
+              >
+                {fixingLegacyData ? 'Fixing...' : 'Sync legacy data'}
+              </button>
+            </div>
+          </CardHeader>
+        </Card>
+      )}
+      
+      {/* Fix Legacy Data Button - Shows for Admin when no employee reimbursements showing but there might be legacy data */}
+      {unsettledEmployeeProcurements.length === 0 && procurements.some(p => p.paid_amount > 0 && !p.paid_by_type) && (
+        <Card className="mb-4 border-amber-200 bg-amber-50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                  ⚠️ Legacy Data Detected
+                </CardTitle>
+                <p className="text-xs text-amber-600 mt-1">
+                  Some procurements have payments but missing employee tracking data. Click to fix.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-500 text-amber-700 hover:bg-amber-100"
+                onClick={handleFixLegacyData}
+                disabled={fixingLegacyData}
+              >
+                {fixingLegacyData ? 'Fixing...' : 'Fix Legacy Data'}
+              </Button>
+            </div>
           </CardHeader>
         </Card>
       )}

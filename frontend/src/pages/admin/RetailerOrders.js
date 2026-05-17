@@ -5735,7 +5735,7 @@ export default function RetailerOrders() {
         {/* ==================== PAYMENT SUMMARY PREVIEW MODAL ==================== */}
         {showPaymentSummaryPreview && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2 md:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md md:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
               <div className="flex items-center justify-between px-3 py-2 border-b bg-green-50">
                 <div className="flex items-center gap-2">
                   <FileText className="text-green-600" size={16} />
@@ -5750,33 +5750,53 @@ export default function RetailerOrders() {
               </div>
               
               <div className="flex-1 overflow-y-auto overflow-x-auto">
-                {/* Compact Summary Table - Mobile Friendly */}
-                <table className="w-full text-xs min-w-[400px]">
+                {/* Full Summary Table with all fields */}
+                <table className="w-full text-xs min-w-[700px]">
                   <thead className="bg-gray-100 sticky top-0">
                     <tr>
                       <th className="px-1.5 py-1 text-center text-gray-600 font-semibold w-8">#</th>
                       <th className="px-1.5 py-1 text-left text-gray-600 font-semibold">Date</th>
-                      <th className="px-1.5 py-1 text-left text-gray-600 font-semibold">Invoice</th>
+                      <th className="px-1.5 py-1 text-left text-gray-600 font-semibold">Invoice #</th>
+                      <th className="px-1.5 py-1 text-right text-gray-600 font-semibold">Gross</th>
+                      <th className="px-1.5 py-1 text-right text-red-600 font-semibold">Reject</th>
+                      <th className="px-1.5 py-1 text-right text-blue-600 font-semibold">MRP</th>
+                      <th className="px-1.5 py-1 text-right text-orange-600 font-semibold">Comm.</th>
                       <th className="px-1.5 py-1 text-right text-green-600 font-semibold">Payable</th>
                       <th className="px-1.5 py-1 text-right text-purple-600 font-semibold">Paid</th>
-                      <th className="px-1.5 py-1 text-right text-blue-700 font-bold">Net Due</th>
+                      <th className="px-1.5 py-1 text-right text-blue-800 font-bold">Net Due</th>
                     </tr>
                   </thead>
                   <tbody>
                     {getSelectedInvoicesData().map((inv, idx) => (
                       <tr key={idx} className="border-t hover:bg-gray-50">
                         <td className="px-1.5 py-1 text-center text-gray-500">{inv.serialNum}</td>
-                        <td className="px-1.5 py-1 text-left text-gray-700 text-[10px]">{inv.dispatchDate}</td>
-                        <td className="px-1.5 py-1 text-left font-medium text-gray-800 text-[10px]">{inv.invoiceNumber}</td>
+                        <td className="px-1.5 py-1 text-left text-gray-700 text-[10px] whitespace-nowrap">{inv.dispatchDate}</td>
+                        <td className="px-1.5 py-1 text-left font-medium text-gray-800 text-[10px] whitespace-nowrap">{inv.invoiceNumber}</td>
+                        <td className="px-1.5 py-1 text-right text-gray-700">₹{inv.grossValue.toFixed(0)}</td>
+                        <td className="px-1.5 py-1 text-right text-red-600">-₹{inv.rejections.toFixed(0)}</td>
+                        <td className="px-1.5 py-1 text-right text-blue-600">₹{inv.totalMrpValue.toFixed(0)}</td>
+                        <td className="px-1.5 py-1 text-right text-orange-600">-₹{inv.commission.toFixed(0)}</td>
                         <td className="px-1.5 py-1 text-right text-green-600">₹{inv.amountPayable.toFixed(0)}</td>
                         <td className="px-1.5 py-1 text-right text-purple-600">₹{inv.paidAmount.toFixed(0)}</td>
-                        <td className="px-1.5 py-1 text-right font-semibold text-blue-700">₹{inv.netReceivable.toFixed(0)}</td>
+                        <td className="px-1.5 py-1 text-right font-semibold text-blue-800">₹{inv.netReceivable.toFixed(0)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="bg-green-100 font-bold sticky bottom-0">
                     <tr>
                       <td colSpan={3} className="px-1.5 py-1.5 text-right text-green-800 text-xs">TOTAL:</td>
+                      <td className="px-1.5 py-1.5 text-right text-gray-800">
+                        ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.grossValue, 0).toFixed(0)}
+                      </td>
+                      <td className="px-1.5 py-1.5 text-right text-red-700">
+                        -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.rejections, 0).toFixed(0)}
+                      </td>
+                      <td className="px-1.5 py-1.5 text-right text-blue-700">
+                        ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.totalMrpValue, 0).toFixed(0)}
+                      </td>
+                      <td className="px-1.5 py-1.5 text-right text-orange-700">
+                        -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.commission, 0).toFixed(0)}
+                      </td>
                       <td className="px-1.5 py-1.5 text-right text-green-700">
                         ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toFixed(0)}
                       </td>
@@ -5813,7 +5833,7 @@ export default function RetailerOrders() {
                       }}
                       className="bg-green-600 hover:bg-green-700 text-white"
                     >
-                      <Download size={14} className="mr-1" /> Download
+                      <Download size={14} className="mr-1" /> Download CSV
                     </Button>
                   </div>
                 </div>

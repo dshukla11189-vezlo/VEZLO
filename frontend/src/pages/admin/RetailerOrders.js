@@ -1251,24 +1251,27 @@ export default function RetailerOrders() {
         };
       });
       
-      // Aggregate by product + variant combination
-      const combinationMap = {}; // key = product_id_variant_id -> {product_name, category, variant_name, quantity}
+      // Aggregate by product NAME + variant NAME combination (not IDs)
+      // This ensures same variants across different retailers are combined
+      const combinationMap = {}; // key = "ProductName_VariantName" -> {product_name, category, variant_name, quantity}
       
       for (const indent of indents) {
         for (const item of (indent.items || [])) {
           const productId = item.product_id;
-          const variantId = item.variant_id || 'default';
-          const key = `${productId}_${variantId}`;
-          
           const productInfo = productInfoMap[productId] || {};
+          const productName = (productInfo.name || item.product_name || 'Unknown').trim();
+          const variantName = (item.variant_name || 'Default').trim();
+          const category = productInfo.category || 'Other';
+          
+          // Create key using product name + variant name (case-insensitive)
+          const key = `${productName.toLowerCase()}_${variantName.toLowerCase()}`;
           
           if (!combinationMap[key]) {
             combinationMap[key] = {
               productId: productId,
-              productName: productInfo.name || item.product_name || 'Unknown',
-              category: productInfo.category || 'Other',
-              variantId: variantId,
-              variantName: item.variant_name || 'Default',
+              productName: productName,
+              category: category,
+              variantName: variantName,
               quantity: 0
             };
           }
@@ -1277,13 +1280,15 @@ export default function RetailerOrders() {
         }
       }
       
-      // Convert to array and sort by category then product name
+      // Convert to array and sort by category then product name then variant
       const categoryOrder = { 'Fruits': 1, 'Vegetables': 2, 'Leafy': 3, 'Exotic': 4, 'Other': 5 };
       const stickersArray = Object.values(combinationMap).sort((a, b) => {
         const catA = categoryOrder[a.category] || 99;
         const catB = categoryOrder[b.category] || 99;
         if (catA !== catB) return catA - catB;
-        return a.productName.localeCompare(b.productName);
+        const nameCompare = a.productName.localeCompare(b.productName);
+        if (nameCompare !== 0) return nameCompare;
+        return a.variantName.localeCompare(b.variantName);
       });
       
       setStickersData(stickersArray);
@@ -1321,6 +1326,13 @@ export default function RetailerOrders() {
     
     return filtered;
   }, [stickersData, stickersCategoryFilter, stickersSearch]);
+
+  // Recalculate stickers when date changes and we're on stickers tab
+  useEffect(() => {
+    if (dailyReqSubTab === 'stickers' && dailyReqDate) {
+      calculateStickersData();
+    }
+  }, [dailyReqDate, dailyReqSubTab, calculateStickersData]);
 
   // Print daily requirement
   const printDailyRequirement = () => {
@@ -2984,9 +2996,8 @@ export default function RetailerOrders() {
                   size="sm"
                   onClick={() => {
                     setDailyReqSubTab('stickers');
-                    if (stickersData.length === 0 && dailyReqDate) {
-                      calculateStickersData();
-                    }
+                    // Always recalculate when switching to stickers tab
+                    calculateStickersData();
                   }}
                   className={dailyReqSubTab === 'stickers' ? 'bg-[#14532D]' : ''}
                 >

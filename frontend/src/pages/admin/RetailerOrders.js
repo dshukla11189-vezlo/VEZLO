@@ -18,7 +18,7 @@ import {
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag
 } from 'lucide-react';
 
 // Export utility function
@@ -258,6 +258,15 @@ export default function RetailerOrders() {
   const [dailyReqSaving, setDailyReqSaving] = useState(false);
   const [dailyReqSaved, setDailyReqSaved] = useState(false);
   const [retailWastageAverages, setRetailWastageAverages] = useState([]);
+  
+  // Daily Requirement sub-tabs state
+  const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase' or 'stickers'
+  
+  // Stickers tab state
+  const [stickersData, setStickersData] = useState([]);
+  const [stickersLoading, setStickersLoading] = useState(false);
+  const [stickersSearch, setStickersSearch] = useState('');
+  const [stickersCategoryFilter, setStickersCategoryFilter] = useState('all');
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -1213,6 +1222,105 @@ export default function RetailerOrders() {
       setDailyReqLoading(false);
     }
   }, [dailyReqDate, dailyReqRetailer]);
+
+  // Calculate stickers data from indents
+  const calculateStickersData = useCallback(async () => {
+    if (!dailyReqDate) {
+      return;
+    }
+    
+    setStickersLoading(true);
+    setStickersData([]);
+    
+    try {
+      // Fetch indents for the selected date
+      const response = await api.get(`/api/retailer-indents?from_date=${dailyReqDate}&to_date=${dailyReqDate}`);
+      const indents = response.data || [];
+      
+      if (indents.length === 0) {
+        setStickersLoading(false);
+        return;
+      }
+      
+      // Build product info map from products state
+      const productInfoMap = {};
+      products.forEach(p => {
+        productInfoMap[p.id] = {
+          name: p.name,
+          category: p.category || 'Other'
+        };
+      });
+      
+      // Aggregate by product + variant combination
+      const combinationMap = {}; // key = product_id_variant_id -> {product_name, category, variant_name, quantity}
+      
+      for (const indent of indents) {
+        for (const item of (indent.items || [])) {
+          const productId = item.product_id;
+          const variantId = item.variant_id || 'default';
+          const key = `${productId}_${variantId}`;
+          
+          const productInfo = productInfoMap[productId] || {};
+          
+          if (!combinationMap[key]) {
+            combinationMap[key] = {
+              productId: productId,
+              productName: productInfo.name || item.product_name || 'Unknown',
+              category: productInfo.category || 'Other',
+              variantId: variantId,
+              variantName: item.variant_name || 'Default',
+              quantity: 0
+            };
+          }
+          
+          combinationMap[key].quantity += (item.quantity || 0);
+        }
+      }
+      
+      // Convert to array and sort by category then product name
+      const categoryOrder = { 'Fruits': 1, 'Vegetables': 2, 'Leafy': 3, 'Exotic': 4, 'Other': 5 };
+      const stickersArray = Object.values(combinationMap).sort((a, b) => {
+        const catA = categoryOrder[a.category] || 99;
+        const catB = categoryOrder[b.category] || 99;
+        if (catA !== catB) return catA - catB;
+        return a.productName.localeCompare(b.productName);
+      });
+      
+      setStickersData(stickersArray);
+      
+    } catch (error) {
+      console.error('Failed to load stickers data:', error);
+    } finally {
+      setStickersLoading(false);
+    }
+  }, [dailyReqDate, products]);
+
+  // Get unique categories from stickers data
+  const stickersCategories = useMemo(() => {
+    const cats = new Set(stickersData.map(item => item.category));
+    return ['all', ...Array.from(cats).sort()];
+  }, [stickersData]);
+
+  // Filter stickers data based on search and category
+  const filteredStickersData = useMemo(() => {
+    let filtered = stickersData;
+    
+    // Filter by category
+    if (stickersCategoryFilter !== 'all') {
+      filtered = filtered.filter(item => item.category === stickersCategoryFilter);
+    }
+    
+    // Filter by search
+    if (stickersSearch.trim()) {
+      const searchLower = stickersSearch.toLowerCase().trim();
+      filtered = filtered.filter(item => 
+        item.productName.toLowerCase().includes(searchLower) ||
+        item.variantName.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    return filtered;
+  }, [stickersData, stickersCategoryFilter, stickersSearch]);
 
   // Print daily requirement
   const printDailyRequirement = () => {
@@ -2860,112 +2968,250 @@ export default function RetailerOrders() {
               </div>
             </CardHeader>
             <CardContent className="p-4" id="daily-requirement-print">
-              {dailyReqError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-center">
-                  <AlertTriangle size={24} className="mx-auto mb-2" />
-                  <p>{dailyReqError}</p>
-                </div>
+              {/* Sub-tabs: Purchase and Stickers */}
+              <div className="flex gap-2 mb-4 border-b pb-2">
+                <Button
+                  variant={dailyReqSubTab === 'purchase' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setDailyReqSubTab('purchase')}
+                  className={dailyReqSubTab === 'purchase' ? 'bg-[#14532D]' : ''}
+                >
+                  <ShoppingCart size={14} className="mr-1" />
+                  Purchase
+                </Button>
+                <Button
+                  variant={dailyReqSubTab === 'stickers' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => {
+                    setDailyReqSubTab('stickers');
+                    if (stickersData.length === 0 && dailyReqDate) {
+                      calculateStickersData();
+                    }
+                  }}
+                  className={dailyReqSubTab === 'stickers' ? 'bg-[#14532D]' : ''}
+                >
+                  <Tag size={14} className="mr-1" />
+                  Stickers
+                </Button>
+              </div>
+
+              {/* Purchase Sub-tab */}
+              {dailyReqSubTab === 'purchase' && (
+                <>
+                  {dailyReqError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-center">
+                      <AlertTriangle size={24} className="mx-auto mb-2" />
+                      <p>{dailyReqError}</p>
+                    </div>
+                  )}
+                  
+                  {!dailyReqError && dailyReqData.length === 0 && !dailyReqLoading && (
+                    <div className="text-center py-12 text-gray-500">
+                      <ShoppingCart size={48} className="mx-auto mb-4 opacity-30" />
+                      <p>Select a date and click "Calculate" to view purchase requirements from indents</p>
+                      <p className="text-xs mt-2">Combines all retailer indents for the date and calculates wastage % from last 7 days</p>
+                    </div>
+                  )}
+                  
+                  {dailyReqData.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <p className="text-xs text-gray-500 mb-2">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days' closing inventory data.</p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-gray-50">
+                            <th className="p-3 text-left w-12">#</th>
+                            <th className="p-3 text-left">Product Name</th>
+                            <th className="p-3 text-left w-24">Category</th>
+                            <th className="p-3 text-center w-20">Qty (Units)</th>
+                            <th className="p-3 text-center w-20">Qty (Kg)</th>
+                            <th className="p-3 text-center w-28">Wastage %</th>
+                            <th className="p-3 text-center w-28">Requirement (Kg)</th>
+                            <th className="p-3 text-center w-12">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dailyReqData.map((item, idx) => (
+                            <tr key={`${item.productId}-${idx}`} className="border-b hover:bg-gray-50">
+                              <td className="p-3 text-gray-500">{idx + 1}</td>
+                              <td className="p-3 font-medium">{item.productName}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  item.category === 'Fruits' ? 'bg-orange-100 text-orange-700' :
+                                  item.category === 'Vegetables' ? 'bg-green-100 text-green-700' :
+                                  item.category === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
+                                  item.category === 'Exotic' ? 'bg-purple-100 text-purple-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {item.category}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center font-semibold">{item.qtyUnits}</td>
+                              <td className="p-3 text-center text-gray-600">{item.qtyKg.toFixed(2)}</td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="100"
+                                  placeholder="Wastage %"
+                                  value={item.wastagePct}
+                                  onChange={(e) => {
+                                    const newData = [...dailyReqData];
+                                    const newWastagePct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
+                                    newData[idx].wastagePct = newWastagePct;
+                                    // Recalculate requirement: qty_kg / (1 - wastage_pct/100)
+                                    if (newWastagePct >= 100) {
+                                      newData[idx].requirementKg = item.qtyKg * 2;
+                                    } else if (newWastagePct > 0) {
+                                      newData[idx].requirementKg = parseFloat((item.qtyKg / (1 - newWastagePct / 100)).toFixed(2));
+                                    } else {
+                                      newData[idx].requirementKg = item.qtyKg;
+                                    }
+                                    setDailyReqData(newData);
+                                    setDailyReqSaved(false);
+                                  }}
+                                  className="h-8 w-20 text-center text-sm text-amber-600"
+                                />
+                              </td>
+                              <td className="p-3 text-center font-bold text-blue-700">
+                                {item.requirementKg.toFixed(2)}
+                              </td>
+                              <td className="p-3 text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const newData = dailyReqData.filter((_, i) => i !== idx);
+                                    setDailyReqData(newData);
+                                    setDailyReqSaved(false);
+                                  }}
+                                  className="text-red-500 hover:text-red-700 h-7 w-7 p-0"
+                                >
+                                  <X size={14} />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t-2 bg-gray-100 font-semibold">
+                            <td className="p-3" colSpan="3">Total</td>
+                            <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0).toFixed(0)}</td>
+                            <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0).toFixed(2)}</td>
+                            <td className="p-3 text-center">-</td>
+                            <td className="p-3 text-center text-blue-700">{dailyReqData.reduce((sum, item) => sum + item.requirementKg, 0).toFixed(2)}</td>
+                            <td className="p-3"></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
-              
-              {!dailyReqError && dailyReqData.length === 0 && !dailyReqLoading && (
-                <div className="text-center py-12 text-gray-500">
-                  <ShoppingCart size={48} className="mx-auto mb-4 opacity-30" />
-                  <p>Select a date and click "Calculate" to view purchase requirements from indents</p>
-                  <p className="text-xs mt-2">Combines all retailer indents for the date and calculates wastage % from last 7 days</p>
-                </div>
-              )}
-              
-              {dailyReqData.length > 0 && (
-                <div className="overflow-x-auto">
-                  <p className="text-xs text-gray-500 mb-2">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days' closing inventory data.</p>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="p-3 text-left w-12">#</th>
-                        <th className="p-3 text-left">Product Name</th>
-                        <th className="p-3 text-left w-24">Category</th>
-                        <th className="p-3 text-center w-20">Qty (Units)</th>
-                        <th className="p-3 text-center w-20">Qty (Kg)</th>
-                        <th className="p-3 text-center w-28">Wastage %</th>
-                        <th className="p-3 text-center w-28">Requirement (Kg)</th>
-                        <th className="p-3 text-center w-12">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dailyReqData.map((item, idx) => (
-                        <tr key={`${item.productId}-${idx}`} className="border-b hover:bg-gray-50">
-                          <td className="p-3 text-gray-500">{idx + 1}</td>
-                          <td className="p-3 font-medium">{item.productName}</td>
-                          <td className="p-3">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              item.category === 'Fruits' ? 'bg-orange-100 text-orange-700' :
-                              item.category === 'Vegetables' ? 'bg-green-100 text-green-700' :
-                              item.category === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
-                              item.category === 'Exotic' ? 'bg-purple-100 text-purple-700' :
-                              'bg-gray-100 text-gray-700'
-                            }`}>
-                              {item.category}
-                            </span>
-                          </td>
-                          <td className="p-3 text-center font-semibold">{item.qtyUnits}</td>
-                          <td className="p-3 text-center text-gray-600">{item.qtyKg.toFixed(2)}</td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="100"
-                              placeholder="Wastage %"
-                              value={item.wastagePct}
-                              onChange={(e) => {
-                                const newData = [...dailyReqData];
-                                const newWastagePct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                                newData[idx].wastagePct = newWastagePct;
-                                // Recalculate requirement: qty_kg / (1 - wastage_pct/100)
-                                if (newWastagePct >= 100) {
-                                  newData[idx].requirementKg = item.qtyKg * 2;
-                                } else if (newWastagePct > 0) {
-                                  newData[idx].requirementKg = parseFloat((item.qtyKg / (1 - newWastagePct / 100)).toFixed(2));
-                                } else {
-                                  newData[idx].requirementKg = item.qtyKg;
-                                }
-                                setDailyReqData(newData);
-                                setDailyReqSaved(false);
-                              }}
-                              className="h-8 w-20 text-center text-sm text-amber-600"
-                            />
-                          </td>
-                          <td className="p-3 text-center font-bold text-blue-700">
-                            {item.requirementKg.toFixed(2)}
-                          </td>
-                          <td className="p-3 text-center">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                const newData = dailyReqData.filter((_, i) => i !== idx);
-                                setDailyReqData(newData);
-                                setDailyReqSaved(false);
-                              }}
-                              className="text-red-500 hover:text-red-700 h-7 w-7 p-0"
-                            >
-                              <X size={14} />
-                            </Button>
-                          </td>
-                        </tr>
+
+              {/* Stickers Sub-tab */}
+              {dailyReqSubTab === 'stickers' && (
+                <div>
+                  {/* Filters row */}
+                  <div className="flex flex-col md:flex-row gap-3 mb-4">
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        placeholder="Search product or variant..."
+                        value={stickersSearch}
+                        onChange={(e) => setStickersSearch(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                    <select
+                      value={stickersCategoryFilter}
+                      onChange={(e) => setStickersCategoryFilter(e.target.value)}
+                      className="h-9 px-3 rounded-md border border-gray-200 text-sm min-w-[150px]"
+                    >
+                      <option value="all">All Categories</option>
+                      {stickersCategories.filter(c => c !== 'all').map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 bg-gray-100 font-semibold">
-                        <td className="p-3" colSpan="3">Total</td>
-                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0).toFixed(0)}</td>
-                        <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0).toFixed(2)}</td>
-                        <td className="p-3 text-center">-</td>
-                        <td className="p-3 text-center text-blue-700">{dailyReqData.reduce((sum, item) => sum + item.requirementKg, 0).toFixed(2)}</td>
-                        <td className="p-3"></td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                    </select>
+                    <Button 
+                      onClick={calculateStickersData}
+                      disabled={stickersLoading}
+                      variant="outline"
+                      className="h-9"
+                    >
+                      {stickersLoading ? (
+                        <span className="flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                          Loading...
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <RefreshCw size={14} />
+                          Refresh
+                        </span>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Stickers table */}
+                  {stickersLoading ? (
+                    <div className="text-center py-12">
+                      <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-gray-500">Loading stickers data...</p>
+                    </div>
+                  ) : filteredStickersData.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <Tag size={48} className="mx-auto mb-4 opacity-30" />
+                      <p>No sticker data found for {dailyReqDate}</p>
+                      <p className="text-xs mt-2">Make sure indents are created for this date</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <p className="text-xs text-gray-500 mb-2">
+                        Showing {filteredStickersData.length} of {stickersData.length} product-variant combinations for {dailyReqDate}
+                      </p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-gray-50">
+                            <th className="p-3 text-left w-12">S.No</th>
+                            <th className="p-3 text-left">Product</th>
+                            <th className="p-3 text-left w-28">Category</th>
+                            <th className="p-3 text-left">Variant</th>
+                            <th className="p-3 text-center w-24">Quantity</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredStickersData.map((item, idx) => (
+                            <tr key={`${item.productId}-${item.variantId}-${idx}`} className="border-b hover:bg-gray-50">
+                              <td className="p-3 text-gray-500">{idx + 1}</td>
+                              <td className="p-3 font-medium">{item.productName}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  item.category === 'Fruits' ? 'bg-orange-100 text-orange-700' :
+                                  item.category === 'Vegetables' ? 'bg-green-100 text-green-700' :
+                                  item.category === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
+                                  item.category === 'Exotic' ? 'bg-purple-100 text-purple-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {item.category}
+                                </span>
+                              </td>
+                              <td className="p-3 text-gray-600">{item.variantName}</td>
+                              <td className="p-3 text-center font-bold text-blue-700">{item.quantity}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t-2 bg-gray-100 font-semibold">
+                            <td className="p-3" colSpan="4">Total Quantity</td>
+                            <td className="p-3 text-center text-blue-700">
+                              {filteredStickersData.reduce((sum, item) => sum + item.quantity, 0)}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

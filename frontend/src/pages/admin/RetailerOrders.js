@@ -282,6 +282,8 @@ export default function RetailerOrders() {
   const [expandedMrpCategories, setExpandedMrpCategories] = useState({});
   const [lastVariants, setLastVariants] = useState({});
   const [savingMrp, setSavingMrp] = useState(false);
+  const [mrpHasUnsavedChanges, setMrpHasUnsavedChanges] = useState(false);
+  const [pendingMrpChanges, setPendingMrpChanges] = useState({});
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -386,6 +388,29 @@ export default function RetailerOrders() {
       console.error('Failed to get current user name:', e);
     }
     return '';
+  };
+
+  const getCurrentUserRole = () => {
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        return user.role || 'staff';
+      }
+    } catch (e) {
+      console.error('Failed to get current user role:', e);
+    }
+    return 'staff';
+  };
+
+  // Check if user can edit MRP for a given date (only admin can edit past dates)
+  const canEditMrpForDate = (date) => {
+    const today = new Date().toISOString().split('T')[0];
+    const userRole = getCurrentUserRole();
+    if (date < today) {
+      return userRole === 'admin';
+    }
+    return true; // Anyone can edit today's or future dates
   };
 
   // Load closing inventory for admin management
@@ -1451,6 +1476,8 @@ export default function RetailerOrders() {
   // Load MRP data for a date
   const loadMrpData = useCallback(async (date) => {
     setMrpLoading(true);
+    setMrpHasUnsavedChanges(false);
+    setPendingMrpChanges({});
     try {
       const [mrpRes, variantsRes] = await Promise.all([
         api.get(`/api/daily-mrp?date=${date}`),
@@ -1459,7 +1486,7 @@ export default function RetailerOrders() {
       setMrpData(mrpRes.data || []);
       setLastVariants(variantsRes.data || {});
       
-      // Auto-expand all categories
+      // Auto-expand all categories by default
       const cats = {};
       products.forEach(p => {
         cats[p.category || 'Others'] = true;
@@ -1479,6 +1506,11 @@ export default function RetailerOrders() {
       loadMrpData(mrpDate);
     }
   }, [activeTab, dailyReqSubTab, mrpDate, loadMrpData]);
+
+  // Get retail-applicable packagings
+  const retailPackagings = useMemo(() => {
+    return packagings.filter(p => p.vertical === 'retail' || p.vertical === 'both' || !p.vertical);
+  }, [packagings]);
 
   // Group products by category for MRP
   const mrpProductsByCategory = useMemo(() => {
@@ -1506,7 +1538,10 @@ export default function RetailerOrders() {
   // Add MRP entry for a product
   const addMrpEntry = async (product) => {
     const lastVariant = lastVariants[product.id];
-    const variant = lastVariant ? packagings.find(p => p.id === lastVariant.variant_id) : packagings[0];
+    // Use last variant if available, otherwise use first retail packaging
+    const variant = lastVariant 
+      ? retailPackagings.find(p => p.id === lastVariant.variant_id) 
+      : retailPackagings[0];
     
     const newEntry = {
       date: mrpDate,
@@ -1527,25 +1562,53 @@ export default function RetailerOrders() {
     }
   };
 
-  // Update MRP entry
-  const updateMrpEntry = async (entryId, field, value) => {
+  // Update MRP entry (local state only, save with button)
+  const updateMrpEntryLocal = (entryId, field, value) => {
     const entry = mrpData.find(e => e.id === entryId);
     if (!entry) return;
     
     let updateData = { ...entry };
     if (field === 'variant_id') {
-      const variant = packagings.find(p => p.id === value);
+      const variant = retailPackagings.find(p => p.id === value);
       updateData.variant_id = value;
       updateData.variant_name = variant?.name || '';
     } else if (field === 'mrp') {
       updateData.mrp = parseFloat(value) || 0;
     }
     
+    // Update local state
+    setMrpData(prev => prev.map(e => e.id === entryId ? updateData : e));
+    
+    // Track pending changes
+    setPendingMrpChanges(prev => ({
+      ...prev,
+      [entryId]: updateData
+    }));
+    setMrpHasUnsavedChanges(true);
+  };
+
+  // Save all pending MRP changes
+  const saveMrpChanges = async () => {
+    if (Object.keys(pendingMrpChanges).length === 0) {
+      toast.info('No changes to save');
+      return;
+    }
+    
+    setSavingMrp(true);
     try {
-      await api.put(`/api/daily-mrp/${entryId}`, updateData);
-      setMrpData(prev => prev.map(e => e.id === entryId ? { ...e, ...updateData } : e));
+      // Save all pending changes
+      const promises = Object.entries(pendingMrpChanges).map(([entryId, data]) => 
+        api.put(`/api/daily-mrp/${entryId}`, data)
+      );
+      await Promise.all(promises);
+      
+      setPendingMrpChanges({});
+      setMrpHasUnsavedChanges(false);
+      toast.success(`Saved ${Object.keys(pendingMrpChanges).length} MRP entries`);
     } catch (error) {
-      toast.error('Failed to update entry');
+      toast.error('Failed to save some MRP entries');
+    } finally {
+      setSavingMrp(false);
     }
   };
 
@@ -1554,6 +1617,12 @@ export default function RetailerOrders() {
     try {
       await api.delete(`/api/daily-mrp/${entryId}`);
       setMrpData(prev => prev.filter(e => e.id !== entryId));
+      // Remove from pending changes if exists
+      setPendingMrpChanges(prev => {
+        const updated = { ...prev };
+        delete updated[entryId];
+        return updated;
+      });
       toast.success('Entry deleted');
     } catch (error) {
       toast.error('Failed to delete entry');
@@ -1568,14 +1637,17 @@ export default function RetailerOrders() {
     }));
   };
 
-  // Initialize MRP data for all products
+  // Initialize MRP data for all products with last variants
   const initializeMrpData = async () => {
     setSavingMrp(true);
     try {
       const entries = [];
       products.forEach(product => {
         const lastVariant = lastVariants[product.id];
-        const variant = lastVariant ? packagings.find(p => p.id === lastVariant.variant_id) : null;
+        // Use last variant if available, otherwise use first retail packaging
+        const variant = lastVariant 
+          ? retailPackagings.find(p => p.id === lastVariant.variant_id) 
+          : retailPackagings[0];
         
         if (variant) {
           entries.push({
@@ -1594,6 +1666,46 @@ export default function RetailerOrders() {
       toast.success('MRP sheet initialized with last sold variants');
     } catch (error) {
       toast.error('Failed to initialize MRP data');
+    } finally {
+      setSavingMrp(false);
+    }
+  };
+
+  // Copy MRP from previous date
+  const copyMrpFromPreviousDate = async () => {
+    setSavingMrp(true);
+    try {
+      // Get previous date
+      const prevDate = new Date(mrpDate);
+      prevDate.setDate(prevDate.getDate() - 1);
+      const prevDateStr = prevDate.toISOString().split('T')[0];
+      
+      // Fetch previous date's MRP data
+      const prevRes = await api.get(`/api/daily-mrp?date=${prevDateStr}`);
+      const prevData = prevRes.data || [];
+      
+      if (prevData.length === 0) {
+        toast.error(`No MRP data found for ${prevDateStr}`);
+        setSavingMrp(false);
+        return;
+      }
+      
+      // Create entries for current date based on previous date
+      const entries = prevData.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        category: item.category,
+        variant_id: item.variant_id,
+        variant_name: item.variant_name,
+        mrp: item.mrp
+      }));
+      
+      await api.post('/api/daily-mrp', { date: mrpDate, items: entries });
+      await loadMrpData(mrpDate);
+      toast.success(`Copied ${entries.length} MRP entries from ${prevDateStr}`);
+    } catch (error) {
+      console.error('Failed to copy MRP data:', error);
+      toast.error('Failed to copy MRP from previous date');
     } finally {
       setSavingMrp(false);
     }
@@ -3566,7 +3678,7 @@ export default function RetailerOrders() {
               {/* MRP Sub-tab */}
               {dailyReqSubTab === 'mrp' && (
                 <div>
-                  {/* Header with Date Selector and Actions */}
+                  {/* Header with Date Selector, Copy, and Save Actions */}
                   <div className="flex flex-col md:flex-row gap-3 mb-4">
                     <div className="flex items-center gap-2">
                       <label className="text-sm font-medium text-gray-700">Date:</label>
@@ -3576,8 +3688,22 @@ export default function RetailerOrders() {
                         onChange={(e) => setMrpDate(e.target.value)}
                         className="h-9 w-40"
                       />
+                      {!canEditMrpForDate(mrpDate) && (
+                        <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                          Read-only (Only Admin can edit past dates)
+                        </span>
+                      )}
                     </div>
-                    <div className="flex gap-2 ml-auto">
+                    <div className="flex gap-2 ml-auto flex-wrap">
+                      <Button 
+                        onClick={copyMrpFromPreviousDate}
+                        disabled={savingMrp || mrpLoading || !canEditMrpForDate(mrpDate)}
+                        variant="outline"
+                        className="h-9 border-blue-300 text-blue-600 hover:bg-blue-50"
+                      >
+                        <ClipboardList size={14} className="mr-1" />
+                        Copy from Previous Date
+                      </Button>
                       <Button 
                         onClick={() => loadMrpData(mrpDate)}
                         disabled={mrpLoading}
@@ -3599,7 +3725,7 @@ export default function RetailerOrders() {
                       {mrpData.length === 0 && (
                         <Button 
                           onClick={initializeMrpData}
-                          disabled={savingMrp || mrpLoading}
+                          disabled={savingMrp || mrpLoading || !canEditMrpForDate(mrpDate)}
                           className="h-9 bg-[#14532D]"
                         >
                           {savingMrp ? (
@@ -3610,7 +3736,26 @@ export default function RetailerOrders() {
                           ) : (
                             <span className="flex items-center gap-2">
                               <Plus size={14} />
-                              Initialize from Last Variants
+                              Initialize All Products
+                            </span>
+                          )}
+                        </Button>
+                      )}
+                      {mrpData.length > 0 && (
+                        <Button 
+                          onClick={saveMrpChanges}
+                          disabled={savingMrp || mrpLoading || !mrpHasUnsavedChanges || !canEditMrpForDate(mrpDate)}
+                          className={`h-9 ${mrpHasUnsavedChanges ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400'}`}
+                        >
+                          {savingMrp ? (
+                            <span className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              Saving...
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              <Save size={14} />
+                              Save MRP {mrpHasUnsavedChanges && `(${Object.keys(pendingMrpChanges).length})`}
                             </span>
                           )}
                         </Button>
@@ -3628,60 +3773,23 @@ export default function RetailerOrders() {
                     <div className="text-center py-12 text-gray-500">
                       <IndianRupee size={48} className="mx-auto mb-4 opacity-30" />
                       <p>No MRP data for {mrpDate}</p>
-                      <p className="text-xs mt-2">Click "Initialize from Last Variants" to create entries based on recent sales, or add products manually below</p>
-                      
-                      {/* Show categories for manual addition even when no data */}
-                      <div className="mt-6 text-left">
-                        <p className="text-sm font-medium text-gray-700 mb-3">Or add products manually:</p>
-                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                          {Object.keys(mrpProductsByCategory).sort().map(category => (
-                            <div key={category} className="border rounded-lg overflow-hidden">
-                              <div 
-                                className={`flex items-center justify-between p-2 cursor-pointer ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
-                                onClick={() => toggleMrpCategory(category)}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {expandedMrpCategories[category] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                  <span className="font-medium text-sm">{category}</span>
-                                  <span className="text-xs opacity-75">({mrpProductsByCategory[category].length} products)</span>
-                                </div>
-                              </div>
-                              {expandedMrpCategories[category] && (
-                                <div className="bg-white p-2 space-y-1">
-                                  {mrpProductsByCategory[category].map(product => (
-                                    <div key={product.id} className="flex items-center justify-between p-1 hover:bg-gray-50 rounded text-sm">
-                                      <span>{product.name}</span>
-                                      <Button size="sm" variant="ghost" onClick={() => addMrpEntry(product)} className="h-6 px-2 text-xs">
-                                        <Plus size={12} className="mr-1" /> Add
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <p className="text-xs mt-2">Click "Initialize All Products" to create entries with last sold variants, or "Copy from Previous Date"</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <p className="text-xs text-gray-500">
                         MRP entries for {mrpDate} • {mrpData.length} items
+                        {mrpHasUnsavedChanges && <span className="text-orange-600 ml-2">• Unsaved changes</span>}
                       </p>
                       
-                      {/* Category-wise collapsible sections */}
+                      {/* Category-wise sections - ALL EXPANDED BY DEFAULT */}
                       {Object.keys(mrpProductsByCategory).sort().map((category) => {
                         const categoryEntries = mrpData.filter(e => e.category === category);
-                        if (categoryEntries.length === 0) {
-                          // Check if any products in this category don't have entries
-                          const productsWithoutEntries = mrpProductsByCategory[category].filter(
-                            p => !mrpData.some(e => e.product_id === p.id)
-                          );
-                          if (productsWithoutEntries.length === 0) return null;
-                        }
+                        if (categoryEntries.length === 0) return null;
                         
-                        const isExpanded = expandedMrpCategories[category];
+                        const isExpanded = expandedMrpCategories[category] !== false; // Default to expanded
                         const categoryTotal = categoryEntries.reduce((sum, e) => sum + (e.mrp || 0), 0);
+                        const isEditable = canEditMrpForDate(mrpDate);
                         
                         return (
                           <div key={category} className={`border rounded-lg overflow-hidden ${getCategoryColorClasses(category).split(' ')[2]}`}>
@@ -3700,7 +3808,7 @@ export default function RetailerOrders() {
                               </div>
                             </div>
                             
-                            {/* Category Items - Collapsible */}
+                            {/* Category Items - Always visible by default */}
                             {isExpanded && (
                               <div className="bg-white">
                                 <table className="w-full text-sm">
@@ -3715,21 +3823,20 @@ export default function RetailerOrders() {
                                   </thead>
                                   <tbody>
                                     {categoryEntries.map((entry, localIdx) => (
-                                      <tr key={entry.id} className="border-b hover:bg-gray-50">
+                                      <tr key={entry.id} className={`border-b hover:bg-gray-50 ${pendingMrpChanges[entry.id] ? 'bg-yellow-50' : ''}`}>
                                         <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
                                         <td className="p-2 font-medium">{entry.product_name}</td>
                                         <td className="p-2">
                                           <select
                                             value={entry.variant_id || ''}
-                                            onChange={(e) => updateMrpEntry(entry.id, 'variant_id', e.target.value)}
-                                            className="w-full h-8 px-2 rounded border border-gray-200 text-sm"
+                                            onChange={(e) => updateMrpEntryLocal(entry.id, 'variant_id', e.target.value)}
+                                            disabled={!isEditable}
+                                            className={`w-full h-8 px-2 rounded border border-gray-200 text-sm ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                           >
                                             <option value="">Select variant</option>
-                                            {packagings
-                                              .filter(p => p.vertical === 'retail' || p.vertical === 'both')
-                                              .map(pkg => (
-                                                <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
-                                              ))}
+                                            {retailPackagings.map(pkg => (
+                                              <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
+                                            ))}
                                           </select>
                                         </td>
                                         <td className="p-2 text-right">
@@ -3738,8 +3845,9 @@ export default function RetailerOrders() {
                                             step="0.01"
                                             min="0"
                                             value={entry.mrp || ''}
-                                            onChange={(e) => updateMrpEntry(entry.id, 'mrp', e.target.value)}
-                                            className="h-8 w-24 text-right ml-auto"
+                                            onChange={(e) => updateMrpEntryLocal(entry.id, 'mrp', e.target.value)}
+                                            disabled={!isEditable}
+                                            className={`h-8 w-24 text-right ml-auto ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                             placeholder="0.00"
                                           />
                                         </td>
@@ -3748,7 +3856,8 @@ export default function RetailerOrders() {
                                             size="sm"
                                             variant="ghost"
                                             onClick={() => deleteMrpEntry(entry.id)}
-                                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                            disabled={!isEditable}
+                                            className={`h-7 w-7 p-0 ${isEditable ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : 'text-gray-300 cursor-not-allowed'}`}
                                           >
                                             <Trash2 size={14} />
                                           </Button>
@@ -3759,52 +3868,66 @@ export default function RetailerOrders() {
                                 </table>
                                 
                                 {/* Add new item button for this category */}
-                                <div className="p-2 border-t bg-gray-50">
-                                  <div className="flex items-center gap-2">
-                                    <select
-                                      id={`add-product-${category}`}
-                                      className="flex-1 h-8 px-2 rounded border border-gray-200 text-sm"
-                                      defaultValue=""
-                                    >
-                                      <option value="">Select product to add...</option>
-                                      {mrpProductsByCategory[category]
-                                        .filter(p => !mrpData.some(e => e.product_id === p.id))
-                                        .map(product => (
-                                          <option key={product.id} value={product.id}>{product.name}</option>
-                                        ))}
-                                    </select>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 px-3"
-                                      onClick={() => {
-                                        const select = document.getElementById(`add-product-${category}`);
-                                        const productId = select.value;
-                                        if (!productId) {
-                                          toast.error('Please select a product');
-                                          return;
-                                        }
-                                        const product = mrpProductsByCategory[category].find(p => p.id === productId);
-                                        if (product) {
-                                          addMrpEntry(product);
-                                          select.value = '';
-                                        }
-                                      }}
-                                    >
-                                      <Plus size={14} className="mr-1" /> Add
-                                    </Button>
+                                {isEditable && (
+                                  <div className="p-2 border-t bg-gray-50">
+                                    <div className="flex items-center gap-2">
+                                      <select
+                                        id={`add-product-${category}`}
+                                        className="flex-1 h-8 px-2 rounded border border-gray-200 text-sm"
+                                        defaultValue=""
+                                      >
+                                        <option value="">Select product to add...</option>
+                                        {mrpProductsByCategory[category]
+                                          .filter(p => !mrpData.some(e => e.product_id === p.id))
+                                          .map(product => (
+                                            <option key={product.id} value={product.id}>{product.name}</option>
+                                          ))}
+                                      </select>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 px-3"
+                                        onClick={() => {
+                                          const select = document.getElementById(`add-product-${category}`);
+                                          const productId = select.value;
+                                          if (!productId) {
+                                            toast.error('Please select a product');
+                                            return;
+                                          }
+                                          const product = mrpProductsByCategory[category].find(p => p.id === productId);
+                                          if (product) {
+                                            addMrpEntry(product);
+                                            select.value = '';
+                                          }
+                                        }}
+                                      >
+                                        <Plus size={14} className="mr-1" /> Add
+                                      </Button>
+                                    </div>
                                   </div>
-                                </div>
+                                )}
                               </div>
                             )}
                           </div>
                         );
                       })}
                       
-                      {/* Grand Total */}
-                      <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex justify-between items-center font-semibold">
-                        <span>Grand Total ({mrpData.length} items)</span>
-                        <span className="text-green-700">Total MRP: ₹{mrpData.reduce((sum, e) => sum + (e.mrp || 0), 0).toFixed(2)}</span>
+                      {/* Grand Total and Save Button */}
+                      <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex flex-col md:flex-row justify-between items-center gap-3">
+                        <div className="font-semibold">
+                          <span>Grand Total ({mrpData.length} items)</span>
+                          <span className="text-green-700 ml-4">Total MRP: ₹{mrpData.reduce((sum, e) => sum + (e.mrp || 0), 0).toFixed(2)}</span>
+                        </div>
+                        {canEditMrpForDate(mrpDate) && mrpHasUnsavedChanges && (
+                          <Button 
+                            onClick={saveMrpChanges}
+                            disabled={savingMrp}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            <Save size={14} className="mr-1" />
+                            Save All Changes ({Object.keys(pendingMrpChanges).length})
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}

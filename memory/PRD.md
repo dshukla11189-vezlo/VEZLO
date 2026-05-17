@@ -35,14 +35,19 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 ### Completed (This Session - 17 May 2026 - Continued)
 - **Daily MRP Tab for Retail Products** ✅ (Verified)
   - New "MRP" sub-tab added in Daily Requirement section (after Purchase and Stickers)
-  - Products grouped by category with collapsible headers (click to expand/collapse)
+  - Products grouped by category with **all categories expanded by default** (click to collapse)
   - Table columns: S.No (#), Product Name, Variant (dropdown), MRP (₹ input), Actions (delete)
+  - **Variants pre-populated from last sold variants** - fetched from recent dispatches
   - Variant dropdown filtered to show only retail-applicable variants
   - Inline editing: MRP values and variants editable directly in the table
   - Delete functionality: Remove individual entries with trash icon
   - Add new products: "Select product to add..." dropdown per category with "Add" button
   - Date selector: Pick date to view/edit MRP for that date
-  - "Initialize from Last Variants" button: Auto-populates all products with their last sold variants from recent dispatches
+  - **"Save MRP" button**: Batches all pending changes and saves at once (shows count of pending changes)
+  - **"Copy from Previous Date" button**: Copies all MRP entries from the previous day
+  - **"Initialize All Products" button**: Auto-populates all products with their last sold variants from recent dispatches
+  - **Admin-only editing for past dates**: Staff users can only edit today's or future dates, Admins can edit any date
+  - **Unsaved changes indicator**: Shows "Unsaved changes" in orange when there are pending edits
   - Backend APIs:
     - `GET /api/daily-mrp?date=YYYY-MM-DD` - Fetch MRP entries for a date
     - `POST /api/daily-mrp` - Bulk initialize MRP entries for a date
@@ -51,7 +56,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
     - `DELETE /api/daily-mrp/{entry_id}` - Delete MRP entry
     - `GET /api/daily-mrp/last-variants` - Get last sold variant per product from recent dispatches
   - New MongoDB collection: `daily_mrp` storing date-wise product MRP entries
-  - UI features: Category total MRP display, Grand total, Auto-expand categories on load, Refresh button
+  - UI features: Category total MRP display, Grand total, Auto-expand categories on load, Refresh button, Yellow highlight for unsaved rows
 
 ### In Progress
 - **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)

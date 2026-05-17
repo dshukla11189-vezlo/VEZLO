@@ -5604,6 +5604,8 @@ export default function RetailerOrders() {
                             <th className="p-2 text-right text-blue-600">Total MRP</th>
                             <th className="p-2 text-right text-orange-600">Commission</th>
                             <th className="p-2 text-right text-green-600">Payable</th>
+                            <th className="p-2 text-right text-purple-600">Paid</th>
+                            <th className="p-2 text-right text-blue-800 font-semibold">Net Receivable</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -5614,6 +5616,8 @@ export default function RetailerOrders() {
                             const totalMrp = inv.total_mrp_value || 0;
                             const commission = inv.commission_amount || 0;
                             const payable = inv.net_payable || 0;
+                            const paidAmount = inv.paid_amount || 0;
+                            const netReceivable = payable - paidAmount;
                             
                             // Format date as DD-MM-YYYY
                             const formatDate = (dateStr) => {
@@ -5654,6 +5658,8 @@ export default function RetailerOrders() {
                                 <td className="p-2 text-right text-blue-600">₹{totalMrp.toFixed(2)}</td>
                                 <td className="p-2 text-right text-orange-600">-₹{commission.toFixed(2)}</td>
                                 <td className="p-2 text-right font-medium text-green-600">₹{payable.toFixed(2)}</td>
+                                <td className="p-2 text-right text-purple-600">₹{paidAmount.toFixed(2)}</td>
+                                <td className="p-2 text-right font-semibold text-blue-800">₹{netReceivable.toFixed(2)}</td>
                               </tr>
                             );
                           })}
@@ -5678,6 +5684,12 @@ export default function RetailerOrders() {
                               </td>
                               <td className="p-2 text-right text-green-700">
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.net_payable || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-purple-700">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.paid_amount || 0), 0).toFixed(2)}
+                              </td>
+                              <td className="p-2 text-right text-blue-800 font-bold">
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + ((inv.net_payable || 0) - (inv.paid_amount || 0)), 0).toFixed(2)}
                               </td>
                             </tr>
                           </tfoot>

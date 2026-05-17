@@ -1235,7 +1235,13 @@ export default function RetailerOrders() {
     try {
       // Fetch indents for the selected date
       const response = await api.get(`/api/retailer-indents?from_date=${dailyReqDate}&to_date=${dailyReqDate}`);
-      const indents = response.data || [];
+      const allIndents = response.data || [];
+      
+      // Filter indents to only include those matching the exact selected date
+      const indents = allIndents.filter(indent => {
+        const indentDateStr = (indent.indent_date || '').toString().slice(0, 10);
+        return indentDateStr === dailyReqDate;
+      });
       
       if (indents.length === 0) {
         setStickersLoading(false);

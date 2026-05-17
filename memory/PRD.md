@@ -46,7 +46,15 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - Hindi language E2E testing
 - AI-powered demand forecasting
 
-### Completed (This Session - 16 May 2026)
+### Completed (This Session - 17 May 2026)
+- **Daily Requirement Auto-Load Feature** ✅ (Verified)
+  - Daily Requirement tab now auto-calculates on tab selection (no manual "Calculate" click needed)
+  - Date defaults to today's date on load
+  - Auto-refreshes when date is changed
+  - Both Purchase and Stickers sub-tabs auto-load their respective data
+  - "Calculate" button renamed to "Refresh" for optional manual refresh
+
+### Completed (Previous Session - 16 May 2026)
 - **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
   - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting
   - **Issue**: Reimbursement summary in Cashflow NOT updating for employee payments

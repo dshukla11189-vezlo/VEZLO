@@ -1340,6 +1340,13 @@ export default function RetailerOrders() {
     }
   }, [dailyReqDate, dailyReqSubTab, calculateStickersData]);
 
+  // Auto-calculate Daily Requirement when tab is opened or date changes
+  useEffect(() => {
+    if (activeTab === 'dailyRequirement' && dailyReqDate && dailyReqSubTab === 'purchase') {
+      calculateDailyRequirement();
+    }
+  }, [activeTab, dailyReqDate, dailyReqSubTab, calculateDailyRequirement]);
+
   // Print daily requirement
   const printDailyRequirement = () => {
     const printContent = document.getElementById('daily-requirement-print');
@@ -2946,8 +2953,8 @@ export default function RetailerOrders() {
                       </span>
                     ) : (
                       <span className="flex items-center gap-2">
-                        <Search size={14} />
-                        Calculate
+                        <RefreshCw size={14} />
+                        Refresh
                       </span>
                     )}
                   </Button>

@@ -10617,6 +10617,155 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
         "fixed_count": fixed_count
     }
 
+# ==================== DAILY MRP MANAGEMENT ====================
+@api_router.get("/daily-mrp")
+async def get_daily_mrp(
+    date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get daily MRP entries for a specific date"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if date:
+        query["date"] = date
+    else:
+        # Default to today
+        from datetime import date as date_type
+        query["date"] = date_type.today().isoformat()
+    
+    entries = await db.daily_mrp.find(query, {"_id": 0}).to_list(1000)
+    return entries
+
+@api_router.post("/daily-mrp")
+async def save_daily_mrp(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Save/update daily MRP entries"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    date = input.get("date")
+    items = input.get("items", [])
+    
+    if not date:
+        raise HTTPException(status_code=400, detail="Date is required")
+    
+    # Delete existing entries for this date and save new ones
+    await db.daily_mrp.delete_many({"date": date})
+    
+    if items:
+        for item in items:
+            item["date"] = date
+            item["id"] = str(uuid.uuid4())
+            item["updated_by"] = current_user["user_id"]
+            item["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await db.daily_mrp.insert_one(item)
+    
+    return {"message": f"Saved {len(items)} MRP entries for {date}"}
+
+@api_router.post("/daily-mrp/entry")
+async def add_mrp_entry(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add a single MRP entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    entry = {
+        "id": str(uuid.uuid4()),
+        "date": input.get("date"),
+        "product_id": input.get("product_id"),
+        "product_name": input.get("product_name"),
+        "category": input.get("category"),
+        "variant_id": input.get("variant_id"),
+        "variant_name": input.get("variant_name"),
+        "mrp": input.get("mrp", 0),
+        "updated_by": current_user["user_id"],
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.daily_mrp.insert_one(entry)
+    entry.pop("_id", None)
+    return entry
+
+@api_router.put("/daily-mrp/{entry_id}")
+async def update_mrp_entry(
+    entry_id: str,
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a single MRP entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {
+        "variant_id": input.get("variant_id"),
+        "variant_name": input.get("variant_name"),
+        "mrp": input.get("mrp", 0),
+        "updated_by": current_user["user_id"],
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.daily_mrp.update_one(
+        {"id": entry_id},
+        {"$set": update_data}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    return {"message": "MRP entry updated"}
+
+@api_router.delete("/daily-mrp/{entry_id}")
+async def delete_mrp_entry(
+    entry_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a single MRP entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.daily_mrp.delete_one({"id": entry_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    return {"message": "MRP entry deleted"}
+
+@api_router.get("/daily-mrp/last-variants")
+async def get_last_sold_variants(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get last sold variant for each product from recent dispatches"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get recent dispatches (last 30 days)
+    from datetime import timedelta
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    
+    dispatches = await db.retailer_dispatches.find(
+        {"dispatch_date": {"$gte": thirty_days_ago}},
+        {"_id": 0, "items": 1, "dispatch_date": 1}
+    ).sort("dispatch_date", -1).to_list(500)
+    
+    # Build a map of product_id -> last variant
+    last_variants = {}
+    for dispatch in dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id")
+            if product_id and product_id not in last_variants:
+                last_variants[product_id] = {
+                    "variant_id": item.get("variant_id"),
+                    "variant_name": item.get("variant_name") or item.get("packaging_name")
+                }
+    
+    return last_variants
+
 # Get uninvoiced dispatches for a retailer (for creating invoices)
 # Now returns items that haven't been invoiced yet (item-level filtering)
 @api_router.get("/retailer-dispatches/uninvoiced")

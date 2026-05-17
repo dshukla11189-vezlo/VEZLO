@@ -260,7 +260,7 @@ export default function RetailerOrders() {
   const [retailWastageAverages, setRetailWastageAverages] = useState([]);
   
   // Daily Requirement sub-tabs state
-  const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase' or 'stickers'
+  const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase', 'stickers', or 'mrp'
   
   // Category collapse state for Purchase and Stickers tabs
   const [expandedPurchaseCategories, setExpandedPurchaseCategories] = useState({});
@@ -271,6 +271,17 @@ export default function RetailerOrders() {
   const [stickersLoading, setStickersLoading] = useState(false);
   const [stickersSearch, setStickersSearch] = useState('');
   const [stickersCategoryFilter, setStickersCategoryFilter] = useState('all');
+
+  // MRP tab state
+  const [mrpData, setMrpData] = useState([]);
+  const [mrpLoading, setMrpLoading] = useState(false);
+  const [mrpDate, setMrpDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [expandedMrpCategories, setExpandedMrpCategories] = useState({});
+  const [lastVariants, setLastVariants] = useState({});
+  const [savingMrp, setSavingMrp] = useState(false);
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -1435,6 +1446,158 @@ export default function RetailerOrders() {
       calculateDailyRequirement();
     }
   }, [activeTab, dailyReqDate, dailyReqSubTab, calculateDailyRequirement]);
+
+  // ==================== MRP TAB FUNCTIONS ====================
+  // Load MRP data for a date
+  const loadMrpData = useCallback(async (date) => {
+    setMrpLoading(true);
+    try {
+      const [mrpRes, variantsRes] = await Promise.all([
+        api.get(`/api/daily-mrp?date=${date}`),
+        api.get('/api/daily-mrp/last-variants')
+      ]);
+      setMrpData(mrpRes.data || []);
+      setLastVariants(variantsRes.data || {});
+      
+      // Auto-expand all categories
+      const cats = {};
+      products.forEach(p => {
+        cats[p.category || 'Others'] = true;
+      });
+      setExpandedMrpCategories(cats);
+    } catch (error) {
+      console.error('Failed to load MRP data:', error);
+      toast.error('Failed to load MRP data');
+    } finally {
+      setMrpLoading(false);
+    }
+  }, [products]);
+
+  // Auto-load MRP data when MRP tab is selected
+  useEffect(() => {
+    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'mrp' && mrpDate) {
+      loadMrpData(mrpDate);
+    }
+  }, [activeTab, dailyReqSubTab, mrpDate, loadMrpData]);
+
+  // Group products by category for MRP
+  const mrpProductsByCategory = useMemo(() => {
+    const grouped = {};
+    products.forEach(p => {
+      const cat = p.category || 'Others';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(p);
+    });
+    // Sort products within each category
+    Object.keys(grouped).forEach(cat => {
+      grouped[cat].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    return grouped;
+  }, [products]);
+
+  // Get MRP entry for a product
+  const getMrpEntry = (productId, variantId = null) => {
+    if (variantId) {
+      return mrpData.find(e => e.product_id === productId && e.variant_id === variantId);
+    }
+    return mrpData.filter(e => e.product_id === productId);
+  };
+
+  // Add MRP entry for a product
+  const addMrpEntry = async (product) => {
+    const lastVariant = lastVariants[product.id];
+    const variant = lastVariant ? packagings.find(p => p.id === lastVariant.variant_id) : packagings[0];
+    
+    const newEntry = {
+      date: mrpDate,
+      product_id: product.id,
+      product_name: product.name,
+      category: product.category,
+      variant_id: variant?.id || '',
+      variant_name: variant?.name || '',
+      mrp: 0
+    };
+    
+    try {
+      const res = await api.post('/api/daily-mrp/entry', newEntry);
+      setMrpData(prev => [...prev, res.data]);
+      toast.success('Entry added');
+    } catch (error) {
+      toast.error('Failed to add entry');
+    }
+  };
+
+  // Update MRP entry
+  const updateMrpEntry = async (entryId, field, value) => {
+    const entry = mrpData.find(e => e.id === entryId);
+    if (!entry) return;
+    
+    let updateData = { ...entry };
+    if (field === 'variant_id') {
+      const variant = packagings.find(p => p.id === value);
+      updateData.variant_id = value;
+      updateData.variant_name = variant?.name || '';
+    } else if (field === 'mrp') {
+      updateData.mrp = parseFloat(value) || 0;
+    }
+    
+    try {
+      await api.put(`/api/daily-mrp/${entryId}`, updateData);
+      setMrpData(prev => prev.map(e => e.id === entryId ? { ...e, ...updateData } : e));
+    } catch (error) {
+      toast.error('Failed to update entry');
+    }
+  };
+
+  // Delete MRP entry
+  const deleteMrpEntry = async (entryId) => {
+    try {
+      await api.delete(`/api/daily-mrp/${entryId}`);
+      setMrpData(prev => prev.filter(e => e.id !== entryId));
+      toast.success('Entry deleted');
+    } catch (error) {
+      toast.error('Failed to delete entry');
+    }
+  };
+
+  // Toggle MRP category expansion
+  const toggleMrpCategory = (category) => {
+    setExpandedMrpCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Initialize MRP data for all products
+  const initializeMrpData = async () => {
+    setSavingMrp(true);
+    try {
+      const entries = [];
+      products.forEach(product => {
+        const lastVariant = lastVariants[product.id];
+        const variant = lastVariant ? packagings.find(p => p.id === lastVariant.variant_id) : null;
+        
+        if (variant) {
+          entries.push({
+            product_id: product.id,
+            product_name: product.name,
+            category: product.category,
+            variant_id: variant.id,
+            variant_name: variant.name,
+            mrp: 0
+          });
+        }
+      });
+      
+      await api.post('/api/daily-mrp', { date: mrpDate, items: entries });
+      await loadMrpData(mrpDate);
+      toast.success('MRP sheet initialized with last sold variants');
+    } catch (error) {
+      toast.error('Failed to initialize MRP data');
+    } finally {
+      setSavingMrp(false);
+    }
+  };
 
   // Print daily requirement
   const printDailyRequirement = () => {

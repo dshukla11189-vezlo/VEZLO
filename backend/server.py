@@ -598,6 +598,206 @@ async def seed_default_units(current_user: dict = Depends(get_current_user)):
     
     return {"message": f"Seeded {len(default_units)} default units"}
 
+# ==================== PRODUCT CATEGORIES MANAGEMENT ====================
+@api_router.get("/product-categories")
+async def get_product_categories(current_user: dict = Depends(get_current_user)):
+    """Get all product categories"""
+    categories = await db.product_categories.find({}, {"_id": 0}).sort("name", 1).to_list(100)
+    return categories
+
+@api_router.post("/product-categories")
+async def create_product_category(input: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new product category"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    name = input.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+    
+    # Check for duplicate
+    existing = await db.product_categories.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Category '{name}' already exists")
+    
+    category_doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.product_categories.insert_one(category_doc)
+    category_doc.pop("_id", None)
+    return category_doc
+
+@api_router.put("/product-categories/{category_id}")
+async def update_product_category(category_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update a product category"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    category = await db.product_categories.find_one({"id": category_id})
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    old_name = category["name"]
+    new_name = input.get("name", "").strip()
+    
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+    
+    # Check for duplicate (exclude current)
+    existing = await db.product_categories.find_one({
+        "name": {"$regex": f"^{new_name}$", "$options": "i"},
+        "id": {"$ne": category_id}
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Category '{new_name}' already exists")
+    
+    await db.product_categories.update_one({"id": category_id}, {"$set": {"name": new_name}})
+    
+    # Update all products using this category
+    if old_name != new_name:
+        await db.products.update_many({"category": old_name}, {"$set": {"category": new_name}})
+    
+    updated = await db.product_categories.find_one({"id": category_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/product-categories/{category_id}")
+async def delete_product_category(category_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a product category"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete categories")
+    
+    category = await db.product_categories.find_one({"id": category_id}, {"_id": 0})
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Check if category is in use
+    products_using = await db.products.count_documents({"category": category["name"]})
+    if products_using > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete category '{category['name']}'. It is used by {products_using} product(s)."
+        )
+    
+    await db.product_categories.delete_one({"id": category_id})
+    return {"message": f"Category '{category['name']}' deleted successfully"}
+
+# ==================== PRODUCT TYPES MANAGEMENT ====================
+@api_router.get("/product-types")
+async def get_product_types(current_user: dict = Depends(get_current_user)):
+    """Get all product types"""
+    types = await db.product_types.find({}, {"_id": 0}).sort("name", 1).to_list(100)
+    return types
+
+@api_router.post("/product-types")
+async def create_product_type(input: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new product type"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    name = input.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Type name is required")
+    
+    # Check for duplicate
+    existing = await db.product_types.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Type '{name}' already exists")
+    
+    type_doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.product_types.insert_one(type_doc)
+    type_doc.pop("_id", None)
+    return type_doc
+
+@api_router.put("/product-types/{type_id}")
+async def update_product_type(type_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update a product type"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    ptype = await db.product_types.find_one({"id": type_id})
+    if not ptype:
+        raise HTTPException(status_code=404, detail="Type not found")
+    
+    old_name = ptype["name"]
+    new_name = input.get("name", "").strip()
+    
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Type name is required")
+    
+    # Check for duplicate (exclude current)
+    existing = await db.product_types.find_one({
+        "name": {"$regex": f"^{new_name}$", "$options": "i"},
+        "id": {"$ne": type_id}
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Type '{new_name}' already exists")
+    
+    await db.product_types.update_one({"id": type_id}, {"$set": {"name": new_name}})
+    
+    # Update all products using this type
+    if old_name != new_name:
+        await db.products.update_many({"product_type": old_name}, {"$set": {"product_type": new_name}})
+    
+    updated = await db.product_types.find_one({"id": type_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/product-types/{type_id}")
+async def delete_product_type(type_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a product type"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete types")
+    
+    ptype = await db.product_types.find_one({"id": type_id}, {"_id": 0})
+    if not ptype:
+        raise HTTPException(status_code=404, detail="Type not found")
+    
+    # Check if type is in use
+    products_using = await db.products.count_documents({"product_type": ptype["name"]})
+    if products_using > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete type '{ptype['name']}'. It is used by {products_using} product(s)."
+        )
+    
+    await db.product_types.delete_one({"id": type_id})
+    return {"message": f"Type '{ptype['name']}' deleted successfully"}
+
+# Auto-seed default categories and types on startup
+async def seed_default_categories_types_on_startup():
+    """Auto-seed default categories and types if collections are empty"""
+    try:
+        # Seed categories
+        cat_count = await db.product_categories.count_documents({})
+        if cat_count == 0:
+            default_categories = ["Vegetables", "Leafy", "Fruits", "Exotic", "Herbs", "Mushrooms", "Others"]
+            for cat in default_categories:
+                await db.product_categories.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "name": cat,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+            logger.info(f"Auto-seeded {len(default_categories)} default categories")
+        
+        # Seed types
+        type_count = await db.product_types.count_documents({})
+        if type_count == 0:
+            default_types = ["Fruits", "Vegetables", "Exotic", "Leafy", "Herbs", "Mushrooms", "Others"]
+            for t in default_types:
+                await db.product_types.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "name": t,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+            logger.info(f"Auto-seeded {len(default_types)} default types")
+    except Exception as e:
+        logger.error(f"Failed to auto-seed categories/types: {e}")
+
 @api_router.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED)
 async def create_product(input: ProductCreate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
@@ -12069,6 +12269,9 @@ async def startup_event():
     try:
         # Auto-seed default units if collection is empty
         await seed_default_units_on_startup()
+        
+        # Auto-seed default categories and types if collections are empty
+        await seed_default_categories_types_on_startup()
         
         backup_scheduler = setup_backup_scheduler(db)
         logger.info("Backup scheduler initialized successfully")

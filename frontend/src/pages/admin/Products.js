@@ -6,11 +6,11 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers } from 'lucide-react';
 
 export default function Products() {
   // Sub-tab state
-  const [activeSubTab, setActiveSubTab] = useState('products'); // 'products', 'units', or 'packaging'
+  const [activeSubTab, setActiveSubTab] = useState('products'); // 'products', 'units', 'packaging', or 'categories'
   
   // Products state
   const [products, setProducts] = useState([]);
@@ -33,6 +33,17 @@ export default function Products() {
   const [editingPackaging, setEditingPackaging] = useState(null);
   const [packagingForm, setPackagingForm] = useState({ name: '', weight_gm: '' });
   
+  // Categories & Types state
+  const [categories, setCategories] = useState([]);
+  const [productTypes, setProductTypes] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [showCategoryDialog, setShowCategoryDialog] = useState(false);
+  const [showTypeDialog, setShowTypeDialog] = useState(false);
+  const [editCategory, setEditCategory] = useState(null);
+  const [editType, setEditType] = useState(null);
+  const [categoryForm, setCategoryForm] = useState({ name: '' });
+  const [typeForm, setTypeForm] = useState({ name: '' });
+  
   // Delete with replacement state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
@@ -51,9 +62,6 @@ export default function Products() {
     lifecycle_duration: '',  // 'low', 'medium', 'high'
     cost_alias_product_id: ''  // For P&L: use this product's purchase cost
   });
-
-  // Product type options
-  const PRODUCT_TYPE_OPTIONS = ['Fruits', 'Vegetables', 'Exotic', 'Leafy', 'Herbs', 'Mushrooms', 'Others'];
 
   // Load products
   const loadProducts = useCallback(async () => {
@@ -107,6 +115,96 @@ export default function Products() {
       setPackagingLoading(false);
     }
   }, []);
+
+  // Load product categories
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await api.get('/api/product-categories');
+      setCategories(response.data);
+    } catch (error) {
+      console.error('Failed to load categories:', error);
+    }
+  }, []);
+
+  // Load product types
+  const loadProductTypes = useCallback(async () => {
+    try {
+      const response = await api.get('/api/product-types');
+      setProductTypes(response.data);
+    } catch (error) {
+      console.error('Failed to load product types:', error);
+    }
+  }, []);
+
+  // Category handlers
+  const handleSubmitCategory = async (e) => {
+    e.preventDefault();
+    if (!categoryForm.name.trim()) {
+      toast.error('Category name is required');
+      return;
+    }
+    try {
+      if (editCategory) {
+        await api.put(`/api/product-categories/${editCategory.id}`, { name: categoryForm.name });
+        toast.success('Category updated successfully');
+      } else {
+        await api.post('/api/product-categories', { name: categoryForm.name });
+        toast.success('Category added successfully');
+      }
+      setCategoryForm({ name: '' });
+      setEditCategory(null);
+      setShowCategoryDialog(false);
+      loadCategories();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save category');
+    }
+  };
+
+  const handleDeleteCategory = async (category) => {
+    if (!window.confirm(`Delete category "${category.name}"?`)) return;
+    try {
+      await api.delete(`/api/product-categories/${category.id}`);
+      toast.success('Category deleted successfully');
+      loadCategories();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete category');
+    }
+  };
+
+  // Type handlers
+  const handleSubmitType = async (e) => {
+    e.preventDefault();
+    if (!typeForm.name.trim()) {
+      toast.error('Type name is required');
+      return;
+    }
+    try {
+      if (editType) {
+        await api.put(`/api/product-types/${editType.id}`, { name: typeForm.name });
+        toast.success('Type updated successfully');
+      } else {
+        await api.post('/api/product-types', { name: typeForm.name });
+        toast.success('Type added successfully');
+      }
+      setTypeForm({ name: '' });
+      setEditType(null);
+      setShowTypeDialog(false);
+      loadProductTypes();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save type');
+    }
+  };
+
+  const handleDeleteType = async (type) => {
+    if (!window.confirm(`Delete type "${type.name}"?`)) return;
+    try {
+      await api.delete(`/api/product-types/${type.id}`);
+      toast.success('Type deleted successfully');
+      loadProductTypes();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete type');
+    }
+  };
 
   // Packaging handlers
   const handleSubmitPackaging = async (e) => {
@@ -197,7 +295,9 @@ export default function Products() {
     loadProducts();
     loadUnits();
     loadPackaging();
-  }, [loadProducts, loadUnits, loadPackaging]);
+    loadCategories();
+    loadProductTypes();
+  }, [loadProducts, loadUnits, loadPackaging, loadCategories, loadProductTypes]);
 
   // Sort products alphabetically and filter by search query
   const filteredProducts = useMemo(() => {
@@ -417,6 +517,20 @@ export default function Products() {
             {packagingVariants.length}
           </span>
         </button>
+        <button
+          onClick={() => setActiveSubTab('categories')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeSubTab === 'categories'
+              ? 'border-amber-600 text-amber-700 bg-amber-50'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Layers size={16} />
+          Categories & Types
+          <span className="ml-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
+            {categories.length + productTypes.length}
+          </span>
+        </button>
       </div>
 
       {/* ==================== PRODUCTS TAB ==================== */}
@@ -468,14 +582,19 @@ export default function Products() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="category">Category</Label>
-                  <Input
+                  <select
                     id="category"
                     data-testid="product-category-input"
-                    placeholder="e.g., Vegetables, Fruits"
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
                     required
-                  />
+                  >
+                    <option value="">Select Category</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <Label htmlFor="product_type">Type</Label>
@@ -487,8 +606,8 @@ export default function Products() {
                     className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
                   >
                     <option value="">Select Type</option>
-                    {PRODUCT_TYPE_OPTIONS.map(type => (
-                      <option key={type} value={type}>{type}</option>
+                    {productTypes.map(type => (
+                      <option key={type.id} value={type.name}>{type.name}</option>
                     ))}
                   </select>
                 </div>
@@ -1057,6 +1176,188 @@ export default function Products() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ==================== CATEGORIES & TYPES TAB ==================== */}
+      {activeSubTab === 'categories' && (
+        <div className="space-y-6">
+          {/* Categories Section */}
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-4 border-b flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Tag size={18} className="text-amber-600" />
+                <h3 className="font-semibold">Product Categories</h3>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{categories.length}</span>
+              </div>
+              <Dialog open={showCategoryDialog} onOpenChange={(val) => {
+                setShowCategoryDialog(val);
+                if (!val) {
+                  setEditCategory(null);
+                  setCategoryForm({ name: '' });
+                }
+              }}>
+                <DialogTrigger asChild>
+                  <Button size="sm" className="bg-amber-600 hover:bg-amber-700">
+                    <Plus size={14} className="mr-1" />
+                    Add Category
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[400px]">
+                  <DialogHeader>
+                    <DialogTitle>{editCategory ? 'Edit Category' : 'Add Category'}</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleSubmitCategory} className="space-y-4">
+                    <div>
+                      <Label htmlFor="cat-name">Category Name</Label>
+                      <Input
+                        id="cat-name"
+                        placeholder="e.g., Vegetables, Fruits, Leafy"
+                        value={categoryForm.name}
+                        onChange={(e) => setCategoryForm({ name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button type="button" variant="outline" onClick={() => setShowCategoryDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
+                        {editCategory ? 'Update' : 'Add'} Category
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="p-4">
+              {categories.length === 0 ? (
+                <p className="text-center text-gray-500 py-6">No categories yet. Add your first category.</p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {categories.map((cat) => (
+                    <div key={cat.id} className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <span className="font-medium text-amber-800">{cat.name}</span>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => {
+                            setEditCategory(cat);
+                            setCategoryForm({ name: cat.name });
+                            setShowCategoryDialog(true);
+                          }}
+                        >
+                          <Edit size={12} className="text-amber-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => handleDeleteCategory(cat)}
+                        >
+                          <Trash size={12} className="text-red-500" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Types Section */}
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-4 border-b flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Layers size={18} className="text-teal-600" />
+                <h3 className="font-semibold">Product Types</h3>
+                <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{productTypes.length}</span>
+              </div>
+              <Dialog open={showTypeDialog} onOpenChange={(val) => {
+                setShowTypeDialog(val);
+                if (!val) {
+                  setEditType(null);
+                  setTypeForm({ name: '' });
+                }
+              }}>
+                <DialogTrigger asChild>
+                  <Button size="sm" className="bg-teal-600 hover:bg-teal-700">
+                    <Plus size={14} className="mr-1" />
+                    Add Type
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[400px]">
+                  <DialogHeader>
+                    <DialogTitle>{editType ? 'Edit Type' : 'Add Type'}</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleSubmitType} className="space-y-4">
+                    <div>
+                      <Label htmlFor="type-name">Type Name</Label>
+                      <Input
+                        id="type-name"
+                        placeholder="e.g., Fruits, Vegetables, Exotic"
+                        value={typeForm.name}
+                        onChange={(e) => setTypeForm({ name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button type="button" variant="outline" onClick={() => setShowTypeDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" className="bg-teal-600 hover:bg-teal-700">
+                        {editType ? 'Update' : 'Add'} Type
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="p-4">
+              {productTypes.length === 0 ? (
+                <p className="text-center text-gray-500 py-6">No types yet. Add your first type.</p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {productTypes.map((type) => (
+                    <div key={type.id} className="flex items-center justify-between p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                      <span className="font-medium text-teal-800">{type.name}</span>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => {
+                            setEditType(type);
+                            setTypeForm({ name: type.name });
+                            setShowTypeDialog(true);
+                          }}
+                        >
+                          <Edit size={12} className="text-teal-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => handleDeleteType(type)}
+                        >
+                          <Trash size={12} className="text-red-500" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Help Text */}
+          <div className="bg-gray-50 border rounded-lg p-4 text-sm text-gray-600">
+            <p><strong>Categories</strong> - Used to classify products (e.g., Vegetables, Leafy, Fruits)</p>
+            <p className="mt-1"><strong>Types</strong> - Used for additional classification (e.g., Exotic, Herbs, Mushrooms)</p>
+            <p className="mt-2 text-xs text-gray-500">Both Categories and Types appear as dropdowns when adding/editing products.</p>
+          </div>
         </div>
       )}
 

@@ -63,6 +63,15 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Grand total row at bottom shows overall totals
   - Categories auto-expand when data loads
 
+- **Dynamic Categories & Types Management** ✅ (Verified)
+  - New "Categories & Types" tab added in Products page
+  - Admins can add, edit, and delete Product Categories and Product Types
+  - Categories and Types are stored in MongoDB (`product_categories`, `product_types` collections)
+  - Backend auto-seeds default Categories and Types on startup (Vegetables, Leafy, Fruits, Exotic, Herbs, Mushrooms, Others)
+  - Product edit/add form now uses dropdown selects for both Category and Type (populated from database)
+  - Product list already displays both TYPE and CATEGORY columns
+  - When a category/type is renamed, all products using it are automatically updated
+
 ### Completed (Previous Session - 16 May 2026)
 - **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
   - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting

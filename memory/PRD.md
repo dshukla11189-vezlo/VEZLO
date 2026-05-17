@@ -36,27 +36,37 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - **Daily MRP Tab for Retail Products** ✅ (Verified)
   - New "MRP" sub-tab added in Daily Requirement section (after Purchase and Stickers)
   - Products grouped by category with **all categories expanded by default** (click to collapse)
-  - Table columns: S.No (#), Product Name, Variant (dropdown), MRP (₹ input), Actions (delete)
+  - Table columns: S.No (#), Product Name, Variant (dropdown), MRP (₹ input), **Blinkit (₹)** (comparison price), Actions (delete)
   - **Variants pre-populated from last sold variants** - fetched from recent dispatches
   - Variant dropdown filtered to show only retail-applicable variants
   - Inline editing: MRP values and variants editable directly in the table
   - Delete functionality: Remove individual entries with trash icon
-  - Add new products: "Select product to add..." dropdown per category with "Add" button
+  - Add new products: "+" button per product row and "Add product with specific variant" section
+  - **Same product can be added with multiple variants** (for different pack sizes)
+  - **Duplicate product+variant validation** - prevents same combo being added twice
   - Date selector: Pick date to view/edit MRP for that date
-  - **"Save MRP" button**: Batches all pending changes and saves at once (shows count of pending changes)
-  - **"Copy from Previous Date" button**: Copies all MRP entries from the previous day
-  - **"Initialize All Products" button**: Auto-populates all products with their last sold variants from recent dispatches
-  - **Admin-only editing for past dates**: Staff users can only edit today's or future dates, Admins can edit any date
-  - **Unsaved changes indicator**: Shows "Unsaved changes" in orange when there are pending edits
+  - **Footer shows**: "X items with MRP | Y products without MRP | **Z items with ₹0 MRP**" (in red)
+  - **Category header shows**: "X items with ₹0 MRP" instead of total sum
+  - "Save MRP" button: Batches all pending changes and saves at once
+  - "Copy from Previous Date" button: Copies all MRP entries from the previous day
+  - "Initialize All Products" button: Auto-populates all products with their last sold variants
+  - Admin-only editing for past dates: Staff can only edit today/future, Admins can edit any date
+  
+- **Blinkit Price Scraper Integration** ✅ (Verified)
+  - **"Fetch Blinkit Prices" button** in MRP tab to manually trigger scraping
+  - **Blinkit (₹) column** added to MRP table showing competitor prices
+  - Price comparison color coding: Green (we're cheaper), Red (we're expensive), Orange (same/no data)
+  - **Automated daily scraping at 6 AM IST** using APScheduler
+  - Location-aware scraping based on **retailer pincode** (default: 411045)
+  - Playwright-based web scraper for Blinkit website
   - Backend APIs:
-    - `GET /api/daily-mrp?date=YYYY-MM-DD` - Fetch MRP entries for a date
-    - `POST /api/daily-mrp` - Bulk initialize MRP entries for a date
-    - `POST /api/daily-mrp/entry` - Add single MRP entry
-    - `PUT /api/daily-mrp/{entry_id}` - Update MRP entry (variant, mrp value)
-    - `DELETE /api/daily-mrp/{entry_id}` - Delete MRP entry
-    - `GET /api/daily-mrp/last-variants` - Get last sold variant per product from recent dispatches
-  - New MongoDB collection: `daily_mrp` storing date-wise product MRP entries
-  - UI features: Category total MRP display, Grand total, Auto-expand categories on load, Refresh button, Yellow highlight for unsaved rows
+    - `GET /api/blinkit-prices?date=YYYY-MM-DD` - Fetch scraped prices for a date
+    - `GET /api/blinkit-prices/latest?pincode=XXXXXX` - Get latest prices per product
+    - `POST /api/blinkit-prices/scrape?pincode=XXXXXX` - Trigger manual scrape
+    - `GET /api/blinkit-prices/mapping` - Get product name mappings
+    - `PUT /api/blinkit-prices/mapping/{product_id}` - Update Blinkit search term for a product
+  - New MongoDB collection: `blinkit_prices` storing scraped prices with date, pincode, product mapping
+  - Scraper file: `/app/backend/blinkit_scraper.py`
 
 ### In Progress
 - **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)

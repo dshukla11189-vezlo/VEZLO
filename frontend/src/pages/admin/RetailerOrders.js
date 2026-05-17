@@ -284,6 +284,9 @@ export default function RetailerOrders() {
   const [savingMrp, setSavingMrp] = useState(false);
   const [mrpHasUnsavedChanges, setMrpHasUnsavedChanges] = useState(false);
   const [pendingMrpChanges, setPendingMrpChanges] = useState({});
+  const [blinkitPrices, setBlinkitPrices] = useState({});
+  const [blinkitLoading, setBlinkitLoading] = useState(false);
+  const [scrapingBlinkit, setScrapingBlinkit] = useState(false);
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -1526,6 +1529,42 @@ export default function RetailerOrders() {
     });
     return grouped;
   }, [products]);
+
+  // Load Blinkit prices
+  const loadBlinkitPrices = useCallback(async (pincode = '411045') => {
+    setBlinkitLoading(true);
+    try {
+      const res = await api.get(`/api/blinkit-prices/latest?pincode=${pincode}`);
+      setBlinkitPrices(res.data || {});
+    } catch (error) {
+      console.error('Failed to load Blinkit prices:', error);
+      // Don't show error toast - Blinkit prices are optional
+    } finally {
+      setBlinkitLoading(false);
+    }
+  }, []);
+
+  // Trigger Blinkit scrape
+  const triggerBlinkitScrape = async (pincode = '411045') => {
+    setScrapingBlinkit(true);
+    try {
+      const res = await api.post(`/api/blinkit-prices/scrape?pincode=${pincode}`);
+      toast.success(res.data.message || 'Blinkit scrape started');
+      // Reload prices after a delay
+      setTimeout(() => loadBlinkitPrices(pincode), 5000);
+    } catch (error) {
+      toast.error('Failed to start Blinkit scrape');
+    } finally {
+      setScrapingBlinkit(false);
+    }
+  };
+
+  // Load Blinkit prices when MRP tab is selected
+  useEffect(() => {
+    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'mrp') {
+      loadBlinkitPrices();
+    }
+  }, [activeTab, dailyReqSubTab, loadBlinkitPrices]);
 
   // Get MRP entry for a product
   const getMrpEntry = (productId, variantId = null) => {
@@ -3758,6 +3797,25 @@ export default function RetailerOrders() {
                           </span>
                         )}
                       </Button>
+                      <Button 
+                        onClick={() => triggerBlinkitScrape('411045')}
+                        disabled={scrapingBlinkit || blinkitLoading}
+                        variant="outline"
+                        className="h-9 border-orange-300 text-orange-600 hover:bg-orange-50"
+                        title="Fetch latest prices from Blinkit (Pincode: 411045)"
+                      >
+                        {scrapingBlinkit ? (
+                          <span className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></div>
+                            Scraping...
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <Download size={14} />
+                            Fetch Blinkit Prices
+                          </span>
+                        )}
+                      </Button>
                       {mrpData.length === 0 && (
                         <Button 
                           onClick={initializeMrpData}
@@ -3857,8 +3915,11 @@ export default function RetailerOrders() {
                                     <tr className="border-b bg-gray-50 text-xs">
                                       <th className="p-2 text-left w-10">#</th>
                                       <th className="p-2 text-left">Product</th>
-                                      <th className="p-2 text-left w-48">Variant</th>
-                                      <th className="p-2 text-right w-28">MRP (₹)</th>
+                                      <th className="p-2 text-left w-44">Variant</th>
+                                      <th className="p-2 text-right w-24">MRP (₹)</th>
+                                      <th className="p-2 text-right w-24">
+                                        <span className="text-orange-600">Blinkit (₹)</span>
+                                      </th>
                                       <th className="p-2 text-center w-16">Actions</th>
                                     </tr>
                                   </thead>
@@ -3871,6 +3932,7 @@ export default function RetailerOrders() {
                                       const defaultVariant = lastVariant 
                                         ? retailPackagings.find(p => p.id === lastVariant.variant_id)
                                         : retailPackagings[0];
+                                      const blinkitData = blinkitPrices[product.id];
                                       
                                       // If product has entries, show them
                                       if (productEntries.length > 0) {
@@ -3899,9 +3961,24 @@ export default function RetailerOrders() {
                                                 value={entry.mrp || ''}
                                                 onChange={(e) => updateMrpEntryLocal(entry.id, 'mrp', e.target.value)}
                                                 disabled={!isEditable}
-                                                className={`h-8 w-24 text-right ml-auto ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                className={`h-8 w-20 text-right ml-auto ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 placeholder="0.00"
                                               />
+                                            </td>
+                                            <td className="p-2 text-right">
+                                              {blinkitData ? (
+                                                <span className={`text-sm font-medium ${
+                                                  entry.mrp && blinkitData.blinkit_price > entry.mrp 
+                                                    ? 'text-green-600' 
+                                                    : entry.mrp && blinkitData.blinkit_price < entry.mrp 
+                                                      ? 'text-red-600' 
+                                                      : 'text-orange-600'
+                                                }`} title={blinkitData.blinkit_name || ''}>
+                                                  ₹{blinkitData.blinkit_price}
+                                                </span>
+                                              ) : (
+                                                <span className="text-gray-300 text-xs">-</span>
+                                              )}
                                             </td>
                                             <td className="p-2 text-center flex gap-1 justify-center">
                                               {isEditable && (
@@ -3939,6 +4016,15 @@ export default function RetailerOrders() {
                                             {defaultVariant?.name || 'No variant'}
                                           </td>
                                           <td className="p-2 text-right text-gray-400">-</td>
+                                          <td className="p-2 text-right">
+                                            {blinkitData ? (
+                                              <span className="text-orange-600 text-sm font-medium" title={blinkitData.blinkit_name || ''}>
+                                                ₹{blinkitData.blinkit_price}
+                                              </span>
+                                            ) : (
+                                              <span className="text-gray-300 text-xs">-</span>
+                                            )}
+                                          </td>
                                           <td className="p-2 text-center">
                                             {isEditable && (
                                               <Button

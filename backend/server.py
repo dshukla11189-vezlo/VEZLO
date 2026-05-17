@@ -35,7 +35,7 @@ TABLE OF CONTENTS (Search for SECTION: to jump to each section)
 ================================================================
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status, Request, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, status, Request, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -10766,6 +10766,248 @@ async def get_last_sold_variants(
     
     return last_variants
 
+# ==================== BLINKIT PRICE SCRAPER ====================
+
+@api_router.get("/blinkit-prices")
+async def get_blinkit_prices(
+    date: str = None,
+    pincode: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get scraped Blinkit prices for a date"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    query = {"date": date}
+    if pincode:
+        query["pincode"] = pincode
+    
+    prices = await db.blinkit_prices.find(query, {"_id": 0}).to_list(1000)
+    return prices
+
+
+@api_router.get("/blinkit-prices/latest")
+async def get_latest_blinkit_prices(
+    pincode: str = "411045",
+    current_user: dict = Depends(get_current_user)
+):
+    """Get the most recent Blinkit prices for each product"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the latest prices using aggregation
+    pipeline = [
+        {"$match": {"pincode": pincode}},
+        {"$sort": {"scraped_at": -1}},
+        {"$group": {
+            "_id": "$product_id",
+            "product_id": {"$first": "$product_id"},
+            "product_name": {"$first": "$product_name"},
+            "blinkit_name": {"$first": "$blinkit_name"},
+            "blinkit_price": {"$first": "$blinkit_price"},
+            "quantity": {"$first": "$quantity"},
+            "pincode": {"$first": "$pincode"},
+            "date": {"$first": "$date"},
+            "scraped_at": {"$first": "$scraped_at"}
+        }},
+        {"$project": {"_id": 0}}
+    ]
+    
+    prices = await db.blinkit_prices.aggregate(pipeline).to_list(1000)
+    
+    # Convert to dict keyed by product_id for easy lookup
+    price_map = {p["product_id"]: p for p in prices}
+    return price_map
+
+
+@api_router.post("/blinkit-prices/scrape")
+async def trigger_blinkit_scrape(
+    pincode: str = "411045",
+    background_tasks: BackgroundTasks = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Trigger a manual Blinkit price scrape"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can trigger scrape")
+    
+    # Get all active products
+    products = await db.products.find(
+        {"is_active": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "category": 1}
+    ).to_list(500)
+    
+    if not products:
+        raise HTTPException(status_code=400, detail="No products found")
+    
+    # Start scraping in background
+    if background_tasks:
+        background_tasks.add_task(run_blinkit_scrape, pincode, products)
+        return {"message": f"Scrape started for {len(products)} products with pincode {pincode}", "status": "started"}
+    else:
+        # Run synchronously if no background tasks available
+        result = await run_blinkit_scrape_async(pincode, products)
+        return result
+
+
+async def run_blinkit_scrape_async(pincode: str, products: list):
+    """Run Blinkit scrape asynchronously"""
+    from blinkit_scraper import scrape_blinkit_prices
+    
+    product_names = [p["name"] for p in products]
+    product_map = {p["name"]: p for p in products}
+    
+    try:
+        results = await scrape_blinkit_prices(pincode, product_names)
+        
+        # Store results in database
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        scraped_at = datetime.now(timezone.utc).isoformat()
+        
+        saved_count = 0
+        for product_name, data in results.items():
+            if product_name in product_map:
+                product = product_map[product_name]
+                
+                price_doc = {
+                    "id": str(uuid.uuid4()),
+                    "product_id": product["id"],
+                    "product_name": product_name,
+                    "category": product.get("category"),
+                    "blinkit_name": data.get("blinkit_name"),
+                    "blinkit_price": data.get("price"),
+                    "quantity": data.get("quantity"),
+                    "pincode": pincode,
+                    "date": date_str,
+                    "scraped_at": scraped_at
+                }
+                
+                # Upsert - update if exists for same product/date/pincode
+                await db.blinkit_prices.update_one(
+                    {"product_id": product["id"], "date": date_str, "pincode": pincode},
+                    {"$set": price_doc},
+                    upsert=True
+                )
+                saved_count += 1
+        
+        return {
+            "message": f"Scrape completed",
+            "total_products": len(products),
+            "prices_found": len(results),
+            "saved": saved_count,
+            "pincode": pincode,
+            "date": date_str
+        }
+        
+    except Exception as e:
+        logger.error(f"Blinkit scrape failed: {e}")
+        return {"message": f"Scrape failed: {str(e)}", "status": "error"}
+
+
+def run_blinkit_scrape(pincode: str, products: list):
+    """Wrapper to run async scrape in background task"""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = loop.run_until_complete(run_blinkit_scrape_async(pincode, products))
+        logger.info(f"Blinkit scrape result: {result}")
+    except Exception as e:
+        logger.error(f"Blinkit background scrape failed: {e}")
+    finally:
+        loop.close()
+
+
+@api_router.get("/blinkit-prices/mapping")
+async def get_product_mapping(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get product name mappings for Blinkit search"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    mappings = await db.blinkit_product_mapping.find({}, {"_id": 0}).to_list(500)
+    return mappings
+
+
+@api_router.put("/blinkit-prices/mapping/{product_id}")
+async def update_product_mapping(
+    product_id: str,
+    mapping: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update Blinkit search term mapping for a product"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can update mappings")
+    
+    update_data = {
+        "product_id": product_id,
+        "blinkit_search_term": mapping.get("blinkit_search_term"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["id"]
+    }
+    
+    await db.blinkit_product_mapping.update_one(
+        {"product_id": product_id},
+        {"$set": update_data},
+        upsert=True
+    )
+    
+    return {"message": "Mapping updated", "product_id": product_id}
+
+
+def run_blinkit_scrape_scheduled():
+    """Scheduled job to scrape Blinkit prices daily at 6 AM IST"""
+    import asyncio
+    
+    async def _run_scheduled_scrape():
+        try:
+            # Get all active retailers with pincodes
+            retailers = await db.retailers.find(
+                {"is_active": {"$ne": False}},
+                {"_id": 0, "id": 1, "pincode": 1, "name": 1}
+            ).to_list(100)
+            
+            # Get unique pincodes
+            pincodes = list(set([r.get("pincode", "411045") for r in retailers if r.get("pincode")]))
+            if not pincodes:
+                pincodes = ["411045"]  # Default pincode
+            
+            # Get all active products
+            products = await db.products.find(
+                {"is_active": {"$ne": False}},
+                {"_id": 0, "id": 1, "name": 1, "category": 1}
+            ).to_list(500)
+            
+            if not products:
+                logger.warning("No products found for Blinkit scrape")
+                return
+            
+            logger.info(f"Starting scheduled Blinkit scrape for {len(products)} products across {len(pincodes)} pincodes")
+            
+            # Scrape for each pincode (limit to first 3 to avoid overload)
+            for pincode in pincodes[:3]:
+                try:
+                    result = await run_blinkit_scrape_async(pincode, products)
+                    logger.info(f"Blinkit scrape for pincode {pincode}: {result}")
+                except Exception as e:
+                    logger.error(f"Blinkit scrape failed for pincode {pincode}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Scheduled Blinkit scrape failed: {e}")
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_run_scheduled_scrape())
+    except Exception as e:
+        logger.error(f"Blinkit scheduled job error: {e}")
+    finally:
+        loop.close()
+
+
 # Get uninvoiced dispatches for a retailer (for creating invoices)
 # Now returns items that haven't been invoiced yet (item-level filtering)
 @api_router.get("/retailer-dispatches/uninvoiced")
@@ -12552,6 +12794,17 @@ async def startup_event():
             misfire_grace_time=3600  # Allow 1 hour grace period
         )
         logger.info("Auto-indent generation scheduled for 11:00 PM IST daily")
+        
+        # Add Blinkit Price Scraper job at 6 AM IST (00:30 UTC)
+        # IST is UTC+5:30, so 6:00 AM IST = 00:30 UTC
+        backup_scheduler.add_job(
+            run_blinkit_scrape_scheduled,
+            CronTrigger(hour=0, minute=30),  # 6:00 AM IST
+            id='blinkit_price_scrape',
+            replace_existing=True,
+            misfire_grace_time=3600  # Allow 1 hour grace period
+        )
+        logger.info("Blinkit price scraper scheduled for 6:00 AM IST daily")
         
         # Check if we missed the 6 AM sync today and run it now
         await check_and_run_missed_gmail_sync()

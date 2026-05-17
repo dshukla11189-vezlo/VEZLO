@@ -2789,7 +2789,7 @@ export default function RetailerOrders() {
                     <ShoppingCart size={16} className="text-green-600" />
                     Daily Purchase Requirement
                   </CardTitle>
-                  <p className="text-xs text-gray-500 mt-1">Calculates from indents for the selected date, with wastage % from last 7 days</p>
+                  <p className="text-xs text-gray-500 mt-1">Calculates from indents for the selected date, with wastage % from closing inventory</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <select
@@ -2877,7 +2877,7 @@ export default function RetailerOrders() {
               
               {dailyReqData.length > 0 && (
                 <div className="overflow-x-auto">
-                  <p className="text-xs text-gray-500 mb-2">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days average.</p>
+                  <p className="text-xs text-gray-500 mb-2">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days' closing inventory data.</p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">

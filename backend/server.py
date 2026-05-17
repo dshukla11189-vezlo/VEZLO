@@ -13058,75 +13058,58 @@ async def calculate_daily_purchase_requirement(
                 if variant_id:
                     variant_weight_map[variant_id] = weight_kg
         
-        # Calculate average wastage % from last 7 days of rejections
+        # Get wastage % from Daily Stock Status (same source as Wastage Dashboard)
         seven_days_ago = (target - timedelta(days=7))
+        seven_days_ago_str = seven_days_ago.strftime("%Y-%m-%d")
+        target_minus_one_str = (target - timedelta(days=1)).strftime("%Y-%m-%d")
         
-        # Fetch ALL rejections and dispatches, then filter in Python for date handling
-        rejection_base_query = {}
-        if retailer_id:
-            rejection_base_query["retailer_id"] = retailer_id
+        # Fetch daily stock status data for the last 7 days (closed entries only)
+        stock_status_records = await db.daily_stock_status.find(
+            {"date": {"$gte": seven_days_ago_str, "$lte": target_minus_one_str}, "status": "closed"},
+            {"_id": 0}
+        ).to_list(5000)
         
-        all_rejections = await db.retailer_rejections.find(rejection_base_query, {"_id": 0}).to_list(2000)
+        # Get all products for product_id mapping
+        all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+        product_name_to_id = {}
+        for p in all_products:
+            product_name_to_id[p.get("name", "").strip().lower()] = p.get("id")
         
-        # Filter rejections to last 7 days
-        recent_rejections = []
-        for rej in all_rejections:
-            try:
-                rej_date_raw = rej.get("rejection_date", "")
-                rej_date_str = str(rej_date_raw)[:10] if rej_date_raw else ""
-                if rej_date_str:
-                    rej_date = datetime.strptime(rej_date_str, "%Y-%m-%d").date()
-                    if seven_days_ago <= rej_date < target:
-                        recent_rejections.append(rej)
-            except:
+        # Aggregate wastage data by product from daily stock status
+        product_wastage_data = {}  # product_id -> {total_input, total_wastage}
+        
+        for record in stock_status_records:
+            product_name = record.get("product_name", "").strip()
+            product_id = record.get("product_id")
+            
+            # Try to get product_id from name if not present
+            if not product_id:
+                product_id = product_name_to_id.get(product_name.lower())
+            
+            if not product_id:
                 continue
-        
-        # Also fetch dispatches for the same period to calculate wastage %
-        dispatch_base_query = {}
-        if retailer_id:
-            dispatch_base_query["retailer_id"] = retailer_id
-        
-        all_dispatches = await db.retailer_dispatches.find(dispatch_base_query, {"_id": 0}).to_list(1000)
-        
-        # Filter dispatches to last 7 days
-        recent_dispatches = []
-        for dispatch in all_dispatches:
-            try:
-                dispatch_date_raw = dispatch.get("dispatch_date", "")
-                dispatch_date_str = str(dispatch_date_raw)[:10] if dispatch_date_raw else ""
-                if dispatch_date_str:
-                    dispatch_date = datetime.strptime(dispatch_date_str, "%Y-%m-%d").date()
-                    if seven_days_ago <= dispatch_date < target:
-                        recent_dispatches.append(dispatch)
-            except:
-                continue
-        
-        # Aggregate dispatched quantities by product
-        product_dispatched = {}  # product_id -> total_qty_dispatched
-        for dispatch in recent_dispatches:
-            for item in dispatch.get("items", []):
-                product_id = item.get("product_id")
-                # Use supplied_qty (not quantity) - this is the actual dispatched quantity
-                qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
-                if product_id and qty > 0:
-                    product_dispatched[product_id] = product_dispatched.get(product_id, 0) + qty
-        
-        # Aggregate rejection quantities by product
-        product_rejected = {}  # product_id -> total_qty_rejected
-        for rejection in recent_rejections:
-            product_id = rejection.get("product_id")
-            qty = rejection.get("quantity", 0) or 0
-            if product_id:
-                product_rejected[product_id] = product_rejected.get(product_id, 0) + qty
+            
+            opening_qty = record.get("opening_qty", 0) or 0
+            purchase_qty = record.get("purchase_qty", 0) or 0
+            wastage_qty = record.get("wastage_qty", 0) or 0
+            
+            # Total input = opening + purchase
+            total_input = opening_qty + purchase_qty
+            
+            if product_id not in product_wastage_data:
+                product_wastage_data[product_id] = {"total_input": 0, "total_wastage": 0}
+            
+            product_wastage_data[product_id]["total_input"] += total_input
+            product_wastage_data[product_id]["total_wastage"] += wastage_qty
         
         # Calculate wastage % for each product
         product_wastage_pct = {}  # product_id -> wastage %
-        common_ids = set(product_dispatched.keys()) & set(product_rejected.keys())
         
-        for product_id, dispatched_qty in product_dispatched.items():
-            rejected_qty = product_rejected.get(product_id, 0)
-            if dispatched_qty > 0:
-                wastage_pct = (rejected_qty / dispatched_qty) * 100
+        for product_id, data in product_wastage_data.items():
+            total_input = data["total_input"]
+            total_wastage = data["total_wastage"]
+            if total_input > 0:
+                wastage_pct = (total_wastage / total_input) * 100
                 product_wastage_pct[product_id] = round(min(wastage_pct, 100), 1)  # Cap at 100%
         
         # Aggregate indent items by product (combining all variants)

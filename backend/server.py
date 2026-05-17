@@ -9876,28 +9876,61 @@ async def get_retailer_invoices(
         }
         rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
         
-        # Group rejections by product
-        rejections_by_product = {}
+        # Group rejections by product AND date (key = product_id_date) to avoid cross-date summing
+        rejections_by_product_date = {}
         for rej in rejections:
             product_id = rej.get("product_id")
             product_name = rej.get("product_name", "").strip()
-            key = product_id or product_name
-            if key not in rejections_by_product:
-                rejections_by_product[key] = {"qty": 0, "value": 0}
-            rejections_by_product[key]["qty"] += rej.get("quantity", 0) or 0
-            rejections_by_product[key]["value"] += rej.get("rejection_value", 0) or 0
+            rejection_date = rej.get("rejection_date", "")[:10]  # YYYY-MM-DD
+            key = f"{product_id or product_name}_{rejection_date}"
+            if key not in rejections_by_product_date:
+                rejections_by_product_date[key] = {"qty": 0, "value": 0}
+            rejections_by_product_date[key]["qty"] += rej.get("quantity", 0) or 0
+            rejections_by_product_date[key]["value"] += rej.get("rejection_value", 0) or 0
         
-        # Update invoice items with rejected_qty
+        # Build dispatch_id to date mapping from the dispatches we fetched
+        dispatch_id_to_date = {}
+        for d in dispatches:
+            dispatch_id_to_date[d.get("id")] = d.get("dispatch_date", "")[:10]
+        
+        # Also need to get the full dispatch data to know which items came from which dispatch
+        full_dispatches = await db.retailer_dispatches.find(
+            {"id": {"$in": dispatch_ids}},
+            {"_id": 0}
+        ).to_list(100)
+        
+        # Build a map of dispatch items by dispatch_id for matching
+        dispatch_items_map = {}
+        for d in full_dispatches:
+            dispatch_items_map[d.get("id")] = {
+                "date": d.get("dispatch_date", "")[:10],
+                "items": d.get("items", [])
+            }
+        
+        # Update invoice items with rejected_qty - match by product AND dispatch date
         total_rejection_value = 0
         for item in invoice.get("items", []):
             product_id = item.get("product_id")
             product_name = item.get("product_name", "").strip()
-            key = product_id or product_name
+            product_key = product_id or product_name
             
-            if key in rejections_by_product:
-                item["rejected_qty"] = rejections_by_product[key]["qty"]
-                item["rejection_value"] = rejections_by_product[key]["value"]
-                total_rejection_value += rejections_by_product[key]["value"]
+            # Find which dispatch this item came from (via dispatch_id if stored, or by matching)
+            item_dispatch_date = None
+            item_dispatch_id = item.get("dispatch_id")
+            if item_dispatch_id and item_dispatch_id in dispatch_id_to_date:
+                item_dispatch_date = dispatch_id_to_date[item_dispatch_id]
+            else:
+                # Fallback: use the first dispatch date (may not be accurate for multi-dispatch invoices)
+                if dispatch_dates:
+                    item_dispatch_date = dispatch_dates[0]
+            
+            # Look up rejection by product + date
+            if item_dispatch_date:
+                lookup_key = f"{product_key}_{item_dispatch_date}"
+                if lookup_key in rejections_by_product_date:
+                    item["rejected_qty"] = rejections_by_product_date[lookup_key]["qty"]
+                    item["rejection_value"] = rejections_by_product_date[lookup_key]["value"]
+                    total_rejection_value += rejections_by_product_date[lookup_key]["value"]
         
         # Update invoice-level rejection amount
         if total_rejection_value > 0:

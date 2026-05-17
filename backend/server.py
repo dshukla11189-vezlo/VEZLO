@@ -10698,7 +10698,7 @@ async def save_daily_mrp(
     input: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Save/update daily MRP entries"""
+    """Save/update daily MRP entries with Blinkit prices for historical tracking"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -10717,6 +10717,9 @@ async def save_daily_mrp(
             item["id"] = str(uuid.uuid4())
             item["updated_by"] = current_user["user_id"]
             item["updated_at"] = datetime.now(timezone.utc).isoformat()
+            # Ensure blinkit_price is stored (default to 0 if not provided)
+            if "blinkit_price" not in item:
+                item["blinkit_price"] = 0
             await db.daily_mrp.insert_one(item)
     
     return {"message": f"Saved {len(items)} MRP entries for {date}"}
@@ -10726,7 +10729,7 @@ async def add_mrp_entry(
     input: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Add a single MRP entry"""
+    """Add a single MRP entry with Blinkit price"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -10739,6 +10742,7 @@ async def add_mrp_entry(
         "variant_id": input.get("variant_id"),
         "variant_name": input.get("variant_name"),
         "mrp": input.get("mrp", 0),
+        "blinkit_price": input.get("blinkit_price", 0),
         "updated_by": current_user["user_id"],
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
@@ -10753,7 +10757,7 @@ async def update_mrp_entry(
     input: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update a single MRP entry"""
+    """Update a single MRP entry with Blinkit price"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -10761,6 +10765,7 @@ async def update_mrp_entry(
         "variant_id": input.get("variant_id"),
         "variant_name": input.get("variant_name"),
         "mrp": input.get("mrp", 0),
+        "blinkit_price": input.get("blinkit_price", 0),
         "updated_by": current_user["user_id"],
         "updated_at": datetime.now(timezone.utc).isoformat()
     }

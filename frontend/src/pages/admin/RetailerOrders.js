@@ -1643,7 +1643,7 @@ export default function RetailerOrders() {
   const updateBlinkitPrice = async (productId, price) => {
     const priceVal = parseFloat(price) || 0;
     
-    // Update local state immediately
+    // Update local blinkit state immediately
     setBlinkitPrices(prev => ({
       ...prev,
       [productId]: {
@@ -1653,7 +1653,22 @@ export default function RetailerOrders() {
       }
     }));
     
-    // Save to backend
+    // Also update the MRP entries for this product to include blinkit_price
+    // This ensures blinkit_price is saved when user clicks "Save MRP"
+    const productEntries = mrpData.filter(e => e.product_id === productId);
+    if (productEntries.length > 0) {
+      productEntries.forEach(entry => {
+        const updateData = { ...entry, blinkit_price: priceVal };
+        setMrpData(prev => prev.map(e => e.id === entry.id ? updateData : e));
+        setPendingMrpChanges(prev => ({
+          ...prev,
+          [entry.id]: updateData
+        }));
+      });
+      setMrpHasUnsavedChanges(true);
+    }
+    
+    // Save to backend blinkit_prices collection (for reference)
     try {
       const date = new Date().toISOString().split('T')[0];
       const product = products.find(p => p.id === productId);
@@ -1881,6 +1896,10 @@ export default function RetailerOrders() {
           ? packagingsToUse.find(p => p.id === lastVariant.variant_id) 
           : packagingsToUse[0];
         
+        // Get Blinkit price if available
+        const blinkitEntry = blinkitPrices[product.id];
+        const blinkitPrice = blinkitEntry?.blinkit_price || 0;
+        
         // Always add the product, even if no variant found (use empty variant)
         entries.push({
           product_id: product.id,
@@ -1888,7 +1907,8 @@ export default function RetailerOrders() {
           category: product.category,
           variant_id: variant?.id || '',
           variant_name: variant?.name || '',
-          mrp: 0
+          mrp: 0,
+          blinkit_price: blinkitPrice
         });
       });
       
@@ -1923,13 +1943,15 @@ export default function RetailerOrders() {
       }
       
       // Create entries for current date based on previous date
+      // Note: blinkit_price from previous date is copied, user can update with fresh fetch
       const entries = prevData.map(item => ({
         product_id: item.product_id,
         product_name: item.product_name,
         category: item.category,
         variant_id: item.variant_id,
         variant_name: item.variant_name,
-        mrp: item.mrp
+        mrp: item.mrp,
+        blinkit_price: item.blinkit_price || 0
       }));
       
       await api.post('/api/daily-mrp', { date: mrpDate, items: entries });

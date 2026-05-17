@@ -10839,7 +10839,7 @@ async def get_mrp_for_dispatch(
     date: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get MRP entries for a dispatch date, keyed by product_id+variant_id and product_id (fallback)"""
+    """Get MRP entries for a dispatch date, keyed by product_id+variant_id"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -10849,30 +10849,11 @@ async def get_mrp_for_dispatch(
         {"_id": 0}
     ).to_list(1000)
     
-    # Create maps for lookup
-    # 1. Exact match: product_id + variant_id
-    # 2. Fallback: product_id only (first MRP found for that product)
+    # Create a map keyed by product_id+variant_id for quick lookup
     mrp_map = {}
-    product_mrp_fallback = {}  # product_id -> first MRP found
-    
     for entry in mrp_entries:
-        product_id = entry.get('product_id')
-        variant_id = entry.get('variant_id')
-        mrp = entry.get('mrp', 0)
-        
-        # Exact match key
-        exact_key = f"{product_id}_{variant_id}"
-        mrp_map[exact_key] = mrp
-        
-        # Product-only fallback (use first non-zero MRP found)
-        if product_id and product_id not in product_mrp_fallback and mrp > 0:
-            product_mrp_fallback[product_id] = mrp
-    
-    # Add product-only keys to the map for fallback lookup
-    for product_id, mrp in product_mrp_fallback.items():
-        fallback_key = f"{product_id}_"
-        if fallback_key not in mrp_map:
-            mrp_map[fallback_key] = mrp
+        key = f"{entry.get('product_id')}_{entry.get('variant_id')}"
+        mrp_map[key] = entry.get('mrp', 0)
     
     return mrp_map
 

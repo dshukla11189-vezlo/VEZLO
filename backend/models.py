@@ -80,35 +80,41 @@ class Product(BaseModel):
     name: str
     name_hi: Optional[str] = None  # Hindi translation of product name
     category: str
+    product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
     unit: str
     current_stock: float = 0
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
     lifecycle_duration: Optional[str] = None  # "low" (3 days), "medium" (5 days), "high" (7 days)
     cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost (e.g., Spinach uses Palak's cost)
+    image_url: Optional[str] = None  # Product image URL
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ProductCreate(BaseModel):
     name: str
     name_hi: Optional[str] = None  # Hindi translation
     category: str
+    product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
     unit: str
     current_stock: float = 0
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
     lifecycle_duration: Optional[str] = None  # "low", "medium", "high"
     cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost
+    image_url: Optional[str] = None  # Product image URL
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     name_hi: Optional[str] = None  # Hindi translation
     category: Optional[str] = None
+    product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
     unit: Optional[str] = None
     current_stock: Optional[float] = None
     price_per_kg: Optional[float] = None
     price_per_packet: Optional[float] = None
     lifecycle_duration: Optional[str] = None
     cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost
+    image_url: Optional[str] = None  # Product image URL
 
 # Farmer Models
 class Farmer(BaseModel):

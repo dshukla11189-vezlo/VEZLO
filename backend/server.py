@@ -161,6 +161,11 @@ ALGORITHM = "HS256"
 app = FastAPI(title="Mr Organix API")
 api_router = APIRouter(prefix="/api")
 
+# Mount static files for uploads
+from fastapi.staticfiles import StaticFiles
+os.makedirs("/app/uploads/products", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
+
 # Store recent errors for diagnostics (in-memory, last 50 errors)
 recent_errors = []
 MAX_ERROR_LOG = 50
@@ -829,6 +834,65 @@ async def create_product(input: ProductCreate, current_user: dict = Depends(get_
     
     await db.products.insert_one(doc)
     return product
+
+# Product image upload endpoint
+UPLOAD_DIR = "/app/uploads/products"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@api_router.post("/products/upload-image")
+async def upload_product_image(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Upload a product image and return the URL"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/webp", "image/jpg"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are allowed")
+    
+    # Generate unique filename
+    file_ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+    unique_filename = f"{uuid.uuid4()}.{file_ext}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    try:
+        # Save file
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        
+        # Return URL path
+        image_url = f"/uploads/products/{unique_filename}"
+        return {"image_url": image_url, "message": "Image uploaded successfully"}
+    except Exception as e:
+        logger.error(f"Failed to upload product image: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload image")
+
+@api_router.delete("/products/delete-image")
+async def delete_product_image(
+    image_url: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a product image"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Extract filename from URL
+        filename = image_url.split('/')[-1]
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return {"message": "Image deleted successfully"}
+        else:
+            return {"message": "Image not found, but continuing"}
+    except Exception as e:
+        logger.error(f"Failed to delete product image: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete image")
 
 
 @api_router.get("/products/duplicates")

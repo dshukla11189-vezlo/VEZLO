@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers, ImageIcon, Upload, X } from 'lucide-react';
 
 export default function Products() {
   // Sub-tab state
@@ -51,6 +51,11 @@ export default function Products() {
   const [replacementProductId, setReplacementProductId] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   
+  // Image upload state
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -60,7 +65,8 @@ export default function Products() {
     price_per_kg: 0,
     price_per_packet: 0,
     lifecycle_duration: '',  // 'low', 'medium', 'high'
-    cost_alias_product_id: ''  // For P&L: use this product's purchase cost
+    cost_alias_product_id: '',  // For P&L: use this product's purchase cost
+    image_url: ''  // Product image URL
   });
 
   // Load products
@@ -342,20 +348,71 @@ export default function Products() {
     }
     
     try {
+      let finalImageUrl = formData.image_url;
+      
+      // Upload new image if selected
+      if (imageFile) {
+        setUploadingImage(true);
+        const formDataImg = new FormData();
+        formDataImg.append('file', imageFile);
+        
+        try {
+          const uploadRes = await api.post('/api/products/upload-image', formDataImg, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          finalImageUrl = uploadRes.data.image_url;
+        } catch (uploadErr) {
+          toast.error('Failed to upload image');
+          setUploadingImage(false);
+          return;
+        }
+        setUploadingImage(false);
+      }
+      
+      const productData = { ...formData, image_url: finalImageUrl };
+      
       if (editProduct) {
-        await api.put(`/api/products/${editProduct.id}`, formData);
+        await api.put(`/api/products/${editProduct.id}`, productData);
         toast.success('Product updated successfully');
       } else {
-        await api.post('/api/products', formData);
+        await api.post('/api/products', productData);
         toast.success('Product created successfully');
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '' });
+      setFormData({ name: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+      setImageFile(null);
+      setImagePreview(null);
       loadProducts();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save product');
     }
+  };
+
+  // Handle image file selection
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!['image/jpeg', 'image/png', 'image/webp', 'image/jpg'].includes(file.type)) {
+        toast.error('Only JPEG, PNG, and WebP images are allowed');
+        return;
+      }
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image size must be less than 5MB');
+        return;
+      }
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  // Remove selected image
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    setFormData({ ...formData, image_url: '' });
   };
 
   const handleEdit = (product) => {
@@ -369,8 +426,11 @@ export default function Products() {
       price_per_kg: product.price_per_kg || 0,
       price_per_packet: product.price_per_packet || 0,
       lifecycle_duration: product.lifecycle_duration || '',
-      cost_alias_product_id: product.cost_alias_product_id || ''
+      cost_alias_product_id: product.cost_alias_product_id || '',
+      image_url: product.image_url || ''
     });
+    setImageFile(null);
+    setImagePreview(product.image_url || null);
     setOpen(true);
   };
 
@@ -563,7 +623,9 @@ export default function Products() {
           setOpen(val);
           if (!val) {
             setEditProduct(null);
-            setFormData({ name: '', category: '', unit: 'Kg', current_stock: 0, price_per_kg: 0, price_per_packet: 0 });
+            setFormData({ name: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+            setImageFile(null);
+            setImagePreview(null);
           }
         }}>
           <DialogTrigger asChild>
@@ -695,8 +757,49 @@ export default function Products() {
                 </select>
                 <p className="text-xs text-gray-500 mt-1">Use another product's purchase cost for P&L (e.g., Spinach uses Palak's cost)</p>
               </div>
-              <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="product-submit-button">
-                {editProduct ? 'Update' : 'Create'} Product
+              
+              {/* Product Image Upload */}
+              <div>
+                <Label>Product Image</Label>
+                <div className="mt-2">
+                  {(imagePreview || formData.image_url) ? (
+                    <div className="relative inline-block">
+                      <img 
+                        src={imagePreview || (formData.image_url?.startsWith('/') ? `${process.env.REACT_APP_BACKEND_URL}${formData.image_url}` : formData.image_url)} 
+                        alt="Product preview" 
+                        className="w-32 h-32 object-cover rounded-lg border"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-green-500 hover:bg-green-50 transition-colors">
+                      <ImageIcon size={24} className="text-gray-400 mb-2" />
+                      <span className="text-xs text-gray-500">Upload Image</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageChange}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2">Max 5MB. JPEG, PNG, or WebP</p>
+                </div>
+              </div>
+              
+              <Button 
+                type="submit" 
+                className="w-full bg-[#14532D] hover:bg-[#166534]" 
+                data-testid="product-submit-button"
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? 'Uploading...' : (editProduct ? 'Update' : 'Create')} Product
               </Button>
             </form>
           </DialogContent>
@@ -722,7 +825,22 @@ export default function Products() {
           <tbody>
             {filteredProducts.map((product) => (
               <tr key={product.id} data-testid={`product-row-${product.id}`}>
-                <td className="font-medium">{product.name}</td>
+                <td className="font-medium">
+                  <div className="flex items-center gap-3">
+                    {product.image_url ? (
+                      <img 
+                        src={product.image_url?.startsWith('/') ? `${process.env.REACT_APP_BACKEND_URL}${product.image_url}` : product.image_url}
+                        alt={product.name}
+                        className="w-10 h-10 object-cover rounded-md border"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center">
+                        <ImageIcon size={16} className="text-gray-400" />
+                      </div>
+                    )}
+                    <span>{product.name}</span>
+                  </div>
+                </td>
                 <td>
                   {product.product_type ? (
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${

@@ -93,6 +93,16 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Admin Retailer Orders indent form only shows retail-applicable variants
   - Backend POST/PUT endpoints updated to accept and store `verticals` array
 
+- **Product Image Upload** ✅ (Verified)
+  - Added image upload capability when creating or editing products
+  - Upload area with dashed border and "Upload Image" placeholder
+  - Image preview with remove button (X) after selection
+  - File validation: JPEG, PNG, WebP only, max 5MB
+  - Product list shows image thumbnails (or placeholder icon if no image)
+  - Backend endpoint `/api/products/upload-image` for file uploads
+  - Static files served from `/uploads/products/` directory
+  - Product model updated with `image_url` field
+
 ### Completed (Previous Session - 16 May 2026)
 - **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
   - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting

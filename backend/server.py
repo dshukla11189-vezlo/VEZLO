@@ -10524,7 +10524,7 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
 # Fix invoice statuses - recalculate from payments
 @api_router.post("/retailer-invoices/fix-statuses")
 async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
-    """Recalculate and fix invoice payment statuses based on actual payments"""
+    """Recalculate and fix invoice payment statuses based on actual payments and recalculated net_payable"""
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can fix statuses")
     
@@ -10536,21 +10536,66 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
     
     for inv in invoices:
         invoice_id = inv.get('id')
-        net_payable = float(inv.get('net_payable', 0) or 0)
         current_status = inv.get('status', 'pending')
+        stored_paid = float(inv.get('paid_amount', 0) or 0)
+        stored_net_payable = float(inv.get('net_payable', 0) or 0)
         
-        # Recalculate paid amount from all payments linked to this invoice
+        # Recalculate net_payable accounting for rejections (same logic as GET endpoint)
+        effective_net_payable = stored_net_payable
+        
+        # Get dispatch IDs for this invoice to find rejections
+        dispatch_ids = inv.get("dispatch_ids", [])
+        if isinstance(dispatch_ids, str):
+            try:
+                import ast
+                dispatch_ids = ast.literal_eval(dispatch_ids)
+            except:
+                dispatch_ids = []
+        
+        # Calculate rejection-adjusted net_payable if we have dispatch info
+        if dispatch_ids and isinstance(dispatch_ids, list) and len(dispatch_ids) > 0:
+            try:
+                # Get dispatches to find dispatch dates
+                dispatches = await db.retailer_dispatches.find(
+                    {"id": {"$in": dispatch_ids}},
+                    {"_id": 0, "dispatch_date": 1, "retailer_id": 1}
+                ).to_list(100)
+                
+                if dispatches:
+                    retailer_id = inv.get("retailer_id") or dispatches[0].get("retailer_id")
+                    dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+                    
+                    if dispatch_dates and retailer_id:
+                        # Fetch rejections for these dispatch dates
+                        rejection_query = {
+                            "retailer_id": retailer_id,
+                            "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+                        }
+                        rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+                        total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+                        
+                        # Recalculate net_payable
+                        gross_value = float(inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0)
+                        if gross_value == 0:
+                            gross_value = float(inv.get("total_mrp_value", 0) or 0) + total_rejection_value
+                        
+                        net_mrp_value = gross_value - total_rejection_value
+                        commission_percentage = float(inv.get("commission_percentage", 0) or 0)
+                        commission_amount = net_mrp_value * (commission_percentage / 100)
+                        effective_net_payable = net_mrp_value - commission_amount
+            except Exception as e:
+                # If rejection calculation fails, use stored net_payable
+                pass
+        
+        # Get paid amount from payments collection
         all_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
         actual_paid = sum(float(p.get("amount", 0) or 0) for p in all_payments)
         
-        # Also check paid_amount stored directly on invoice (may be more accurate)
-        stored_paid = float(inv.get('paid_amount', 0) or 0)
-        
-        # Use the higher of the two (actual payments vs stored paid_amount)
+        # Use the higher of actual payments vs stored paid_amount
         effective_paid = max(actual_paid, stored_paid)
         
         # Determine correct status with tolerance for floating point
-        if net_payable > 0 and effective_paid >= net_payable - 0.01:
+        if effective_net_payable > 0 and effective_paid >= effective_net_payable - 0.01:
             correct_status = 'paid'
         elif effective_paid > 0:
             correct_status = 'partial'
@@ -10563,16 +10608,17 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
                 {'id': invoice_id},
                 {'$set': {
                     'status': correct_status,
-                    'paid_amount': round(effective_paid, 2)
+                    'paid_amount': round(effective_paid, 2),
+                    'net_payable': round(effective_net_payable, 2)  # Also update stored net_payable
                 }}
             )
             fixed_invoices.append({
                 'invoice_number': inv.get('invoice_number'),
                 'old_status': current_status,
                 'new_status': correct_status,
-                'net_payable': net_payable,
-                'old_paid': stored_paid,
-                'payments_sum': actual_paid,
+                'stored_net_payable': stored_net_payable,
+                'effective_net_payable': effective_net_payable,
+                'stored_paid': stored_paid,
                 'effective_paid': effective_paid
             })
             fixed_count += 1
@@ -10580,7 +10626,7 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
     return {
         "message": f"Fixed {fixed_count} invoices",
         "total_checked": len(invoices),
-        "fixed_invoices": fixed_invoices[:100]  # Show more for debugging
+        "fixed_invoices": fixed_invoices[:100]
     }
 
 # Get payment history for an invoice

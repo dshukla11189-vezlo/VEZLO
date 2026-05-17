@@ -1974,52 +1974,52 @@ export default function RetailerDashboard() {
         {activeTab === 'orders' && (
           <div className="space-y-4">
             {/* Sub-tabs for Orders */}
-            <div className="flex border-b justify-between items-center">
-              <div className="flex">
+            <div className="flex border-b justify-between items-center flex-wrap gap-1">
+              <div className="flex flex-wrap">
                 <button
                   onClick={() => setOrdersSubTab('pending')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${
                     ordersSubTab === 'pending'
                       ? 'border-yellow-500 text-yellow-700 bg-yellow-50'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  <ShoppingBag size={14} className="inline mr-1.5" />
-                  {'Orders'}
+                  <ShoppingBag size={14} className="inline mr-1" />
+                  <span className="hidden sm:inline">Orders</span>
                   {indents.filter(i => i.status === 'pending' || i.status === 'partial').length > 0 && (
-                    <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-xs rounded-full">
+                    <span className="ml-1 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-[10px] sm:text-xs rounded-full">
                       {indents.filter(i => i.status === 'pending' || i.status === 'partial').length}
                     </span>
                   )}
                 </button>
                 <button
                   onClick={() => setOrdersSubTab('dispatched')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${
                     ordersSubTab === 'dispatched'
                       ? 'border-green-500 text-green-700 bg-green-50'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  <Truck size={14} className="inline mr-1.5" />
-                  {t('retailer.dispatchedOrders') || 'Dispatched Orders'}
+                  <Truck size={14} className="inline mr-1" />
+                  <span className="hidden sm:inline">Dispatched</span>
                   {dispatches.length > 0 && (
-                    <span className="ml-2 px-1.5 py-0.5 bg-green-200 text-green-800 text-xs rounded-full">
+                    <span className="ml-1 px-1.5 py-0.5 bg-green-200 text-green-800 text-[10px] sm:text-xs rounded-full">
                       {dispatches.length}
                     </span>
                   )}
                 </button>
                 <button
                   onClick={() => setOrdersSubTab('invoiced')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${
                     ordersSubTab === 'invoiced'
                       ? 'border-blue-500 text-blue-700 bg-blue-50'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <FileText size={14} className="inline mr-1.5" />
-                {t('retailer.invoiced') || 'Invoiced'}
+                <FileText size={14} className="inline mr-1" />
+                <span className="hidden sm:inline">Invoiced</span>
                 {invoices.length > 0 && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-blue-200 text-blue-800 text-xs rounded-full">
+                  <span className="ml-1 px-1.5 py-0.5 bg-blue-200 text-blue-800 text-[10px] sm:text-xs rounded-full">
                     {invoices.length}
                   </span>
                 )}
@@ -2028,11 +2028,12 @@ export default function RetailerDashboard() {
               {/* Create Indent Button */}
               <Button 
                 size="sm" 
-                className="bg-[#14532D] hover:bg-[#166534] mb-1"
+                className="bg-[#14532D] hover:bg-[#166534] mb-1 h-8 text-xs sm:text-sm px-2 sm:px-3"
                 onClick={() => openCreateIndentModal()}
               >
                 <Plus size={14} className="mr-1" />
-                Create Indent
+                <span className="hidden sm:inline">Create Indent</span>
+                <span className="sm:hidden">New</span>
               </Button>
             </div>
 
@@ -3436,39 +3437,44 @@ export default function RetailerDashboard() {
 
         {/* ==================== CREATE INDENT MODAL ==================== */}
         {showCreateIndentModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-              <div className="p-4 border-b bg-[#14532D] text-white flex justify-between items-center">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Plus size={20} />
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="p-3 sm:p-4 border-b bg-[#14532D] text-white flex justify-between items-center flex-shrink-0">
+                <h2 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+                  <Plus size={18} />
                   {editingIndentId ? 'Edit Indent' : 'Create New Indent'}
                 </h2>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowCreateIndentModal(false)}
-                  className="text-white hover:bg-white/20"
+                  className="text-white hover:bg-white/20 h-8 w-8 p-0"
                 >
                   <X size={20} />
                 </Button>
               </div>
               
-              <div className="p-4 border-b bg-gray-50 flex items-center gap-4">
-                <Label className="font-medium">Indent Date:</Label>
-                <Input
-                  type="date"
-                  value={createIndentDate}
-                  onChange={(e) => setCreateIndentDate(e.target.value)}
-                  className="w-48"
-                  min={getLocalDateString()}
-                />
-                <span className="text-xs text-gray-500">
-                  (You can edit this indent until 10 PM IST on the selected date)
+              {/* Date Picker */}
+              <div className="p-3 sm:p-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <Label className="font-medium text-sm whitespace-nowrap">Indent Date:</Label>
+                  <Input
+                    type="date"
+                    value={createIndentDate}
+                    onChange={(e) => setCreateIndentDate(e.target.value)}
+                    className="w-full sm:w-40 h-9"
+                    min={getLocalDateString()}
+                  />
+                </div>
+                <span className="text-[10px] sm:text-xs text-gray-500">
+                  (Edit until 10 PM IST on selected date)
                 </span>
               </div>
               
-              <div className="overflow-y-auto max-h-[60vh] p-4">
-                <div className="space-y-3">
+              {/* Products List - Scrollable */}
+              <div className="overflow-y-auto flex-1 p-2 sm:p-4">
+                <div className="space-y-2 sm:space-y-3">
                   {sortedTypeNames.map((typeName) => {
                     const typeProducts = productsByType[typeName] || [];
                     const isExpanded = expandedCreateTypes[typeName];
@@ -3478,17 +3484,17 @@ export default function RetailerDashboard() {
                       <div key={typeName} className={`border rounded-lg overflow-hidden ${getTypeColorClasses(typeName).split(' ')[2]}`}>
                         {/* Type Header */}
                         <div
-                          className={`flex items-center justify-between p-3 cursor-pointer ${getTypeColorClasses(typeName).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                          className={`flex items-center justify-between p-2 sm:p-3 cursor-pointer ${getTypeColorClasses(typeName).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
                           onClick={() => toggleCreateType(typeName)}
                         >
-                          <div className="flex items-center gap-3">
-                            {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                            <span className="font-semibold">{typeName}</span>
-                            <span className="text-xs opacity-75">({typeProducts.length} products)</span>
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            <span className="font-semibold text-sm">{typeName}</span>
+                            <span className="text-[10px] sm:text-xs opacity-75">({typeProducts.length})</span>
                           </div>
                           {selectedCount > 0 && (
-                            <span className="px-2 py-0.5 bg-white/50 rounded-full text-xs font-medium">
-                              {selectedCount} selected
+                            <span className="px-2 py-0.5 bg-white/50 rounded-full text-[10px] sm:text-xs font-medium">
+                              {selectedCount} ✓
                             </span>
                           )}
                         </div>
@@ -3504,70 +3510,69 @@ export default function RetailerDashboard() {
                               const isHindi = i18n.language === 'hi';
                               
                               return (
-                                <div key={product.id} className="flex items-center gap-3 p-3 hover:bg-gray-50">
-                                  {/* Product Image */}
-                                  <div className="flex-shrink-0">
-                                    {product.image_url ? (
-                                      <div 
-                                        className="relative group cursor-pointer"
-                                        onClick={() => setEnlargedImage({ url: imageUrl, name: product.name })}
-                                      >
-                                        <img 
-                                          src={imageUrl}
-                                          alt={product.name}
-                                          className="w-12 h-12 object-cover rounded-md border"
-                                        />
-                                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 rounded-md flex items-center justify-center transition-all">
-                                          <ZoomIn size={16} className="text-white opacity-0 group-hover:opacity-100" />
+                                <div key={product.id} className="p-2 sm:p-3 hover:bg-gray-50">
+                                  {/* Mobile: Stack layout, Desktop: Row layout */}
+                                  <div className="flex items-start gap-2 sm:gap-3">
+                                    {/* Product Image */}
+                                    <div className="flex-shrink-0">
+                                      {product.image_url ? (
+                                        <div 
+                                          className="relative group cursor-pointer"
+                                          onClick={() => setEnlargedImage({ url: imageUrl, name: product.name })}
+                                        >
+                                          <img 
+                                            src={imageUrl}
+                                            alt={product.name}
+                                            className="w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-md border"
+                                          />
+                                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 rounded-md flex items-center justify-center transition-all">
+                                            <ZoomIn size={14} className="text-white opacity-0 group-hover:opacity-100" />
+                                          </div>
                                         </div>
-                                      </div>
-                                    ) : (
-                                      <div className="w-12 h-12 bg-gray-100 rounded-md flex items-center justify-center">
-                                        <ImageIcon size={18} className="text-gray-400" />
-                                      </div>
-                                    )}
-                                  </div>
-                                  
-                                  {/* Product Name with Hindi Translation */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-medium text-sm">
-                                      {isHindi && product.name_hi ? product.name_hi : product.name}
+                                      ) : (
+                                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 rounded-md flex items-center justify-center">
+                                          <ImageIcon size={16} className="text-gray-400" />
+                                        </div>
+                                      )}
                                     </div>
-                                    {isHindi && product.name_hi && (
-                                      <div className="text-xs text-gray-500">{product.name}</div>
-                                    )}
-                                    {!isHindi && product.name_hi && (
-                                      <div className="text-xs text-gray-500">{product.name_hi}</div>
-                                    )}
-                                    {product.category && (
-                                      <span className="inline-block mt-0.5 text-[10px] px-1 py-0.5 bg-gray-100 text-gray-500 rounded">
-                                        {product.category}
-                                      </span>
-                                    )}
-                                  </div>
-                                  
-                                  {/* Variant & Quantity */}
-                                  <div className="flex items-center gap-2">
-                                    <select
-                                      value={itemData.variant_id}
-                                      onChange={(e) => updateCreateIndentItem(product.id, 'variant_id', e.target.value)}
-                                      className="h-8 px-2 text-sm border rounded min-w-[140px]"
-                                    >
-                                      <option value="">{isHindi ? 'वेरिएंट चुनें' : 'Select Variant'}</option>
-                                      {packagings
-                                        .filter(v => !v.verticals || v.verticals.length === 0 || v.verticals.includes('retail'))
-                                        .map(v => (
-                                          <option key={v.id} value={v.id}>{v.name}</option>
-                                        ))}
-                                    </select>
-                                    <Input
-                                      type="number"
-                                      min="0"
-                                      placeholder={isHindi ? 'मात्रा' : 'Qty'}
-                                      value={itemData.quantity || ''}
-                                      onChange={(e) => updateCreateIndentItem(product.id, 'quantity', parseInt(e.target.value) || 0)}
-                                      className="w-20 h-8 text-center"
-                                    />
+                                    
+                                    {/* Product Info + Controls */}
+                                    <div className="flex-1 min-w-0">
+                                      {/* Product Name */}
+                                      <div className="font-medium text-sm leading-tight">
+                                        {isHindi && product.name_hi ? product.name_hi : product.name}
+                                      </div>
+                                      {isHindi && product.name_hi && (
+                                        <div className="text-[10px] text-gray-500">{product.name}</div>
+                                      )}
+                                      {!isHindi && product.name_hi && (
+                                        <div className="text-[10px] text-gray-500">{product.name_hi}</div>
+                                      )}
+                                      
+                                      {/* Mobile: Variant & Qty in row below name */}
+                                      <div className="flex items-center gap-2 mt-2">
+                                        <select
+                                          value={itemData.variant_id}
+                                          onChange={(e) => updateCreateIndentItem(product.id, 'variant_id', e.target.value)}
+                                          className="h-8 px-2 text-xs sm:text-sm border rounded flex-1 min-w-0 max-w-[140px] sm:max-w-[160px]"
+                                        >
+                                          <option value="">{isHindi ? 'वेरिएंट' : 'Variant'}</option>
+                                          {packagings
+                                            .filter(v => !v.verticals || v.verticals.length === 0 || v.verticals.includes('retail'))
+                                            .map(v => (
+                                              <option key={v.id} value={v.id}>{v.name}</option>
+                                            ))}
+                                        </select>
+                                        <Input
+                                          type="number"
+                                          min="0"
+                                          placeholder={isHindi ? 'मात्रा' : 'Qty'}
+                                          value={itemData.quantity || ''}
+                                          onChange={(e) => updateCreateIndentItem(product.id, 'quantity', parseInt(e.target.value) || 0)}
+                                          className="w-16 sm:w-20 h-8 text-center text-sm"
+                                        />
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -3579,31 +3584,33 @@ export default function RetailerDashboard() {
                   })}
                   
                   {sortedTypeNames.length === 0 && (
-                    <div className="text-center text-gray-500 py-8">
+                    <div className="text-center text-gray-500 py-8 text-sm">
                       No products available. Please contact admin to add products.
                     </div>
                   )}
                 </div>
               </div>
               
-              <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
-                <div className="text-sm text-gray-600">
+              {/* Footer - Fixed at bottom */}
+              <div className="p-3 sm:p-4 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-2 flex-shrink-0">
+                <div className="text-xs sm:text-sm text-gray-600 font-medium">
                   {Object.values(createIndentItems).filter(i => i.quantity > 0).length} items selected
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto">
                   <Button
                     variant="outline"
                     onClick={() => setShowCreateIndentModal(false)}
                     disabled={savingIndent}
+                    className="flex-1 sm:flex-none h-9 text-sm"
                   >
                     Cancel
                   </Button>
                   <Button
-                    className="bg-[#14532D] hover:bg-[#166534]"
+                    className="bg-[#14532D] hover:bg-[#166534] flex-1 sm:flex-none h-9 text-sm"
                     onClick={handleSubmitCreateIndent}
                     disabled={savingIndent || Object.values(createIndentItems).filter(i => i.quantity > 0).length === 0}
                   >
-                    {savingIndent ? 'Saving...' : (editingIndentId ? 'Update Indent' : 'Submit Indent')}
+                    {savingIndent ? 'Saving...' : (editingIndentId ? 'Update' : 'Submit')}
                   </Button>
                 </div>
               </div>

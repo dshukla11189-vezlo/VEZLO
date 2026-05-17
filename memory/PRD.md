@@ -113,6 +113,18 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Placeholder icon shown for products without images
   - Variant dropdown and Qty input labels also translate to Hindi
 
+- **Mobile Responsive Retailer Orders** ✅ (Verified)
+  - Orders tab with compact icon-based tabs (mobile shows icons + badges only)
+  - "New" button on mobile (full "Create Indent" on desktop)
+  - Create Indent modal optimized for mobile:
+    - Full-screen modal with proper padding
+    - Stacked date picker layout
+    - Compact type headers with checkmark count
+    - Product rows with image, name, variant dropdown and qty input
+    - Fixed footer with Cancel/Submit buttons
+  - Products grouped by type with collapsible sections
+  - Image enlargement modal with full-screen view
+
 ### Completed (Previous Session - 16 May 2026)
 - **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
   - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting

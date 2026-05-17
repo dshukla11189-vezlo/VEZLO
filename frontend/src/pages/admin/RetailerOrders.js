@@ -262,6 +262,10 @@ export default function RetailerOrders() {
   // Daily Requirement sub-tabs state
   const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase' or 'stickers'
   
+  // Category collapse state for Purchase and Stickers tabs
+  const [expandedPurchaseCategories, setExpandedPurchaseCategories] = useState({});
+  const [expandedStickersCategories, setExpandedStickersCategories] = useState({});
+  
   // Stickers tab state
   const [stickersData, setStickersData] = useState([]);
   const [stickersLoading, setStickersLoading] = useState(false);
@@ -1332,6 +1336,91 @@ export default function RetailerOrders() {
     
     return filtered;
   }, [stickersData, stickersCategoryFilter, stickersSearch]);
+
+  // Category order for sorting
+  const categoryOrder = { 'Vegetables': 1, 'Leafy': 2, 'Fruits': 3, 'Exotic': 4, 'Other': 99 };
+
+  // Group Purchase data by category
+  const groupedPurchaseData = useMemo(() => {
+    const groups = {};
+    dailyReqData.forEach(item => {
+      const cat = item.category || 'Other';
+      if (!groups[cat]) {
+        groups[cat] = [];
+      }
+      groups[cat].push(item);
+    });
+    // Sort categories by predefined order
+    const sortedCategories = Object.keys(groups).sort((a, b) => 
+      (categoryOrder[a] || 99) - (categoryOrder[b] || 99)
+    );
+    return { groups, sortedCategories };
+  }, [dailyReqData]);
+
+  // Group Stickers data by category
+  const groupedStickersData = useMemo(() => {
+    const groups = {};
+    filteredStickersData.forEach(item => {
+      const cat = item.category || 'Other';
+      if (!groups[cat]) {
+        groups[cat] = [];
+      }
+      groups[cat].push(item);
+    });
+    // Sort categories by predefined order
+    const sortedCategories = Object.keys(groups).sort((a, b) => 
+      (categoryOrder[a] || 99) - (categoryOrder[b] || 99)
+    );
+    return { groups, sortedCategories };
+  }, [filteredStickersData]);
+
+  // Auto-expand all categories when data loads
+  useEffect(() => {
+    if (dailyReqData.length > 0) {
+      const allCats = {};
+      dailyReqData.forEach(item => {
+        allCats[item.category || 'Other'] = true;
+      });
+      setExpandedPurchaseCategories(allCats);
+    }
+  }, [dailyReqData]);
+
+  useEffect(() => {
+    if (stickersData.length > 0) {
+      const allCats = {};
+      stickersData.forEach(item => {
+        allCats[item.category || 'Other'] = true;
+      });
+      setExpandedStickersCategories(allCats);
+    }
+  }, [stickersData]);
+
+  // Toggle category expansion for Purchase tab
+  const togglePurchaseCategory = (category) => {
+    setExpandedPurchaseCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Toggle category expansion for Stickers tab
+  const toggleStickersCategory = (category) => {
+    setExpandedStickersCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Get category color classes
+  const getCategoryColorClasses = (category) => {
+    switch (category) {
+      case 'Fruits': return 'bg-orange-100 text-orange-700 border-orange-200';
+      case 'Vegetables': return 'bg-green-100 text-green-700 border-green-200';
+      case 'Leafy': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      case 'Exotic': return 'bg-purple-100 text-purple-700 border-purple-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+  };
 
   // Recalculate stickers when date changes and we're on stickers tab
   useEffect(() => {
@@ -3038,96 +3127,134 @@ export default function RetailerOrders() {
                   )}
                   
                   {dailyReqData.length > 0 && (
-                    <div className="overflow-x-auto">
-                      <p className="text-xs text-gray-500 mb-2">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days' closing inventory data.</p>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b bg-gray-50">
-                            <th className="p-3 text-left w-12">#</th>
-                            <th className="p-3 text-left">Product Name</th>
-                            <th className="p-3 text-left w-24">Category</th>
-                            <th className="p-3 text-center w-20">Qty (Units)</th>
-                            <th className="p-3 text-center w-20">Qty (Kg)</th>
-                            <th className="p-3 text-center w-28">Wastage %</th>
-                            <th className="p-3 text-center w-28">Requirement (Kg)</th>
-                            <th className="p-3 text-center w-12">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {dailyReqData.map((item, idx) => (
-                            <tr key={`${item.productId}-${idx}`} className="border-b hover:bg-gray-50">
-                              <td className="p-3 text-gray-500">{idx + 1}</td>
-                              <td className="p-3 font-medium">{item.productName}</td>
-                              <td className="p-3">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  item.category === 'Fruits' ? 'bg-orange-100 text-orange-700' :
-                                  item.category === 'Vegetables' ? 'bg-green-100 text-green-700' :
-                                  item.category === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
-                                  item.category === 'Exotic' ? 'bg-purple-100 text-purple-700' :
-                                  'bg-gray-100 text-gray-700'
-                                }`}>
-                                  {item.category}
-                                </span>
-                              </td>
-                              <td className="p-3 text-center font-semibold">{item.qtyUnits}</td>
-                              <td className="p-3 text-center text-gray-600">{item.qtyKg.toFixed(2)}</td>
-                              <td className="p-3">
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  min="0"
-                                  max="100"
-                                  placeholder="Wastage %"
-                                  value={item.wastagePct}
-                                  onChange={(e) => {
-                                    const newData = [...dailyReqData];
-                                    const newWastagePct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                                    newData[idx].wastagePct = newWastagePct;
-                                    // Recalculate requirement: qty_kg / (1 - wastage_pct/100)
-                                    if (newWastagePct >= 100) {
-                                      newData[idx].requirementKg = item.qtyKg * 2;
-                                    } else if (newWastagePct > 0) {
-                                      newData[idx].requirementKg = parseFloat((item.qtyKg / (1 - newWastagePct / 100)).toFixed(2));
-                                    } else {
-                                      newData[idx].requirementKg = item.qtyKg;
-                                    }
-                                    setDailyReqData(newData);
-                                    setDailyReqSaved(false);
-                                  }}
-                                  className="h-8 w-20 text-center text-sm text-amber-600"
-                                />
-                              </td>
-                              <td className="p-3 text-center font-bold text-blue-700">
-                                {item.requirementKg.toFixed(2)}
-                              </td>
-                              <td className="p-3 text-center">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    const newData = dailyReqData.filter((_, i) => i !== idx);
-                                    setDailyReqData(newData);
-                                    setDailyReqSaved(false);
-                                  }}
-                                  className="text-red-500 hover:text-red-700 h-7 w-7 p-0"
-                                >
-                                  <X size={14} />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="border-t-2 bg-gray-100 font-semibold">
-                            <td className="p-3" colSpan="3">Total</td>
-                            <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0).toFixed(0)}</td>
-                            <td className="p-3 text-center">{dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0).toFixed(2)}</td>
-                            <td className="p-3 text-center">-</td>
-                            <td className="p-3 text-center text-blue-700">{dailyReqData.reduce((sum, item) => sum + item.requirementKg, 0).toFixed(2)}</td>
-                            <td className="p-3"></td>
-                          </tr>
-                        </tfoot>
-                      </table>
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days' closing inventory data.</p>
+                      
+                      {/* Category-wise collapsible sections */}
+                      {groupedPurchaseData.sortedCategories.map((category) => {
+                        const items = groupedPurchaseData.groups[category];
+                        const isExpanded = expandedPurchaseCategories[category];
+                        const categoryTotalUnits = items.reduce((sum, item) => sum + item.qtyUnits, 0);
+                        const categoryTotalKg = items.reduce((sum, item) => sum + item.qtyKg, 0);
+                        const categoryTotalRequirement = items.reduce((sum, item) => sum + item.requirementKg, 0);
+                        
+                        return (
+                          <div key={category} className={`border rounded-lg overflow-hidden ${getCategoryColorClasses(category).split(' ')[2]}`}>
+                            {/* Category Header - Clickable */}
+                            <div 
+                              className={`flex items-center justify-between p-3 cursor-pointer ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                              onClick={() => togglePurchaseCategory(category)}
+                            >
+                              <div className="flex items-center gap-3">
+                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                <span className="font-semibold text-sm">{category}</span>
+                                <span className="text-xs opacity-75">({items.length} items)</span>
+                              </div>
+                              <div className="flex items-center gap-6 text-xs">
+                                <span>Units: <strong>{categoryTotalUnits}</strong></span>
+                                <span>Qty: <strong>{categoryTotalKg.toFixed(2)} Kg</strong></span>
+                                <span>Requirement: <strong className="text-blue-700">{categoryTotalRequirement.toFixed(2)} Kg</strong></span>
+                              </div>
+                            </div>
+                            
+                            {/* Category Items - Collapsible */}
+                            {isExpanded && (
+                              <div className="bg-white">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b bg-gray-50 text-xs">
+                                      <th className="p-2 text-left w-10">#</th>
+                                      <th className="p-2 text-left">Product Name</th>
+                                      <th className="p-2 text-center w-20">Qty (Units)</th>
+                                      <th className="p-2 text-center w-20">Qty (Kg)</th>
+                                      <th className="p-2 text-center w-24">Wastage %</th>
+                                      <th className="p-2 text-center w-28">Requirement (Kg)</th>
+                                      <th className="p-2 text-center w-10">X</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {items.map((item, localIdx) => {
+                                      // Find global index for editing
+                                      const globalIdx = dailyReqData.findIndex(d => d.productId === item.productId && d.productName === item.productName);
+                                      return (
+                                        <tr key={`${item.productId}-${localIdx}`} className="border-b hover:bg-gray-50">
+                                          <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                          <td className="p-2 font-medium">{item.productName}</td>
+                                          <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
+                                          <td className="p-2 text-center text-gray-600">{item.qtyKg.toFixed(2)}</td>
+                                          <td className="p-2">
+                                            <Input
+                                              type="number"
+                                              step="0.1"
+                                              min="0"
+                                              max="100"
+                                              placeholder="%"
+                                              value={item.wastagePct}
+                                              onChange={(e) => {
+                                                const newData = [...dailyReqData];
+                                                const newWastagePct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
+                                                newData[globalIdx].wastagePct = newWastagePct;
+                                                if (newWastagePct >= 100) {
+                                                  newData[globalIdx].requirementKg = item.qtyKg * 2;
+                                                } else if (newWastagePct > 0) {
+                                                  newData[globalIdx].requirementKg = parseFloat((item.qtyKg / (1 - newWastagePct / 100)).toFixed(2));
+                                                } else {
+                                                  newData[globalIdx].requirementKg = item.qtyKg;
+                                                }
+                                                setDailyReqData(newData);
+                                                setDailyReqSaved(false);
+                                              }}
+                                              className="h-7 w-16 text-center text-xs text-amber-600"
+                                            />
+                                          </td>
+                                          <td className="p-2 text-center font-bold text-blue-700">
+                                            {item.requirementKg.toFixed(2)}
+                                          </td>
+                                          <td className="p-2 text-center">
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const newData = dailyReqData.filter((_, i) => i !== globalIdx);
+                                                setDailyReqData(newData);
+                                                setDailyReqSaved(false);
+                                              }}
+                                              className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
+                                            >
+                                              <X size={12} />
+                                            </Button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
+                                      <td className="p-2" colSpan="2">Category Total</td>
+                                      <td className="p-2 text-center">{categoryTotalUnits}</td>
+                                      <td className="p-2 text-center">{categoryTotalKg.toFixed(2)}</td>
+                                      <td className="p-2 text-center">-</td>
+                                      <td className="p-2 text-center text-blue-700">{categoryTotalRequirement.toFixed(2)}</td>
+                                      <td className="p-2"></td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      
+                      {/* Grand Total */}
+                      <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex justify-between items-center font-semibold">
+                        <span>Grand Total ({dailyReqData.length} items)</span>
+                        <div className="flex items-center gap-6 text-sm">
+                          <span>Units: {dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0)}</span>
+                          <span>Qty: {dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0).toFixed(2)} Kg</span>
+                          <span className="text-blue-700">Requirement: {dailyReqData.reduce((sum, item) => sum + item.requirementKg, 0).toFixed(2)} Kg</span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </>
@@ -3190,50 +3317,74 @@ export default function RetailerOrders() {
                       <p className="text-xs mt-2">Make sure indents are created for this date</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <p className="text-xs text-gray-500 mb-2">
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">
                         Showing {filteredStickersData.length} of {stickersData.length} product-variant combinations for {dailyReqDate}
                       </p>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b bg-gray-50">
-                            <th className="p-3 text-left w-12">S.No</th>
-                            <th className="p-3 text-left">Product</th>
-                            <th className="p-3 text-left w-28">Category</th>
-                            <th className="p-3 text-left">Variant</th>
-                            <th className="p-3 text-center w-24">Quantity</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredStickersData.map((item, idx) => (
-                            <tr key={`${item.productId}-${item.variantId}-${idx}`} className="border-b hover:bg-gray-50">
-                              <td className="p-3 text-gray-500">{idx + 1}</td>
-                              <td className="p-3 font-medium">{item.productName}</td>
-                              <td className="p-3">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  item.category === 'Fruits' ? 'bg-orange-100 text-orange-700' :
-                                  item.category === 'Vegetables' ? 'bg-green-100 text-green-700' :
-                                  item.category === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
-                                  item.category === 'Exotic' ? 'bg-purple-100 text-purple-700' :
-                                  'bg-gray-100 text-gray-700'
-                                }`}>
-                                  {item.category}
-                                </span>
-                              </td>
-                              <td className="p-3 text-gray-600">{item.variantName}</td>
-                              <td className="p-3 text-center font-bold text-blue-700">{item.quantity}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="border-t-2 bg-gray-100 font-semibold">
-                            <td className="p-3" colSpan="4">Total Quantity</td>
-                            <td className="p-3 text-center text-blue-700">
-                              {filteredStickersData.reduce((sum, item) => sum + item.quantity, 0)}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
+                      
+                      {/* Category-wise collapsible sections */}
+                      {groupedStickersData.sortedCategories.map((category) => {
+                        const items = groupedStickersData.groups[category];
+                        const isExpanded = expandedStickersCategories[category];
+                        const categoryTotalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+                        
+                        return (
+                          <div key={category} className={`border rounded-lg overflow-hidden ${getCategoryColorClasses(category).split(' ')[2]}`}>
+                            {/* Category Header - Clickable */}
+                            <div 
+                              className={`flex items-center justify-between p-3 cursor-pointer ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
+                              onClick={() => toggleStickersCategory(category)}
+                            >
+                              <div className="flex items-center gap-3">
+                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                <span className="font-semibold text-sm">{category}</span>
+                                <span className="text-xs opacity-75">({items.length} items)</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs">
+                                <span>Total Qty: <strong className="text-blue-700">{categoryTotalQty}</strong></span>
+                              </div>
+                            </div>
+                            
+                            {/* Category Items - Collapsible */}
+                            {isExpanded && (
+                              <div className="bg-white">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b bg-gray-50 text-xs">
+                                      <th className="p-2 text-left w-10">#</th>
+                                      <th className="p-2 text-left">Product</th>
+                                      <th className="p-2 text-left">Variant</th>
+                                      <th className="p-2 text-center w-24">Quantity</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {items.map((item, localIdx) => (
+                                      <tr key={`${item.productId}-${item.variantId}-${localIdx}`} className="border-b hover:bg-gray-50">
+                                        <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                        <td className="p-2 font-medium">{item.productName}</td>
+                                        <td className="p-2 text-gray-600">{item.variantName}</td>
+                                        <td className="p-2 text-center font-bold text-blue-700">{item.quantity}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
+                                      <td className="p-2" colSpan="3">Category Total</td>
+                                      <td className="p-2 text-center text-blue-700">{categoryTotalQty}</td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      
+                      {/* Grand Total */}
+                      <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex justify-between items-center font-semibold">
+                        <span>Grand Total ({filteredStickersData.length} items)</span>
+                        <span className="text-blue-700">Quantity: {filteredStickersData.reduce((sum, item) => sum + item.quantity, 0)}</span>
+                      </div>
                     </div>
                   )}
                 </div>

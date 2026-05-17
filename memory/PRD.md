@@ -54,6 +54,15 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Both Purchase and Stickers sub-tabs auto-load their respective data
   - "Calculate" button renamed to "Refresh" for optional manual refresh
 
+- **Category-Based Collapsible Grouping** ✅ (Verified)
+  - Purchase and Stickers tabs now group items by category (Vegetables, Leafy, Fruits, Exotic, Other)
+  - Categories are sorted in predefined order for consistency
+  - Click to expand/collapse each category
+  - Category headers show summary totals (Units, Qty Kg, Requirement Kg for Purchase; Qty for Stickers)
+  - Each category has category-total row at bottom when expanded
+  - Grand total row at bottom shows overall totals
+  - Categories auto-expand when data loads
+
 ### Completed (Previous Session - 16 May 2026)
 - **Employee Procurement Payment Tracking Fixes** ✅ (Verified)
   - **Issue**: Newly recorded partial payments by employees were NOT showing purple highlighting

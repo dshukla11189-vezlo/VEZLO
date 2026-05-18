@@ -71,6 +71,17 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Scraper file: `/app/backend/blinkit_scraper.py`
 
 ### Completed (This Session - 18 May 2026)
+- **MRP Tab - Unified Date Selection** ✅
+  - Removed duplicate date picker from MRP section
+  - MRP tab now uses the main `dailyReqDate` from Daily Purchase Requirement section
+  - Single date selection controls all sub-tabs (Purchase, Stickers, MRP)
+
+- **MRP Tab - Variants from Indents Only** ✅
+  - Variant dropdown now shows only variants present in day's indents (not all retail packagings)
+  - Default variant is first indent variant for the product (not last dispatched variant)
+  - `loadMrpIndentProducts()` now extracts and stores `indentVariants` and `indentVariantNames` per product
+  - Prevents showing variants like 500-600 gm when only 500+ gm is in indents
+
 - **Marathi Translation Fix for Daily Purchase Requirement** ✅ (Verified)
   - Added `name_mr` field to Product, ProductCreate, and ProductUpdate Pydantic models
   - Updated `/api/retailer-daily-requirement/calculate` to include Hindi/Marathi names from products DB

@@ -1255,14 +1255,15 @@ export default function RetailerOrders() {
       }
       
       // Transform backend data to frontend format
+      // Simplified: requirementKg = qtyKg (no wastage calculation)
       const requirementData = result.items.map(item => ({
         productId: item.product_id,
         productName: item.product_name,
         category: item.category || 'Other',
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
-        wastagePct: item.wastage_pct,
-        requirementKg: item.requirement_kg
+        requirementKg: item.qty_kg, // Directly use qtyKg as requirement
+        remarks: item.remarks || ''
       }));
       
       setDailyReqData(requirementData);
@@ -2001,17 +2002,16 @@ export default function RetailerOrders() {
           <h1>Daily Purchase Requirement</h1>
           <h2>Date: ${new Date(dailyReqDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>
           ${dailyReqRetailer ? `<p style="text-align:center;">Retailer: ${retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || 'All'}</p>` : '<p style="text-align:center;">All Retailers</p>'}
-          <p class="info">Calculated from indents. Wastage % from last 7 days average.</p>
+          <p class="info">Calculated from indents</p>
           <table>
             <thead>
               <tr>
                 <th style="width:5%">#</th>
                 <th style="width:30%">Product Name</th>
                 <th style="width:12%">Category</th>
-                <th style="width:10%" class="text-center">Qty (Units)</th>
-                <th style="width:10%" class="text-center">Qty (Kg)</th>
-                <th style="width:12%" class="text-center">Wastage %</th>
-                <th style="width:15%" class="text-right">Requirement (Kg)</th>
+                <th style="width:12%" class="text-center">Qty (Units)</th>
+                <th style="width:18%" class="text-right">Purchase Req (Kg)</th>
+                <th style="width:23%">Remarks</th>
               </tr>
             </thead>
             <tbody>
@@ -2021,17 +2021,15 @@ export default function RetailerOrders() {
                   <td>${item.productName}</td>
                   <td><span class="category cat-${(item.category || 'other').toLowerCase()}">${item.category || 'Other'}</span></td>
                   <td class="text-center">${item.qtyUnits}</td>
-                  <td class="text-center">${(item.qtyKg || 0).toFixed(2)}</td>
-                  <td class="text-center">${(item.wastagePct || 0).toFixed(1)}%</td>
                   <td class="text-right" style="font-weight:bold;">${(item.requirementKg || 0).toFixed(2)}</td>
+                  <td>${item.remarks || '-'}</td>
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
                 <td colspan="3">TOTAL</td>
                 <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0).toFixed(0)}</td>
-                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyKg || 0), 0).toFixed(2)} Kg</td>
-                <td class="text-center">-</td>
                 <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} Kg</td>
+                <td></td>
               </tr>
             </tbody>
           </table>
@@ -2043,6 +2041,56 @@ export default function RetailerOrders() {
     `);
     printWindow.document.close();
     printWindow.print();
+  };
+
+  // Export Daily Requirement to Excel
+  const exportDailyReqToExcel = () => {
+    if (dailyReqData.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+    
+    // Prepare CSV content
+    const headers = ['#', 'Product Name', 'Category', 'Qty (Units)', 'Purchase Req (Kg)', 'Remarks'];
+    const rows = dailyReqData.map((item, idx) => [
+      idx + 1,
+      item.productName,
+      item.category || 'Other',
+      item.qtyUnits,
+      (item.requirementKg || 0).toFixed(2),
+      item.remarks || ''
+    ]);
+    
+    // Add totals row
+    rows.push([
+      '',
+      'TOTAL',
+      '',
+      dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0),
+      dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2),
+      ''
+    ]);
+    
+    // Convert to CSV
+    const csvContent = [
+      `Daily Purchase Requirement - ${dailyReqDate}`,
+      '',
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+    
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Purchase_Requirement_${dailyReqDate}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Excel file downloaded');
   };
 
   // Delete row from daily requirement
@@ -3558,9 +3606,9 @@ export default function RetailerOrders() {
                     <ShoppingCart size={16} className="text-green-600" />
                     Daily Purchase Requirement
                   </CardTitle>
-                  <p className="text-xs text-gray-500 mt-1">Calculates from indents for the selected date, with wastage % from closing inventory</p>
+                  <p className="text-xs text-gray-500 mt-1">Calculates from indents for the selected date</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={dailyReqRetailer}
                     onChange={(e) => setDailyReqRetailer(e.target.value)}
@@ -3621,7 +3669,11 @@ export default function RetailerOrders() {
                       </Button>
                       <Button variant="outline" onClick={printDailyRequirement} className="h-9">
                         <Download size={14} className="mr-1" />
-                        Print
+                        PDF
+                      </Button>
+                      <Button variant="outline" onClick={exportDailyReqToExcel} className="h-9 text-green-700 border-green-300 hover:bg-green-50">
+                        <FileSpreadsheet size={14} className="mr-1" />
+                        Excel
                       </Button>
                     </>
                   )}
@@ -3677,14 +3729,14 @@ export default function RetailerOrders() {
                   {!dailyReqError && dailyReqData.length === 0 && !dailyReqLoading && (
                     <div className="text-center py-12 text-gray-500">
                       <ShoppingCart size={48} className="mx-auto mb-4 opacity-30" />
-                      <p>Select a date and click "Calculate" to view purchase requirements from indents</p>
-                      <p className="text-xs mt-2">Combines all retailer indents for the date and calculates wastage % from last 7 days</p>
+                      <p>Select a date and click "Refresh" to view purchase requirements from indents</p>
+                      <p className="text-xs mt-2">Combines all retailer indents for the selected date</p>
                     </div>
                   )}
                   
                   {dailyReqData.length > 0 && (
                     <div className="space-y-3">
-                      <p className="text-xs text-gray-500">Calculated from indents for {dailyReqDate}. Wastage % is from last 7 days' closing inventory data.</p>
+                      <p className="text-xs text-gray-500">Calculated from indents for {dailyReqDate}.</p>
                       
                       {/* Category-wise collapsible sections */}
                       {groupedPurchaseData.sortedCategories.map((category) => {
@@ -3709,7 +3761,7 @@ export default function RetailerOrders() {
                               <div className="flex items-center gap-6 text-xs">
                                 <span>Units: <strong>{categoryTotalUnits}</strong></span>
                                 <span>Qty: <strong>{categoryTotalKg.toFixed(2)} Kg</strong></span>
-                                <span>Requirement: <strong className="text-blue-700">{categoryTotalRequirement.toFixed(2)} Kg</strong></span>
+                                <span>Purchase Req: <strong className="text-blue-700">{categoryTotalRequirement.toFixed(2)} Kg</strong></span>
                               </div>
                             </div>
                             
@@ -3722,9 +3774,8 @@ export default function RetailerOrders() {
                                       <th className="p-2 text-left w-10">#</th>
                                       <th className="p-2 text-left">Product Name</th>
                                       <th className="p-2 text-center w-20">Qty (Units)</th>
-                                      <th className="p-2 text-center w-20">Qty (Kg)</th>
-                                      <th className="p-2 text-center w-24">Wastage %</th>
-                                      <th className="p-2 text-center w-28">Requirement (Kg)</th>
+                                      <th className="p-2 text-center w-28">Purchase Req (Kg)</th>
+                                      <th className="p-2 text-left w-48">Remarks</th>
                                       <th className="p-2 text-center w-10">X</th>
                                     </tr>
                                   </thead>
@@ -3737,34 +3788,35 @@ export default function RetailerOrders() {
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
                                           <td className="p-2 font-medium">{item.productName}</td>
                                           <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
-                                          <td className="p-2 text-center text-gray-600">{item.qtyKg.toFixed(2)}</td>
                                           <td className="p-2">
                                             <Input
                                               type="number"
                                               step="0.1"
                                               min="0"
-                                              max="100"
-                                              placeholder="%"
-                                              value={item.wastagePct}
+                                              placeholder="Kg"
+                                              value={item.requirementKg}
                                               onChange={(e) => {
                                                 const newData = [...dailyReqData];
-                                                const newWastagePct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                                                newData[globalIdx].wastagePct = newWastagePct;
-                                                if (newWastagePct >= 100) {
-                                                  newData[globalIdx].requirementKg = item.qtyKg * 2;
-                                                } else if (newWastagePct > 0) {
-                                                  newData[globalIdx].requirementKg = parseFloat((item.qtyKg / (1 - newWastagePct / 100)).toFixed(2));
-                                                } else {
-                                                  newData[globalIdx].requirementKg = item.qtyKg;
-                                                }
+                                                newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
                                                 setDailyReqData(newData);
                                                 setDailyReqSaved(false);
                                               }}
-                                              className="h-7 w-16 text-center text-xs text-amber-600"
+                                              className="h-7 w-20 text-center text-xs font-bold text-blue-700"
                                             />
                                           </td>
-                                          <td className="p-2 text-center font-bold text-blue-700">
-                                            {item.requirementKg.toFixed(2)}
+                                          <td className="p-2">
+                                            <Input
+                                              type="text"
+                                              placeholder="Add remarks..."
+                                              value={item.remarks || ''}
+                                              onChange={(e) => {
+                                                const newData = [...dailyReqData];
+                                                newData[globalIdx].remarks = e.target.value;
+                                                setDailyReqData(newData);
+                                                setDailyReqSaved(false);
+                                              }}
+                                              className="h-7 w-full text-xs"
+                                            />
                                           </td>
                                           <td className="p-2 text-center">
                                             <Button
@@ -3789,10 +3841,8 @@ export default function RetailerOrders() {
                                     <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
                                       <td className="p-2" colSpan="2">Category Total</td>
                                       <td className="p-2 text-center">{categoryTotalUnits}</td>
-                                      <td className="p-2 text-center">{categoryTotalKg.toFixed(2)}</td>
-                                      <td className="p-2 text-center">-</td>
                                       <td className="p-2 text-center text-blue-700">{categoryTotalRequirement.toFixed(2)}</td>
-                                      <td className="p-2"></td>
+                                      <td className="p-2" colSpan="2"></td>
                                     </tr>
                                   </tfoot>
                                 </table>

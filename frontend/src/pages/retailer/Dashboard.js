@@ -3460,22 +3460,34 @@ export default function RetailerDashboard() {
 
         {/* ==================== CREATE INDENT MODAL ==================== */}
         {showCreateIndentModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col my-auto">
               {/* Header */}
               <div className="p-3 sm:p-4 border-b bg-[#14532D] text-white flex justify-between items-center flex-shrink-0">
                 <h2 className="text-base sm:text-lg font-semibold flex items-center gap-2">
                   <Plus size={18} />
-                  {editingIndentId ? 'Edit Indent' : 'Create New Indent'}
+                  {editingIndentId ? (i18n.language === 'hi' ? 'इंडेंट संपादित करें' : 'Edit Indent') : (i18n.language === 'hi' ? 'नया इंडेंट बनाएं' : 'Create New Indent')}
                 </h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCreateIndentModal(false)}
-                  className="text-white hover:bg-white/20 h-8 w-8 p-0"
-                >
-                  <X size={20} />
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* Language Toggle */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => i18n.changeLanguage(i18n.language === 'hi' ? 'en' : 'hi')}
+                    className="text-white hover:bg-white/20 h-8 px-2 text-xs font-medium"
+                    title={i18n.language === 'hi' ? 'Switch to English' : 'हिंदी में बदलें'}
+                  >
+                    {i18n.language === 'hi' ? 'EN' : 'हि'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCreateIndentModal(false)}
+                    className="text-white hover:bg-white/20 h-8 w-8 p-0"
+                  >
+                    <X size={20} />
+                  </Button>
+                </div>
               </div>
               
               {/* Date Picker */}

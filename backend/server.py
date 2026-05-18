@@ -13246,6 +13246,10 @@ async def get_all_retailers_immediately_payable(
     today = datetime.now(ist).date()
     five_days_ago = today - timedelta(days=5)
     
+    # Fetch all retailers to get company_name (shop name)
+    all_retailers = await db.retailers.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1}).to_list(1000)
+    retailer_map = {r["id"]: r.get("company_name") or r.get("name", "Unknown") for r in all_retailers}
+    
     # Fetch all unpaid/partial invoices
     invoices = await db.retailer_invoices.find(
         {"status": {"$in": ["pending", "partial"]}},
@@ -13261,9 +13265,11 @@ async def get_all_retailers_immediately_payable(
             continue
             
         if retailer_id not in retailer_payables:
+            # Use company_name (shop name) from retailer_map, fallback to invoice retailer_name
+            shop_name = retailer_map.get(retailer_id) or inv.get("retailer_name", "Unknown")
             retailer_payables[retailer_id] = {
                 "retailer_id": retailer_id,
-                "retailer_name": inv.get("retailer_name", "Unknown"),
+                "retailer_name": shop_name,
                 "today_50_percent": 0,
                 "due_today_remaining": 0,
                 "overdue": 0,

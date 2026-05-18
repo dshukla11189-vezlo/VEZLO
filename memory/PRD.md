@@ -72,28 +72,28 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 ### Completed (This Session - 18 May 2026)
 - **Immediately Payable Feature (5-Day Credit Period)** ✅
-  - **Backend API**: `/api/retailer-immediately-payable` for individual retailer view
-  - **Backend API**: `/api/admin/all-retailers-immediately-payable` for admin summary
-  - **Logic**: 
-    - 50% of today's invoice amounts (delivery day)
-    - Remaining 50% of invoices delivered exactly 5 days ago (after rejection/commission adjustments)
-    - All overdue amounts (>5 days old with pending/partial status)
-  - **Admin Portal**: Added "Immediately Payable (5-Day Credit)" block below Rejection Loss showing:
-    - Total amount due
-    - Breakdown: 50% Upfront, 5-Day Credit Due, Overdue
-    - Retailer-wise breakdown
-  - **Retailer Portal**: Added red "Immediately Payable" card below Earnings (only shows if amount > 0)
+  - **Backend APIs**: 
+    - `GET /api/retailer-immediately-payable` for individual retailer
+    - `GET /api/admin/all-retailers-immediately-payable` for admin summary
+  - **Logic**: 50% on delivery day + Remaining 50% after 5 days + Overdue amounts
+  - **Admin Portal**: Shows shop names (company_name), 3-card breakdown, retailer-wise summary
+  - **Retailer Portal**: 
+    - Fixed card title to "Immediately Payable" (was showing translation key)
+    - Changed Invoices link from span to button for proper click handling
+    - All 3 cards always visible (50% Upfront, 5-Day Credit Due, Overdue) with empty state messages
+
+- **Shop Name Display Fix** ✅
+  - Admin portal now shows `company_name` (shop name like "Tamanna Mart") instead of owner name
 
 - **MRP Tab - Complete Rewrite** ✅
-  - Removed duplicate date picker from MRP section
-  - Variants now load directly from indents (product+variant combinations)
-  - Each product+variant from indents gets its own row in MRP table
+  - Variants load directly from indents (product+variant combinations)
 
 - **Stickers Tab - Collapsible Categories & Customer Details** ✅
-  - Added collapsible category sections
-  - Click on any product row to see "Customer Indent Details" showing retailers and quantities
 
 - **Marathi Translation Fix & PDF/Excel Export Simplified** ✅
+
+### Note on 50% Today's Delivery
+The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatch was created but no invoice was generated, the amount won't appear. Invoices need to be created separately from dispatches.
 
 ### In Progress
 - **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)

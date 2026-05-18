@@ -13105,6 +13105,9 @@ async def get_retailer_immediately_payable(
     1. 50% of today's invoice amounts (delivery today)
     2. Remaining 50% of invoices delivered 5 days ago (adjusted for rejections/commission)
     3. Any overdue amounts (>5 days with pending/partial status)
+    
+    NOTE: Final payable = gross_value - rejection_amount - commission_amount
+    Rejections are fetched from retailer_rejections collection by date+retailer
     """
     from datetime import timedelta
     
@@ -13112,7 +13115,6 @@ async def get_retailer_immediately_payable(
     if current_user.get("role") == "retailer":
         retailer_id = current_user.get("user_id")
     elif not retailer_id:
-        # Admin can pass retailer_id, or get all
         pass
     
     # Get today's date in IST
@@ -13120,18 +13122,41 @@ async def get_retailer_immediately_payable(
     today = datetime.now(ist).date()
     
     # Build query for invoices
-    query = {}
+    query = {"status": {"$in": ["pending", "partial"]}}
     if retailer_id:
         query["retailer_id"] = retailer_id
     
     # Fetch all invoices
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).to_list(1000)
     
+    # Fetch all rejections for these retailers to calculate actual rejection amounts
+    retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
+    rejections = await db.retailer_rejections.find(
+        {"retailer_id": {"$in": retailer_ids}},
+        {"_id": 0, "retailer_id": 1, "rejection_date": 1, "rejection_value": 1}
+    ).to_list(5000)
+    
+    # Group rejections by retailer_id and date
+    rejection_map = {}  # (retailer_id, date_str) -> total_rejection
+    for rej in rejections:
+        rej_date = rej.get("rejection_date")
+        if isinstance(rej_date, datetime):
+            rej_date_str = rej_date.date().isoformat()
+        elif isinstance(rej_date, str):
+            rej_date_str = rej_date[:10]
+        else:
+            continue
+        
+        key = (rej.get("retailer_id"), rej_date_str)
+        if key not in rejection_map:
+            rejection_map[key] = 0
+        rejection_map[key] += (rej.get("rejection_value", 0) or 0)
+    
     # Initialize result structure
     result = {
-        "today_50_percent": [],  # 50% of today's invoices
-        "due_today_remaining": [],  # Remaining 50% from 5 days ago
-        "overdue": [],  # More than 5 days old with pending/partial
+        "today_50_percent": [],
+        "due_today_remaining": [],
+        "overdue": [],
         "totals": {
             "today_50_percent_total": 0,
             "due_today_remaining_total": 0,
@@ -13152,23 +13177,28 @@ async def get_retailer_immediately_payable(
         else:
             continue
         
-        net_payable = inv.get("net_payable", 0) or 0
+        # Calculate actual final payable
+        gross_value = inv.get("gross_value", 0) or inv.get("net_payable", 0) or 0
+        commission_pct = inv.get("commission_percentage", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
-        status = inv.get("status", "pending")
         
-        # Skip fully paid invoices
-        if status == "paid":
-            continue
+        # Get rejections for this invoice date + retailer
+        rejection_key = (inv.get("retailer_id"), inv_date_str)
+        total_rejections = rejection_map.get(rejection_key, 0)
         
-        pending_amount = max(0, net_payable - paid_amount)
+        # Final payable = gross - rejections - commission (on net after rejections)
+        net_after_rejection = gross_value - total_rejections
+        commission_amount = (net_after_rejection * commission_pct / 100) if commission_pct else (inv.get("commission_amount", 0) or 0)
+        final_payable = net_after_rejection - commission_amount
+        
+        # Pending amount
+        pending_amount = max(0, final_payable - paid_amount)
         if pending_amount <= 0:
             continue
         
-        # Calculate 50% amounts
-        fifty_percent = net_payable / 2
-        
         # Days since invoice
         days_since = (today - inv_date).days
+        fifty_percent = final_payable / 2
         
         entry = {
             "invoice_id": inv.get("id"),
@@ -13176,15 +13206,17 @@ async def get_retailer_immediately_payable(
             "invoice_date": inv_date_str,
             "retailer_id": inv.get("retailer_id"),
             "retailer_name": inv.get("retailer_name"),
-            "net_payable": net_payable,
+            "gross_value": gross_value,
+            "rejection_amount": total_rejections,
+            "commission_amount": round(commission_amount, 2),
+            "final_payable": round(final_payable, 2),
             "paid_amount": paid_amount,
-            "pending_amount": pending_amount,
-            "status": status,
+            "pending_amount": round(pending_amount, 2),
+            "status": inv.get("status"),
             "days_since_invoice": days_since
         }
         
         if days_since == 0:
-            # Today's invoice - 50% due immediately
             due_amount = min(fifty_percent, pending_amount)
             entry["due_amount"] = round(due_amount, 2)
             entry["reason"] = "50% upfront on delivery"
@@ -13192,23 +13224,19 @@ async def get_retailer_immediately_payable(
             result["totals"]["today_50_percent_total"] += due_amount
             
         elif days_since == 5:
-            # Exactly 5 days ago - remaining 50% due today
-            total_due_now = pending_amount  # All remaining amount is due
-            entry["due_amount"] = round(total_due_now, 2)
+            entry["due_amount"] = round(pending_amount, 2)
             entry["reason"] = "Remaining amount after 5-day credit period"
-            if total_due_now > 0:
-                result["due_today_remaining"].append(entry)
-                result["totals"]["due_today_remaining_total"] += total_due_now
+            result["due_today_remaining"].append(entry)
+            result["totals"]["due_today_remaining_total"] += pending_amount
                 
         elif days_since > 5:
-            # Overdue - more than 5 days
             entry["due_amount"] = round(pending_amount, 2)
             entry["reason"] = f"Overdue by {days_since - 5} days"
             entry["overdue_days"] = days_since - 5
             result["overdue"].append(entry)
             result["totals"]["overdue_total"] += pending_amount
     
-    # Sort by date
+    # Sort
     result["today_50_percent"].sort(key=lambda x: x["invoice_date"], reverse=True)
     result["due_today_remaining"].sort(key=lambda x: x["invoice_date"], reverse=True)
     result["overdue"].sort(key=lambda x: x.get("overdue_days", 0), reverse=True)
@@ -13219,8 +13247,6 @@ async def get_retailer_immediately_payable(
         result["totals"]["due_today_remaining_total"] + 
         result["totals"]["overdue_total"], 2
     )
-    
-    # Round all totals
     result["totals"]["today_50_percent_total"] = round(result["totals"]["today_50_percent_total"], 2)
     result["totals"]["due_today_remaining_total"] = round(result["totals"]["due_today_remaining_total"], 2)
     result["totals"]["overdue_total"] = round(result["totals"]["overdue_total"], 2)

@@ -13094,6 +13094,241 @@ async def reset_all_retailer_referral_codes(current_user: dict = Depends(get_cur
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== IMMEDIATELY PAYABLE CALCULATION ====================
+@api_router.get("/retailer-immediately-payable")
+async def get_retailer_immediately_payable(
+    retailer_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate immediately payable amounts based on 5-day credit period:
+    1. 50% of today's invoice amounts (delivery today)
+    2. Remaining 50% of invoices delivered 5 days ago (adjusted for rejections/commission)
+    3. Any overdue amounts (>5 days with pending/partial status)
+    """
+    from datetime import timedelta
+    
+    # Determine retailer ID
+    if current_user.get("role") == "retailer":
+        retailer_id = current_user.get("user_id")
+    elif not retailer_id:
+        # Admin can pass retailer_id, or get all
+        pass
+    
+    # Get today's date in IST
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date()
+    
+    # Build query for invoices
+    query = {}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Fetch all invoices
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).to_list(1000)
+    
+    # Initialize result structure
+    result = {
+        "today_50_percent": [],  # 50% of today's invoices
+        "due_today_remaining": [],  # Remaining 50% from 5 days ago
+        "overdue": [],  # More than 5 days old with pending/partial
+        "totals": {
+            "today_50_percent_total": 0,
+            "due_today_remaining_total": 0,
+            "overdue_total": 0,
+            "grand_total": 0
+        }
+    }
+    
+    for inv in invoices:
+        # Parse invoice date
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            inv_date_str = inv_date[:10]
+            inv_date = datetime.fromisoformat(inv_date_str).date()
+        elif isinstance(inv_date, datetime):
+            inv_date_str = inv_date.date().isoformat()
+            inv_date = inv_date.date()
+        else:
+            continue
+        
+        net_payable = inv.get("net_payable", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        status = inv.get("status", "pending")
+        
+        # Skip fully paid invoices
+        if status == "paid":
+            continue
+        
+        pending_amount = max(0, net_payable - paid_amount)
+        if pending_amount <= 0:
+            continue
+        
+        # Calculate 50% amounts
+        fifty_percent = net_payable / 2
+        
+        # Days since invoice
+        days_since = (today - inv_date).days
+        
+        entry = {
+            "invoice_id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "invoice_date": inv_date_str,
+            "retailer_id": inv.get("retailer_id"),
+            "retailer_name": inv.get("retailer_name"),
+            "net_payable": net_payable,
+            "paid_amount": paid_amount,
+            "pending_amount": pending_amount,
+            "status": status,
+            "days_since_invoice": days_since
+        }
+        
+        if days_since == 0:
+            # Today's invoice - 50% due immediately
+            due_amount = min(fifty_percent, pending_amount)
+            entry["due_amount"] = round(due_amount, 2)
+            entry["reason"] = "50% upfront on delivery"
+            result["today_50_percent"].append(entry)
+            result["totals"]["today_50_percent_total"] += due_amount
+            
+        elif days_since == 5:
+            # Exactly 5 days ago - remaining 50% due today
+            total_due_now = pending_amount  # All remaining amount is due
+            entry["due_amount"] = round(total_due_now, 2)
+            entry["reason"] = "Remaining amount after 5-day credit period"
+            if total_due_now > 0:
+                result["due_today_remaining"].append(entry)
+                result["totals"]["due_today_remaining_total"] += total_due_now
+                
+        elif days_since > 5:
+            # Overdue - more than 5 days
+            entry["due_amount"] = round(pending_amount, 2)
+            entry["reason"] = f"Overdue by {days_since - 5} days"
+            entry["overdue_days"] = days_since - 5
+            result["overdue"].append(entry)
+            result["totals"]["overdue_total"] += pending_amount
+    
+    # Sort by date
+    result["today_50_percent"].sort(key=lambda x: x["invoice_date"], reverse=True)
+    result["due_today_remaining"].sort(key=lambda x: x["invoice_date"], reverse=True)
+    result["overdue"].sort(key=lambda x: x.get("overdue_days", 0), reverse=True)
+    
+    # Calculate grand total
+    result["totals"]["grand_total"] = round(
+        result["totals"]["today_50_percent_total"] + 
+        result["totals"]["due_today_remaining_total"] + 
+        result["totals"]["overdue_total"], 2
+    )
+    
+    # Round all totals
+    result["totals"]["today_50_percent_total"] = round(result["totals"]["today_50_percent_total"], 2)
+    result["totals"]["due_today_remaining_total"] = round(result["totals"]["due_today_remaining_total"], 2)
+    result["totals"]["overdue_total"] = round(result["totals"]["overdue_total"], 2)
+    
+    return result
+
+
+@api_router.get("/admin/all-retailers-immediately-payable")
+async def get_all_retailers_immediately_payable(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get immediately payable summary for all retailers (Admin only)
+    """
+    # Check if admin
+    if current_user.get("role") not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from datetime import timedelta
+    
+    # Get today's date in IST
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date()
+    five_days_ago = today - timedelta(days=5)
+    
+    # Fetch all unpaid/partial invoices
+    invoices = await db.retailer_invoices.find(
+        {"status": {"$in": ["pending", "partial"]}},
+        {"_id": 0}
+    ).to_list(5000)
+    
+    # Group by retailer
+    retailer_payables = {}
+    
+    for inv in invoices:
+        retailer_id = inv.get("retailer_id")
+        if not retailer_id:
+            continue
+            
+        if retailer_id not in retailer_payables:
+            retailer_payables[retailer_id] = {
+                "retailer_id": retailer_id,
+                "retailer_name": inv.get("retailer_name", "Unknown"),
+                "today_50_percent": 0,
+                "due_today_remaining": 0,
+                "overdue": 0,
+                "total": 0,
+                "invoice_count": 0
+            }
+        
+        # Parse invoice date
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            inv_date = datetime.fromisoformat(inv_date[:10]).date()
+        elif isinstance(inv_date, datetime):
+            inv_date = inv_date.date()
+        else:
+            continue
+        
+        net_payable = inv.get("net_payable", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        pending_amount = max(0, net_payable - paid_amount)
+        
+        if pending_amount <= 0:
+            continue
+        
+        fifty_percent = net_payable / 2
+        days_since = (today - inv_date).days
+        
+        retailer_payables[retailer_id]["invoice_count"] += 1
+        
+        if days_since == 0:
+            due = min(fifty_percent, pending_amount)
+            retailer_payables[retailer_id]["today_50_percent"] += due
+        elif days_since == 5:
+            retailer_payables[retailer_id]["due_today_remaining"] += pending_amount
+        elif days_since > 5:
+            retailer_payables[retailer_id]["overdue"] += pending_amount
+    
+    # Calculate totals and sort
+    result = []
+    for data in retailer_payables.values():
+        data["total"] = round(
+            data["today_50_percent"] + data["due_today_remaining"] + data["overdue"], 2
+        )
+        data["today_50_percent"] = round(data["today_50_percent"], 2)
+        data["due_today_remaining"] = round(data["due_today_remaining"], 2)
+        data["overdue"] = round(data["overdue"], 2)
+        if data["total"] > 0:
+            result.append(data)
+    
+    # Sort by total (highest first)
+    result.sort(key=lambda x: x["total"], reverse=True)
+    
+    # Grand totals
+    grand_totals = {
+        "today_50_percent": round(sum(r["today_50_percent"] for r in result), 2),
+        "due_today_remaining": round(sum(r["due_today_remaining"] for r in result), 2),
+        "overdue": round(sum(r["overdue"] for r in result), 2),
+        "total": round(sum(r["total"] for r in result), 2)
+    }
+    
+    return {
+        "retailers": result,
+        "grand_totals": grand_totals
+    }
+
+
 # Include router
 app.include_router(api_router)
 
@@ -14675,7 +14910,6 @@ async def list_qc_daily_requirements(
         {}, {"_id": 0}
     ).sort("requirement_date", -1).to_list(limit)
     return docs
-
 
 
 @app.on_event("shutdown")

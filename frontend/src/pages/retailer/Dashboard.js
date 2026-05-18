@@ -96,6 +96,10 @@ export default function RetailerDashboard() {
   // Image enlargement state
   const [enlargedImage, setEnlargedImage] = useState(null);
   
+  // Immediately Payable state
+  const [immediatelyPayable, setImmediatelyPayable] = useState(null);
+  const [loadingPayable, setLoadingPayable] = useState(false);
+  
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
     const map = new Map();
@@ -171,7 +175,7 @@ export default function RetailerDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
@@ -181,7 +185,8 @@ export default function RetailerDashboard() {
         api.get('/api/qc-packaging'),
         api.get('/api/retailer-grn'),
         api.get('/api/retailer-payments'),
-        api.get('/api/product-types')
+        api.get('/api/product-types'),
+        api.get('/api/retailer-immediately-payable')
       ]);
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
@@ -192,6 +197,7 @@ export default function RetailerDashboard() {
       setPackagings(packagingsRes.data);
       setPayments(paymentsRes.data || []);
       setProductTypes(typesRes.data || []);
+      setImmediatelyPayable(payableRes.data || null);
       
       // Build a map of dispatch_id -> GRN confirmed status
       const grnMap = {};
@@ -1781,6 +1787,96 @@ export default function RetailerDashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Immediately Payable - Red Card */}
+            {immediatelyPayable && immediatelyPayable.totals.grand_total > 0 && (
+              <Card className="mb-6 border-red-300 bg-gradient-to-br from-red-50 via-white to-red-50 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="p-4 bg-red-100 rounded-xl">
+                        <AlertTriangle size={36} className="text-red-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-red-600 font-semibold uppercase tracking-wide">
+                          {t('retailer.immediatelyPayable') || 'Immediately Payable'}
+                        </p>
+                        <p className="text-4xl md:text-5xl font-bold text-red-700">
+                          {formatCurrency(immediatelyPayable.totals.grand_total)}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Date-wise breakdown */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+                      {/* Today's 50% */}
+                      {immediatelyPayable.totals.today_50_percent_total > 0 && (
+                        <div className="bg-white rounded-lg border border-red-200 p-3">
+                          <p className="text-xs text-red-500 font-medium mb-1">50% Upfront (Today's Delivery)</p>
+                          <p className="text-xl font-bold text-red-600">
+                            {formatCurrency(immediatelyPayable.totals.today_50_percent_total)}
+                          </p>
+                          {immediatelyPayable.today_50_percent.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {immediatelyPayable.today_50_percent.slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-xs text-gray-600 flex justify-between">
+                                  <span>Inv #{item.invoice_number?.slice(-6) || 'N/A'}</span>
+                                  <span className="font-medium">{formatCurrency(item.due_amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* 5 Days Due (Remaining 50%) */}
+                      {immediatelyPayable.totals.due_today_remaining_total > 0 && (
+                        <div className="bg-white rounded-lg border border-orange-200 p-3">
+                          <p className="text-xs text-orange-500 font-medium mb-1">Remaining Amount (5 Days Credit)</p>
+                          <p className="text-xl font-bold text-orange-600">
+                            {formatCurrency(immediatelyPayable.totals.due_today_remaining_total)}
+                          </p>
+                          {immediatelyPayable.due_today_remaining.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {immediatelyPayable.due_today_remaining.slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-xs text-gray-600 flex justify-between">
+                                  <span>{new Date(item.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})}</span>
+                                  <span className="font-medium">{formatCurrency(item.due_amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Overdue */}
+                      {immediatelyPayable.totals.overdue_total > 0 && (
+                        <div className="bg-white rounded-lg border border-red-300 p-3">
+                          <p className="text-xs text-red-600 font-medium mb-1">⚠️ Overdue Payments</p>
+                          <p className="text-xl font-bold text-red-700">
+                            {formatCurrency(immediatelyPayable.totals.overdue_total)}
+                          </p>
+                          {immediatelyPayable.overdue.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {immediatelyPayable.overdue.slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-xs text-gray-600 flex justify-between">
+                                  <span>{new Date(item.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})} ({item.overdue_days}d late)</span>
+                                  <span className="font-medium text-red-600">{formatCurrency(item.due_amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 text-right">
+                      For details, check the <span className="text-blue-600 cursor-pointer" onClick={() => setActiveTab('invoices')}>Invoices</span> tab
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* 6 Metric Boxes */}
             {(() => {

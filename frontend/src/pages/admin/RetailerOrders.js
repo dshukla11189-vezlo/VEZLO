@@ -228,6 +228,10 @@ export default function RetailerOrders() {
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
   const [showPaymentSummaryPreview, setShowPaymentSummaryPreview] = useState(false); // Preview popup
+  
+  // Immediately Payable state (5-day credit)
+  const [immediatelyPayable, setImmediatelyPayable] = useState(null);
+  const [loadingImmediatelyPayable, setLoadingImmediatelyPayable] = useState(false);
   const [unpaidInvoices, setUnpaidInvoices] = useState([]);
   const [selectedInvoicesForSummary, setSelectedInvoicesForSummary] = useState({});
   const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
@@ -358,6 +362,19 @@ export default function RetailerOrders() {
       console.error('Failed to load payments:', error);
     }
   }, [selectedRetailer]);
+
+  // Load immediately payable data (5-day credit period)
+  const loadImmediatelyPayable = useCallback(async () => {
+    setLoadingImmediatelyPayable(true);
+    try {
+      const response = await api.get('/api/admin/all-retailers-immediately-payable');
+      setImmediatelyPayable(response.data);
+    } catch (error) {
+      console.error('Failed to load immediately payable:', error);
+    } finally {
+      setLoadingImmediatelyPayable(false);
+    }
+  }, []);
 
   // Load admin/staff users for "Received By" dropdown
   const loadStaffUsers = useCallback(async () => {
@@ -788,11 +805,11 @@ export default function RetailerOrders() {
     const loadAll = async () => {
       setLoading(true);
       await loadBaseData();
-      await Promise.all([loadIndents(), loadDispatches(), loadInvoices(), loadRejections(), loadPayments(), loadStaffUsers()]);
+      await Promise.all([loadIndents(), loadDispatches(), loadInvoices(), loadRejections(), loadPayments(), loadStaffUsers(), loadImmediatelyPayable()]);
       setLoading(false);
     };
     loadAll();
-  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers]);
+  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable]);
 
   // Filter indents by date
   useEffect(() => {
@@ -3737,6 +3754,52 @@ export default function RetailerOrders() {
             </p>
           </div>
         </div>
+
+        {/* Immediately Payable Block (5-Day Credit) */}
+        {immediatelyPayable && immediatelyPayable.grand_totals && immediatelyPayable.grand_totals.total > 0 && (
+          <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border border-red-200 p-4 mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={18} className="text-red-600" />
+                <span className="text-sm font-semibold text-red-800">Immediately Payable (5-Day Credit)</span>
+              </div>
+              <p className="text-2xl font-bold text-red-700">
+                {formatCurrency(immediatelyPayable.grand_totals.total)}
+              </p>
+            </div>
+            
+            {/* Summary Row */}
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="bg-white/80 rounded p-2 border border-red-100">
+                <p className="text-xs text-gray-500">50% Upfront (Today)</p>
+                <p className="text-sm font-bold text-red-600">{formatCurrency(immediatelyPayable.grand_totals.today_50_percent)}</p>
+              </div>
+              <div className="bg-white/80 rounded p-2 border border-orange-100">
+                <p className="text-xs text-gray-500">5-Day Credit Due</p>
+                <p className="text-sm font-bold text-orange-600">{formatCurrency(immediatelyPayable.grand_totals.due_today_remaining)}</p>
+              </div>
+              <div className="bg-white/80 rounded p-2 border border-red-200">
+                <p className="text-xs text-gray-500">Overdue (&gt;5 days)</p>
+                <p className="text-sm font-bold text-red-700">{formatCurrency(immediatelyPayable.grand_totals.overdue)}</p>
+              </div>
+            </div>
+            
+            {/* Retailer-wise breakdown */}
+            {immediatelyPayable.retailers && immediatelyPayable.retailers.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-600">By Retailer:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-32 overflow-y-auto">
+                  {immediatelyPayable.retailers.slice(0, 6).map((r, idx) => (
+                    <div key={idx} className="flex justify-between items-center bg-white rounded px-2 py-1 text-xs border">
+                      <span className="text-gray-700 truncate mr-2">{r.retailer_name}</span>
+                      <span className="font-bold text-red-600 whitespace-nowrap">{formatCurrency(r.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 mb-4 border-b pb-2">

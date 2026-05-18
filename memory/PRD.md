@@ -71,26 +71,29 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Scraper file: `/app/backend/blinkit_scraper.py`
 
 ### Completed (This Session - 18 May 2026)
+- **Immediately Payable Feature (5-Day Credit Period)** ✅
+  - **Backend API**: `/api/retailer-immediately-payable` for individual retailer view
+  - **Backend API**: `/api/admin/all-retailers-immediately-payable` for admin summary
+  - **Logic**: 
+    - 50% of today's invoice amounts (delivery day)
+    - Remaining 50% of invoices delivered exactly 5 days ago (after rejection/commission adjustments)
+    - All overdue amounts (>5 days old with pending/partial status)
+  - **Admin Portal**: Added "Immediately Payable (5-Day Credit)" block below Rejection Loss showing:
+    - Total amount due
+    - Breakdown: 50% Upfront, 5-Day Credit Due, Overdue
+    - Retailer-wise breakdown
+  - **Retailer Portal**: Added red "Immediately Payable" card below Earnings (only shows if amount > 0)
+
 - **MRP Tab - Complete Rewrite** ✅
   - Removed duplicate date picker from MRP section
-  - MRP now uses the main `dailyReqDate` from Daily Purchase Requirement section (single date source)
-  - **CRITICAL FIX**: Variants now load directly from indents (product+variant combinations)
+  - Variants now load directly from indents (product+variant combinations)
   - Each product+variant from indents gets its own row in MRP table
-  - Variant dropdown removed - variants are fixed based on indent data
-  - Collapsible categories with summary stats (X items, Y with MRP, Z with ₹0 MRP)
 
 - **Stickers Tab - Collapsible Categories & Customer Details** ✅
-  - Added collapsible category sections (like MRP tab)
-  - **NEW**: Click on any product row to see "Customer Indent Details" showing which retailers ordered this product and quantities
-  - Indent details panel shows all retailers sorted by quantity (highest first)
+  - Added collapsible category sections
+  - Click on any product row to see "Customer Indent Details" showing retailers and quantities
 
-- **Marathi Translation Fix for Daily Purchase Requirement** ✅
-  - Added `name_mr` field to Product, ProductCreate, and ProductUpdate Pydantic models
-  - Updated `/api/retailer-daily-requirement/calculate` to include Hindi/Marathi names
-
-- **PDF/Excel Export Simplified for Purchaser** ✅
-  - Removed "Qty (Units)" and "Category" columns
-  - Now shows only: Serial #, Product Name (language-aware), Quantity (Kg), Remarks
+- **Marathi Translation Fix & PDF/Excel Export Simplified** ✅
 
 ### In Progress
 - **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)

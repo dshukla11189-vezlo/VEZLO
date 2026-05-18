@@ -91,6 +91,7 @@ export default function RetailerDashboard() {
   const [productTypes, setProductTypes] = useState([]);
   const [savingIndent, setSavingIndent] = useState(false);
   const [editingIndentId, setEditingIndentId] = useState(null);
+  const [indentSearchQuery, setIndentSearchQuery] = useState(''); // Search in indent modal
   
   // Image enlargement state
   const [enlargedImage, setEnlargedImage] = useState(null);
@@ -342,6 +343,7 @@ export default function RetailerDashboard() {
       setCreateIndentItems({});
       setExpandedCreateTypes({});
     }
+    setIndentSearchQuery(''); // Reset search
     setShowCreateIndentModal(true);
   };
 
@@ -370,11 +372,24 @@ export default function RetailerDashboard() {
 
   const handleSubmitCreateIndent = async () => {
     // Filter items with quantity > 0
-    const items = Object.entries(createIndentItems)
-      .filter(([_, data]) => data.quantity > 0)
-      .map(([productId, data]) => {
+    const itemsWithQty = Object.entries(createIndentItems)
+      .filter(([_, data]) => data.quantity > 0);
+    
+    if (itemsWithQty.length === 0) {
+      toast.error('Please add at least one product with quantity');
+      return;
+    }
+    
+    // Validate all items have variants selected
+    const missingVariants = [];
+    const items = itemsWithQty.map(([productId, data]) => {
         const product = products.find(p => p.id === productId);
         const variant = packagings.find(v => v.id === data.variant_id);
+        
+        if (!data.variant_id) {
+          missingVariants.push(product?.name || 'Unknown product');
+        }
+        
         return {
           product_id: productId,
           product_name: product?.name || '',
@@ -384,9 +399,14 @@ export default function RetailerDashboard() {
           status: 'pending'
         };
       });
-
-    if (items.length === 0) {
-      toast.error('Please add at least one product with quantity');
+    
+    // Show error if any variants are missing
+    if (missingVariants.length > 0) {
+      if (missingVariants.length <= 3) {
+        toast.error(`Please select variant for: ${missingVariants.join(', ')}`);
+      } else {
+        toast.error(`Please select variant for ${missingVariants.length} products: ${missingVariants.slice(0, 2).join(', ')} and ${missingVariants.length - 2} more`);
+      }
       return;
     }
 
@@ -410,9 +430,12 @@ export default function RetailerDashboard() {
         toast.success('Indent created successfully');
       }
       setShowCreateIndentModal(false);
+      setIndentSearchQuery(''); // Reset search
       loadData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save indent');
+      const errorMsg = error.response?.data?.detail || 'Failed to save indent';
+      toast.error(errorMsg);
+      console.error('Indent save error:', error.response?.data || error);
     } finally {
       setSavingIndent(false);
     }
@@ -3472,12 +3495,45 @@ export default function RetailerDashboard() {
                 </span>
               </div>
               
+              {/* Search Box */}
+              <div className="px-3 sm:px-4 py-2 border-b bg-white flex-shrink-0">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder={i18n.language === 'hi' ? 'उत्पाद खोजें...' : 'Search products...'}
+                    value={indentSearchQuery}
+                    onChange={(e) => setIndentSearchQuery(e.target.value)}
+                    className="pl-9 h-9 text-sm"
+                  />
+                  {indentSearchQuery && (
+                    <button
+                      onClick={() => setIndentSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              
               {/* Products List - Scrollable */}
               <div className="overflow-y-auto flex-1 p-2 sm:p-4">
                 <div className="space-y-2 sm:space-y-3">
                   {sortedCategoryNames.map((categoryName) => {
-                    const categoryProducts = productsByCategory[categoryName] || [];
-                    const isExpanded = expandedCreateTypes[categoryName];
+                    const allCategoryProducts = productsByCategory[categoryName] || [];
+                    // Filter by search query
+                    const categoryProducts = indentSearchQuery 
+                      ? allCategoryProducts.filter(p => 
+                          p.name?.toLowerCase().includes(indentSearchQuery.toLowerCase()) ||
+                          p.name_hi?.toLowerCase().includes(indentSearchQuery.toLowerCase())
+                        )
+                      : allCategoryProducts;
+                    
+                    // Skip empty categories when searching
+                    if (indentSearchQuery && categoryProducts.length === 0) return null;
+                    
+                    const isExpanded = expandedCreateTypes[categoryName] || !!indentSearchQuery; // Auto-expand when searching
                     const selectedCount = categoryProducts.filter(p => createIndentItems[p.id]?.quantity > 0).length;
                     
                     return (

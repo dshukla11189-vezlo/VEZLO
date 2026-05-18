@@ -9287,6 +9287,18 @@ async def get_retailer_indents(
 
 @api_router.post("/retailer-indents")
 async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict = Depends(get_current_user)):
+    # Validate items have variants
+    missing_variants = []
+    for item in input.items:
+        if not item.variant_id:
+            missing_variants.append(item.product_name or 'Unknown product')
+    
+    if missing_variants:
+        detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
+        if len(missing_variants) > 5:
+            detail += f" and {len(missing_variants) - 5} more"
+        raise HTTPException(status_code=400, detail=detail)
+    
     # Get retailer info
     if current_user["role"] == "retailer":
         retailer_id = current_user["user_id"]
@@ -9322,6 +9334,18 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
     existing = await db.retailer_indents.find_one({"id": indent_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Validate items have variants
+    missing_variants = []
+    for item in input.items:
+        if not item.variant_id:
+            missing_variants.append(item.product_name or 'Unknown product')
+    
+    if missing_variants:
+        detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
+        if len(missing_variants) > 5:
+            detail += f" and {len(missing_variants) - 5} more"
+        raise HTTPException(status_code=400, detail=detail)
     
     # Retailers can only update their own pending indents
     if current_user["role"] == "retailer":

@@ -4758,12 +4758,12 @@ export default function RetailerOrders() {
                         try {
                           const res = await api.post('/api/retailer-invoices/fix-statuses');
                           toast.success(res.data.message);
-                          // Reload invoices
-                          if (invoiceForm.retailer_id) {
-                            const invRes = await api.get(`/api/retailer-invoices?retailer_id=${invoiceForm.retailer_id}`);
-                            setInvoices(invRes.data || []);
-                          }
+                          console.log('Fix result:', res.data);
+                          // Always reload all invoices after fix
+                          const invRes = await api.get('/api/retailer-invoices');
+                          setInvoices(invRes.data || []);
                         } catch (error) {
+                          console.error('Fix status error:', error);
                           toast.error('Failed to fix statuses');
                         }
                       }}

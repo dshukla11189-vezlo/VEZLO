@@ -13260,6 +13260,8 @@ async def get_all_retailers_immediately_payable(
 ):
     """
     Get immediately payable summary for all retailers (Admin only)
+    Uses dynamic rejection lookup to calculate actual final payable amounts.
+    Final payable = gross_value - rejections - commission (on net after rejections)
     """
     # Check if admin
     if current_user.get("role") not in ["admin", "staff"]:
@@ -13270,7 +13272,6 @@ async def get_all_retailers_immediately_payable(
     # Get today's date in IST
     ist = timezone(timedelta(hours=5, minutes=30))
     today = datetime.now(ist).date()
-    five_days_ago = today - timedelta(days=5)
     
     # Fetch all retailers to get company_name (shop name)
     all_retailers = await db.retailers.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1}).to_list(1000)
@@ -13282,6 +13283,29 @@ async def get_all_retailers_immediately_payable(
         {"_id": 0}
     ).to_list(5000)
     
+    # Fetch all rejections to calculate actual rejection amounts per date+retailer
+    retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
+    rejections = await db.retailer_rejections.find(
+        {"retailer_id": {"$in": retailer_ids}},
+        {"_id": 0, "retailer_id": 1, "rejection_date": 1, "rejection_value": 1}
+    ).to_list(10000)
+    
+    # Group rejections by (retailer_id, date_str)
+    rejection_map = {}
+    for rej in rejections:
+        rej_date = rej.get("rejection_date")
+        if isinstance(rej_date, datetime):
+            rej_date_str = rej_date.date().isoformat()
+        elif isinstance(rej_date, str):
+            rej_date_str = rej_date[:10]
+        else:
+            continue
+        
+        key = (rej.get("retailer_id"), rej_date_str)
+        if key not in rejection_map:
+            rejection_map[key] = 0
+        rejection_map[key] += (rej.get("rejection_value", 0) or 0)
+    
     # Group by retailer
     retailer_payables = {}
     
@@ -13291,7 +13315,6 @@ async def get_all_retailers_immediately_payable(
             continue
             
         if retailer_id not in retailer_payables:
-            # Use company_name (shop name) from retailer_map, fallback to invoice retailer_name
             shop_name = retailer_map.get(retailer_id) or inv.get("retailer_name", "Unknown")
             retailer_payables[retailer_id] = {
                 "retailer_id": retailer_id,
@@ -13306,20 +13329,34 @@ async def get_all_retailers_immediately_payable(
         # Parse invoice date
         inv_date = inv.get("invoice_date")
         if isinstance(inv_date, str):
-            inv_date = datetime.fromisoformat(inv_date[:10]).date()
+            inv_date_str = inv_date[:10]
+            inv_date = datetime.fromisoformat(inv_date_str).date()
         elif isinstance(inv_date, datetime):
+            inv_date_str = inv_date.date().isoformat()
             inv_date = inv_date.date()
         else:
             continue
         
-        net_payable = inv.get("net_payable", 0) or 0
+        # Calculate actual final payable using dynamic rejection lookup
+        gross_value = inv.get("gross_value", 0) or inv.get("net_payable", 0) or 0
+        commission_pct = inv.get("commission_percentage", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
-        pending_amount = max(0, net_payable - paid_amount)
+        
+        # Get rejections for this invoice date + retailer
+        rejection_key = (retailer_id, inv_date_str)
+        total_rejections = rejection_map.get(rejection_key, 0)
+        
+        # Final payable = gross - rejections - commission (on net after rejections)
+        net_after_rejection = gross_value - total_rejections
+        commission_amount = (net_after_rejection * commission_pct / 100) if commission_pct else (inv.get("commission_amount", 0) or 0)
+        final_payable = net_after_rejection - commission_amount
+        
+        pending_amount = max(0, final_payable - paid_amount)
         
         if pending_amount <= 0:
             continue
         
-        fifty_percent = net_payable / 2
+        fifty_percent = final_payable / 2
         days_since = (today - inv_date).days
         
         retailer_payables[retailer_id]["invoice_count"] += 1

@@ -85,6 +85,16 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 - **Shop Name Display Fix** ✅
   - Admin portal now shows `company_name` (shop name like "Tamanna Mart") instead of owner name
 
+### Completed (This Session - 19 May 2026)
+- **Dynamic Rejection Calculation Fix for Immediately Payable** ✅ (P0 - VERIFIED)
+  - **Problem**: `net_payable` stored in invoices doesn't account for rejections (stored separately by date+retailer)
+  - **Fix**: Both `/api/retailer-immediately-payable` AND `/api/admin/all-retailers-immediately-payable` now:
+    1. Fetch rejections from `retailer_rejections` collection by date+retailer_id
+    2. Calculate: `Net after rejection = Gross - Rejections`
+    3. Calculate: `Commission = Net after rejection × commission_percentage`
+    4. Calculate: `Final Payable = Net after rejection - Commission`
+  - **Verified**: Jai Bhawani May 13 overdue now correctly shows ₹240.10 (was ₹537)
+
 - **MRP Tab - Complete Rewrite** ✅
   - Variants load directly from indents (product+variant combinations)
 

@@ -1259,6 +1259,7 @@ export default function RetailerOrders() {
       const requirementData = result.items.map(item => ({
         productId: item.product_id,
         productName: item.product_name,
+        productNameHi: item.product_name_hi || '',
         category: item.category || 'Other',
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
@@ -1309,6 +1310,7 @@ export default function RetailerOrders() {
       products.forEach(p => {
         productInfoMap[p.id] = {
           name: p.name,
+          name_hi: p.name_hi || '',
           category: p.category || 'Other'
         };
       });
@@ -1322,6 +1324,7 @@ export default function RetailerOrders() {
           const productId = item.product_id;
           const productInfo = productInfoMap[productId] || {};
           const productName = (productInfo.name || item.product_name || 'Unknown').trim();
+          const productNameHi = productInfo.name_hi || '';
           const variantName = (item.variant_name || 'Default').trim();
           const category = productInfo.category || 'Other';
           
@@ -1332,6 +1335,7 @@ export default function RetailerOrders() {
             combinationMap[key] = {
               productId: productId,
               productName: productName,
+              productNameHi: productNameHi,
               category: category,
               variantName: variantName,
               quantity: 0
@@ -3783,10 +3787,12 @@ export default function RetailerOrders() {
                                     {items.map((item, localIdx) => {
                                       // Find global index for editing
                                       const globalIdx = dailyReqData.findIndex(d => d.productId === item.productId && d.productName === item.productName);
+                                      // Get display name (Hindi if available and language is Hindi)
+                                      const displayName = (i18n.language === 'hi' && item.productNameHi) ? item.productNameHi : item.productName;
                                       return (
                                         <tr key={`${item.productId}-${localIdx}`} className="border-b hover:bg-gray-50">
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                          <td className="p-2 font-medium">{item.productName}</td>
+                                          <td className="p-2 font-medium">{displayName}</td>
                                           <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
                                           <td className="p-2">
                                             <Input
@@ -3964,14 +3970,17 @@ export default function RetailerOrders() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {items.map((item, localIdx) => (
-                                      <tr key={`${item.productId}-${item.variantId}-${localIdx}`} className="border-b hover:bg-gray-50">
-                                        <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                        <td className="p-2 font-medium">{item.productName}</td>
-                                        <td className="p-2 text-gray-600">{item.variantName}</td>
-                                        <td className="p-2 text-center font-bold text-blue-700">{item.quantity}</td>
-                                      </tr>
-                                    ))}
+                                    {items.map((item, localIdx) => {
+                                      const displayName = (i18n.language === 'hi' && item.productNameHi) ? item.productNameHi : item.productName;
+                                      return (
+                                        <tr key={`${item.productId}-${item.variantId}-${localIdx}`} className="border-b hover:bg-gray-50">
+                                          <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                          <td className="p-2 font-medium">{displayName}</td>
+                                          <td className="p-2 text-gray-600">{item.variantName}</td>
+                                          <td className="p-2 text-center font-bold text-blue-700">{item.quantity}</td>
+                                        </tr>
+                                      );
+                                    })}
                                   </tbody>
                                   <tfoot>
                                     <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
@@ -4185,13 +4194,15 @@ export default function RetailerOrders() {
                                         ? retailPackagings.find(p => p.id === lastVariant.variant_id)
                                         : retailPackagings[0];
                                       const blinkitData = blinkitPrices[product.id];
+                                      // Get display name (Hindi if available and language is Hindi)
+                                      const displayName = i18n.language === 'hi' && product.name_hi ? product.name_hi : product.name;
                                       
                                       // If product has entries, show them
                                       if (productEntries.length > 0) {
                                         return productEntries.map((entry, entryIdx) => (
                                           <tr key={entry.id} className={`border-b hover:bg-gray-50 ${pendingMrpChanges[entry.id] ? 'bg-yellow-50' : ''}`}>
                                             <td className="p-2 text-gray-400 text-xs">{localIdx + 1}{entryIdx > 0 ? `.${entryIdx + 1}` : ''}</td>
-                                            <td className="p-2 font-medium">{entry.product_name}</td>
+                                            <td className="p-2 font-medium">{displayName}</td>
                                             <td className="p-2">
                                               <select
                                                 value={entry.variant_id || ''}
@@ -4260,7 +4271,7 @@ export default function RetailerOrders() {
                                       return (
                                         <tr key={product.id} className="border-b hover:bg-gray-50 bg-gray-50/50">
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                          <td className="p-2 font-medium text-gray-600">{product.name}</td>
+                                          <td className="p-2 font-medium text-gray-600">{displayName}</td>
                                           <td className="p-2 text-gray-400 text-sm">
                                             {defaultVariant?.name || 'No variant'}
                                           </td>
@@ -4306,9 +4317,12 @@ export default function RetailerOrders() {
                                         defaultValue=""
                                       >
                                         <option value="">Select product...</option>
-                                        {categoryProducts.map(product => (
-                                          <option key={product.id} value={product.id}>{product.name}</option>
-                                        ))}
+                                        {categoryProducts.map(product => {
+                                          const pName = i18n.language === 'hi' && product.name_hi ? product.name_hi : product.name;
+                                          return (
+                                            <option key={product.id} value={product.id}>{pName}</option>
+                                          );
+                                        })}
                                       </select>
                                       <select
                                         id={`add-variant-${category}`}

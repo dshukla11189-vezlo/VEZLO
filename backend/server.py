@@ -9353,19 +9353,7 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
             raise HTTPException(status_code=403, detail="Not authorized")
         if existing["status"] != "pending":
             raise HTTPException(status_code=400, detail="Cannot edit non-pending indent")
-        
-        # Time restriction: Retailers can only edit until 10 PM IST on the indent date
-        # IST is UTC+5:30
-        import pytz
-        ist = pytz.timezone('Asia/Kolkata')
-        now_ist = datetime.now(ist)
-        indent_date_str = existing.get("indent_date", "")
-        if indent_date_str:
-            indent_date = datetime.fromisoformat(indent_date_str.replace('Z', '+00:00')).date() if 'T' in indent_date_str else datetime.strptime(indent_date_str[:10], "%Y-%m-%d").date()
-            # Cutoff is 10 PM IST on the indent date
-            cutoff_time = ist.localize(datetime.combine(indent_date, datetime.strptime("22:00", "%H:%M").time()))
-            if now_ist > cutoff_time:
-                raise HTTPException(status_code=400, detail="Cannot edit indent after 10 PM on the indent date")
+        # Note: Time restriction removed - retailers can edit anytime while status is pending
     
     # Get all dispatches for this indent to recalculate status
     all_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)

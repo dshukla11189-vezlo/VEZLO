@@ -441,21 +441,10 @@ export default function RetailerDashboard() {
     }
   };
 
-  // Check if indent can be edited (before 10 PM IST on indent date)
+  // Check if indent can be edited (only pending indents can be edited)
   const canEditIndent = (indent) => {
     if (!indent || indent.status !== 'pending') return false;
-    const indentDate = indent.indent_date?.split('T')[0];
-    if (!indentDate) return false;
-    
-    // Current time in IST
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-    const nowIST = new Date(now.getTime() + istOffset);
-    
-    // Cutoff is 10 PM IST on the indent date
-    const cutoff = new Date(indentDate + 'T22:00:00');
-    
-    return nowIST < cutoff;
+    return true; // Retailers can edit anytime while indent is pending
   };
 
   // Get type color classes
@@ -3493,7 +3482,7 @@ export default function RetailerDashboard() {
               {/* Date Picker */}
               <div className="p-3 sm:p-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <Label className="font-medium text-sm whitespace-nowrap">Indent Date:</Label>
+                  <Label className="font-medium text-sm whitespace-nowrap">{i18n.language === 'hi' ? 'इंडेंट दिनांक:' : 'Indent Date:'}</Label>
                   <Input
                     type="date"
                     value={createIndentDate}
@@ -3502,9 +3491,6 @@ export default function RetailerDashboard() {
                     min={getLocalDateString()}
                   />
                 </div>
-                <span className="text-[10px] sm:text-xs text-gray-500">
-                  (Edit until 10 PM IST on selected date)
-                </span>
               </div>
               
               {/* Search Box */}

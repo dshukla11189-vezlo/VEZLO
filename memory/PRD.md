@@ -71,32 +71,26 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Scraper file: `/app/backend/blinkit_scraper.py`
 
 ### Completed (This Session - 18 May 2026)
-- **MRP Tab - Unified Date Selection** ✅
+- **MRP Tab - Complete Rewrite** ✅
   - Removed duplicate date picker from MRP section
-  - MRP tab now uses the main `dailyReqDate` from Daily Purchase Requirement section
-  - Single date selection controls all sub-tabs (Purchase, Stickers, MRP)
+  - MRP now uses the main `dailyReqDate` from Daily Purchase Requirement section (single date source)
+  - **CRITICAL FIX**: Variants now load directly from indents (product+variant combinations)
+  - Each product+variant from indents gets its own row in MRP table
+  - Variant dropdown removed - variants are fixed based on indent data
+  - Collapsible categories with summary stats (X items, Y with MRP, Z with ₹0 MRP)
 
-- **MRP Tab - Variants from Indents Only** ✅
-  - Variant dropdown now shows only variants present in day's indents (not all retail packagings)
-  - Default variant is first indent variant for the product (not last dispatched variant)
-  - `loadMrpIndentProducts()` now extracts and stores `indentVariants` and `indentVariantNames` per product
-  - Prevents showing variants like 500-600 gm when only 500+ gm is in indents
+- **Stickers Tab - Collapsible Categories & Customer Details** ✅
+  - Added collapsible category sections (like MRP tab)
+  - **NEW**: Click on any product row to see "Customer Indent Details" showing which retailers ordered this product and quantities
+  - Indent details panel shows all retailers sorted by quantity (highest first)
 
-- **Marathi Translation Fix for Daily Purchase Requirement** ✅ (Verified)
+- **Marathi Translation Fix for Daily Purchase Requirement** ✅
   - Added `name_mr` field to Product, ProductCreate, and ProductUpdate Pydantic models
-  - Updated `/api/retailer-daily-requirement/calculate` to include Hindi/Marathi names from products DB
-  - Product names now display in selected language (English/Hindi/Marathi) in:
-    - Daily Purchase Requirement table
-    - PDF export
-    - Excel export
-  - Language switch persists across tabs
+  - Updated `/api/retailer-daily-requirement/calculate` to include Hindi/Marathi names
 
-- **PDF/Excel Export Simplified for Purchaser** ✅ (Verified)
-  - Removed "Qty (Units)" and "Category" columns from PDF and Excel exports
-  - PDF now shows only: Serial #, Product Name, Quantity (Kg), Remarks
-  - Excel now shows only: #, Product Name, Quantity (Kg), Remarks
-  - Product names display in currently selected language (supports English/Hindi/Marathi)
-  - Export format is cleaner and hides internal unit counts from purchasers
+- **PDF/Excel Export Simplified for Purchaser** ✅
+  - Removed "Qty (Units)" and "Category" columns
+  - Now shows only: Serial #, Product Name (language-aware), Quantity (Kg), Remarks
 
 ### In Progress
 - **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)

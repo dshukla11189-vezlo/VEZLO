@@ -275,6 +275,8 @@ export default function RetailerOrders() {
   const [stickersLoading, setStickersLoading] = useState(false);
   const [stickersSearch, setStickersSearch] = useState('');
   const [stickersCategoryFilter, setStickersCategoryFilter] = useState('all');
+  const [expandedStickerItem, setExpandedStickerItem] = useState(null); // Track which sticker item is expanded
+  const [stickerIndentDetails, setStickerIndentDetails] = useState({}); // product+variant key -> [{retailer, qty}]
 
   // MRP tab state
   const [mrpData, setMrpData] = useState([]);
@@ -1326,6 +1328,8 @@ export default function RetailerOrders() {
     
     setStickersLoading(true);
     setStickersData([]);
+    setStickerIndentDetails({});
+    setExpandedStickerItem(null);
     
     try {
       // Fetch indents for the selected date
@@ -1354,11 +1358,20 @@ export default function RetailerOrders() {
         };
       });
       
+      // Build retailer map
+      const retailerMap = {};
+      retailers.forEach(r => {
+        retailerMap[r.id] = r.company_name || r.name || 'Unknown Retailer';
+      });
+      
       // Aggregate by product NAME + variant NAME combination (not IDs)
-      // This ensures same variants across different retailers are combined
+      // Also build indent details per product+variant
       const combinationMap = {}; // key = "ProductName_VariantName" -> {product_name, category, variant_name, quantity}
+      const indentDetailsMap = {}; // key -> [{retailerName, retailerId, quantity}]
       
       for (const indent of indents) {
+        const retailerName = retailerMap[indent.retailer_id] || 'Unknown Retailer';
+        
         for (const item of (indent.items || [])) {
           const productId = item.product_id;
           const productInfo = productInfoMap[productId] || {};
@@ -1381,9 +1394,22 @@ export default function RetailerOrders() {
               variantName: variantName,
               quantity: 0
             };
+            indentDetailsMap[key] = [];
           }
           
           combinationMap[key].quantity += (item.quantity || 0);
+          
+          // Add retailer detail
+          const existingRetailer = indentDetailsMap[key].find(d => d.retailerId === indent.retailer_id);
+          if (existingRetailer) {
+            existingRetailer.quantity += (item.quantity || 0);
+          } else {
+            indentDetailsMap[key].push({
+              retailerId: indent.retailer_id,
+              retailerName: retailerName,
+              quantity: item.quantity || 0
+            });
+          }
         }
       }
       
@@ -1398,14 +1424,20 @@ export default function RetailerOrders() {
         return a.variantName.localeCompare(b.variantName);
       });
       
+      // Attach keys to items for lookup
+      stickersArray.forEach(item => {
+        item.key = `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+      });
+      
       setStickersData(stickersArray);
+      setStickerIndentDetails(indentDetailsMap);
       
     } catch (error) {
       console.error('Failed to load stickers data:', error);
     } finally {
       setStickersLoading(false);
     }
-  }, [dailyReqDate, products]);
+  }, [dailyReqDate, products, retailers]);
 
   // Get unique categories from stickers data
   const stickersCategories = useMemo(() => {
@@ -1508,6 +1540,42 @@ export default function RetailerOrders() {
     }));
   };
 
+  // Toggle category expansion for MRP tab
+  const toggleMrpCategory = (category) => {
+    setExpandedMrpCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Group MRP indent products by category
+  const groupedMrpIndentProducts = useMemo(() => {
+    const groups = {};
+    mrpIndentProducts.forEach(item => {
+      const cat = item.category || 'Other';
+      if (!groups[cat]) {
+        groups[cat] = [];
+      }
+      groups[cat].push(item);
+    });
+    // Sort categories by predefined order
+    const sortedCategories = Object.keys(groups).sort((a, b) => 
+      (categoryOrder[a] || 99) - (categoryOrder[b] || 99)
+    );
+    return { groups, sortedCategories };
+  }, [mrpIndentProducts]);
+
+  // Auto-expand MRP categories when data loads
+  useEffect(() => {
+    if (mrpIndentProducts.length > 0) {
+      const allCats = {};
+      mrpIndentProducts.forEach(item => {
+        allCats[item.category || 'Other'] = true;
+      });
+      setExpandedMrpCategories(allCats);
+    }
+  }, [mrpIndentProducts]);
+
   // Get category color classes
   const getCategoryColorClasses = (category) => {
     switch (category) {
@@ -1582,32 +1650,64 @@ export default function RetailerOrders() {
         return;
       }
       
-      // Build map of product_id -> Set of variant_ids from indents
-      const productVariantMap = new Map(); // product_id -> { variants: Set<variant_id>, variantNames: Map<variant_id, name> }
+      // Build product info map from products state
+      const productInfoMap = {};
+      products.forEach(p => {
+        productInfoMap[p.id] = {
+          name: p.name,
+          name_hi: p.name_hi || '',
+          name_mr: p.name_mr || '',
+          category: p.category || 'Other'
+        };
+      });
+      
+      // Aggregate by product NAME + variant NAME combination (like Stickers)
+      // This ensures same variants across different retailers are combined
+      const combinationMap = {}; // key = "product_id_variant_name" -> product-variant data
+      
       for (const indent of indents) {
         for (const item of (indent.items || [])) {
-          if (item.product_id) {
-            if (!productVariantMap.has(item.product_id)) {
-              productVariantMap.set(item.product_id, { variants: new Set(), variantNames: new Map() });
-            }
-            const productData = productVariantMap.get(item.product_id);
-            if (item.variant_id) {
-              productData.variants.add(item.variant_id);
-              productData.variantNames.set(item.variant_id, item.variant_name || '');
-            }
+          const productId = item.product_id;
+          const productInfo = productInfoMap[productId] || {};
+          const productName = (productInfo.name || item.product_name || 'Unknown').trim();
+          const productNameHi = productInfo.name_hi || '';
+          const productNameMr = productInfo.name_mr || '';
+          const variantId = item.variant_id || '';
+          const variantName = (item.variant_name || 'Default').trim();
+          const category = productInfo.category || 'Other';
+          
+          // Create key using product_id + variant_name (to ensure uniqueness)
+          const key = `${productId}_${variantName.toLowerCase()}`;
+          
+          if (!combinationMap[key]) {
+            combinationMap[key] = {
+              productId: productId,
+              productName: productName,
+              productNameHi: productNameHi,
+              productNameMr: productNameMr,
+              category: category,
+              variantId: variantId,
+              variantName: variantName,
+              totalQuantity: 0
+            };
           }
+          
+          combinationMap[key].totalQuantity += (item.quantity || 0);
         }
       }
       
-      // Filter products list to only those in indents, and attach indent variant info
-      const indentProducts = products
-        .filter(p => productVariantMap.has(p.id))
-        .map(p => ({
-          ...p,
-          indentVariants: Array.from(productVariantMap.get(p.id).variants),
-          indentVariantNames: Object.fromEntries(productVariantMap.get(p.id).variantNames)
-        }));
-      setMrpIndentProducts(indentProducts);
+      // Convert to array and sort by category then product name then variant
+      const categoryOrder = { 'Fruits': 1, 'Vegetables': 2, 'Leafy': 3, 'Exotic': 4, 'Other': 5 };
+      const indentProductsArray = Object.values(combinationMap).sort((a, b) => {
+        const catA = categoryOrder[a.category] || 99;
+        const catB = categoryOrder[b.category] || 99;
+        if (catA !== catB) return catA - catB;
+        const nameCompare = a.productName.localeCompare(b.productName);
+        if (nameCompare !== 0) return nameCompare;
+        return a.variantName.localeCompare(b.variantName);
+      });
+      
+      setMrpIndentProducts(indentProductsArray);
       
     } catch (error) {
       console.error('Failed to load indent products for MRP:', error);
@@ -1631,7 +1731,7 @@ export default function RetailerOrders() {
 
   // Group products by category for MRP - filtered to only products from day's indents
   const mrpProductsByCategory = useMemo(() => {
-    // Use indent-filtered products if available, otherwise empty (no indents for that day)
+    // Use indent-filtered product+variant combinations if available
     const productsToShow = mrpIndentProducts.length > 0 ? mrpIndentProducts : [];
     
     const grouped = {};
@@ -1640,9 +1740,13 @@ export default function RetailerOrders() {
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(p);
     });
-    // Sort products within each category
+    // Sort products within each category by product name then variant
     Object.keys(grouped).forEach(cat => {
-      grouped[cat].sort((a, b) => a.name.localeCompare(b.name));
+      grouped[cat].sort((a, b) => {
+        const nameCompare = (a.productName || '').localeCompare(b.productName || '');
+        if (nameCompare !== 0) return nameCompare;
+        return (a.variantName || '').localeCompare(b.variantName || '');
+      });
     });
     return grouped;
   }, [mrpIndentProducts]);
@@ -1788,6 +1892,27 @@ export default function RetailerOrders() {
     }
   };
 
+  // Add MRP entry from indent product+variant combination
+  const addMrpEntryFromIndent = async (indentItem) => {
+    const newEntry = {
+      date: dailyReqDate,
+      product_id: indentItem.productId,
+      product_name: indentItem.productName,
+      category: indentItem.category,
+      variant_id: indentItem.variantId || '',
+      variant_name: indentItem.variantName || '',
+      mrp: 0
+    };
+    
+    try {
+      const res = await api.post('/api/daily-mrp/entry', newEntry);
+      setMrpData(prev => [...prev, res.data]);
+      toast.success('MRP entry added');
+    } catch (error) {
+      toast.error('Failed to add MRP entry');
+    }
+  };
+
   // Update MRP entry (local state only, save with button)
   const updateMrpEntryLocal = (entryId, field, value) => {
     const entry = mrpData.find(e => e.id === entryId);
@@ -1887,14 +2012,6 @@ export default function RetailerOrders() {
     }
   };
 
-  // Toggle MRP category expansion
-  const toggleMrpCategory = (category) => {
-    setExpandedMrpCategories(prev => ({
-      ...prev,
-      [category]: !prev[category]
-    }));
-  };
-
   // Initialize MRP data for all products with last variants
   const initializeMrpData = async () => {
     setSavingMrp(true);
@@ -1942,36 +2059,19 @@ export default function RetailerOrders() {
         return;
       }
       
-      // Fetch packagings directly if not loaded
-      let packagingsToUse = retailPackagings;
-      if (!packagingsToUse || packagingsToUse.length === 0) {
-        const packagingsRes = await api.get('/api/qc-packaging');
-        const allPackagings = packagingsRes.data || [];
-        packagingsToUse = allPackagings.filter(p => p.vertical === 'retail' || p.vertical === 'both' || !p.vertical);
-      }
-      
+      // Create entries from product+variant combinations (new structure)
       const entries = [];
-      productsToUse.forEach(product => {
-        // Use indent variants if available (populated by loadMrpIndentProducts)
-        const indentVariantIds = product.indentVariants || [];
-        const allowedPackagings = indentVariantIds.length > 0
-          ? packagingsToUse.filter(p => indentVariantIds.includes(p.id))
-          : packagingsToUse;
-        
-        // Use first indent variant as default
-        const variant = allowedPackagings.length > 0 ? allowedPackagings[0] : packagingsToUse[0];
-        
+      productsToUse.forEach(item => {
         // Get Blinkit price if available
-        const blinkitEntry = blinkitPrices[product.id];
+        const blinkitEntry = blinkitPrices[item.productId];
         const blinkitPrice = blinkitEntry?.blinkit_price || 0;
         
-        // Always add the product, even if no variant found (use empty variant)
         entries.push({
-          product_id: product.id,
-          product_name: product.name,
-          category: product.category,
-          variant_id: variant?.id || '',
-          variant_name: variant?.name || '',
+          product_id: item.productId,
+          product_name: item.productName,
+          category: item.category,
+          variant_id: item.variantId || '',
+          variant_name: item.variantName || '',
           mrp: 0,
           blinkit_price: blinkitPrice
         });
@@ -1979,7 +2079,7 @@ export default function RetailerOrders() {
       
       await api.post('/api/daily-mrp', { date: dailyReqDate, items: entries });
       await loadMrpData(dailyReqDate);
-      toast.success(`MRP sheet initialized with ${entries.length} products from day's indents`);
+      toast.success(`MRP sheet initialized with ${entries.length} product-variant combinations from day's indents`);
     } catch (error) {
       console.error('Initialize MRP error:', error);
       toast.error('Failed to initialize MRP data');
@@ -4128,13 +4228,43 @@ export default function RetailerOrders() {
                                         : i18n.language === 'mr' && item.productNameMr 
                                           ? item.productNameMr 
                                           : item.productName;
+                                      const itemKey = item.key || `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+                                      const isItemExpanded = expandedStickerItem === itemKey;
+                                      const indentDetails = stickerIndentDetails[itemKey] || [];
+                                      
                                       return (
-                                        <tr key={`${item.productId}-${item.variantId}-${localIdx}`} className="border-b hover:bg-gray-50">
-                                          <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                          <td className="p-2 font-medium">{displayName}</td>
-                                          <td className="p-2 text-gray-600">{item.variantName}</td>
-                                          <td className="p-2 text-center font-bold text-blue-700">{item.quantity}</td>
-                                        </tr>
+                                        <React.Fragment key={`${item.productId}-${item.variantName}-${localIdx}`}>
+                                          <tr 
+                                            className={`border-b hover:bg-blue-50 cursor-pointer ${isItemExpanded ? 'bg-blue-50' : ''}`}
+                                            onClick={() => setExpandedStickerItem(isItemExpanded ? null : itemKey)}
+                                          >
+                                            <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                            <td className="p-2 font-medium flex items-center gap-2">
+                                              {isItemExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
+                                              {displayName}
+                                            </td>
+                                            <td className="p-2 text-gray-600">{item.variantName}</td>
+                                            <td className="p-2 text-center font-bold text-blue-700">{item.quantity}</td>
+                                          </tr>
+                                          {/* Expanded row showing customer indent details */}
+                                          {isItemExpanded && indentDetails.length > 0 && (
+                                            <tr>
+                                              <td colSpan="4" className="p-0">
+                                                <div className="bg-blue-50 border-l-4 border-blue-400 p-3 mx-2 mb-2 rounded-r">
+                                                  <p className="text-xs font-semibold text-blue-700 mb-2">Customer Indent Details:</p>
+                                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                                    {indentDetails.sort((a, b) => b.quantity - a.quantity).map((detail, idx) => (
+                                                      <div key={idx} className="bg-white rounded px-2 py-1 text-xs flex justify-between items-center border border-blue-200">
+                                                        <span className="text-gray-700 truncate mr-2">{detail.retailerName}</span>
+                                                        <span className="font-bold text-blue-600">{detail.quantity}</span>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </React.Fragment>
                                       );
                                     })}
                                   </tbody>
@@ -4292,8 +4422,20 @@ export default function RetailerOrders() {
                         if (categoryProducts.length === 0) return null;
                         
                         const isExpanded = expandedMrpCategories[category] !== false; // Default to expanded
-                        const categoryEntries = mrpData.filter(e => e.category === category);
-                        const zeroMrpCount = categoryEntries.filter(e => !e.mrp || e.mrp === 0).length;
+                        // Count how many items in this category have MRP entries
+                        const entriesWithMrp = categoryProducts.filter(item => 
+                          mrpData.some(e => 
+                            e.product_id === item.productId && 
+                            (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                          )
+                        ).length;
+                        const zeroMrpCount = categoryProducts.filter(item => {
+                          const entry = mrpData.find(e => 
+                            e.product_id === item.productId && 
+                            (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                          );
+                          return entry && (!entry.mrp || entry.mrp === 0);
+                        }).length;
                         const isEditable = canEditMrpForDate(dailyReqDate);
                         
                         return (
@@ -4306,13 +4448,15 @@ export default function RetailerOrders() {
                               <div className="flex items-center gap-3">
                                 {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                                 <span className="font-semibold text-sm">{category}</span>
-                                <span className="text-xs opacity-75">({categoryProducts.length} products, {categoryEntries.length} with MRP)</span>
+                                <span className="text-xs opacity-75">({categoryProducts.length} items, {entriesWithMrp} with MRP)</span>
                               </div>
                               <div className="flex items-center gap-4 text-xs">
                                 {zeroMrpCount > 0 ? (
                                   <span className="text-red-600 font-medium">{zeroMrpCount} items with ₹0 MRP</span>
-                                ) : categoryEntries.length > 0 ? (
+                                ) : entriesWithMrp === categoryProducts.length ? (
                                   <span className="text-green-600">All priced ✓</span>
+                                ) : entriesWithMrp > 0 ? (
+                                  <span className="text-orange-600">{categoryProducts.length - entriesWithMrp} missing MRP</span>
                                 ) : null}
                               </div>
                             </div>
@@ -4334,134 +4478,70 @@ export default function RetailerOrders() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {/* Show ALL products in this category */}
-                                    {categoryProducts.map((product, localIdx) => {
-                                      // Get all existing entries for this product
-                                      const productEntries = mrpData.filter(e => e.product_id === product.id);
+                                    {/* Show ALL product+variant combinations from indents */}
+                                    {categoryProducts.map((item, localIdx) => {
+                                      // Find matching MRP entry by product_id and variant_name
+                                      const mrpEntry = mrpData.find(e => 
+                                        e.product_id === item.productId && 
+                                        (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                      );
                                       
-                                      // Get indent variants for this product (if available)
-                                      const indentVariantIds = product.indentVariants || [];
-                                      const indentVariantNames = product.indentVariantNames || {};
+                                      const blinkitData = blinkitPrices[item.productId];
+                                      // Get display name based on language
+                                      const displayName = i18n.language === 'hi' && item.productNameHi 
+                                        ? item.productNameHi 
+                                        : i18n.language === 'mr' && item.productNameMr 
+                                          ? item.productNameMr 
+                                          : item.productName;
                                       
-                                      // Filter packagings to only those in indents for this product
-                                      // If no indent variant info, fall back to all retail packagings
-                                      const allowedPackagings = indentVariantIds.length > 0
-                                        ? retailPackagings.filter(p => indentVariantIds.includes(p.id))
-                                        : retailPackagings;
-                                      
-                                      // Use first indent variant as default (not last dispatched variant)
-                                      const defaultVariant = allowedPackagings.length > 0 
-                                        ? allowedPackagings[0] 
-                                        : retailPackagings[0];
-                                      
-                                      const blinkitData = blinkitPrices[product.id];
-                                      // Get display name based on language (English, Hindi, or Marathi)
-                                      const displayName = i18n.language === 'hi' && product.name_hi 
-                                        ? product.name_hi 
-                                        : i18n.language === 'mr' && product.name_mr 
-                                          ? product.name_mr 
-                                          : product.name;
-                                      
-                                      // If product has entries, show them
-                                      if (productEntries.length > 0) {
-                                        return productEntries.map((entry, entryIdx) => (
-                                          <tr key={entry.id} className={`border-b hover:bg-gray-50 ${pendingMrpChanges[entry.id] ? 'bg-yellow-50' : ''}`}>
-                                            <td className="p-2 text-gray-400 text-xs">{localIdx + 1}{entryIdx > 0 ? `.${entryIdx + 1}` : ''}</td>
-                                            <td className="p-2 font-medium">{displayName}</td>
-                                            <td className="p-2">
-                                              <select
-                                                value={entry.variant_id || ''}
-                                                onChange={(e) => updateMrpEntryLocal(entry.id, 'variant_id', e.target.value)}
-                                                disabled={!isEditable}
-                                                className={`w-full h-8 px-2 rounded border border-gray-200 text-sm ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                              >
-                                                <option value="">Select variant</option>
-                                                {allowedPackagings.map(pkg => (
-                                                  <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
-                                                ))}
-                                              </select>
-                                            </td>
-                                            <td className="p-2 text-right">
+                                      return (
+                                        <tr 
+                                          key={`${item.productId}-${item.variantName}-${localIdx}`} 
+                                          className={`border-b hover:bg-gray-50 ${mrpEntry && pendingMrpChanges[mrpEntry.id] ? 'bg-yellow-50' : ''}`}
+                                        >
+                                          <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                          <td className="p-2 font-medium">{displayName}</td>
+                                          <td className="p-2 text-gray-600">{item.variantName}</td>
+                                          <td className="p-2 text-right">
+                                            {mrpEntry ? (
                                               <Input
                                                 type="number"
                                                 step="0.01"
                                                 min="0"
-                                                value={entry.mrp || ''}
-                                                onChange={(e) => updateMrpEntryLocal(entry.id, 'mrp', e.target.value)}
+                                                value={mrpEntry.mrp || ''}
+                                                onChange={(e) => updateMrpEntryLocal(mrpEntry.id, 'mrp', e.target.value)}
                                                 disabled={!isEditable}
                                                 className={`h-8 w-20 text-right ml-auto ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 placeholder="0.00"
                                               />
-                                            </td>
-                                            <td className="p-2 text-right">
-                                              <Input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                value={blinkitData?.blinkit_price || ''}
-                                                onChange={(e) => updateBlinkitPrice(entry.product_id, e.target.value)}
-                                                disabled={!isEditable}
-                                                className={`h-8 w-20 text-right ml-auto text-orange-600 ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                                placeholder="0.00"
-                                              />
-                                            </td>
-                                            <td className="p-2 text-center flex gap-1 justify-center">
-                                              {isEditable && (
-                                                <>
-                                                  <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => addMrpEntry(product)}
-                                                    title="Add another variant for this product"
-                                                    className="h-7 w-7 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                                                  >
-                                                    <Plus size={14} />
-                                                  </Button>
-                                                  <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => deleteMrpEntry(entry.id)}
-                                                    className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                                  >
-                                                    <Trash2 size={14} />
-                                                  </Button>
-                                                </>
-                                              )}
-                                            </td>
-                                          </tr>
-                                        ));
-                                      }
-                                      
-                                      // No entries exist - show product with default variant and option to add
-                                      return (
-                                        <tr key={product.id} className="border-b hover:bg-gray-50 bg-gray-50/50">
-                                          <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                          <td className="p-2 font-medium text-gray-600">{displayName}</td>
-                                          <td className="p-2 text-gray-400 text-sm">
-                                            {defaultVariant?.name || 'No variant'}
+                                            ) : (
+                                              <span className="text-gray-400">-</span>
+                                            )}
                                           </td>
-                                          <td className="p-2 text-right text-gray-400">-</td>
                                           <td className="p-2 text-right">
-                                            <Input
-                                              type="number"
-                                              step="0.01"
-                                              min="0"
-                                              value={blinkitData?.blinkit_price || ''}
-                                              onChange={(e) => updateBlinkitPrice(product.id, e.target.value)}
-                                              disabled={!isEditable}
-                                              className={`h-8 w-20 text-right ml-auto text-orange-600 ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                              placeholder="0.00"
-                                            />
+                                            <span className="text-orange-600 text-sm">
+                                              {blinkitData?.blinkit_price ? `₹${blinkitData.blinkit_price}` : '-'}
+                                            </span>
                                           </td>
                                           <td className="p-2 text-center">
-                                            {isEditable && (
+                                            {isEditable && !mrpEntry && (
                                               <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() => addMrpEntry(product)}
+                                                onClick={() => addMrpEntryFromIndent(item)}
                                                 className="h-7 px-2 text-xs text-green-600 border-green-300 hover:bg-green-50"
                                               >
-                                                <Plus size={12} className="mr-1" /> Add MRP
+                                                <Plus size={12} className="mr-1" /> Add
+                                              </Button>
+                                            )}
+                                            {isEditable && mrpEntry && (
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => deleteMrpEntry(mrpEntry.id)}
+                                                className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                              >
+                                                <Trash2 size={14} />
                                               </Button>
                                             )}
                                           </td>
@@ -4470,74 +4550,6 @@ export default function RetailerOrders() {
                                     })}
                                   </tbody>
                                 </table>
-                                
-                                {/* Add same product with different variant section */}
-                                {isEditable && (
-                                  <div className="p-2 border-t bg-gray-50">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-xs text-gray-500">Add product with specific variant:</span>
-                                      <select
-                                        id={`add-product-${category}`}
-                                        className="flex-1 min-w-[180px] h-8 px-2 rounded border border-gray-200 text-sm"
-                                        defaultValue=""
-                                      >
-                                        <option value="">Select product...</option>
-                                        {categoryProducts.map(product => {
-                                          const pName = i18n.language === 'hi' && product.name_hi ? product.name_hi : product.name;
-                                          return (
-                                            <option key={product.id} value={product.id}>{pName}</option>
-                                          );
-                                        })}
-                                      </select>
-                                      <select
-                                        id={`add-variant-${category}`}
-                                        className="w-44 h-8 px-2 rounded border border-gray-200 text-sm"
-                                        defaultValue=""
-                                      >
-                                        <option value="">Select variant...</option>
-                                        {retailPackagings.map(pkg => (
-                                          <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
-                                        ))}
-                                      </select>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-8 px-3"
-                                        onClick={() => {
-                                          const productSelect = document.getElementById(`add-product-${category}`);
-                                          const variantSelect = document.getElementById(`add-variant-${category}`);
-                                          const productId = productSelect.value;
-                                          const variantId = variantSelect.value;
-                                          
-                                          if (!productId) {
-                                            toast.error('Please select a product');
-                                            return;
-                                          }
-                                          if (!variantId) {
-                                            toast.error('Please select a variant');
-                                            return;
-                                          }
-                                          
-                                          // Check if this product+variant combo already exists
-                                          const existingEntry = mrpData.find(e => e.product_id === productId && e.variant_id === variantId);
-                                          if (existingEntry) {
-                                            toast.error('This product-variant combination already exists');
-                                            return;
-                                          }
-                                          
-                                          const product = categoryProducts.find(p => p.id === productId);
-                                          if (product) {
-                                            addMrpEntry(product, variantId);
-                                            productSelect.value = '';
-                                            variantSelect.value = '';
-                                          }
-                                        }}
-                                      >
-                                        <Plus size={14} className="mr-1" /> Add
-                                      </Button>
-                                    </div>
-                                  </div>
-                                )}
                               </div>
                             )}
                           </div>
@@ -4547,12 +4559,14 @@ export default function RetailerOrders() {
                       {/* Summary Footer */}
                       <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex flex-col md:flex-row justify-between items-center gap-3">
                         <div className="flex flex-wrap gap-4 text-sm">
-                          <span className="font-semibold">{mrpData.length} items with MRP</span>
+                          <span className="font-semibold">{mrpIndentProducts.length} items from indents</span>
                           <span className="text-gray-500">|</span>
-                          <span className="text-gray-600">{mrpIndentProducts.length - mrpData.length} products without MRP</span>
+                          <span className="text-green-600">{mrpData.length} with MRP saved</span>
+                          <span className="text-gray-500">|</span>
+                          <span className="text-orange-600">{mrpIndentProducts.length - mrpData.length} missing MRP</span>
                           <span className="text-gray-500">|</span>
                           <span className="text-red-600 font-medium">
-                            {mrpData.filter(e => !e.mrp || e.mrp === 0).length} items with ₹0 MRP
+                            {mrpData.filter(e => !e.mrp || e.mrp === 0).length} with ₹0 MRP
                           </span>
                         </div>
                         {canEditMrpForDate(dailyReqDate) && mrpHasUnsavedChanges && (

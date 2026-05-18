@@ -13966,15 +13966,16 @@ async def calculate_daily_purchase_requirement(
             }
         
         # Build variant to weight mapping (variant_id -> weight_in_kg)
+        # Get variants from qc_packaging collection (not products.variants)
         variant_weight_map = {}
-        for p in all_products:
-            for v in p.get("variants", []):
-                variant_id = v.get("id")
-                variant_name = v.get("name", "").lower()
-                # Parse weight from variant name (e.g., "500 gm", "1 kg", "240-260 gm")
-                weight_kg = parse_variant_weight(variant_name)
-                if variant_id:
-                    variant_weight_map[variant_id] = weight_kg
+        all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(500)
+        for pkg in all_packagings:
+            variant_id = pkg.get("id")
+            variant_name = pkg.get("name", "").lower()
+            # Parse weight from variant name (e.g., "500 gm", "1 kg", "240-260 gm")
+            weight_kg = parse_variant_weight(variant_name)
+            if variant_id:
+                variant_weight_map[variant_id] = weight_kg
         
         # Get wastage % from Daily Stock Status (same source as Wastage Dashboard)
         seven_days_ago = (target - timedelta(days=7))
@@ -14113,7 +14114,7 @@ async def calculate_daily_purchase_requirement(
 
 
 def parse_variant_weight(variant_name: str) -> float:
-    """Parse weight in KG from variant name like '500 gm', '1 kg', '240-260 gm', 'Half Dozen'"""
+    """Parse weight in KG from variant name like '500 gm', '1 kg', '240-260 gm', 'Half Dozen', '250+ gm'"""
     import re
     
     if not variant_name:
@@ -14129,24 +14130,37 @@ def parse_variant_weight(variant_name: str) -> float:
     if "bunch" in variant_lower:
         return 0.5  # Estimate bunch as 500gm
     
-    # Try to find kg pattern first (e.g., "1 kg", "2kg")
+    # Try to find kg pattern first (e.g., "1 kg", "2kg", "2.5 kg")
     kg_match = re.search(r'(\d+\.?\d*)\s*kg', variant_lower)
     if kg_match:
         return float(kg_match.group(1))
     
-    # Try to find gm/gram pattern (e.g., "500 gm", "240-260 gm")
-    gm_match = re.search(r'(\d+)[-\s]*(\d*)\s*g[rm]', variant_lower)
-    if gm_match:
-        # If range like "240-260", take average
-        first_num = int(gm_match.group(1))
-        second_num = int(gm_match.group(2)) if gm_match.group(2) else first_num
+    # Try to find gm/gram pattern with ranges (e.g., "240-260 gm", "450-500 gm")
+    range_gm_match = re.search(r'(\d+)\s*[-]\s*(\d+)\s*g[rm]?', variant_lower)
+    if range_gm_match:
+        first_num = int(range_gm_match.group(1))
+        second_num = int(range_gm_match.group(2))
         avg_gm = (first_num + second_num) / 2
         return avg_gm / 1000  # Convert to kg
     
-    # Try to find just number with gm
-    simple_gm = re.search(r'(\d+)\s*gm', variant_lower)
+    # Try to find gm/gram pattern with "+" suffix (e.g., "250+ gm", "500+ gm")
+    plus_gm_match = re.search(r'(\d+)\s*\+?\s*g[rm]?', variant_lower)
+    if plus_gm_match:
+        return int(plus_gm_match.group(1)) / 1000  # Convert to kg
+    
+    # Try to find simple number with gm (e.g., "500 gm", "100gm")
+    simple_gm = re.search(r'(\d+)\s*g[rm]', variant_lower)
     if simple_gm:
         return int(simple_gm.group(1)) / 1000
+    
+    # Try to find just a number (might be grams, default assumption)
+    just_number = re.search(r'^(\d+)$', variant_lower.replace(' ', ''))
+    if just_number:
+        num = int(just_number.group(1))
+        # If number > 10, assume it's grams
+        if num > 10:
+            return num / 1000
+        return num  # Otherwise assume it's kg
     
     return 1.0  # Default to 1 kg if can't parse
 

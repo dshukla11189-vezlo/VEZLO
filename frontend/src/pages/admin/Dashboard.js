@@ -50,6 +50,7 @@ export default function AdminDashboard() {
     return saved || 'overview';
   });
   const [populatingHindi, setPopulatingHindi] = useState(false);
+  const [populatingMarathi, setPopulatingMarathi] = useState(false);
   const [populatingReferrals, setPopulatingReferrals] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   
@@ -120,6 +121,24 @@ export default function AdminDashboard() {
       toast.error('Error updating Hindi names: ' + (error.response?.data?.detail || error.message));
     } finally {
       setPopulatingHindi(false);
+    }
+  };
+  
+  // Function to populate Marathi product names
+  const populateMarathiNames = async () => {
+    setPopulatingMarathi(true);
+    try {
+      const response = await api.post('/api/admin/populate-marathi-names');
+      if (response.data.success) {
+        toast.success(`Marathi names updated for ${response.data.updated_count} products!`);
+      } else {
+        toast.error('Failed to update Marathi names');
+      }
+    } catch (error) {
+      console.error('Error populating Marathi names:', error);
+      toast.error('Error updating Marathi names: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setPopulatingMarathi(false);
     }
   };
   
@@ -742,6 +761,17 @@ export default function AdminDashboard() {
             >
               <Languages size={14} className="mr-1" />
               {populatingHindi ? 'Updating...' : 'Setup Hindi'}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={populateMarathiNames}
+              disabled={populatingMarathi}
+              className="border-orange-300 text-orange-600 hover:bg-orange-50"
+              title="Update Marathi product names in database"
+            >
+              <Languages size={14} className="mr-1" />
+              {populatingMarathi ? 'Updating...' : 'Setup Marathi'}
             </Button>
             <Button 
               variant="outline" 

@@ -173,6 +173,95 @@ HINDI_PRODUCT_NAMES = {
     "Raw Groundnut": "कच्ची मूंगफली",
 }
 
+# Marathi Product Names Dictionary
+MARATHI_PRODUCT_NAMES = {
+    "Amaranthus Green": "हिरवी माठ",
+    "Amaranthus Red": "लाल माठ",
+    "Coriander": "कोथिंबीर",
+    "Curry Leaves": "कढीपत्ता",
+    "Dill Leaf": "शेपू",
+    "Fenugreek (Methi)": "मेथी",
+    "Fresh Mint Leaves": "पुदिना",
+    "Premium Fresh Mint Leaves": "प्रीमियम पुदिना",
+    "Palak": "पालक",
+    "Spinach": "पालक",
+    "Tomato Hybrid": "हायब्रिड टोमॅटो",
+    "Lemon": "लिंबू",
+    "Raw Mango": "कैरी",
+    "Banana": "केळी",
+    "Banana ": "केळी",
+    "Onion": "कांदा",
+    "Potato": "बटाटा",
+    "Garlic": "लसूण",
+    "Ginger": "आले",
+    "Carrot": "गाजर",
+    "Radish": "मुळा",
+    "Peeled Garlic": "सोललेला लसूण",
+    "Bottle Gourd": "दुधी भोपळा",
+    "Bitter gourd": "कारले",
+    "Cucumber": "काकडी",
+    "Ridge Gourd": "दोडका",
+    "Capsicum": "ढोबळी मिरची",
+    "Green capcicum ": "हिरवी ढोबळी मिरची",
+    "Chilli Light Green": "हलकी हिरवी मिरची",
+    "Chilli": "मिरची",
+    "Green chilli ": "हिरवी मिरची",
+    "Green chilli": "हिरवी मिरची",
+    "Cauliflower": "फुलकोबी",
+    "Cabbage ": "कोबी",
+    "Cabbage": "कोबी",
+    "Button Mushroom": "बटण मशरूम",
+    "Brinjal": "वांगी",
+    "Lady Finger": "भेंडी",
+    "Cluster Beans": "गवार",
+    "Spring onion ": "पात कांदा",
+    "Spring onion": "पात कांदा",
+    "Green Pea": "हिरवे वाटाणे",
+    "Soaked chole": "भिजवलेले छोले",
+    "Soaked yellow peas": "भिजवलेले पिवळे वाटाणे",
+    "Soaked Green peas": "भिजवलेले हिरवे वाटाणे",
+    "Sprouted matki": "मोड आलेले मटकी",
+    "Matki Sprouts": "मटकी स्प्राउट्स",
+    "Soaked Harbhara": "भिजवलेले हरभरा",
+    "Sprouted moong": "मोड आलेले मूग",
+    "Mixed Sprouts ": "मिश्र स्प्राउट्स",
+    "Mixed Sprouts": "मिश्र स्प्राउट्स",
+    "Brinjal Bharta": "वांग्याचे भरीत",
+    "French Beans": "फ्रेंच बीन्स",
+    "Green Cucumber": "हिरवी काकडी",
+    "Hyacinth Beans": "पावटा",
+    "Broccoli": "ब्रोकोली",
+    "Iceberg Lettuce": "आइसबर्ग लेट्युस",
+    "Red Cabbage": "लाल कोबी",
+    "Red Yellow Capsicum": "लाल पिवळी ढोबळी मिरची",
+    "Cherry Tomato": "चेरी टोमॅटो",
+    "Baby Corn": "बेबी कॉर्न",
+    "Sweet Corn": "स्वीट कॉर्न",
+    "Shimla Apple": "शिमला सफरचंद",
+    "Green & Yellow Zucchini": "हिरवी आणि पिवळी झुकिनी",
+    "Apple - Royal Gala": "सफरचंद - रॉयल गाला",
+    "Mango - Kesar": "आंबा - केशर",
+    "Watermelon": "कलिंगड",
+    "Mini Orange": "मिनी संत्री",
+    "Black Chickpea": "काळा चणा",
+    "Muskmelon ": "खरबूज",
+    "Muskmelon": "खरबूज",
+    "Beetroot": "बीटरूट",
+    "Pomegranate": "डाळिंब",
+    "Guava": "पेरू",
+    "Jamun Fruit": "जांभूळ",
+    "Drumstick": "शेवगा",
+    "Elaichi Banana": "वेलची केळी",
+    "Mango - Hapus": "आंबा - हापूस",
+    "Sweet Potato": "रताळे",
+    "Ivy Gourd": "तोंडली",
+    "Papaya": "पपई",
+    "Pointed Gourd": "परवळ",
+    "Striped Muskmelon": "पट्टेदार खरबूज",
+    "Sponge Gourd": "घोसाळी",
+    "Raw Groundnut": "कच्चे शेंगदाणे",
+}
+
 # Enhanced logging setup
 logging.basicConfig(
     level=logging.INFO,
@@ -12876,6 +12965,44 @@ async def populate_hindi_product_names(current_user: dict = Depends(get_current_
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/admin/populate-marathi-names")
+async def populate_marathi_product_names(current_user: dict = Depends(get_current_user)):
+    """Populate Marathi names for all products in the database"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate Marathi names")
+    
+    try:
+        products = await db.products.find({}).to_list(1000)
+        updated_count = 0
+        missing = []
+        
+        for product in products:
+            name = product.get("name", "")
+            product_id = product.get("id")
+            
+            if name in MARATHI_PRODUCT_NAMES:
+                marathi_name = MARATHI_PRODUCT_NAMES[name]
+                result = await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": {"name_mr": marathi_name}}
+                )
+                if result.modified_count > 0:
+                    updated_count += 1
+            else:
+                missing.append(name)
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_products": len(products),
+            "missing_translations": missing[:10] if missing else [],
+            "message": f"Updated {updated_count} products with Marathi names"
+        }
+    except Exception as e:
+        print(f"Error populating Marathi names: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.post("/admin/populate-referral-codes")
 async def populate_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
     """Populate referral codes for all retailers that don't have one"""
@@ -14090,6 +14217,7 @@ async def calculate_daily_purchase_requirement(
                     product_aggregation[product_id] = {
                         "product_name": product_info.get("name", product_name),
                         "product_name_hi": product_info.get("name_hi", ""),
+                        "product_name_mr": product_info.get("name_mr", ""),
                         "category": product_info.get("category", "Other"),
                         "total_units": 0,
                         "total_kg": 0
@@ -14118,6 +14246,7 @@ async def calculate_daily_purchase_requirement(
                 "product_id": product_id,
                 "product_name": data["product_name"],
                 "product_name_hi": data.get("product_name_hi", ""),
+                "product_name_mr": data.get("product_name_mr", ""),
                 "category": data["category"],
                 "qty_units": round(data["total_units"], 2),
                 "qty_kg": round(total_kg, 2),

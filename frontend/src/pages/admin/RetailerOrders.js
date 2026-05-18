@@ -251,7 +251,11 @@ export default function RetailerOrders() {
 
   // Daily Requirement state
   const [dailyReqDate, setDailyReqDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dailyReqData, setDailyReqData] = useState([]);
+  const [dailyReqData, setDailyReqData] = useState([]); // Current working list
+  const [originalReqData, setOriginalReqData] = useState([]); // Original from indents (read-only)
+  const [savedReqData, setSavedReqData] = useState([]); // Saved/edited list from DB
+  const [dailyReqViewMode, setDailyReqViewMode] = useState('original'); // 'original' or 'saved'
+  const [deletedItems, setDeletedItems] = useState([]); // Track deleted items for re-adding
   const [dailyReqLoading, setDailyReqLoading] = useState(false);
   const [dailyReqError, setDailyReqError] = useState('');
   const [dailyReqRetailer, setDailyReqRetailer] = useState('');
@@ -1260,14 +1264,51 @@ export default function RetailerOrders() {
         productId: item.product_id,
         productName: item.product_name,
         productNameHi: item.product_name_hi || '',
+        productNameMr: item.product_name_mr || '',
         category: item.category || 'Other',
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
         requirementKg: item.qty_kg, // Directly use qtyKg as requirement
-        remarks: item.remarks || ''
+        remarks: ''
       }));
       
-      setDailyReqData(requirementData);
+      // Set as original data (from indents - always fresh)
+      setOriginalReqData(requirementData);
+      
+      // Try to load saved data for this date
+      try {
+        const savedRes = await api.get(`/api/retailer-daily-requirement/saved?date=${dailyReqDate}`);
+        if (savedRes.data?.items && savedRes.data.items.length > 0) {
+          const savedData = savedRes.data.items.map(item => ({
+            productId: item.product_id,
+            productName: item.product_name,
+            productNameHi: item.product_name_hi || '',
+            productNameMr: item.product_name_mr || '',
+            category: item.category || 'Other',
+            qtyUnits: item.qty_units,
+            qtyKg: item.qty_kg,
+            requirementKg: item.requirement_kg,
+            remarks: item.remarks || ''
+          }));
+          setSavedReqData(savedData);
+          // Default to saved view if saved data exists
+          setDailyReqData(savedData);
+          setDailyReqViewMode('saved');
+        } else {
+          setSavedReqData([]);
+          setDailyReqData(requirementData);
+          setDailyReqViewMode('original');
+        }
+      } catch (e) {
+        // No saved data, use original
+        setSavedReqData([]);
+        setDailyReqData(requirementData);
+        setDailyReqViewMode('original');
+      }
+      
+      // Reset deleted items
+      setDeletedItems([]);
+      setDailyReqSaved(true);
       
       // Show info about the calculation
       toast.success(`Calculated from ${result.indent_count} indent(s) for ${dailyReqDate}`);
@@ -1311,6 +1352,7 @@ export default function RetailerOrders() {
         productInfoMap[p.id] = {
           name: p.name,
           name_hi: p.name_hi || '',
+          name_mr: p.name_mr || '',
           category: p.category || 'Other'
         };
       });
@@ -1325,6 +1367,7 @@ export default function RetailerOrders() {
           const productInfo = productInfoMap[productId] || {};
           const productName = (productInfo.name || item.product_name || 'Unknown').trim();
           const productNameHi = productInfo.name_hi || '';
+          const productNameMr = productInfo.name_mr || '';
           const variantName = (item.variant_name || 'Default').trim();
           const category = productInfo.category || 'Other';
           
@@ -1336,6 +1379,7 @@ export default function RetailerOrders() {
               productId: productId,
               productName: productName,
               productNameHi: productNameHi,
+              productNameMr: productNameMr,
               category: category,
               variantName: variantName,
               quantity: 0
@@ -3646,43 +3690,125 @@ export default function RetailerOrders() {
                       </span>
                     )}
                   </Button>
-                  {dailyReqData.length > 0 && (
+                </div>
+              </div>
+              
+              {/* Original vs Saved Toggle */}
+              {(originalReqData.length > 0 || savedReqData.length > 0) && (
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+                  <span className="text-xs text-gray-500 mr-2">View:</span>
+                  <Button
+                    variant={dailyReqViewMode === 'original' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setDailyReqViewMode('original');
+                      setDailyReqData([...originalReqData]);
+                      setDeletedItems([]);
+                    }}
+                    className={`h-8 text-xs ${dailyReqViewMode === 'original' ? 'bg-blue-600' : ''}`}
+                  >
+                    📋 Original (from Indents)
+                  </Button>
+                  <Button
+                    variant={dailyReqViewMode === 'saved' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setDailyReqViewMode('saved');
+                      if (savedReqData.length > 0) {
+                        setDailyReqData([...savedReqData]);
+                      } else {
+                        // Copy from original to start editing
+                        setDailyReqData([...originalReqData]);
+                      }
+                    }}
+                    className={`h-8 text-xs ${dailyReqViewMode === 'saved' ? 'bg-green-600' : ''}`}
+                  >
+                    ✏️ Edited List {savedReqData.length > 0 ? '(Saved)' : '(New)'}
+                  </Button>
+                  
+                  {/* Save and Export buttons - only in Edited mode */}
+                  {dailyReqViewMode === 'saved' && dailyReqData.length > 0 && (
                     <>
+                      <div className="w-px h-6 bg-gray-300 mx-1"></div>
                       <Button 
                         variant="outline" 
                         onClick={saveDailyRequirement} 
-                        disabled={dailyReqSaving}
-                        className={`h-9 ${dailyReqSaved ? 'border-green-500 text-green-600' : ''}`}
+                        disabled={dailyReqSaving || dailyReqSaved}
+                        className={`h-8 text-xs ${dailyReqSaved ? 'border-green-500 text-green-600' : ''}`}
                       >
                         {dailyReqSaving ? (
-                          <span className="flex items-center gap-2">
-                            <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                          <span className="flex items-center gap-1">
+                            <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
                             Saving...
                           </span>
                         ) : dailyReqSaved ? (
-                          <span className="flex items-center gap-2">
-                            <Check size={14} />
+                          <span className="flex items-center gap-1">
+                            <Check size={12} />
                             Saved
                           </span>
                         ) : (
-                          <span className="flex items-center gap-2">
-                            <FileSpreadsheet size={14} />
-                            Save
+                          <span className="flex items-center gap-1">
+                            <FileSpreadsheet size={12} />
+                            Save Changes
                           </span>
                         )}
                       </Button>
-                      <Button variant="outline" onClick={printDailyRequirement} className="h-9">
-                        <Download size={14} className="mr-1" />
+                    </>
+                  )}
+                  
+                  {dailyReqData.length > 0 && (
+                    <>
+                      <Button variant="outline" onClick={printDailyRequirement} className="h-8 text-xs">
+                        <Download size={12} className="mr-1" />
                         PDF
                       </Button>
-                      <Button variant="outline" onClick={exportDailyReqToExcel} className="h-9 text-green-700 border-green-300 hover:bg-green-50">
-                        <FileSpreadsheet size={14} className="mr-1" />
+                      <Button variant="outline" onClick={exportDailyReqToExcel} className="h-8 text-xs text-green-700 border-green-300 hover:bg-green-50">
+                        <FileSpreadsheet size={12} className="mr-1" />
                         Excel
                       </Button>
                     </>
                   )}
                 </div>
-              </div>
+              )}
+              
+              {/* Re-add Deleted Items */}
+              {dailyReqViewMode === 'saved' && deletedItems.length > 0 && (
+                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed">
+                  <span className="text-xs text-orange-600">Deleted items ({deletedItems.length}):</span>
+                  <select
+                    className="h-8 px-2 rounded-md border border-orange-200 text-xs bg-orange-50"
+                    value=""
+                    onChange={(e) => {
+                      const idx = parseInt(e.target.value);
+                      if (!isNaN(idx)) {
+                        const item = deletedItems[idx];
+                        setDailyReqData(prev => [...prev, item]);
+                        setDeletedItems(prev => prev.filter((_, i) => i !== idx));
+                        setDailyReqSaved(false);
+                      }
+                    }}
+                  >
+                    <option value="">+ Re-add item...</option>
+                    {deletedItems.map((item, idx) => (
+                      <option key={idx} value={idx}>
+                        {item.productName} ({item.qtyUnits} units)
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setDailyReqData(prev => [...prev, ...deletedItems]);
+                      setDeletedItems([]);
+                      setDailyReqSaved(false);
+                    }}
+                    className="h-8 text-xs text-orange-600 hover:text-orange-700"
+                  >
+                    Re-add All
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="p-4" id="daily-requirement-print">
               {/* Sub-tabs: Purchase and Stickers */}
@@ -3788,7 +3914,12 @@ export default function RetailerOrders() {
                                       // Find global index for editing
                                       const globalIdx = dailyReqData.findIndex(d => d.productId === item.productId && d.productName === item.productName);
                                       // Get display name (Hindi if available and language is Hindi)
-                                      const displayName = (i18n.language === 'hi' && item.productNameHi) ? item.productNameHi : item.productName;
+                                      // Get display name based on language (English, Hindi, or Marathi)
+                                      const displayName = i18n.language === 'hi' && item.productNameHi 
+                                        ? item.productNameHi 
+                                        : i18n.language === 'mr' && item.productNameMr 
+                                          ? item.productNameMr 
+                                          : item.productName;
                                       return (
                                         <tr key={`${item.productId}-${localIdx}`} className="border-b hover:bg-gray-50">
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
@@ -3808,6 +3939,7 @@ export default function RetailerOrders() {
                                                 setDailyReqSaved(false);
                                               }}
                                               className="h-7 w-20 text-center text-xs font-bold text-blue-700"
+                                              disabled={dailyReqViewMode === 'original'}
                                             />
                                           </td>
                                           <td className="p-2">
@@ -3822,6 +3954,7 @@ export default function RetailerOrders() {
                                                 setDailyReqSaved(false);
                                               }}
                                               className="h-7 w-full text-xs"
+                                              disabled={dailyReqViewMode === 'original'}
                                             />
                                           </td>
                                           <td className="p-2 text-center">
@@ -3830,11 +3963,14 @@ export default function RetailerOrders() {
                                               size="sm"
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                // Add to deleted items for potential re-add
+                                                setDeletedItems(prev => [...prev, dailyReqData[globalIdx]]);
                                                 const newData = dailyReqData.filter((_, i) => i !== globalIdx);
                                                 setDailyReqData(newData);
                                                 setDailyReqSaved(false);
                                               }}
                                               className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
+                                              disabled={dailyReqViewMode === 'original'}
                                             >
                                               <X size={12} />
                                             </Button>
@@ -3971,7 +4107,11 @@ export default function RetailerOrders() {
                                   </thead>
                                   <tbody>
                                     {items.map((item, localIdx) => {
-                                      const displayName = (i18n.language === 'hi' && item.productNameHi) ? item.productNameHi : item.productName;
+                                      const displayName = i18n.language === 'hi' && item.productNameHi 
+                                        ? item.productNameHi 
+                                        : i18n.language === 'mr' && item.productNameMr 
+                                          ? item.productNameMr 
+                                          : item.productName;
                                       return (
                                         <tr key={`${item.productId}-${item.variantId}-${localIdx}`} className="border-b hover:bg-gray-50">
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
@@ -4194,8 +4334,12 @@ export default function RetailerOrders() {
                                         ? retailPackagings.find(p => p.id === lastVariant.variant_id)
                                         : retailPackagings[0];
                                       const blinkitData = blinkitPrices[product.id];
-                                      // Get display name (Hindi if available and language is Hindi)
-                                      const displayName = i18n.language === 'hi' && product.name_hi ? product.name_hi : product.name;
+                                      // Get display name based on language (English, Hindi, or Marathi)
+                                      const displayName = i18n.language === 'hi' && product.name_hi 
+                                        ? product.name_hi 
+                                        : i18n.language === 'mr' && product.name_mr 
+                                          ? product.name_mr 
+                                          : product.name;
                                       
                                       // If product has entries, show them
                                       if (productEntries.length > 0) {

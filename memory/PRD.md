@@ -70,6 +70,23 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - New MongoDB collection: `blinkit_prices` storing scraped prices with date, pincode, product mapping
   - Scraper file: `/app/backend/blinkit_scraper.py`
 
+### Completed (This Session - 18 May 2026)
+- **Marathi Translation Fix for Daily Purchase Requirement** ✅ (Verified)
+  - Added `name_mr` field to Product, ProductCreate, and ProductUpdate Pydantic models
+  - Updated `/api/retailer-daily-requirement/calculate` to include Hindi/Marathi names from products DB
+  - Product names now display in selected language (English/Hindi/Marathi) in:
+    - Daily Purchase Requirement table
+    - PDF export
+    - Excel export
+  - Language switch persists across tabs
+
+- **PDF/Excel Export Simplified for Purchaser** ✅ (Verified)
+  - Removed "Qty (Units)" and "Category" columns from PDF and Excel exports
+  - PDF now shows only: Serial #, Product Name, Quantity (Kg), Remarks
+  - Excel now shows only: #, Product Name, Quantity (Kg), Remarks
+  - Product names display in currently selected language (supports English/Hindi/Marathi)
+  - Export format is cleaner and hides internal unit counts from purchasers
+
 ### In Progress
 - **Codebase refactoring Phase 2** (server.py ~13,800 lines - CRITICAL)
   - ✅ Labour Management routes moved to `/app/backend/routes/labour.py`
@@ -368,8 +385,8 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 ## Refactoring Status
 | File | Original Lines | Current Lines | Target | Status |
 |------|---------------|---------------|--------|--------|
-| server.py | 12,207 | 11,850 | <8,000 | In Progress |
-| RetailerOrders.js | 5,400+ | - | <2,000 | Not Started |
+| server.py | 12,207 | 14,685 | <8,000 | CRITICAL - Bloated |
+| RetailerOrders.js | 5,400+ | 8,101 | <2,000 | CRITICAL - Bloated |
 
 ## Active Modular Routes
 - `/app/backend/routes/labour.py` - Labour Management (ACTIVE)

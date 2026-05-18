@@ -2019,6 +2019,13 @@ export default function RetailerOrders() {
     const printContent = document.getElementById('daily-requirement-print');
     if (!printContent) return;
     
+    // Get display name based on current language
+    const getDisplayName = (item) => {
+      if (i18n.language === 'hi' && item.productNameHi) return item.productNameHi;
+      if (i18n.language === 'mr' && item.productNameMr) return item.productNameMr;
+      return item.productName;
+    };
+    
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
@@ -2034,11 +2041,6 @@ export default function RetailerOrders() {
             th { background-color: #f0f0f0; font-weight: bold; }
             .text-right { text-align: right; }
             .text-center { text-align: center; }
-            .category { font-size: 11px; padding: 2px 6px; border-radius: 3px; }
-            .cat-fruits { background: #fed7aa; color: #c2410c; }
-            .cat-vegetables { background: #bbf7d0; color: #166534; }
-            .cat-leafy { background: #a7f3d0; color: #065f46; }
-            .cat-exotic { background: #e9d5ff; color: #7c3aed; }
             .footer { margin-top: 30px; text-align: right; font-size: 12px; color: #666; }
             @media print { 
               body { padding: 0; }
@@ -2054,28 +2056,23 @@ export default function RetailerOrders() {
           <table>
             <thead>
               <tr>
-                <th style="width:5%">#</th>
-                <th style="width:30%">Product Name</th>
-                <th style="width:12%">Category</th>
-                <th style="width:12%" class="text-center">Qty (Units)</th>
-                <th style="width:18%" class="text-right">Purchase Req (Kg)</th>
-                <th style="width:23%">Remarks</th>
+                <th style="width:8%">#</th>
+                <th style="width:42%">Product Name</th>
+                <th style="width:25%" class="text-right">Quantity (Kg)</th>
+                <th style="width:25%">Remarks</th>
               </tr>
             </thead>
             <tbody>
               ${dailyReqData.map((item, idx) => `
                 <tr>
                   <td class="text-center">${idx + 1}</td>
-                  <td>${item.productName}</td>
-                  <td><span class="category cat-${(item.category || 'other').toLowerCase()}">${item.category || 'Other'}</span></td>
-                  <td class="text-center">${item.qtyUnits}</td>
+                  <td>${getDisplayName(item)}</td>
                   <td class="text-right" style="font-weight:bold;">${(item.requirementKg || 0).toFixed(2)}</td>
                   <td>${item.remarks || '-'}</td>
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
-                <td colspan="3">TOTAL</td>
-                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0).toFixed(0)}</td>
+                <td colspan="2">TOTAL</td>
                 <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} Kg</td>
                 <td></td>
               </tr>
@@ -2098,13 +2095,18 @@ export default function RetailerOrders() {
       return;
     }
     
-    // Prepare CSV content
-    const headers = ['#', 'Product Name', 'Category', 'Qty (Units)', 'Purchase Req (Kg)', 'Remarks'];
+    // Get display name based on current language
+    const getDisplayName = (item) => {
+      if (i18n.language === 'hi' && item.productNameHi) return item.productNameHi;
+      if (i18n.language === 'mr' && item.productNameMr) return item.productNameMr;
+      return item.productName;
+    };
+    
+    // Prepare CSV content - Only Serial#, Product Name, Quantity (Kg), Remarks
+    const headers = ['#', 'Product Name', 'Quantity (Kg)', 'Remarks'];
     const rows = dailyReqData.map((item, idx) => [
       idx + 1,
-      item.productName,
-      item.category || 'Other',
-      item.qtyUnits,
+      getDisplayName(item),
       (item.requirementKg || 0).toFixed(2),
       item.remarks || ''
     ]);
@@ -2113,8 +2115,6 @@ export default function RetailerOrders() {
     rows.push([
       '',
       'TOTAL',
-      '',
-      dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0),
       dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2),
       ''
     ]);

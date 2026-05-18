@@ -79,6 +79,7 @@ class Product(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     name_hi: Optional[str] = None  # Hindi translation of product name
+    name_mr: Optional[str] = None  # Marathi translation of product name
     category: str
     product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
     unit: str
@@ -93,6 +94,7 @@ class Product(BaseModel):
 class ProductCreate(BaseModel):
     name: str
     name_hi: Optional[str] = None  # Hindi translation
+    name_mr: Optional[str] = None  # Marathi translation
     category: str
     product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
     unit: str
@@ -106,6 +108,7 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     name_hi: Optional[str] = None  # Hindi translation
+    name_mr: Optional[str] = None  # Marathi translation
     category: Optional[str] = None
     product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
     unit: Optional[str] = None

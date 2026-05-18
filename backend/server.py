@@ -14124,6 +14124,8 @@ async def calculate_daily_purchase_requirement(
         for p in all_products:
             product_info_map[p.get("id")] = {
                 "name": p.get("name", "Unknown"),
+                "name_hi": p.get("name_hi", ""),
+                "name_mr": p.get("name_mr", ""),
                 "category": p.get("category", "Other"),
                 "variants": p.get("variants", [])
             }

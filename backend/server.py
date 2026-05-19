@@ -9398,6 +9398,9 @@ async def get_retailers(current_user: dict = Depends(get_current_user)):
 @api_router.get("/retailer-indents")
 async def get_retailer_indents(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 200,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -9407,7 +9410,16 @@ async def get_retailer_indents(
     elif retailer_id:
         query["retailer_id"] = retailer_id
     
-    indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(1000)
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["indent_date"] = date_query
+    
+    indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(limit)
     return indents
 
 @api_router.post("/retailer-indents")
@@ -9604,6 +9616,9 @@ async def get_previous_retailer_indent(retailer_id: str, current_user: dict = De
 @api_router.get("/retailer-dispatches")
 async def get_retailer_dispatches(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 200,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -9612,7 +9627,16 @@ async def get_retailer_dispatches(
     elif retailer_id:
         query["retailer_id"] = retailer_id
     
-    dispatches = await db.retailer_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(1000)
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["dispatch_date"] = date_query
+    
+    dispatches = await db.retailer_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(limit)
     return dispatches
 
 @api_router.post("/retailer-dispatches")
@@ -13987,6 +14011,50 @@ async def startup_event():
     """Initialize backup scheduler, Gmail sync scheduler, and seed default data on startup"""
     global backup_scheduler
     try:
+        # Create database indexes for performance
+        logger.info("Creating database indexes for performance...")
+        try:
+            # Retailer indents - frequently queried by date and retailer
+            await db.retailer_indents.create_index("indent_date")
+            await db.retailer_indents.create_index("retailer_id")
+            await db.retailer_indents.create_index("status")
+            await db.retailer_indents.create_index([("indent_date", -1), ("retailer_id", 1)])
+            
+            # Retailer dispatches - frequently queried by date and indent
+            await db.retailer_dispatches.create_index("dispatch_date")
+            await db.retailer_dispatches.create_index("indent_id")
+            await db.retailer_dispatches.create_index("retailer_id")
+            await db.retailer_dispatches.create_index([("dispatch_date", -1), ("retailer_id", 1)])
+            
+            # Retailer invoices
+            await db.retailer_invoices.create_index("invoice_date")
+            await db.retailer_invoices.create_index("retailer_id")
+            await db.retailer_invoices.create_index("status")
+            
+            # QC collections
+            await db.qc_indents.create_index("indent_date")
+            await db.qc_dispatches.create_index("dispatch_date")
+            await db.qc_invoices.create_index("created_at")
+            await db.qc_grns.create_index("created_at")
+            
+            # Products
+            await db.products.create_index("name")
+            await db.products.create_index("category")
+            
+            # Procurements
+            await db.procurements.create_index("procurement_date")
+            await db.procurements.create_index("farmer_id")
+            
+            # Wastage
+            await db.wastage.create_index("date")
+            
+            # Rejections
+            await db.rejections.create_index("date")
+            
+            logger.info("Database indexes created successfully")
+        except Exception as idx_error:
+            logger.warning(f"Index creation warning (may already exist): {idx_error}")
+        
         # Auto-seed default units if collection is empty
         await seed_default_units_on_startup()
         

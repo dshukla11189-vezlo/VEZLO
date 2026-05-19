@@ -321,23 +321,35 @@ export default function RetailerOrders() {
 
   const loadIndents = useCallback(async () => {
     try {
-      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
-      const response = await api.get(`/api/retailer-indents${params}`);
+      const params = new URLSearchParams();
+      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
+      if (indentDateFilter) {
+        params.append('start_date', indentDateFilter);
+        params.append('end_date', indentDateFilter);
+      }
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const response = await api.get(`/api/retailer-indents${queryString}`);
       setIndents(response.data);
     } catch (error) {
       console.error('Failed to load indents:', error);
     }
-  }, [selectedRetailer]);
+  }, [selectedRetailer, indentDateFilter]);
 
   const loadDispatches = useCallback(async () => {
     try {
-      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
-      const response = await api.get(`/api/retailer-dispatches${params}`);
+      const params = new URLSearchParams();
+      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
+      if (dispatchDateFilter) {
+        params.append('start_date', dispatchDateFilter);
+        params.append('end_date', dispatchDateFilter);
+      }
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const response = await api.get(`/api/retailer-dispatches${queryString}`);
       setDispatches(response.data);
     } catch (error) {
       console.error('Failed to load dispatches:', error);
     }
-  }, [selectedRetailer]);
+  }, [selectedRetailer, dispatchDateFilter]);
 
   const loadInvoices = useCallback(async () => {
     try {
@@ -830,6 +842,13 @@ export default function RetailerOrders() {
     }
   }, [indents, indentDateFilter]);
 
+  // Reload indents when date filter changes
+  useEffect(() => {
+    if (indentDateFilter) {
+      loadIndents();
+    }
+  }, [indentDateFilter, loadIndents]);
+
   // Filter dispatches by date
   useEffect(() => {
     if (!dispatchDateFilter) {
@@ -842,6 +861,13 @@ export default function RetailerOrders() {
       setFilteredDispatches(filtered);
     }
   }, [dispatches, dispatchDateFilter]);
+
+  // Reload dispatches when date filter changes
+  useEffect(() => {
+    if (dispatchDateFilter) {
+      loadDispatches();
+    }
+  }, [dispatchDateFilter, loadDispatches]);
 
   // Filter rejections by date, retailer, and product
   useEffect(() => {

@@ -296,6 +296,7 @@ export default function RetailerOrders() {
   const [scrapingBlinkit, setScrapingBlinkit] = useState(false);
   const [mrpIndentProducts, setMrpIndentProducts] = useState([]); // Products from day's indents for MRP filtering
   const [mrpIndentLoading, setMrpIndentLoading] = useState(false);
+  const [mrpAutoInitDone, setMrpAutoInitDone] = useState(false); // Prevent auto-init loop
 
   // Load base data
   const loadBaseData = useCallback(async () => {
@@ -1631,6 +1632,7 @@ export default function RetailerOrders() {
       ]);
       setMrpData(mrpRes.data || []);
       setLastVariants(variantsRes.data || {});
+      setMrpAutoInitDone(false); // Reset auto-init flag when loading new date
       
       // Auto-expand all categories by default
       const cats = {};
@@ -1779,6 +1781,68 @@ export default function RetailerOrders() {
     }
   }, [mrpIndentProducts]);
 
+  // Auto-initialize MRP entries for all indent products that don't have entries yet
+  useEffect(() => {
+    const autoInitializeMissingEntries = async () => {
+      // Skip if already done for this date or still loading
+      if (mrpAutoInitDone || mrpIndentProducts.length === 0 || mrpLoading || savingMrp) return;
+      
+      // Find indent products that don't have MRP entries
+      const missingProducts = mrpIndentProducts.filter(item => {
+        const hasEntry = mrpData.some(e => 
+          e.product_id === item.productId && (
+            e.variant_id === (item.variantId || '') ||
+            (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+          )
+        );
+        return !hasEntry;
+      });
+      
+      // Auto-create entries for missing products
+      if (missingProducts.length > 0 && canEditMrpForDate(dailyReqDate)) {
+        console.log(`Auto-initializing ${missingProducts.length} missing MRP entries`);
+        setMrpAutoInitDone(true); // Mark as done to prevent loop
+        
+        try {
+          // Create entries in batch
+          const entries = missingProducts.map(item => ({
+            product_id: item.productId,
+            product_name: item.productName,
+            category: item.category,
+            variant_id: item.variantId || '',
+            variant_name: item.variantName || '',
+            mrp: 0,
+            blinkit_price: blinkitPrices[item.productId]?.blinkit_price || 0
+          }));
+          
+          // Save all entries
+          await api.post('/api/daily-mrp', { date: dailyReqDate, items: [...mrpData.map(e => ({
+            product_id: e.product_id,
+            product_name: e.product_name,
+            category: e.category,
+            variant_id: e.variant_id,
+            variant_name: e.variant_name,
+            mrp: e.mrp,
+            blinkit_price: e.blinkit_price || 0
+          })), ...entries] });
+          
+          // Reload MRP data
+          await loadMrpData(dailyReqDate);
+        } catch (error) {
+          console.error('Auto-init failed:', error);
+          // Silent fail - user can manually add
+        }
+      } else {
+        setMrpAutoInitDone(true); // No missing products, mark as done
+      }
+    };
+    
+    // Delay slightly to ensure all data is loaded
+    const timer = setTimeout(autoInitializeMissingEntries, 500);
+    return () => clearTimeout(timer);
+  }, [mrpIndentProducts, mrpData, mrpLoading, savingMrp, dailyReqDate, blinkitPrices, mrpAutoInitDone]);
+
+
   // Load Blinkit prices
   const loadBlinkitPrices = useCallback(async (pincode = '411045') => {
     setBlinkitLoading(true);
@@ -1921,9 +1985,12 @@ export default function RetailerOrders() {
 
   // Add MRP entry from indent product+variant combination
   const addMrpEntryFromIndent = async (indentItem) => {
-    // Check if this product+variant combination already exists
+    // Check if this product+variant combination already exists (check both variant_id and variant_name for robustness)
     const existingEntry = mrpData.find(e => 
-      e.product_id === indentItem.productId && e.variant_id === (indentItem.variantId || '')
+      e.product_id === indentItem.productId && (
+        e.variant_id === (indentItem.variantId || '') ||
+        (e.variant_name || '').toLowerCase() === (indentItem.variantName || '').toLowerCase()
+      )
     );
     if (existingEntry) {
       toast.error(`${indentItem.productName} (${indentItem.variantName || 'No variant'}) already exists in the list`);
@@ -4505,17 +4572,21 @@ export default function RetailerOrders() {
                         if (categoryProducts.length === 0) return null;
                         
                         const isExpanded = expandedMrpCategories[category] !== false; // Default to expanded
-                        // Count how many items in this category have MRP entries
+                        // Count how many items in this category have MRP entries (use consistent check)
                         const entriesWithMrp = categoryProducts.filter(item => 
                           mrpData.some(e => 
-                            e.product_id === item.productId && 
-                            (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                            e.product_id === item.productId && (
+                              e.variant_id === (item.variantId || '') ||
+                              (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                            )
                           )
                         ).length;
                         const zeroMrpCount = categoryProducts.filter(item => {
                           const entry = mrpData.find(e => 
-                            e.product_id === item.productId && 
-                            (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                            e.product_id === item.productId && (
+                              e.variant_id === (item.variantId || '') ||
+                              (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                            )
                           );
                           return entry && (!entry.mrp || entry.mrp === 0);
                         }).length;
@@ -4563,10 +4634,12 @@ export default function RetailerOrders() {
                                   <tbody>
                                     {/* Show ALL product+variant combinations from indents */}
                                     {categoryProducts.map((item, localIdx) => {
-                                      // Find matching MRP entry by product_id and variant_name
+                                      // Find matching MRP entry by product_id and variant (check both variant_id and variant_name)
                                       const mrpEntry = mrpData.find(e => 
-                                        e.product_id === item.productId && 
-                                        (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                        e.product_id === item.productId && (
+                                          e.variant_id === (item.variantId || '') ||
+                                          (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                        )
                                       );
                                       
                                       const blinkitData = blinkitPrices[item.productId];

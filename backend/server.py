@@ -588,8 +588,16 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
 # SECTION: PRODUCTS & PACKAGING ROUTES (Lines ~310-375)
 # ============================================================================
 @api_router.get("/products", response_model=List[Product])
-async def get_products(current_user: dict = Depends(get_current_user)):
-    products = await db.products.find({}, {"_id": 0}).to_list(1000)
+async def get_products(
+    include_images: bool = True,
+    current_user: dict = Depends(get_current_user)
+):
+    # For list views, exclude heavy image_url field for faster loading
+    projection = {"_id": 0}
+    if not include_images:
+        projection["image_url"] = 0
+    
+    products = await db.products.find({}, projection).to_list(1000)
     return [Product(**p) for p in products]
 
 # ==================== UNITS MANAGEMENT ====================
@@ -10509,9 +10517,17 @@ async def get_retailer_invoices(
     
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(limit)
     
+    # PERFORMANCE: Skip heavy enrichment if invoices already have rejection data
+    # Only enrich invoices that were created before the rejection tracking was added
+    invoices_needing_enrichment = [inv for inv in invoices if (inv.get("rejection_amount") or 0) == 0 and inv.get("dispatch_ids")]
+    
+    # Limit enrichment to only 10 invoices per request to avoid timeout
+    if len(invoices_needing_enrichment) > 10:
+        invoices_needing_enrichment = invoices_needing_enrichment[:10]
+    
     # Enrich invoices with rejection data if not already present
     # This handles older invoices that don't have rejection_amount or rejected_qty in items
-    for invoice in invoices:
+    for invoice in invoices_needing_enrichment:
         # Get all dispatch_ids for this invoice
         dispatch_ids = invoice.get("dispatch_ids", [])
         
@@ -10524,10 +10540,6 @@ async def get_retailer_invoices(
                 dispatch_ids = []
         
         if not dispatch_ids or not isinstance(dispatch_ids, list) or len(dispatch_ids) == 0:
-            continue
-        
-        # If invoice already has rejection data calculated (non-zero), skip
-        if (invoice.get("rejection_amount") or 0) > 0:
             continue
         
         # Get dispatches to find the dispatch dates and retailer

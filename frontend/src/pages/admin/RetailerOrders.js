@@ -308,7 +308,7 @@ export default function RetailerOrders() {
     try {
       const [retailersRes, productsRes, packagingsRes] = await Promise.all([
         api.get('/api/retailers'),
-        api.get('/api/products'),
+        api.get('/api/products?include_images=false'),  // Skip heavy Base64 images for faster loading
         api.get('/api/qc-packaging')
       ]);
       setRetailers(retailersRes.data);
@@ -823,8 +823,13 @@ export default function RetailerOrders() {
     const loadAll = async () => {
       setLoading(true);
       await loadBaseData();
-      await Promise.all([loadIndents(), loadDispatches(), loadInvoices(), loadRejections(), loadPayments(), loadStaffUsers(), loadImmediatelyPayable()]);
+      // Load only essential data initially (Indents tab is default)
+      await Promise.all([loadIndents(), loadDispatches(), loadStaffUsers(), loadImmediatelyPayable()]);
       setLoading(false);
+      // Load other data in background (non-blocking)
+      loadInvoices();
+      loadRejections();
+      loadPayments();
     };
     loadAll();
   }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable]);
@@ -4399,7 +4404,12 @@ export default function RetailerOrders() {
                   key={tab.id}
                   variant={activeTab === tab.id ? 'default' : 'ghost'}
                   size="sm"
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    // Refresh tab-specific data when switching tabs
+                    if (tab.id === 'invoices' && invoices.length === 0) loadInvoices();
+                    if (tab.id === 'rejections' && rejections.length === 0) loadRejections();
+                  }}
                   className={`whitespace-nowrap text-xs md:text-sm ${activeTab === tab.id ? 'bg-[#14532D]' : ''}`}
                 >
                   <Icon size={14} className="mr-1" />

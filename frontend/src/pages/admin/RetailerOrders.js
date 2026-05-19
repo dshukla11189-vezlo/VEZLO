@@ -927,30 +927,112 @@ export default function RetailerOrders() {
 
   // ==================== EXPORT HANDLERS ====================
   const exportIndents = () => {
-    const dataToExport = [];
+    if (!filteredIndents || filteredIndents.length === 0) {
+      toast.error('No indents to export');
+      return;
+    }
+
+    // Get unique retailers and products from filtered indents
+    const retailerMap = new Map(); // retailer_id -> outlet_name
+    const productVariantSet = new Set(); // "product_name|variant_name"
+    const quantityMap = new Map(); // "product_name|variant_name|retailer_id" -> quantity
+
     filteredIndents.forEach(indent => {
+      const retailerId = indent.retailer_id;
+      const retailerName = getRetailerNameById(retailerId) || indent.retailer_name || 'Unknown';
+      retailerMap.set(retailerId, retailerName);
+
       indent.items?.forEach(item => {
-        dataToExport.push({
-          date: indent.indent_date,
-          retailer: getRetailerNameById(indent.retailer_id) || indent.retailer_name,
-          product: item.product_name,
-          variant: item.variant_name || '-',
-          quantity: item.quantity,
-          status: indent.status,
-          remarks: indent.remarks || ''
-        });
+        const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
+        productVariantSet.add(productKey);
+        
+        const qtyKey = `${productKey}|${retailerId}`;
+        const existingQty = quantityMap.get(qtyKey) || 0;
+        quantityMap.set(qtyKey, existingQty + item.quantity);
       });
     });
+
+    // Convert to arrays
+    const retailers = Array.from(retailerMap.entries()); // [[id, name], ...]
+    const productVariants = Array.from(productVariantSet).sort(); // Sort alphabetically
+
+    // Group retailers into chunks of 5 for pagination
+    const RETAILERS_PER_PAGE = 5;
+    const retailerChunks = [];
+    for (let i = 0; i < retailers.length; i += RETAILERS_PER_PAGE) {
+      retailerChunks.push(retailers.slice(i, i + RETAILERS_PER_PAGE));
+    }
+
+    // Get the date from first indent for filename
+    const exportDate = filteredIndents[0]?.indent_date 
+      ? new Date(filteredIndents[0].indent_date).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0];
     
-    exportToCSV(dataToExport, 'retailer_indents', [
-      { label: 'Date', getter: (d) => formatDate(d.date) },
-      { label: 'Retailer', getter: (d) => d.retailer },
-      { label: 'Product', getter: (d) => d.product },
-      { label: 'Variant', getter: (d) => d.variant },
-      { label: 'Quantity', getter: (d) => d.quantity },
-      { label: 'Status', getter: (d) => d.status },
-      { label: 'Remarks', getter: (d) => d.remarks }
-    ]);
+    const formattedDate = filteredIndents[0]?.indent_date 
+      ? formatDate(filteredIndents[0].indent_date)
+      : formatDate(new Date().toISOString());
+
+    // Create CSV content with multiple pages (sheets simulated as sections)
+    let csvContent = '';
+    
+    // Add title with date
+    csvContent += `"Retailer Indents - ${formattedDate}"\n`;
+    csvContent += `"Total Products: ${productVariants.length}, Total Retailers: ${retailers.length}"\n\n`;
+    
+    retailerChunks.forEach((retailerChunk, pageIndex) => {
+      if (pageIndex > 0) {
+        // Add page separator
+        csvContent += '\n\n';
+        csvContent += `"--- Page ${pageIndex + 1} (Retailers ${pageIndex * RETAILERS_PER_PAGE + 1}-${Math.min((pageIndex + 1) * RETAILERS_PER_PAGE, retailers.length)}) ---"\n\n`;
+      }
+
+      // Header row: Sr No, Product, Variant, Retailer1, Retailer2, ...
+      const headers = ['Sr No', 'Product', 'Variant'];
+      retailerChunk.forEach(([_, retailerName]) => {
+        headers.push(retailerName);
+      });
+      csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+
+      // Data rows
+      productVariants.forEach((productKey, index) => {
+        const [productName, variantName] = productKey.split('|');
+        const row = [
+          index + 1,
+          productName,
+          variantName
+        ];
+
+        // Add quantity for each retailer in this chunk
+        retailerChunk.forEach(([retailerId, _]) => {
+          const qtyKey = `${productKey}|${retailerId}`;
+          const qty = quantityMap.get(qtyKey) || '';
+          row.push(qty);
+        });
+
+        csvContent += row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
+      });
+
+      // Add totals row
+      const totalsRow = ['', 'TOTAL', ''];
+      retailerChunk.forEach(([retailerId, _]) => {
+        let totalQty = 0;
+        productVariants.forEach(productKey => {
+          const qtyKey = `${productKey}|${retailerId}`;
+          totalQty += quantityMap.get(qtyKey) || 0;
+        });
+        totalsRow.push(totalQty);
+      });
+      csvContent += totalsRow.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `retailer_indents_compact_${exportDate}.csv`;
+    link.click();
+
+    toast.success(`Exported ${productVariants.length} products × ${retailers.length} retailers`);
   };
 
   const exportDispatches = () => {

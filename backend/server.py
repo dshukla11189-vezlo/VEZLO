@@ -10868,7 +10868,7 @@ async def get_daily_mrp(
     date: str = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get daily MRP entries for a specific date"""
+    """Get daily MRP entries for a specific date (auto-deduplicates on fetch)"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -10881,7 +10881,26 @@ async def get_daily_mrp(
         query["date"] = date_type.today().isoformat()
     
     entries = await db.daily_mrp.find(query, {"_id": 0}).to_list(1000)
-    return entries
+    
+    # Auto-deduplicate: keep only first occurrence of each product+variant
+    seen = set()
+    unique_entries = []
+    duplicates_found = []
+    
+    for entry in entries:
+        key = (entry.get("product_id"), entry.get("variant_id"))
+        if key not in seen:
+            seen.add(key)
+            unique_entries.append(entry)
+        else:
+            duplicates_found.append(entry.get("id"))
+    
+    # Auto-cleanup duplicates in background (delete them from DB)
+    if duplicates_found:
+        for dup_id in duplicates_found:
+            await db.daily_mrp.delete_one({"id": dup_id})
+    
+    return unique_entries
 
 @api_router.post("/daily-mrp")
 async def save_daily_mrp(
@@ -10919,17 +10938,34 @@ async def add_mrp_entry(
     input: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Add a single MRP entry with Blinkit price"""
+    """Add a single MRP entry with Blinkit price. Prevents duplicates by date+product+variant."""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    date = input.get("date")
+    product_id = input.get("product_id")
+    variant_id = input.get("variant_id")
+    
+    # Check for existing entry with same date + product + variant
+    existing = await db.daily_mrp.find_one({
+        "date": date,
+        "product_id": product_id,
+        "variant_id": variant_id
+    }, {"_id": 0})
+    
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Entry already exists for {input.get('product_name')} ({input.get('variant_name')}) on {date}"
+        )
+    
     entry = {
         "id": str(uuid.uuid4()),
-        "date": input.get("date"),
-        "product_id": input.get("product_id"),
+        "date": date,
+        "product_id": product_id,
         "product_name": input.get("product_name"),
         "category": input.get("category"),
-        "variant_id": input.get("variant_id"),
+        "variant_id": variant_id,
         "variant_name": input.get("variant_name"),
         "mrp": input.get("mrp", 0),
         "blinkit_price": input.get("blinkit_price", 0),
@@ -10985,6 +11021,47 @@ async def delete_mrp_entry(
         raise HTTPException(status_code=404, detail="Entry not found")
     
     return {"message": "MRP entry deleted"}
+
+
+@api_router.post("/daily-mrp/cleanup-duplicates")
+async def cleanup_mrp_duplicates(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove duplicate MRP entries for a date, keeping only the first occurrence"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    date = input.get("date")
+    if not date:
+        raise HTTPException(status_code=400, detail="Date is required")
+    
+    # Get all entries for this date
+    entries = await db.daily_mrp.find({"date": date}, {"_id": 0}).to_list(1000)
+    
+    # Find duplicates
+    seen = {}  # (product_id, variant_id) -> first entry id
+    duplicates_to_delete = []
+    
+    for entry in entries:
+        key = (entry.get("product_id"), entry.get("variant_id"))
+        if key in seen:
+            # This is a duplicate, mark for deletion
+            duplicates_to_delete.append(entry.get("id"))
+        else:
+            seen[key] = entry.get("id")
+    
+    # Delete duplicates
+    deleted_count = 0
+    for entry_id in duplicates_to_delete:
+        result = await db.daily_mrp.delete_one({"id": entry_id})
+        deleted_count += result.deleted_count
+    
+    return {
+        "message": f"Removed {deleted_count} duplicate entries for {date}",
+        "duplicates_removed": deleted_count
+    }
+
 
 @api_router.get("/daily-mrp/last-variants")
 async def get_last_sold_variants(

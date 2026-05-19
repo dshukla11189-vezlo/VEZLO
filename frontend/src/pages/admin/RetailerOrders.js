@@ -1890,6 +1890,15 @@ export default function RetailerOrders() {
       variant = allowedPackagings.length > 0 ? allowedPackagings[0] : retailPackagings[0];
     }
     
+    // Check if this product+variant combination already exists in mrpData
+    const existingEntry = mrpData.find(e => 
+      e.product_id === product.id && e.variant_id === variant?.id
+    );
+    if (existingEntry) {
+      toast.error(`${product.name} (${variant?.name || 'No variant'}) already exists in the list`);
+      return;
+    }
+    
     const newEntry = {
       date: dailyReqDate,
       product_id: product.id,
@@ -1905,12 +1914,22 @@ export default function RetailerOrders() {
       setMrpData(prev => [...prev, res.data]);
       toast.success('Entry added');
     } catch (error) {
-      toast.error('Failed to add entry');
+      const errorMsg = error.response?.data?.detail || 'Failed to add entry';
+      toast.error(errorMsg);
     }
   };
 
   // Add MRP entry from indent product+variant combination
   const addMrpEntryFromIndent = async (indentItem) => {
+    // Check if this product+variant combination already exists
+    const existingEntry = mrpData.find(e => 
+      e.product_id === indentItem.productId && e.variant_id === (indentItem.variantId || '')
+    );
+    if (existingEntry) {
+      toast.error(`${indentItem.productName} (${indentItem.variantName || 'No variant'}) already exists in the list`);
+      return;
+    }
+    
     const newEntry = {
       date: dailyReqDate,
       product_id: indentItem.productId,
@@ -1926,7 +1945,8 @@ export default function RetailerOrders() {
       setMrpData(prev => [...prev, res.data]);
       toast.success('MRP entry added');
     } catch (error) {
-      toast.error('Failed to add MRP entry');
+      const errorMsg = error.response?.data?.detail || 'Failed to add MRP entry';
+      toast.error(errorMsg);
     }
   };
 

@@ -7450,6 +7450,7 @@ export default function RetailerOrders() {
                           <th className="p-2 text-center">MRP *</th>
                           <th className="p-2 text-right">Total</th>
                           {!editingDispatch && <th className="p-2 text-center w-16" title="Check to mark this item's supply as complete (even if partial)">Done</th>}
+                          {!editingDispatch && <th className="p-2 text-center w-10"></th>}
                           {editingDispatch && <th className="p-2 text-center w-10"></th>}
                         </tr>
                       </thead>
@@ -7521,6 +7522,29 @@ export default function RetailerOrders() {
                                 />
                               </td>
                             )}
+                            {!editingDispatch && (
+                              <td className="p-2 text-center">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-red-500 hover:bg-red-50"
+                                  onClick={() => {
+                                    if (dispatchForm.items.length > 1) {
+                                      setDispatchForm(prev => ({
+                                        ...prev,
+                                        items: prev.items.filter((_, i) => i !== index)
+                                      }));
+                                    } else {
+                                      toast.error('Cannot remove the last item');
+                                    }
+                                  }}
+                                  title="Remove this item from current dispatch"
+                                >
+                                  <X size={14} />
+                                </Button>
+                              </td>
+                            )}
                             {editingDispatch && (
                               <td className="p-2 text-center">
                                 <Button
@@ -7549,9 +7573,10 @@ export default function RetailerOrders() {
                       </tbody>
                       <tfoot className="bg-gray-50 font-semibold">
                         <tr>
-                          <td colSpan={editingDispatch ? 6 : 6} className="p-2 text-right">Total MRP Value:</td>
+                          <td colSpan={6} className="p-2 text-right">Total MRP Value:</td>
                           <td className="p-2 text-right">{formatCurrency(dispatchForm.items.reduce((sum, i) => sum + i.total_value, 0))}</td>
-                          {!editingDispatch && <td></td>}
+                          {!editingDispatch && <td colSpan={2}></td>}
+                          {editingDispatch && <td></td>}
                         </tr>
                       </tfoot>
                     </table>

@@ -960,7 +960,7 @@ async def create_product(input: ProductCreate, current_user: dict = Depends(get_
     await db.products.insert_one(doc)
     return product
 
-# Product image upload endpoint
+# Product image upload endpoint - NOW STORES BASE64 IN MONGODB
 UPLOAD_DIR = "/app/uploads/products"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -969,7 +969,7 @@ async def upload_product_image(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-    """Upload a product image and return the URL"""
+    """Upload a product image and return base64 data for MongoDB storage"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -978,20 +978,20 @@ async def upload_product_image(
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are allowed")
     
-    # Generate unique filename
-    file_ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
-    unique_filename = f"{uuid.uuid4()}.{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    # Validate file size (max 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image size must be less than 5MB")
     
     try:
-        # Save file
-        contents = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        import base64
+        # Convert to base64 with proper data URL prefix
+        content_type = file.content_type or "image/jpeg"
+        base64_data = base64.b64encode(contents).decode('utf-8')
+        image_data = f"data:{content_type};base64,{base64_data}"
         
-        # Return URL path
-        image_url = f"/uploads/products/{unique_filename}"
-        return {"image_url": image_url, "message": "Image uploaded successfully"}
+        # Return base64 data URL (this will be stored in MongoDB with the product)
+        return {"image_url": image_data, "message": "Image uploaded successfully"}
     except Exception as e:
         logger.error(f"Failed to upload product image: {e}")
         raise HTTPException(status_code=500, detail="Failed to upload image")

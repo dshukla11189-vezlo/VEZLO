@@ -13531,6 +13531,166 @@ async def get_all_retailers_immediately_payable(
     }
 
 
+# ==================== RETAILER CATALOGUE API ====================
+# This manages the product catalogue available for retailers to order from
+
+@api_router.get("/retailer-catalogue")
+async def get_retailer_catalogue(current_user: dict = Depends(get_current_user)):
+    """Get all products in the retailer catalogue with their allowed variants"""
+    items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+    return items
+
+@api_router.post("/retailer-catalogue")
+async def add_catalogue_item(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add or update a product in the retailer catalogue"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    product_id = input.get("product_id")
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Product ID is required")
+    
+    # Check if product already exists in catalogue
+    existing = await db.retailer_catalogue.find_one({"product_id": product_id})
+    
+    catalogue_item = {
+        "product_id": product_id,
+        "product_name": input.get("product_name", ""),
+        "product_name_hi": input.get("product_name_hi", ""),
+        "product_name_mr": input.get("product_name_mr", ""),
+        "category": input.get("category", ""),
+        "image_url": input.get("image_url", ""),
+        "variants": input.get("variants", []),  # List of variant IDs
+        "is_active": input.get("is_active", True),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    if existing:
+        # Update existing
+        await db.retailer_catalogue.update_one(
+            {"product_id": product_id},
+            {"$set": catalogue_item}
+        )
+        return {"message": "Catalogue item updated", "item": catalogue_item}
+    else:
+        # Create new
+        catalogue_item["id"] = str(uuid.uuid4())
+        catalogue_item["created_at"] = datetime.now(timezone.utc).isoformat()
+        await db.retailer_catalogue.insert_one(catalogue_item)
+        catalogue_item.pop("_id", None)
+        return {"message": "Catalogue item created", "item": catalogue_item}
+
+@api_router.put("/retailer-catalogue/{product_id}")
+async def update_catalogue_item(
+    product_id: str,
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a specific product in the retailer catalogue"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    existing = await db.retailer_catalogue.find_one({"product_id": product_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Catalogue item not found")
+    
+    update_data = {
+        "variants": input.get("variants", existing.get("variants", [])),
+        "is_active": input.get("is_active", existing.get("is_active", True)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    # Update optional fields if provided
+    if "product_name" in input:
+        update_data["product_name"] = input["product_name"]
+    if "product_name_hi" in input:
+        update_data["product_name_hi"] = input["product_name_hi"]
+    if "product_name_mr" in input:
+        update_data["product_name_mr"] = input["product_name_mr"]
+    if "category" in input:
+        update_data["category"] = input["category"]
+    if "image_url" in input:
+        update_data["image_url"] = input["image_url"]
+    
+    await db.retailer_catalogue.update_one(
+        {"product_id": product_id},
+        {"$set": update_data}
+    )
+    
+    updated = await db.retailer_catalogue.find_one({"product_id": product_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/retailer-catalogue/{product_id}")
+async def delete_catalogue_item(
+    product_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a product from the retailer catalogue"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.retailer_catalogue.delete_one({"product_id": product_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Catalogue item not found")
+    
+    return {"message": "Catalogue item deleted", "product_id": product_id}
+
+@api_router.post("/retailer-catalogue/bulk-add")
+async def bulk_add_catalogue_items(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add multiple products to catalogue at once"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    items = input.get("items", [])
+    if not items:
+        raise HTTPException(status_code=400, detail="No items provided")
+    
+    added_count = 0
+    updated_count = 0
+    
+    for item in items:
+        product_id = item.get("product_id")
+        if not product_id:
+            continue
+        
+        existing = await db.retailer_catalogue.find_one({"product_id": product_id})
+        
+        catalogue_item = {
+            "product_id": product_id,
+            "product_name": item.get("product_name", ""),
+            "product_name_hi": item.get("product_name_hi", ""),
+            "product_name_mr": item.get("product_name_mr", ""),
+            "category": item.get("category", ""),
+            "image_url": item.get("image_url", ""),
+            "variants": item.get("variants", []),
+            "is_active": item.get("is_active", True),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user["user_id"]
+        }
+        
+        if existing:
+            await db.retailer_catalogue.update_one(
+                {"product_id": product_id},
+                {"$set": catalogue_item}
+            )
+            updated_count += 1
+        else:
+            catalogue_item["id"] = str(uuid.uuid4())
+            catalogue_item["created_at"] = datetime.now(timezone.utc).isoformat()
+            await db.retailer_catalogue.insert_one(catalogue_item)
+            added_count += 1
+    
+    return {"message": f"Added {added_count}, updated {updated_count} catalogue items"}
+
+
 # Include router
 app.include_router(api_router)
 

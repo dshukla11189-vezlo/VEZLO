@@ -6,7 +6,186 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers, ImageIcon, Upload, X } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers, ImageIcon, Upload, X, ChevronRight, Check, Save } from 'lucide-react';
+
+// Catalogue Product Row Component - For editing variants
+const CatalogueProductRow = ({ 
+  product, 
+  index, 
+  catalogueItem, 
+  isEditing, 
+  isSaving,
+  packagingVariants, 
+  getVariantNames,
+  onEdit, 
+  onSave, 
+  onCancel, 
+  onRemove 
+}) => {
+  const [selectedVariants, setSelectedVariants] = useState(catalogueItem?.variants || []);
+  
+  // Reset selected variants when editing state changes
+  React.useEffect(() => {
+    if (isEditing) {
+      setSelectedVariants(catalogueItem?.variants || []);
+    }
+  }, [isEditing, catalogueItem]);
+
+  const toggleVariant = (variantId) => {
+    setSelectedVariants(prev => 
+      prev.includes(variantId) 
+        ? prev.filter(id => id !== variantId)
+        : [...prev, variantId]
+    );
+  };
+
+  const isInCatalogue = !!catalogueItem;
+
+  return (
+    <tr className={`border-b hover:bg-gray-50 ${isInCatalogue ? 'bg-teal-50/30' : ''}`}>
+      {/* S.No */}
+      <td className="px-4 py-2 text-gray-500">{index + 1}</td>
+      
+      {/* Image */}
+      <td className="px-4 py-2">
+        {product.image_url ? (
+          <img 
+            src={product.image_url} 
+            alt={product.name}
+            className="w-10 h-10 object-cover rounded border"
+          />
+        ) : (
+          <div className="w-10 h-10 bg-gray-100 rounded border flex items-center justify-center">
+            <ImageIcon size={16} className="text-gray-400" />
+          </div>
+        )}
+      </td>
+      
+      {/* Product Name */}
+      <td className="px-4 py-2">
+        <div>
+          <span className="font-medium text-gray-800">{product.name}</span>
+          {product.name_hi && (
+            <span className="ml-2 text-xs text-gray-500">({product.name_hi})</span>
+          )}
+        </div>
+      </td>
+      
+      {/* Variants */}
+      <td className="px-4 py-2">
+        {isEditing ? (
+          <div className="flex flex-wrap gap-1.5 max-w-md">
+            {packagingVariants
+              .filter(v => {
+                const verticals = v.verticals;
+                // Show if retail, both, or null/undefined (available for all)
+                if (!verticals) return true;
+                if (Array.isArray(verticals)) {
+                  return verticals.includes('retail') || verticals.includes('both') || verticals.length === 0;
+                }
+                return verticals === 'retail' || verticals === 'both';
+              })
+              .map(variant => (
+                <button
+                  key={variant.id}
+                  type="button"
+                  onClick={() => toggleVariant(variant.id)}
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                    selectedVariants.includes(variant.id)
+                      ? 'bg-teal-500 text-white border-teal-500'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
+                  }`}
+                >
+                  {variant.name}
+                  {selectedVariants.includes(variant.id) && (
+                    <Check size={10} className="inline ml-1" />
+                  )}
+                </button>
+              ))}
+          </div>
+        ) : isInCatalogue ? (
+          <div className="flex flex-wrap gap-1">
+            {catalogueItem.variants?.length > 0 ? (
+              catalogueItem.variants.map(variantId => {
+                const variant = packagingVariants.find(v => v.id === variantId);
+                return variant ? (
+                  <span key={variantId} className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded">
+                    {variant.name}
+                  </span>
+                ) : null;
+              })
+            ) : (
+              <span className="text-xs text-orange-500">No variants selected</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400 italic">Not in catalogue</span>
+        )}
+      </td>
+      
+      {/* Actions */}
+      <td className="px-4 py-2 text-center">
+        {isEditing ? (
+          <div className="flex justify-center gap-1">
+            <Button
+              size="sm"
+              className="h-7 px-2 bg-teal-600 hover:bg-teal-700"
+              onClick={() => onSave(selectedVariants)}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <span className="animate-spin">⏳</span>
+              ) : (
+                <>
+                  <Save size={12} className="mr-1" /> Save
+                </>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2"
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : isInCatalogue ? (
+          <div className="flex justify-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
+              onClick={onEdit}
+              title="Edit variants"
+            >
+              <Edit size={14} />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+              onClick={onRemove}
+              title="Remove from catalogue"
+            >
+              <Trash size={14} />
+            </Button>
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50"
+            onClick={onEdit}
+          >
+            <Plus size={12} className="mr-1" /> Add
+          </Button>
+        )}
+      </td>
+    </tr>
+  );
+};
 
 export default function Products() {
   // Sub-tab state
@@ -55,6 +234,13 @@ export default function Products() {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  
+  // Retailer Catalogue state
+  const [catalogueItems, setCatalogueItems] = useState([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
+  const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({});
+  const [editingCatalogueItem, setEditingCatalogueItem] = useState(null);
+  const [catalogueSaving, setCatalogueSaving] = useState({});
   
   const [formData, setFormData] = useState({
     name: '',
@@ -142,6 +328,19 @@ export default function Products() {
     }
   }, []);
 
+  // Load retailer catalogue
+  const loadCatalogue = useCallback(async () => {
+    setCatalogueLoading(true);
+    try {
+      const response = await api.get('/api/retailer-catalogue');
+      setCatalogueItems(response.data);
+    } catch (error) {
+      console.error('Failed to load catalogue:', error);
+    } finally {
+      setCatalogueLoading(false);
+    }
+  }, []);
+
   // Category handlers
   const handleSubmitCategory = async (e) => {
     e.preventDefault();
@@ -209,6 +408,104 @@ export default function Products() {
       loadProductTypes();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete type');
+    }
+  };
+
+  // ==================== RETAILER CATALOGUE HANDLERS ====================
+  // Get products organized by category for catalogue
+  const catalogueProductsByCategory = useMemo(() => {
+    const byCategory = {};
+    products.forEach(product => {
+      const cat = product.category || 'Others';
+      if (!byCategory[cat]) {
+        byCategory[cat] = [];
+      }
+      byCategory[cat].push(product);
+    });
+    // Sort products within each category alphabetically
+    Object.keys(byCategory).forEach(cat => {
+      byCategory[cat].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    return byCategory;
+  }, [products]);
+
+  // Get catalogue item for a product
+  const getCatalogueItem = (productId) => {
+    return catalogueItems.find(item => item.product_id === productId);
+  };
+
+  // Get variant names for display
+  const getVariantNames = (variantIds) => {
+    if (!variantIds || variantIds.length === 0) return 'No variants selected';
+    return variantIds.map(id => {
+      const variant = packagingVariants.find(v => v.id === id);
+      return variant ? variant.name : id;
+    }).join(', ');
+  };
+
+  // Toggle catalogue category expansion
+  const toggleCatalogueCategory = (category) => {
+    setExpandedCatalogueCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Save catalogue item (add or update)
+  const saveCatalogueItem = async (product, selectedVariants) => {
+    setCatalogueSaving(prev => ({ ...prev, [product.id]: true }));
+    try {
+      await api.post('/api/retailer-catalogue', {
+        product_id: product.id,
+        product_name: product.name,
+        product_name_hi: product.name_hi || '',
+        product_name_mr: product.name_mr || '',
+        category: product.category || '',
+        image_url: product.image_url || '',
+        variants: selectedVariants,
+        is_active: true
+      });
+      toast.success(`${product.name} saved to catalogue`);
+      loadCatalogue();
+      setEditingCatalogueItem(null);
+    } catch (error) {
+      toast.error('Failed to save catalogue item');
+    } finally {
+      setCatalogueSaving(prev => ({ ...prev, [product.id]: false }));
+    }
+  };
+
+  // Remove product from catalogue
+  const removeCatalogueItem = async (productId, productName) => {
+    if (!window.confirm(`Remove "${productName}" from retailer catalogue?`)) return;
+    try {
+      await api.delete(`/api/retailer-catalogue/${productId}`);
+      toast.success(`${productName} removed from catalogue`);
+      loadCatalogue();
+    } catch (error) {
+      toast.error('Failed to remove from catalogue');
+    }
+  };
+
+  // Add all products in a category to catalogue
+  const addCategoryToCatalogue = async (category, productsInCategory) => {
+    const items = productsInCategory.map(p => ({
+      product_id: p.id,
+      product_name: p.name,
+      product_name_hi: p.name_hi || '',
+      product_name_mr: p.name_mr || '',
+      category: p.category || '',
+      image_url: p.image_url || '',
+      variants: [],
+      is_active: true
+    }));
+    
+    try {
+      await api.post('/api/retailer-catalogue/bulk-add', { items });
+      toast.success(`Added ${productsInCategory.length} products from ${category} to catalogue`);
+      loadCatalogue();
+    } catch (error) {
+      toast.error('Failed to add products to catalogue');
     }
   };
 
@@ -311,7 +608,8 @@ export default function Products() {
     loadPackaging();
     loadCategories();
     loadProductTypes();
-  }, [loadProducts, loadUnits, loadPackaging, loadCategories, loadProductTypes]);
+    loadCatalogue();
+  }, [loadProducts, loadUnits, loadPackaging, loadCategories, loadProductTypes, loadCatalogue]);
 
   // Sort products alphabetically and filter by search query
   const filteredProducts = useMemo(() => {
@@ -555,6 +853,20 @@ export default function Products() {
           Products
           <span className="ml-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
             {products.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('catalogue')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeSubTab === 'catalogue'
+              ? 'border-teal-600 text-teal-700 bg-teal-50'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Tag size={16} />
+          Retailer Catalogue
+          <span className="ml-1 px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full">
+            {catalogueItems.length}
           </span>
         </button>
         <button
@@ -1514,6 +1826,160 @@ export default function Products() {
             <p><strong>Categories</strong> - Used to classify products (e.g., Vegetables, Leafy, Fruits)</p>
             <p className="mt-1"><strong>Types</strong> - Used for additional classification (e.g., Exotic, Herbs, Mushrooms)</p>
             <p className="mt-2 text-xs text-gray-500">Both Categories and Types appear as dropdowns when adding/editing products.</p>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== RETAILER CATALOGUE TAB ==================== */}
+      {activeSubTab === 'catalogue' && (
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Retailer Catalogue</h2>
+              <p className="text-sm text-gray-500">
+                Configure which products and variants are available for retailer ordering
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  // Expand all categories
+                  const allExpanded = {};
+                  Object.keys(catalogueProductsByCategory).forEach(cat => {
+                    allExpanded[cat] = true;
+                  });
+                  setExpandedCatalogueCategories(allExpanded);
+                }}
+              >
+                Expand All
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setExpandedCatalogueCategories({})}
+              >
+                Collapse All
+              </Button>
+            </div>
+          </div>
+
+          {/* Categories and Products */}
+          {catalogueLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading catalogue...</div>
+          ) : Object.keys(catalogueProductsByCategory).length === 0 ? (
+            <div className="text-center py-8 text-gray-500">No products available. Add products first.</div>
+          ) : (
+            <div className="space-y-3">
+              {Object.entries(catalogueProductsByCategory)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([category, categoryProducts]) => {
+                  const isExpanded = expandedCatalogueCategories[category];
+                  const catalogueCount = categoryProducts.filter(p => getCatalogueItem(p.id)).length;
+                  
+                  return (
+                    <div key={category} className="border rounded-lg bg-white shadow-sm overflow-hidden">
+                      {/* Category Header */}
+                      <div
+                        className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-teal-50 to-emerald-50 cursor-pointer hover:from-teal-100 hover:to-emerald-100 transition-colors"
+                        onClick={() => toggleCatalogueCategory(category)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <ChevronRight
+                            size={18}
+                            className={`text-teal-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                          />
+                          <span className="font-semibold text-gray-800">{category}</span>
+                          <span className="text-xs px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full">
+                            {catalogueCount}/{categoryProducts.length} in catalogue
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {catalogueCount < categoryProducts.length && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addCategoryToCatalogue(category, categoryProducts);
+                              }}
+                            >
+                              <Plus size={12} className="mr-1" /> Add All
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Products Table */}
+                      {isExpanded && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600 w-12">#</th>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600 w-16">Image</th>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600">Product Name</th>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600">Variants</th>
+                                <th className="text-center px-4 py-2 font-medium text-gray-600 w-32">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {categoryProducts.map((product, idx) => {
+                                const catalogueItem = getCatalogueItem(product.id);
+                                const isEditing = editingCatalogueItem === product.id;
+                                const isSaving = catalogueSaving[product.id];
+                                
+                                return (
+                                  <CatalogueProductRow
+                                    key={product.id}
+                                    product={product}
+                                    index={idx}
+                                    catalogueItem={catalogueItem}
+                                    isEditing={isEditing}
+                                    isSaving={isSaving}
+                                    packagingVariants={packagingVariants}
+                                    getVariantNames={getVariantNames}
+                                    onEdit={() => setEditingCatalogueItem(product.id)}
+                                    onSave={(variants) => saveCatalogueItem(product, variants)}
+                                    onCancel={() => setEditingCatalogueItem(null)}
+                                    onRemove={() => removeCatalogueItem(product.id, product.name)}
+                                  />
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          {/* Summary Footer */}
+          <div className="bg-gray-50 border rounded-lg p-4 mt-4">
+            <div className="flex flex-wrap gap-6 text-sm">
+              <div>
+                <span className="text-gray-500">Total Products:</span>
+                <span className="ml-2 font-semibold">{products.length}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">In Catalogue:</span>
+                <span className="ml-2 font-semibold text-teal-600">{catalogueItems.length}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Not in Catalogue:</span>
+                <span className="ml-2 font-semibold text-orange-600">
+                  {products.length - catalogueItems.length}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Only products added to the catalogue will be visible to retailers for ordering.
+            </p>
           </div>
         </div>
       )}

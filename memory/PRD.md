@@ -102,6 +102,16 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 - **Marathi Translation Fix & PDF/Excel Export Simplified** ✅
 
+### Completed (This Session - 21 May 2026)
+- **Daily Purchase Requirement Multilingual PDF/Excel Export** ✅
+  - Added language selector dropdown (English/Hindi/Marathi) next to PDF and Excel buttons
+  - PDF export now uses selected language for all labels: title, date, headers, column names, totals
+  - Product names display in Hindi when translation exists, falls back to English with `*` marker if missing
+  - Excel export also respects selected language with proper Unicode (BOM) support
+  - Shows note on PDF when products have missing translations (e.g., "* 5 product(s) missing Hindi translation")
+  - Date formatting uses locale-appropriate format (hi-IN, mr-IN, en-IN)
+  - **Note**: Hindi translations exist for all 46 products; Marathi translations pending
+
 ### Note on 50% Today's Delivery
 The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatch was created but no invoice was generated, the amount won't appear. Invoices need to be created separately from dispatches.
 

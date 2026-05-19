@@ -284,6 +284,9 @@ export default function RetailerOrders() {
   const [expandedStickerItem, setExpandedStickerItem] = useState(null); // Track which sticker item is expanded
   const [stickerIndentDetails, setStickerIndentDetails] = useState({}); // product+variant key -> [{retailer, qty}]
 
+  // Print language state for Daily Requirement PDF/Excel
+  const [dailyReqPrintLang, setDailyReqPrintLang] = useState('en'); // 'en', 'hi', 'mr'
+  
   // MRP tab state
   const [mrpData, setMrpData] = useState([]);
   const [mrpLoading, setMrpLoading] = useState(false);
@@ -2509,28 +2512,91 @@ export default function RetailerOrders() {
     }
   };
 
+  // Translation labels for Daily Requirement PDF/Excel
+  const dailyReqTranslations = {
+    en: {
+      title: 'Daily Purchase Requirement',
+      date: 'Date',
+      retailer: 'Retailer',
+      allRetailers: 'All Retailers',
+      calculatedFrom: 'Calculated from indents',
+      serial: '#',
+      productName: 'Product Name',
+      quantity: 'Quantity (Kg)',
+      remarks: 'Remarks',
+      total: 'TOTAL',
+      generatedOn: 'Generated on',
+    },
+    hi: {
+      title: 'दैनिक खरीद आवश्यकता',
+      date: 'दिनांक',
+      retailer: 'रिटेलर',
+      allRetailers: 'सभी रिटेलर',
+      calculatedFrom: 'इंडेंट से गणना',
+      serial: 'क्र.',
+      productName: 'उत्पाद का नाम',
+      quantity: 'मात्रा (किलो)',
+      remarks: 'टिप्पणी',
+      total: 'कुल',
+      generatedOn: 'जनरेट किया गया',
+    },
+    mr: {
+      title: 'दैनिक खरेदी आवश्यकता',
+      date: 'दिनांक',
+      retailer: 'रिटेलर',
+      allRetailers: 'सर्व रिटेलर',
+      calculatedFrom: 'इंडेंटवरून गणना',
+      serial: 'क्र.',
+      productName: 'उत्पादाचे नाव',
+      quantity: 'प्रमाण (किलो)',
+      remarks: 'टीप',
+      total: 'एकूण',
+      generatedOn: 'तयार केले',
+    }
+  };
+
   // Print daily requirement
   const printDailyRequirement = () => {
     const printContent = document.getElementById('daily-requirement-print');
     if (!printContent) return;
     
-    // Get display name based on current language
+    const lang = dailyReqPrintLang;
+    const labels = dailyReqTranslations[lang] || dailyReqTranslations.en;
+    
+    // Get display name based on selected print language
     const getDisplayName = (item) => {
-      if (i18n.language === 'hi' && item.productNameHi) return item.productNameHi;
-      if (i18n.language === 'mr' && item.productNameMr) return item.productNameMr;
+      if (lang === 'hi' && item.productNameHi) return item.productNameHi;
+      if (lang === 'mr' && item.productNameMr) return item.productNameMr;
+      if ((lang === 'hi' || lang === 'mr') && !item.productNameHi && !item.productNameMr) {
+        return `${item.productName} *`;
+      }
       return item.productName;
     };
+    
+    // Count missing translations
+    const missingTranslations = dailyReqData.filter(item => {
+      if (lang === 'hi') return !item.productNameHi;
+      if (lang === 'mr') return !item.productNameMr;
+      return false;
+    }).length;
+    
+    // Date locale based on selected language
+    const dateLocale = lang === 'hi' ? 'hi-IN' : lang === 'mr' ? 'mr-IN' : 'en-IN';
+    const formattedDate = new Date(dailyReqDate).toLocaleDateString(dateLocale, { 
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+    });
     
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
         <head>
-          <title>Daily Purchase Requirement - ${dailyReqDate}</title>
+          <title>${labels.title} - ${dailyReqDate}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 20px; }
             h1 { text-align: center; margin-bottom: 5px; }
             h2 { text-align: center; color: #666; margin-top: 0; }
             p.info { text-align: center; font-size: 12px; color: #888; margin: 5px 0; }
+            .missing-note { text-align: center; font-size: 11px; color: #c00; margin-top: 5px; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
             th, td { border: 1px solid #333; padding: 8px; text-align: left; }
             th { background-color: #f0f0f0; font-weight: bold; }
@@ -2544,17 +2610,20 @@ export default function RetailerOrders() {
           </style>
         </head>
         <body>
-          <h1>Daily Purchase Requirement</h1>
-          <h2>Date: ${new Date(dailyReqDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h2>
-          ${dailyReqRetailer ? `<p style="text-align:center;">Retailer: ${retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || 'All'}</p>` : '<p style="text-align:center;">All Retailers</p>'}
-          <p class="info">Calculated from indents</p>
+          <h1>${labels.title}</h1>
+          <h2>${labels.date}: ${formattedDate}</h2>
+          ${dailyReqRetailer 
+            ? `<p style="text-align:center;">${labels.retailer}: ${retailers.find(r => r.id === dailyReqRetailer)?.company_name || retailers.find(r => r.id === dailyReqRetailer)?.name || labels.allRetailers}</p>` 
+            : `<p style="text-align:center;">${labels.allRetailers}</p>`}
+          <p class="info">${labels.calculatedFrom}</p>
+          ${missingTranslations > 0 ? `<p class="missing-note">* ${missingTranslations} product(s) missing ${lang === 'hi' ? 'Hindi' : 'Marathi'} translation</p>` : ''}
           <table>
             <thead>
               <tr>
-                <th style="width:8%">#</th>
-                <th style="width:42%">Product Name</th>
-                <th style="width:25%" class="text-right">Quantity (Kg)</th>
-                <th style="width:25%">Remarks</th>
+                <th style="width:8%">${labels.serial}</th>
+                <th style="width:42%">${labels.productName}</th>
+                <th style="width:25%" class="text-right">${labels.quantity}</th>
+                <th style="width:25%">${labels.remarks}</th>
               </tr>
             </thead>
             <tbody>
@@ -2567,14 +2636,14 @@ export default function RetailerOrders() {
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
-                <td colspan="2">TOTAL</td>
+                <td colspan="2">${labels.total}</td>
                 <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} Kg</td>
                 <td></td>
               </tr>
             </tbody>
           </table>
           <div class="footer">
-            Generated on: ${new Date().toLocaleString('en-IN')} | Mr Organix
+            ${labels.generatedOn}: ${new Date().toLocaleString(dateLocale)} | Mr Organix
           </div>
         </body>
       </html>
@@ -2590,15 +2659,21 @@ export default function RetailerOrders() {
       return;
     }
     
-    // Get display name based on current language
+    const lang = dailyReqPrintLang;
+    const labels = dailyReqTranslations[lang] || dailyReqTranslations.en;
+    
+    // Get display name based on selected print language
     const getDisplayName = (item) => {
-      if (i18n.language === 'hi' && item.productNameHi) return item.productNameHi;
-      if (i18n.language === 'mr' && item.productNameMr) return item.productNameMr;
+      if (lang === 'hi' && item.productNameHi) return item.productNameHi;
+      if (lang === 'mr' && item.productNameMr) return item.productNameMr;
+      if ((lang === 'hi' || lang === 'mr') && !item.productNameHi && !item.productNameMr) {
+        return `${item.productName} *`;
+      }
       return item.productName;
     };
     
     // Prepare CSV content - Only Serial#, Product Name, Quantity (Kg), Remarks
-    const headers = ['#', 'Product Name', 'Quantity (Kg)', 'Remarks'];
+    const headers = [labels.serial, labels.productName, labels.quantity, labels.remarks];
     const rows = dailyReqData.map((item, idx) => [
       idx + 1,
       getDisplayName(item),
@@ -2609,25 +2684,26 @@ export default function RetailerOrders() {
     // Add totals row
     rows.push([
       '',
-      'TOTAL',
+      labels.total,
       dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2),
       ''
     ]);
     
     // Convert to CSV
     const csvContent = [
-      `Daily Purchase Requirement - ${dailyReqDate}`,
+      `${labels.title} - ${dailyReqDate}`,
       '',
       headers.join(','),
       ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
     ].join('\n');
     
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Create blob and download with BOM for proper Unicode support
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `Purchase_Requirement_${dailyReqDate}.csv`);
+    link.setAttribute('download', `Purchase_Requirement_${dailyReqDate}_${lang}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -4391,6 +4467,16 @@ export default function RetailerOrders() {
                   
                   {dailyReqData.length > 0 && (
                     <>
+                      <select 
+                        value={dailyReqPrintLang} 
+                        onChange={(e) => setDailyReqPrintLang(e.target.value)}
+                        className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                        title="Select language for PDF/Excel"
+                      >
+                        <option value="en">English</option>
+                        <option value="hi">हिंदी</option>
+                        <option value="mr">मराठी</option>
+                      </select>
                       <Button variant="outline" onClick={printDailyRequirement} className="h-8 text-xs">
                         <Download size={12} className="mr-1" />
                         PDF

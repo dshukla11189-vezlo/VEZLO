@@ -9520,6 +9520,50 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
     await db.retailer_indents.update_one({"id": indent_id}, {"$set": update_data})
     return {"id": indent_id, "message": "Indent updated successfully", "new_status": new_status}
 
+
+@api_router.post("/retailer-indents/{indent_id}/mark-items-done")
+async def mark_indent_items_done(indent_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Mark specific indent items as 'done' (supply complete, even if partial)
+    
+    Input format:
+    {
+        "done_items": [
+            {"product_id": "xxx", "variant_id": "yyy"},
+            ...
+        ]
+    }
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    existing = await db.retailer_indents.find_one({"id": indent_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    done_items = input.get("done_items", [])
+    if not done_items:
+        return {"message": "No items to mark as done"}
+    
+    # Create a set of done item keys for quick lookup
+    done_keys = {f"{item['product_id']}|{item.get('variant_id', '')}" for item in done_items}
+    
+    # Update items in the indent
+    updated_items = []
+    for item in existing.get("items", []):
+        key = f"{item.get('product_id', '')}|{item.get('variant_id', '')}"
+        item_copy = dict(item)
+        if key in done_keys:
+            item_copy["marked_done"] = True
+        updated_items.append(item_copy)
+    
+    await db.retailer_indents.update_one(
+        {"id": indent_id},
+        {"$set": {"items": updated_items}}
+    )
+    
+    return {"message": f"Marked {len(done_keys)} item(s) as done", "indent_id": indent_id}
+
+
 @api_router.delete("/retailer-indents/{indent_id}")
 async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(get_current_user)):
     existing = await db.retailer_indents.find_one({"id": indent_id})

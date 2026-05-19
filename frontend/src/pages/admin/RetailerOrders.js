@@ -2821,6 +2821,11 @@ export default function RetailerOrders() {
       const dispatched = totalDispatched[key] || 0;
       const remaining = (item.quantity || 0) - dispatched;
       
+      // Skip items that are marked as done (even if they have remaining qty)
+      if (item.marked_done) {
+        continue;
+      }
+      
       if (remaining > 0) {
         remainingItems.push({
           ...item,
@@ -2887,7 +2892,8 @@ export default function RetailerOrders() {
           indent_qty: item.quantity || item.remaining_qty,
           supplied_qty: '',  // Empty by default - user fills only what they dispatch
           mrp: mrpValue,
-          total_value: 0
+          total_value: 0,
+          marked_done: false  // Checkbox for marking supply as complete
         };
       }),
       remarks: '',
@@ -2922,6 +2928,16 @@ export default function RetailerOrders() {
       const items = [...prev.items];
       items[index] = { ...items[index], [field]: value };
       items[index].total_value = items[index].supplied_qty * items[index].mrp;
+      
+      // Auto-check "Done" if supplied qty equals indent qty
+      if (field === 'supplied_qty') {
+        const suppliedQty = parseFloat(value) || 0;
+        const indentQty = parseFloat(items[index].indent_qty) || 0;
+        if (suppliedQty >= indentQty && suppliedQty > 0) {
+          items[index].marked_done = true;
+        }
+      }
+      
       return { ...prev, items };
     });
   };
@@ -2963,6 +2979,22 @@ export default function RetailerOrders() {
           transport_charges: dispatchForm.transport_charges || 0
         });
         toast.success('Dispatch created successfully');
+        
+        // Mark items as done if they have the checkbox checked
+        const doneItems = dispatchForm.items
+          .filter(item => item.marked_done)
+          .map(item => ({ product_id: item.product_id, variant_id: item.variant_id || '' }));
+        
+        if (doneItems.length > 0) {
+          try {
+            await api.post(`/api/retailer-indents/${selectedIndent.id}/mark-items-done`, {
+              done_items: doneItems
+            });
+          } catch (markError) {
+            console.error('Failed to mark items as done:', markError);
+            // Don't show error to user, dispatch was successful
+          }
+        }
       }
       setShowDispatchModal(false);
       setSelectedIndent(null);
@@ -7408,7 +7440,7 @@ export default function RetailerOrders() {
                     </Button>
                   </div>
                   <div className="border rounded overflow-hidden overflow-x-auto">
-                    <table className="w-full text-sm" style={{ minWidth: '700px' }}>
+                    <table className="w-full text-sm" style={{ minWidth: '750px' }}>
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="p-2 text-left">Product</th>
@@ -7417,12 +7449,13 @@ export default function RetailerOrders() {
                           <th className="p-2 text-center">Supply Qty</th>
                           <th className="p-2 text-center">MRP *</th>
                           <th className="p-2 text-right">Total</th>
+                          {!editingDispatch && <th className="p-2 text-center w-16" title="Check to mark this item's supply as complete (even if partial)">Done</th>}
                           {editingDispatch && <th className="p-2 text-center w-10"></th>}
                         </tr>
                       </thead>
                       <tbody>
                         {dispatchForm.items.map((item, index) => (
-                          <tr key={index} className="border-t">
+                          <tr key={index} className={`border-t ${item.marked_done ? 'bg-green-50' : ''}`}>
                             <td className="p-2">{getProductName(item)}</td>
                             <td className="p-2 text-center">
                               <select
@@ -7477,6 +7510,17 @@ export default function RetailerOrders() {
                               />
                             </td>
                             <td className="p-2 text-right font-medium">{formatCurrency(item.total_value)}</td>
+                            {!editingDispatch && (
+                              <td className="p-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={item.marked_done || false}
+                                  onChange={(e) => updateDispatchItem(index, 'marked_done', e.target.checked)}
+                                  className="w-4 h-4 accent-green-600 cursor-pointer"
+                                  title={item.marked_done ? "Item marked as done - won't appear in future dispatches" : "Check to mark supply complete (even if partial)"}
+                                />
+                              </td>
+                            )}
                             {editingDispatch && (
                               <td className="p-2 text-center">
                                 <Button
@@ -7505,8 +7549,9 @@ export default function RetailerOrders() {
                       </tbody>
                       <tfoot className="bg-gray-50 font-semibold">
                         <tr>
-                          <td colSpan={editingDispatch ? 6 : 5} className="p-2 text-right">Total MRP Value:</td>
+                          <td colSpan={editingDispatch ? 6 : 6} className="p-2 text-right">Total MRP Value:</td>
                           <td className="p-2 text-right">{formatCurrency(dispatchForm.items.reduce((sum, i) => sum + i.total_value, 0))}</td>
+                          {!editingDispatch && <td></td>}
                         </tr>
                       </tfoot>
                     </table>

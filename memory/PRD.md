@@ -102,7 +102,7 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
 
 - **Marathi Translation Fix & PDF/Excel Export Simplified** ✅
 
-### Completed (This Session - 21 May 2026)
+### Completed (This Session - 19 May 2026)
 - **Daily Purchase Requirement Multilingual PDF/Excel Export** ✅
   - Added language selector dropdown (English/Hindi/Marathi) next to PDF and Excel buttons
   - PDF export now uses selected language for all labels: title, date, headers, column names, totals
@@ -110,7 +110,19 @@ End-to-end full-stack system for a fruits and vegetables retail and quick commer
   - Excel export also respects selected language with proper Unicode (BOM) support
   - Shows note on PDF when products have missing translations (e.g., "* 5 product(s) missing Hindi translation")
   - Date formatting uses locale-appropriate format (hi-IN, mr-IN, en-IN)
-  - **Note**: Hindi translations exist for all 46 products; Marathi translations pending
+  
+- **All Product Translations Populated** ✅
+  - Auto-populated Hindi and Marathi translations for all 86 products
+  - Created `/api/admin/populate-all-translations` endpoint for production use
+  - Coverage: 86/86 Hindi (100%), 86/86 Marathi (100%)
+
+- **Dispatch "Done" Checkbox Feature** ✅
+  - Added "Done" checkbox column in dispatch modal (next to Total column)
+  - Auto-checks when Supply Qty >= Indent Qty
+  - Users can manually check for partial supply scenarios (short supply)
+  - Items marked as "Done" won't appear in subsequent "Dispatch Remaining" actions
+  - Backend API: `POST /api/retailer-indents/{id}/mark-items-done`
+  - Row highlighting: Green background when marked done
 
 ### Note on 50% Today's Delivery
 The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatch was created but no invoice was generated, the amount won't appear. Invoices need to be created separately from dispatches.

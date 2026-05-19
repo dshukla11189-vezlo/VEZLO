@@ -2419,11 +2419,17 @@ export default function RetailerDashboard() {
               </div>
             </div>
 
-            {/* Warning Message about tentative MRP */}
+            {/* Warning Message about tentative MRP - Translated */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-2">
               <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
-                <span className="font-medium">Note:</span> MRP shown is tentative. The actual rate and total amount may vary depending upon tomorrow's rates.
+                {catalogueLanguage === 'hi' ? (
+                  <><span className="font-medium">नोट:</span> दिखाया गया MRP अनुमानित है। वास्तविक दर और कुल राशि कल की दरों के अनुसार बदल सकती है।</>
+                ) : catalogueLanguage === 'mr' ? (
+                  <><span className="font-medium">टीप:</span> दाखवलेला MRP तात्पुरता आहे। प्रत्यक्ष दर आणि एकूण रक्कम उद्याच्या दरांनुसार बदलू शकते।</>
+                ) : (
+                  <><span className="font-medium">Note:</span> MRP shown is tentative. The actual rate and total amount may vary depending upon tomorrow's rates.</>
+                )}
               </p>
             </div>
 
@@ -2549,7 +2555,7 @@ export default function RetailerDashboard() {
                                       const totalValue = cartItem ? mrp * cartItem.quantity : 0;
                                       
                                       return (
-                                        <div key={variantId} className="flex items-center gap-1">
+                                        <div key={variantId} className="flex items-center gap-2">
                                           {cartItem ? (
                                             // Quantity controls with MRP
                                             <div className="flex items-center gap-2">
@@ -2571,23 +2577,25 @@ export default function RetailerDashboard() {
                                                 </button>
                                               </div>
                                               {mrp > 0 && (
-                                                <span className="text-xs text-green-700 font-medium">
+                                                <span className="text-sm font-bold text-green-700">
                                                   ₹{totalValue.toFixed(0)}
                                                 </span>
                                               )}
                                             </div>
                                           ) : (
-                                            // Add button with MRP
-                                            <button
-                                              onClick={() => addToCart(item, variantId, variantName)}
-                                              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-full hover:border-green-500 hover:bg-green-50 transition-colors"
-                                            >
-                                              <span className="text-gray-700">{variantName}</span>
+                                            // Add button with MRP - More prominent display
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                onClick={() => addToCart(item, variantId, variantName)}
+                                                className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-full hover:border-green-500 hover:bg-green-50 transition-colors"
+                                              >
+                                                <span className="text-gray-700">{variantName}</span>
+                                                <Plus size={14} className="text-green-600" />
+                                              </button>
                                               {mrp > 0 && (
-                                                <span className="text-gray-500 text-xs">₹{mrp}</span>
+                                                <span className="text-sm font-bold text-[#14532D]">₹{mrp}</span>
                                               )}
-                                              <Plus size={14} className="text-green-600" />
-                                            </button>
+                                            </div>
                                           )}
                                         </div>
                                       );
@@ -2624,8 +2632,8 @@ export default function RetailerDashboard() {
 
         {/* Cart Modal */}
         {showCart && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-            <div className="bg-white w-full sm:max-w-lg sm:rounded-lg max-h-[85vh] flex flex-col rounded-t-2xl">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center pb-16 sm:pb-0">
+            <div className="bg-white w-full sm:max-w-lg sm:rounded-lg max-h-[80vh] flex flex-col rounded-t-2xl">
               {/* Cart Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b bg-[#14532D] text-white sm:rounded-t-lg">
                 <div className="flex items-center gap-2">
@@ -2751,9 +2759,14 @@ export default function RetailerDashboard() {
                     }
                   </span>
                 </div>
-                {/* Warning about tentative rates */}
+                {/* Warning about tentative rates - Translated */}
                 <p className="text-xs text-amber-600 text-center">
-                  * MRP shown is tentative. Actual rates may vary.
+                  {catalogueLanguage === 'hi' 
+                    ? '* दिखाया गया MRP अनुमानित है। वास्तविक दर बदल सकती है।'
+                    : catalogueLanguage === 'mr'
+                      ? '* दाखवलेला MRP तात्पुरता आहे। प्रत्यक्ष दर बदलू शकतात।'
+                      : '* MRP shown is tentative. Actual rates may vary.'
+                  }
                 </p>
                 <Button
                   onClick={editingIndentId ? updateCartAsIndent : submitCartAsIndent}
@@ -2766,8 +2779,12 @@ export default function RetailerDashboard() {
                     <Check size={18} className="mr-2" />
                   )}
                   {savingIndent 
-                    ? (editingIndentId ? 'Updating Order...' : 'Placing Order...') 
-                    : (editingIndentId ? 'Update Order' : 'Place Order')
+                    ? (editingIndentId 
+                        ? (catalogueLanguage === 'hi' ? 'अपडेट हो रहा है...' : catalogueLanguage === 'mr' ? 'अपडेट होत आहे...' : 'Updating Order...') 
+                        : (catalogueLanguage === 'hi' ? 'ऑर्डर हो रहा है...' : catalogueLanguage === 'mr' ? 'ऑर्डर होत आहे...' : 'Placing Order...'))
+                    : (editingIndentId 
+                        ? (catalogueLanguage === 'hi' ? 'ऑर्डर अपडेट करें' : catalogueLanguage === 'mr' ? 'ऑर्डर अपडेट करा' : 'Update Order')
+                        : (catalogueLanguage === 'hi' ? 'ऑर्डर करें' : catalogueLanguage === 'mr' ? 'ऑर्डर करा' : 'Place Order'))
                   }
                 </Button>
               </div>

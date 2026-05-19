@@ -1091,44 +1091,40 @@ export default function RetailerOrders() {
         <title>Retailer Indents - ${formattedDate}</title>
         <style>
           @media print {
-            @page { size: landscape; margin: 8mm; }
+            @page { size: landscape; margin: 5mm; }
           }
           body { 
             font-family: Arial, sans-serif; 
-            font-size: 12px; 
             margin: 0; 
-            padding: 10px;
+            padding: 8px;
           }
           h1 { 
             text-align: center; 
-            font-size: 18px; 
-            margin-bottom: 5px;
+            font-size: 16px; 
+            margin-bottom: 3px;
             color: #14532D;
           }
           .summary { 
             text-align: center; 
-            font-size: 13px; 
-            margin-bottom: 12px;
+            font-size: 12px; 
+            margin-bottom: 8px;
             color: #666;
           }
           table { 
-            width: 100%; 
             border-collapse: collapse; 
-            font-size: 12px;
-            table-layout: auto;
+            font-size: 13px;
           }
           th, td { 
-            border: 1px solid #ccc; 
-            padding: 6px 8px; 
+            border: 1px solid #999; 
+            padding: 3px 5px; 
             text-align: center;
-            white-space: nowrap;
           }
           th { 
             background-color: #14532D; 
             color: white; 
             font-weight: bold;
-            font-size: 11px;
-            padding: 8px 10px;
+            font-size: 12px;
+            padding: 4px 6px;
           }
           td.product-name { 
             text-align: left; 
@@ -1136,11 +1132,11 @@ export default function RetailerOrders() {
           }
           td.variant { 
             text-align: left; 
-            color: #555;
+            color: #444;
           }
-          tr:nth-child(even) { background-color: #f5f5f5; }
+          tr:nth-child(even) { background-color: #f0f0f0; }
           .total-col { 
-            background-color: #d4edda !important; 
+            background-color: #c8e6c9 !important; 
             font-weight: bold;
             color: #14532D;
           }
@@ -1153,7 +1149,6 @@ export default function RetailerOrders() {
             color: white;
             font-weight: bold;
           }
-          .sr-no { width: 35px; }
         </style>
       </head>
       <body>
@@ -1162,7 +1157,7 @@ export default function RetailerOrders() {
         <table>
           <thead>
             <tr>
-              <th class="sr-no">Sr</th>
+              <th>Sr</th>
               <th>Product</th>
               <th>Variant</th>
               ${retailers.map(([_, name]) => `<th>${name}</th>`).join('')}

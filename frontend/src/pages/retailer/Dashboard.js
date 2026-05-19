@@ -2485,13 +2485,25 @@ export default function RetailerDashboard() {
                             return (
                             <div key={item.product_id} className="p-3 hover:bg-gray-50">
                               <div className="flex items-center gap-3">
-                                {/* Product Image */}
-                                <div className="w-12 h-12 flex-shrink-0">
+                                {/* Product Image - Clickable to enlarge */}
+                                <div 
+                                  className={`w-12 h-12 flex-shrink-0 ${productImageUrl ? 'cursor-pointer' : ''}`}
+                                  onClick={() => {
+                                    if (productImageUrl) {
+                                      const displayName = catalogueLanguage === 'hi' && item.product_name_hi 
+                                        ? item.product_name_hi 
+                                        : catalogueLanguage === 'mr' && item.product_name_mr 
+                                          ? item.product_name_mr 
+                                          : item.product_name;
+                                      setEnlargedImage({ url: productImageUrl, name: displayName });
+                                    }
+                                  }}
+                                >
                                   {productImageUrl ? (
                                     <img
                                       src={productImageUrl}
                                       alt={item.product_name}
-                                      className="w-12 h-12 object-cover rounded border"
+                                      className="w-12 h-12 object-cover rounded border hover:opacity-80 transition-opacity"
                                       onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                                     />
                                   ) : null}
@@ -2564,9 +2576,9 @@ export default function RetailerDashboard() {
               </div>
             )}
 
-            {/* Fixed View Cart Button at Bottom Center - Always Visible */}
+            {/* Fixed View Cart Button at Bottom Center - Moved higher to avoid Emergent badge */}
             {cartItemCount > 0 && (
-              <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-30">
+              <div className="fixed bottom-20 sm:bottom-6 left-1/2 transform -translate-x-1/2 z-30">
                 <Button
                   onClick={() => setShowCart(true)}
                   className="bg-[#14532D] hover:bg-[#166534] shadow-xl px-8 py-4 rounded-full text-base font-semibold"

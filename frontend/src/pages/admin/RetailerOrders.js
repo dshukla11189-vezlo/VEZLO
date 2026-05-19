@@ -18,7 +18,7 @@ import {
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -1047,6 +1047,188 @@ export default function RetailerOrders() {
     XLSX.writeFile(wb, `retailer_indents_${exportDate}.xlsx`);
     
     toast.success(`Exported ${productVariants.length} products × ${retailers.length} retailers`);
+  };
+
+  // Print Indents - Opens print dialog with formatted table
+  const printIndents = () => {
+    if (!filteredIndents || filteredIndents.length === 0) {
+      toast.error('No indents to print');
+      return;
+    }
+
+    // Get unique retailers and products from filtered indents
+    const retailerMap = new Map();
+    const productVariantSet = new Set();
+    const quantityMap = new Map();
+
+    filteredIndents.forEach(indent => {
+      const retailerId = indent.retailer_id;
+      const retailerName = getRetailerNameById(retailerId) || indent.retailer_name || 'Unknown';
+      retailerMap.set(retailerId, retailerName);
+
+      indent.items?.forEach(item => {
+        const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
+        productVariantSet.add(productKey);
+        
+        const qtyKey = `${productKey}|${retailerId}`;
+        const existingQty = quantityMap.get(qtyKey) || 0;
+        quantityMap.set(qtyKey, existingQty + item.quantity);
+      });
+    });
+
+    const retailers = Array.from(retailerMap.entries());
+    const productVariants = Array.from(productVariantSet).sort();
+
+    const formattedDate = filteredIndents[0]?.indent_date 
+      ? formatDate(filteredIndents[0].indent_date)
+      : formatDate(new Date().toISOString());
+
+    // Build HTML content for printing
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Retailer Indents - ${formattedDate}</title>
+        <style>
+          @media print {
+            @page { size: landscape; margin: 10mm; }
+          }
+          body { 
+            font-family: Arial, sans-serif; 
+            font-size: 11px; 
+            margin: 0; 
+            padding: 10px;
+          }
+          h1 { 
+            text-align: center; 
+            font-size: 16px; 
+            margin-bottom: 5px;
+            color: #14532D;
+          }
+          .summary { 
+            text-align: center; 
+            font-size: 12px; 
+            margin-bottom: 15px;
+            color: #666;
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            font-size: 10px;
+          }
+          th, td { 
+            border: 1px solid #ddd; 
+            padding: 4px 6px; 
+            text-align: center;
+          }
+          th { 
+            background-color: #14532D; 
+            color: white; 
+            font-weight: bold;
+            font-size: 9px;
+          }
+          td.product-name { 
+            text-align: left; 
+            font-weight: 500;
+          }
+          td.variant { 
+            text-align: left; 
+            color: #666;
+          }
+          tr:nth-child(even) { background-color: #f9f9f9; }
+          tr:hover { background-color: #f0f0f0; }
+          .total-col { 
+            background-color: #e8f5e9 !important; 
+            font-weight: bold;
+            color: #14532D;
+          }
+          .total-row { 
+            background-color: #14532D !important; 
+            color: white;
+            font-weight: bold;
+          }
+          .total-row td { 
+            color: white;
+            font-weight: bold;
+          }
+          .sr-no { width: 40px; }
+          .qty-cell { min-width: 50px; }
+        </style>
+      </head>
+      <body>
+        <h1>Retailer Indents - ${formattedDate}</h1>
+        <div class="summary">Total Products: ${productVariants.length} | Total Retailers: ${retailers.length}</div>
+        <table>
+          <thead>
+            <tr>
+              <th class="sr-no">Sr No</th>
+              <th>Product</th>
+              <th>Variant</th>
+              ${retailers.map(([_, name]) => `<th class="qty-cell">${name}</th>`).join('')}
+              <th class="total-col">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    // Data rows
+    productVariants.forEach((productKey, index) => {
+      const [productName, variantName] = productKey.split('|');
+      let rowTotal = 0;
+      
+      htmlContent += `<tr>`;
+      htmlContent += `<td>${index + 1}</td>`;
+      htmlContent += `<td class="product-name">${productName}</td>`;
+      htmlContent += `<td class="variant">${variantName}</td>`;
+      
+      retailers.forEach(([retailerId, _]) => {
+        const qtyKey = `${productKey}|${retailerId}`;
+        const qty = quantityMap.get(qtyKey) || 0;
+        rowTotal += qty;
+        htmlContent += `<td class="qty-cell">${qty || ''}</td>`;
+      });
+      
+      htmlContent += `<td class="total-col">${rowTotal}</td>`;
+      htmlContent += `</tr>`;
+    });
+
+    // Totals row
+    let grandTotal = 0;
+    htmlContent += `<tr class="total-row">`;
+    htmlContent += `<td></td>`;
+    htmlContent += `<td>TOTAL</td>`;
+    htmlContent += `<td></td>`;
+    
+    retailers.forEach(([retailerId, _]) => {
+      let totalQty = 0;
+      productVariants.forEach(productKey => {
+        const qtyKey = `${productKey}|${retailerId}`;
+        totalQty += quantityMap.get(qtyKey) || 0;
+      });
+      grandTotal += totalQty;
+      htmlContent += `<td>${totalQty}</td>`;
+    });
+    
+    htmlContent += `<td class="total-col" style="background-color: #0d3320 !important;">${grandTotal}</td>`;
+    htmlContent += `</tr>`;
+
+    htmlContent += `
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Trigger print after content loads
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
   };
 
   const exportDispatches = () => {
@@ -4982,6 +5164,9 @@ export default function RetailerOrders() {
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
                   <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
+                <Button size="sm" variant="outline" onClick={printIndents} title="Print">
+                  <Printer size={14} className="mr-1" /> Print
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50">
                   <Zap size={14} className="mr-1" /> Auto Indent

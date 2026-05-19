@@ -1623,6 +1623,7 @@ async def delete_farmer(farmer_id: str, current_user: dict = Depends(get_current
 async def get_procurements(
     from_date: str = None,
     to_date: str = None,
+    limit: int = 200,
     current_user: dict = Depends(get_current_user)
 ):
     if current_user["role"] not in ["admin", "staff"]:
@@ -1641,7 +1642,7 @@ async def get_procurements(
             date_filter["$lte"] = to_date + "T23:59:59" if 'T' not in to_date else to_date
         query["date"] = date_filter
     
-    procurements = await db.procurements.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    procurements = await db.procurements.find(query, {"_id": 0}).sort("date", -1).to_list(limit)
     for p in procurements:
         if isinstance(p['date'], str):
             p['date'] = datetime.fromisoformat(p['date'].replace('Z', '+00:00'))
@@ -2542,11 +2543,25 @@ async def delete_procurement_template(template_id: str, current_user: dict = Dep
 # SECTION: QC ORDERS ROUTES (Lines ~592-650)
 # ============================================================================
 @api_router.get("/qc-orders", response_model=List[QCOrder])
-async def get_qc_orders(current_user: dict = Depends(get_current_user)):
+async def get_qc_orders(
+    from_date: str = None,
+    to_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    orders = await db.qc_orders.find({}, {"_id": 0}).sort("order_date", -1).to_list(1000)
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            date_filter["$gte"] = from_date
+        if to_date:
+            date_filter["$lte"] = to_date + "T23:59:59"
+        query["order_date"] = date_filter
+    
+    orders = await db.qc_orders.find(query, {"_id": 0}).sort("order_date", -1).to_list(limit)
     for o in orders:
         if isinstance(o['order_date'], str):
             o['order_date'] = datetime.fromisoformat(o['order_date'])
@@ -2706,11 +2721,25 @@ async def delete_customer_product_setting(setting_id: str, current_user: dict = 
 # SECTION: QC INDENT ROUTES (Lines ~770-825)
 # ============================================================================
 @api_router.get("/qc-indents")
-async def get_qc_indents(current_user: dict = Depends(get_current_user)):
+async def get_qc_indents(
+    from_date: str = None,
+    to_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    indents = await db.qc_indents.find({}, {"_id": 0}).sort("indent_date", -1).to_list(1000)
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            date_filter["$gte"] = from_date
+        if to_date:
+            date_filter["$lte"] = to_date + "T23:59:59"
+        query["indent_date"] = date_filter
+    
+    indents = await db.qc_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(limit)
     for i in indents:
         if isinstance(i.get('indent_date'), str):
             i['indent_date'] = datetime.fromisoformat(i['indent_date'])
@@ -2946,11 +2975,25 @@ async def create_qc_indent_from_ocr(
 # SECTION: QC DISPATCH ROUTES (Lines ~825-1000)
 # ============================================================================
 @api_router.get("/qc-dispatches")
-async def get_qc_dispatches(current_user: dict = Depends(get_current_user)):
+async def get_qc_dispatches(
+    from_date: str = None,
+    to_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    dispatches = await db.qc_dispatches.find({}, {"_id": 0}).sort("dispatch_date", -1).to_list(1000)
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            date_filter["$gte"] = from_date
+        if to_date:
+            date_filter["$lte"] = to_date + "T23:59:59"
+        query["dispatch_date"] = date_filter
+    
+    dispatches = await db.qc_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(limit)
     for d in dispatches:
         if isinstance(d.get('dispatch_date'), str):
             d['dispatch_date'] = datetime.fromisoformat(d['dispatch_date'])
@@ -4667,11 +4710,25 @@ async def create_rejection(input: RejectionCreate, current_user: dict = Depends(
 # SECTION: WASTAGE ROUTES (Lines ~1684-1720)
 # ============================================================================
 @api_router.get("/wastage", response_model=List[Wastage])
-async def get_wastage(current_user: dict = Depends(get_current_user)):
+async def get_wastage(
+    from_date: str = None,
+    to_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    wastages = await db.wastage.find({}, {"_id": 0}).sort("date", -1).to_list(1000)
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            date_filter["$gte"] = from_date
+        if to_date:
+            date_filter["$lte"] = to_date + "T23:59:59"
+        query["date"] = date_filter
+    
+    wastages = await db.wastage.find(query, {"_id": 0}).sort("date", -1).to_list(limit)
     for w in wastages:
         if isinstance(w['date'], str):
             w['date'] = datetime.fromisoformat(w['date'])
@@ -9984,6 +10041,9 @@ async def create_retailer_grn(input: RetailerGRNCreate, current_user: dict = Dep
 @api_router.get("/retailer-rejections")
 async def get_retailer_rejections(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 500,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -9992,7 +10052,16 @@ async def get_retailer_rejections(
     elif retailer_id:
         query["retailer_id"] = retailer_id
     
-    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", -1).to_list(1000)
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["rejection_date"] = date_query
+    
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", -1).to_list(limit)
     return rejections
 
 @api_router.post("/retailer-rejections")
@@ -10193,6 +10262,9 @@ async def update_retailer_rejection(rejection_id: str, rejection: RetailerReject
 @api_router.get("/retailer-payments")
 async def get_retailer_payments(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 500,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -10201,7 +10273,16 @@ async def get_retailer_payments(
     elif retailer_id:
         query["retailer_id"] = retailer_id
     
-    payments = await db.retailer_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["payment_date"] = date_query
+    
+    payments = await db.retailer_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(limit)
     return payments
 
 @api_router.post("/retailer-payments")
@@ -10406,6 +10487,9 @@ async def get_retailer_payments_detailed(retailer_id: str, current_user: dict = 
 @api_router.get("/retailer-invoices")
 async def get_retailer_invoices(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 200,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -10414,7 +10498,16 @@ async def get_retailer_invoices(
     elif retailer_id:
         query["retailer_id"] = retailer_id
     
-    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(1000)
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["invoice_date"] = date_query
+    
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(limit)
     
     # Enrich invoices with rejection data if not already present
     # This handles older invoices that don't have rejection_amount or rejected_qty in items
@@ -14050,6 +14143,19 @@ async def startup_event():
             
             # Rejections
             await db.rejections.create_index("date")
+            
+            # Retailer rejections
+            await db.retailer_rejections.create_index("rejection_date")
+            await db.retailer_rejections.create_index("retailer_id")
+            await db.retailer_rejections.create_index([("rejection_date", -1), ("retailer_id", 1)])
+            
+            # Retailer payments
+            await db.retailer_payments.create_index("payment_date")
+            await db.retailer_payments.create_index("retailer_id")
+            await db.retailer_payments.create_index([("payment_date", -1), ("retailer_id", 1)])
+            
+            # QC Orders
+            await db.qc_orders.create_index("order_date")
             
             logger.info("Database indexes created successfully")
         except Exception as idx_error:

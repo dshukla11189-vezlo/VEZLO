@@ -100,6 +100,7 @@ export default function RetailerDashboard() {
   const [cart, setCart] = useState({}); // {productId_variantId: {product, variant, quantity}}
   const [showCart, setShowCart] = useState(false);
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({}); // Categories collapsed by default
+  const [mrpData, setMrpData] = useState({}); // MRP lookup: "productId_variantId" -> { mrp, date }
   
   // Catalogue language preference (stored in localStorage)
   const [catalogueLanguage, setCatalogueLanguage] = useState(() => {
@@ -110,6 +111,12 @@ export default function RetailerDashboard() {
   const changeCatalogueLanguage = (lang) => {
     setCatalogueLanguage(lang);
     localStorage.setItem('retailerCatalogueLanguage', lang);
+  };
+  
+  // Get MRP for a product-variant combination
+  const getMrp = (productId, variantId) => {
+    const key = `${productId}_${variantId}`;
+    return mrpData[key]?.mrp || 0;
   };
   
   // Image enlargement state
@@ -194,7 +201,7 @@ export default function RetailerDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes, catalogueRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes, catalogueRes, mrpRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
@@ -206,7 +213,8 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-payments'),
         api.get('/api/product-types'),
         api.get('/api/retailer-immediately-payable'),
-        api.get('/api/retailer-catalogue')
+        api.get('/api/retailer-catalogue'),
+        api.get('/api/retailer-catalogue/mrp')
       ]);
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
@@ -220,6 +228,8 @@ export default function RetailerDashboard() {
       setImmediatelyPayable(payableRes.data || null);
       // Filter catalogue to only show items with show_on_portal: true
       setCatalogue((catalogueRes.data || []).filter(item => item.show_on_portal !== false));
+      // Set MRP data
+      setMrpData(mrpRes.data?.mrp_data || {});
       
       // Build a map of dispatch_id -> GRN confirmed status
       const grnMap = {};
@@ -2409,6 +2419,14 @@ export default function RetailerDashboard() {
               </div>
             </div>
 
+            {/* Warning Message about tentative MRP */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-2">
+              <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">
+                <span className="font-medium">Note:</span> MRP shown is tentative. The actual rate and total amount may vary depending upon tomorrow's rates.
+              </p>
+            </div>
+
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
@@ -2527,35 +2545,47 @@ export default function RetailerDashboard() {
                                     {(item.variants || []).map(variantId => {
                                       const variantName = getVariantName(variantId);
                                       const cartItem = getCartItem(item.product_id, variantId);
+                                      const mrp = getMrp(item.product_id, variantId);
+                                      const totalValue = cartItem ? mrp * cartItem.quantity : 0;
                                       
                                       return (
                                         <div key={variantId} className="flex items-center gap-1">
                                           {cartItem ? (
-                                            // Quantity controls
-                                            <div className="flex items-center bg-green-100 rounded-full">
-                                              <button
-                                                onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, -1)}
-                                                className="w-7 h-7 rounded-full bg-white border border-green-300 flex items-center justify-center text-green-600 hover:bg-green-50"
-                                              >
-                                                <Minus size={14} />
-                                              </button>
-                                              <span className="px-3 font-semibold text-green-800 min-w-[32px] text-center">
-                                                {cartItem.quantity}
-                                              </span>
-                                              <button
-                                                onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, 1)}
-                                                className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
-                                              >
-                                                <Plus size={14} />
-                                              </button>
+                                            // Quantity controls with MRP
+                                            <div className="flex items-center gap-2">
+                                              <div className="flex items-center bg-green-100 rounded-full">
+                                                <button
+                                                  onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, -1)}
+                                                  className="w-7 h-7 rounded-full bg-white border border-green-300 flex items-center justify-center text-green-600 hover:bg-green-50"
+                                                >
+                                                  <Minus size={14} />
+                                                </button>
+                                                <span className="px-3 font-semibold text-green-800 min-w-[32px] text-center">
+                                                  {cartItem.quantity}
+                                                </span>
+                                                <button
+                                                  onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, 1)}
+                                                  className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
+                                                >
+                                                  <Plus size={14} />
+                                                </button>
+                                              </div>
+                                              {mrp > 0 && (
+                                                <span className="text-xs text-green-700 font-medium">
+                                                  ₹{totalValue.toFixed(0)}
+                                                </span>
+                                              )}
                                             </div>
                                           ) : (
-                                            // Add button
+                                            // Add button with MRP
                                             <button
                                               onClick={() => addToCart(item, variantId, variantName)}
                                               className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-full hover:border-green-500 hover:bg-green-50 transition-colors"
                                             >
                                               <span className="text-gray-700">{variantName}</span>
+                                              {mrp > 0 && (
+                                                <span className="text-gray-500 text-xs">₹{mrp}</span>
+                                              )}
                                               <Plus size={14} className="text-green-600" />
                                             </button>
                                           )}
@@ -2621,6 +2651,10 @@ export default function RetailerDashboard() {
                       ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
                       : item.image_url;
                     
+                    // Get MRP for this item
+                    const mrp = getMrp(item.product_id, item.variant_id);
+                    const itemTotal = mrp * item.quantity;
+                    
                     return (
                     <div key={key} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       {/* Product Image */}
@@ -2647,30 +2681,40 @@ export default function RetailerDashboard() {
                               ? item.product_name_mr 
                               : item.product_name}
                         </p>
-                        <p className="text-xs text-gray-500">{item.variant_name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-gray-500">{item.variant_name}</p>
+                          {mrp > 0 && (
+                            <span className="text-xs text-green-600 font-medium">₹{mrp}/unit</span>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Quantity Controls */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => updateCartQuantity(key, -1)}
-                          className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-100"
-                        >
-                          <Minus size={14} />
-                        </button>
-                        <span className="w-8 text-center font-semibold">{item.quantity}</span>
-                        <button
-                          onClick={() => updateCartQuantity(key, 1)}
-                          className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
-                        >
-                          <Plus size={14} />
-                        </button>
-                        <button
-                          onClick={() => removeFromCart(key)}
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                      {/* Quantity Controls and Value */}
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateCartQuantity(key, -1)}
+                            className="w-7 h-7 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-100"
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <span className="w-6 text-center font-semibold text-sm">{item.quantity}</span>
+                          <button
+                            onClick={() => updateCartQuantity(key, 1)}
+                            className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
+                          >
+                            <Plus size={12} />
+                          </button>
+                          <button
+                            onClick={() => removeFromCart(key)}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-red-500 hover:bg-red-50"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        {mrp > 0 && (
+                          <span className="text-sm font-semibold text-gray-800">₹{itemTotal.toFixed(0)}</span>
+                        )}
                       </div>
                     </div>
                   );
@@ -2684,6 +2728,20 @@ export default function RetailerDashboard() {
                   <span className="text-gray-600">Total Items</span>
                   <span className="font-semibold">{cartItemCount}</span>
                 </div>
+                {/* Calculate total estimated value */}
+                {(() => {
+                  const totalValue = Object.values(cart).reduce((sum, item) => {
+                    const mrp = getMrp(item.product_id, item.variant_id);
+                    return sum + (mrp * item.quantity);
+                  }, 0);
+                  
+                  return totalValue > 0 ? (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Estimated Total</span>
+                      <span className="font-semibold text-[#14532D]">₹{totalValue.toFixed(0)}</span>
+                    </div>
+                  ) : null;
+                })()}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Delivery Date</span>
                   <span className="font-semibold">
@@ -2693,6 +2751,10 @@ export default function RetailerDashboard() {
                     }
                   </span>
                 </div>
+                {/* Warning about tentative rates */}
+                <p className="text-xs text-amber-600 text-center">
+                  * MRP shown is tentative. Actual rates may vary.
+                </p>
                 <Button
                   onClick={editingIndentId ? updateCartAsIndent : submitCartAsIndent}
                   disabled={savingIndent || cartItemCount === 0}

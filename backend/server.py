@@ -13554,6 +13554,58 @@ async def get_retailer_catalogue(current_user: dict = Depends(get_current_user))
     
     return items
 
+@api_router.get("/retailer-catalogue/mrp")
+async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_user)):
+    """Get MRP data for retailer catalogue products - checks today first, then yesterday"""
+    from datetime import timedelta
+    
+    # Get today and yesterday dates
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Fetch today's MRP entries
+    today_mrp = await db.daily_mrp.find({"date": today}, {"_id": 0}).to_list(1000)
+    yesterday_mrp = await db.daily_mrp.find({"date": yesterday}, {"_id": 0}).to_list(1000)
+    
+    # Build MRP lookup: key = "product_id_variant_id" -> mrp
+    mrp_lookup = {}
+    
+    # First, add yesterday's MRP (will be overwritten by today's if exists)
+    for entry in yesterday_mrp:
+        product_id = entry.get("product_id", "")
+        variant_id = entry.get("variant_id", "")
+        mrp = entry.get("mrp", 0)
+        if product_id and variant_id and mrp and mrp > 0:
+            key = f"{product_id}_{variant_id}"
+            mrp_lookup[key] = {
+                "mrp": mrp,
+                "date": yesterday,
+                "product_name": entry.get("product_name", ""),
+                "variant_name": entry.get("variant_name", "")
+            }
+    
+    # Then, add/overwrite with today's MRP
+    for entry in today_mrp:
+        product_id = entry.get("product_id", "")
+        variant_id = entry.get("variant_id", "")
+        mrp = entry.get("mrp", 0)
+        if product_id and variant_id and mrp and mrp > 0:
+            key = f"{product_id}_{variant_id}"
+            mrp_lookup[key] = {
+                "mrp": mrp,
+                "date": today,
+                "product_name": entry.get("product_name", ""),
+                "variant_name": entry.get("variant_name", "")
+            }
+    
+    return {
+        "mrp_data": mrp_lookup,
+        "today": today,
+        "yesterday": yesterday,
+        "today_count": len([e for e in today_mrp if e.get("mrp", 0) > 0]),
+        "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0])
+    }
+
 @api_router.post("/retailer-catalogue")
 async def add_catalogue_item(
     input: dict,

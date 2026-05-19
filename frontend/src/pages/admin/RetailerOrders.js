@@ -986,11 +986,12 @@ export default function RetailerOrders() {
         csvContent += `"--- Page ${pageIndex + 1} (Retailers ${pageIndex * RETAILERS_PER_PAGE + 1}-${Math.min((pageIndex + 1) * RETAILERS_PER_PAGE, retailers.length)}) ---"\n\n`;
       }
 
-      // Header row: Sr No, Product, Variant, Retailer1, Retailer2, ...
+      // Header row: Sr No, Product, Variant, Retailer1, Retailer2, ..., Total
       const headers = ['Sr No', 'Product', 'Variant'];
       retailerChunk.forEach(([_, retailerName]) => {
         headers.push(retailerName);
       });
+      headers.push('Total'); // Add Total column header
       csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
 
       // Data rows
@@ -1002,18 +1003,22 @@ export default function RetailerOrders() {
           variantName
         ];
 
-        // Add quantity for each retailer in this chunk
+        // Add quantity for each retailer in this chunk and calculate row total
+        let rowTotal = 0;
         retailerChunk.forEach(([retailerId, _]) => {
           const qtyKey = `${productKey}|${retailerId}`;
-          const qty = quantityMap.get(qtyKey) || '';
-          row.push(qty);
+          const qty = quantityMap.get(qtyKey) || 0;
+          row.push(qty || '');
+          rowTotal += qty;
         });
+        row.push(rowTotal); // Add horizontal total for this product
 
         csvContent += row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
       });
 
-      // Add totals row
+      // Add totals row (vertical totals per retailer)
       const totalsRow = ['', 'TOTAL', ''];
+      let grandTotal = 0;
       retailerChunk.forEach(([retailerId, _]) => {
         let totalQty = 0;
         productVariants.forEach(productKey => {
@@ -1021,7 +1026,9 @@ export default function RetailerOrders() {
           totalQty += quantityMap.get(qtyKey) || 0;
         });
         totalsRow.push(totalQty);
+        grandTotal += totalQty;
       });
+      totalsRow.push(grandTotal); // Grand total (sum of all)
       csvContent += totalsRow.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
     });
 

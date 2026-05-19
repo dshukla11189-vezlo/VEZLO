@@ -232,6 +232,7 @@ export default function RetailerOrders() {
   // Immediately Payable state (5-day credit)
   const [immediatelyPayable, setImmediatelyPayable] = useState(null);
   const [loadingImmediatelyPayable, setLoadingImmediatelyPayable] = useState(false);
+  const [expandedPayableSection, setExpandedPayableSection] = useState(null); // 'upfront', 'credit', 'overdue'
   const [unpaidInvoices, setUnpaidInvoices] = useState([]);
   const [selectedInvoicesForSummary, setSelectedInvoicesForSummary] = useState({});
   const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
@@ -3855,30 +3856,118 @@ export default function RetailerOrders() {
               </p>
             </div>
             
-            {/* Summary Row */}
-            <div className="grid grid-cols-4 gap-3 mb-3">
-              <div className="bg-white/80 rounded p-2 border border-green-100">
-                <p className="text-xs text-gray-500">50% Upfront (Today)</p>
-                <p className="text-sm font-bold text-green-600">{formatCurrency(immediatelyPayable.grand_totals.today_50_percent)}</p>
+            {/* Clickable Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+              {/* 50% Upfront Card - Combined today + pending */}
+              <div 
+                className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
+                  expandedPayableSection === 'upfront' ? 'border-green-500 ring-2 ring-green-200' : 'border-green-100'
+                }`}
+                onClick={() => setExpandedPayableSection(expandedPayableSection === 'upfront' ? null : 'upfront')}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs text-gray-500">50% Upfront</p>
+                    <p className="text-sm font-bold text-green-600">
+                      {formatCurrency((immediatelyPayable.grand_totals.today_50_percent || 0) + (immediatelyPayable.grand_totals.pending_50_recent || 0))}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Today: {formatCurrency(immediatelyPayable.grand_totals.today_50_percent || 0)} + 
+                      Pending: {formatCurrency(immediatelyPayable.grand_totals.pending_50_recent || 0)}
+                    </p>
+                  </div>
+                  <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'upfront' ? 'rotate-180' : ''}`} />
+                </div>
               </div>
-              <div className="bg-white/80 rounded p-2 border border-orange-100">
-                <p className="text-xs text-gray-500">Pending 50% (1-4 days)</p>
-                <p className="text-sm font-bold text-orange-500">{formatCurrency(immediatelyPayable.grand_totals.pending_50_recent || 0)}</p>
+              
+              {/* 5-Day Credit Due Card */}
+              <div 
+                className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
+                  expandedPayableSection === 'credit' ? 'border-yellow-500 ring-2 ring-yellow-200' : 'border-yellow-100'
+                }`}
+                onClick={() => setExpandedPayableSection(expandedPayableSection === 'credit' ? null : 'credit')}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs text-gray-500">5-Day Credit Due</p>
+                    <p className="text-sm font-bold text-yellow-600">{formatCurrency(immediatelyPayable.grand_totals.due_today_remaining)}</p>
+                  </div>
+                  <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'credit' ? 'rotate-180' : ''}`} />
+                </div>
               </div>
-              <div className="bg-white/80 rounded p-2 border border-yellow-100">
-                <p className="text-xs text-gray-500">5-Day Credit Due</p>
-                <p className="text-sm font-bold text-yellow-600">{formatCurrency(immediatelyPayable.grand_totals.due_today_remaining)}</p>
-              </div>
-              <div className="bg-white/80 rounded p-2 border border-red-200">
-                <p className="text-xs text-gray-500">Overdue (&gt;5 days)</p>
-                <p className="text-sm font-bold text-red-700">{formatCurrency(immediatelyPayable.grand_totals.overdue)}</p>
+              
+              {/* Overdue Card */}
+              <div 
+                className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
+                  expandedPayableSection === 'overdue' ? 'border-red-500 ring-2 ring-red-200' : 'border-red-200'
+                }`}
+                onClick={() => setExpandedPayableSection(expandedPayableSection === 'overdue' ? null : 'overdue')}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs text-gray-500">Overdue (&gt;5 days)</p>
+                    <p className="text-sm font-bold text-red-700">{formatCurrency(immediatelyPayable.grand_totals.overdue)}</p>
+                  </div>
+                  <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'overdue' ? 'rotate-180' : ''}`} />
+                </div>
               </div>
             </div>
             
-            {/* Retailer-wise breakdown */}
-            {immediatelyPayable.retailers && immediatelyPayable.retailers.length > 0 && (
+            {/* Expandable Detailed Breakdown */}
+            {expandedPayableSection && immediatelyPayable.detailed_entries && (
+              <div className="bg-white rounded-lg border p-3 mb-3 max-h-64 overflow-y-auto">
+                <p className="text-xs font-semibold text-gray-600 mb-2">
+                  {expandedPayableSection === 'upfront' && '50% Upfront Breakdown (Date-wise)'}
+                  {expandedPayableSection === 'credit' && '5-Day Credit Due Breakdown'}
+                  {expandedPayableSection === 'overdue' && 'Overdue Breakdown'}
+                </p>
+                <div className="space-y-1">
+                  {expandedPayableSection === 'upfront' && immediatelyPayable.detailed_entries.upfront?.map((entry, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-gray-50">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-1.5 py-0.5 rounded text-white text-[10px] ${entry.type === 'today' ? 'bg-green-500' : 'bg-orange-400'}`}>
+                          {entry.type === 'today' ? 'Today' : `${entry.days_since}d ago`}
+                        </span>
+                        <span className="text-gray-700 font-medium">{entry.retailer_name}</span>
+                        <span className="text-gray-400">({new Date(entry.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})})</span>
+                      </div>
+                      <span className="font-bold text-green-600">{formatCurrency(entry.amount)}</span>
+                    </div>
+                  ))}
+                  {expandedPayableSection === 'credit' && immediatelyPayable.detailed_entries.credit_due?.map((entry, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-gray-50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-700 font-medium">{entry.retailer_name}</span>
+                        <span className="text-gray-400">({new Date(entry.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})})</span>
+                      </div>
+                      <span className="font-bold text-yellow-600">{formatCurrency(entry.amount)}</span>
+                    </div>
+                  ))}
+                  {expandedPayableSection === 'overdue' && immediatelyPayable.detailed_entries.overdue?.map((entry, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-gray-50">
+                      <div className="flex items-center gap-2">
+                        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">
+                          +{entry.overdue_days}d
+                        </span>
+                        <span className="text-gray-700 font-medium">{entry.retailer_name}</span>
+                        <span className="text-gray-400">({new Date(entry.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})})</span>
+                      </div>
+                      <span className="font-bold text-red-600">{formatCurrency(entry.amount)}</span>
+                    </div>
+                  ))}
+                  {((expandedPayableSection === 'upfront' && (!immediatelyPayable.detailed_entries.upfront || immediatelyPayable.detailed_entries.upfront.length === 0)) ||
+                    (expandedPayableSection === 'credit' && (!immediatelyPayable.detailed_entries.credit_due || immediatelyPayable.detailed_entries.credit_due.length === 0)) ||
+                    (expandedPayableSection === 'overdue' && (!immediatelyPayable.detailed_entries.overdue || immediatelyPayable.detailed_entries.overdue.length === 0))) && (
+                    <p className="text-xs text-gray-400 text-center py-2">No entries in this category</p>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Retailer-wise breakdown (collapsed summary) */}
+            {!expandedPayableSection && immediatelyPayable.retailers && immediatelyPayable.retailers.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs font-medium text-gray-600">By Retailer:</p>
+                <p className="text-xs font-medium text-gray-600">By Outlet:</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-32 overflow-y-auto">
                   {immediatelyPayable.retailers.slice(0, 6).map((r, idx) => (
                     <div key={idx} className="flex justify-between items-center bg-white rounded px-2 py-1 text-xs border">

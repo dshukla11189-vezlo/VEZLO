@@ -13399,16 +13399,22 @@ async def get_all_retailers_immediately_payable(
             rejection_map[key] = 0
         rejection_map[key] += (rej.get("rejection_value", 0) or 0)
     
-    # Group by retailer
+    # Group by retailer AND collect detailed entries for expandable breakdown
     retailer_payables = {}
+    detailed_entries = {
+        "upfront": [],      # Today's 50% + pending 50% from 1-4 days
+        "credit_due": [],   # 5-day credit due
+        "overdue": []       # Overdue > 5 days
+    }
     
     for inv in invoices:
         retailer_id = inv.get("retailer_id")
         if not retailer_id:
             continue
             
+        shop_name = retailer_map.get(retailer_id) or inv.get("retailer_name", "Unknown")
+        
         if retailer_id not in retailer_payables:
-            shop_name = retailer_map.get(retailer_id) or inv.get("retailer_name", "Unknown")
             retailer_payables[retailer_id] = {
                 "retailer_id": retailer_id,
                 "retailer_name": shop_name,
@@ -13455,18 +13461,43 @@ async def get_all_retailers_immediately_payable(
         
         retailer_payables[retailer_id]["invoice_count"] += 1
         
+        # Create entry for detailed breakdown
+        entry = {
+            "retailer_id": retailer_id,
+            "retailer_name": shop_name,
+            "invoice_date": inv_date_str,
+            "invoice_number": inv.get("invoice_number", "N/A"),
+            "days_since": days_since
+        }
+        
         if days_since == 0:
             due = min(fifty_percent, pending_amount)
             retailer_payables[retailer_id]["today_50_percent"] += due
+            entry["amount"] = round(due, 2)
+            entry["type"] = "today"
+            detailed_entries["upfront"].append(entry)
         elif days_since >= 1 and days_since <= 4:
             # Check if 50% upfront was paid
             unpaid_50_percent = max(0, fifty_percent - paid_amount)
             if unpaid_50_percent > 0:
                 retailer_payables[retailer_id]["pending_50_recent"] += unpaid_50_percent
+                entry["amount"] = round(unpaid_50_percent, 2)
+                entry["type"] = "pending"
+                detailed_entries["upfront"].append(entry)
         elif days_since == 5:
             retailer_payables[retailer_id]["due_today_remaining"] += pending_amount
+            entry["amount"] = round(pending_amount, 2)
+            detailed_entries["credit_due"].append(entry)
         elif days_since > 5:
             retailer_payables[retailer_id]["overdue"] += pending_amount
+            entry["amount"] = round(pending_amount, 2)
+            entry["overdue_days"] = days_since - 5
+            detailed_entries["overdue"].append(entry)
+    
+    # Sort detailed entries by amount descending
+    detailed_entries["upfront"].sort(key=lambda x: x["amount"], reverse=True)
+    detailed_entries["credit_due"].sort(key=lambda x: x["amount"], reverse=True)
+    detailed_entries["overdue"].sort(key=lambda x: x.get("overdue_days", 0), reverse=True)
     
     # Calculate totals and sort
     result = []
@@ -13495,7 +13526,8 @@ async def get_all_retailers_immediately_payable(
     
     return {
         "retailers": result,
-        "grand_totals": grand_totals
+        "grand_totals": grand_totals,
+        "detailed_entries": detailed_entries
     }
 
 

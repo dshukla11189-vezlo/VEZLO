@@ -4717,12 +4717,38 @@ export default function RetailerOrders() {
                         <div className="flex flex-wrap gap-4 text-sm">
                           <span className="font-semibold">{mrpIndentProducts.length} items from indents</span>
                           <span className="text-gray-500">|</span>
-                          <span className="text-green-600">{mrpData.length} with MRP saved</span>
+                          <span className="text-green-600">
+                            {mrpIndentProducts.filter(item => 
+                              mrpData.some(e => 
+                                e.product_id === item.productId && (
+                                  e.variant_id === (item.variantId || '') ||
+                                  (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                )
+                              )
+                            ).length} with MRP
+                          </span>
                           <span className="text-gray-500">|</span>
-                          <span className="text-orange-600">{mrpIndentProducts.length - mrpData.length} missing MRP</span>
+                          <span className="text-orange-600">
+                            {mrpIndentProducts.filter(item => 
+                              !mrpData.some(e => 
+                                e.product_id === item.productId && (
+                                  e.variant_id === (item.variantId || '') ||
+                                  (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                )
+                              )
+                            ).length} missing MRP
+                          </span>
                           <span className="text-gray-500">|</span>
                           <span className="text-red-600 font-medium">
-                            {mrpData.filter(e => !e.mrp || e.mrp === 0).length} with ₹0 MRP
+                            {mrpIndentProducts.filter(item => {
+                              const entry = mrpData.find(e => 
+                                e.product_id === item.productId && (
+                                  e.variant_id === (item.variantId || '') ||
+                                  (e.variant_name || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                )
+                              );
+                              return entry && (!entry.mrp || entry.mrp === 0);
+                            }).length} with ₹0 MRP
                           </span>
                         </div>
                         {canEditMrpForDate(dailyReqDate) && mrpHasUnsavedChanges && (
@@ -6870,7 +6896,8 @@ export default function RetailerOrders() {
                             ...prev,
                             items: prev.items.map(item => ({
                               ...item,
-                              supplied_qty: item.indent_qty  // Fill with indent qty
+                              supplied_qty: item.indent_qty,  // Fill with indent qty
+                              total_value: (item.indent_qty || 0) * (item.mrp || 0)  // Recalculate total
                             }))
                           }));
                         }}

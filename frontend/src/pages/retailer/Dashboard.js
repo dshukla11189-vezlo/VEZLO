@@ -1755,7 +1755,6 @@ export default function RetailerDashboard() {
 
   const menuItems = [
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
-    { id: 'placeorder', label: t('retailer.placeOrder') || 'Place Order', icon: ShoppingCart },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
     { id: 'closing', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
     { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
@@ -1838,40 +1837,7 @@ export default function RetailerDashboard() {
             </h1>
           </div>
 
-          {/* Yesterday's Closing Missing Banner */}
-          {yesterdayClosingMissing && showYesterdayBanner && (
-            <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-100 rounded-full">
-                  <AlertTriangle className="text-amber-600" size={20} />
-                </div>
-                <div>
-                  <p className="font-semibold text-amber-800">Yesterday's Closing Not Recorded</p>
-                  <p className="text-sm text-amber-700">
-                    You haven't recorded closing inventory for {new Date(yesterdayDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2 ml-auto">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowYesterdayBanner(false)}
-                  className="text-amber-700 border-amber-300 hover:bg-amber-100"
-                >
-                  Dismiss
-                </Button>
-                <Button 
-                  size="sm" 
-                  onClick={() => openRecordClosingModalForDate(yesterdayDate)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white"
-                >
-                  <ClipboardList size={16} className="mr-1" />
-                  Update Now
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Removed: Yesterday's Closing Missing Banner */}
 
         {/* ==================== DASHBOARD TAB ==================== */}
         {activeTab === 'dashboard' && (
@@ -2255,7 +2221,7 @@ export default function RetailerDashboard() {
             {/* Header with Cart Button */}
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-lg font-semibold text-gray-800">{t('retailer.placeOrder') || 'Place Order'}</h2>
+                <h2 className="text-lg font-semibold text-gray-800">Create Order</h2>
                 <p className="text-sm text-gray-500">
                   Order for: {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
                 </p>
@@ -2544,6 +2510,34 @@ export default function RetailerDashboard() {
         {/* ==================== ORDERS TAB ==================== */}
         {activeTab === 'orders' && (
           <div className="space-y-4">
+            {/* Create Order Card - Prominent at top */}
+            <Card className="border-[#14532D] bg-gradient-to-r from-green-50 to-emerald-50 shadow-md">
+              <CardContent className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-[#14532D] rounded-xl">
+                      <ShoppingCart size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-800 text-lg">Create New Order</h3>
+                      <p className="text-sm text-gray-600">
+                        Order for delivery on {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+                      </p>
+                    </div>
+                  </div>
+                  <Button 
+                    size="lg"
+                    className="bg-[#14532D] hover:bg-[#166534] px-6"
+                    onClick={() => setActiveTab('placeorder')}
+                    data-testid="create-order-btn"
+                  >
+                    <Plus size={18} className="mr-2" />
+                    Create Order
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Sub-tabs for Orders */}
             <div className="flex border-b justify-between items-center flex-wrap gap-1">
               <div className="flex flex-wrap">
@@ -2596,16 +2590,6 @@ export default function RetailerDashboard() {
                 )}
               </button>
               </div>
-              {/* Create Indent Button */}
-              <Button 
-                size="sm" 
-                className="bg-[#14532D] hover:bg-[#166534] mb-1 h-8 text-xs sm:text-sm px-2 sm:px-3"
-                onClick={() => openCreateIndentModal()}
-              >
-                <Plus size={14} className="mr-1" />
-                <span className="hidden sm:inline">Create Indent</span>
-                <span className="sm:hidden">New</span>
-              </Button>
             </div>
 
             {/* Orders Sub-tab */}
@@ -2677,59 +2661,107 @@ export default function RetailerDashboard() {
                                   </td>
                                 </tr>
                                 
-                                {/* Expanded Order Details */}
-                                {isExpanded && dateIndents.map((indent, iIdx) => (
-                                  <tr key={indent.id} className="border-b bg-white hover:bg-gray-50">
-                                    <td className="p-2 pl-6"></td>
-                                    <td colSpan={4} className="p-3">
-                                      <div className="space-y-2">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          {indent.created_by_retailer && (
-                                            <span className="inline-block px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded font-medium">
-                                              Generated by Retailer
-                                            </span>
-                                          )}
-                                          {indent.is_auto_generated && (
-                                            <span className="inline-block px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
-                                              Auto Generated
-                                            </span>
-                                          )}
-                                          {indent.status === 'pending' && canEditIndent(indent) && (
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              className="h-6 text-xs px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openCreateIndentModal(indent);
-                                              }}
-                                            >
-                                              <Edit2 size={12} className="mr-1" />
-                                              Edit
-                                            </Button>
-                                          )}
-                                        </div>
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                                          {indent.items?.map((item, idx) => (
-                                            <div key={idx} className="flex items-center gap-1 text-sm bg-gray-50 px-2 py-1 rounded">
-                                              <span className="text-gray-400 text-xs">{idx + 1}.</span>
-                                              <span className="font-medium">{getProductName(item)}</span>
-                                              {item.variant_name && item.variant_name !== 'Kg' && (
-                                                <span className="text-orange-600 text-[10px] bg-orange-50 px-1 rounded">{item.variant_name}</span>
+                                {/* Expanded Order Details - Each order as a collapsible card */}
+                                {isExpanded && dateIndents.map((indent) => {
+                                  // Generate short order ID from full ID
+                                  const shortOrderId = indent.id ? `#${indent.id.slice(-6).toUpperCase()}` : '#------';
+                                  const isOrderExpanded = expandedOrderDates[`order_${indent.id}`];
+                                  
+                                  return (
+                                    <tr key={indent.id} className="border-b bg-white">
+                                      <td className="p-2 pl-6"></td>
+                                      <td colSpan={4} className="p-2">
+                                        {/* Order Card */}
+                                        <div className="border rounded-lg bg-gray-50 overflow-hidden">
+                                          {/* Order Header - Always visible */}
+                                          <div 
+                                            className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setExpandedOrderDates(prev => ({ 
+                                                ...prev, 
+                                                [`order_${indent.id}`]: !prev[`order_${indent.id}`] 
+                                              }));
+                                            }}
+                                          >
+                                            <div className="flex items-center gap-3">
+                                              {isOrderExpanded ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+                                              <span className="font-mono text-sm font-semibold text-[#14532D]">{shortOrderId}</span>
+                                              {indent.created_by_retailer && (
+                                                <span className="inline-block px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded font-medium">
+                                                  By You
+                                                </span>
                                               )}
-                                              <span className="text-gray-500">×{item.quantity}</span>
+                                              {indent.is_auto_generated && (
+                                                <span className="inline-block px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
+                                                  Auto
+                                                </span>
+                                              )}
+                                              <span className="text-xs text-gray-500">
+                                                {indent.items?.length || 0} items
+                                              </span>
                                             </div>
-                                          ))}
-                                        </div>
-                                        {indent.remarks && (
-                                          <div className="text-xs text-gray-500 mt-1">
-                                            <span className="font-medium">Remarks:</span> {indent.remarks}
+                                            <div className="flex items-center gap-2">
+                                              {indent.status === 'pending' && canEditIndent(indent) && (
+                                                <>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 text-xs px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      openCreateIndentModal(indent);
+                                                    }}
+                                                    data-testid={`edit-order-${indent.id}`}
+                                                  >
+                                                    <Pencil size={12} className="mr-1" />
+                                                    Edit
+                                                  </Button>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 text-xs px-2 border-red-300 text-red-600 hover:bg-red-50"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleDeleteIndent(indent.id);
+                                                    }}
+                                                    data-testid={`delete-order-${indent.id}`}
+                                                  >
+                                                    <Trash2 size={12} className="mr-1" />
+                                                    Delete
+                                                  </Button>
+                                                </>
+                                              )}
+                                            </div>
                                           </div>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                ))}
+                                          
+                                          {/* Order Items - Expandable */}
+                                          {isOrderExpanded && (
+                                            <div className="border-t bg-white p-3">
+                                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                                {indent.items?.map((item, idx) => (
+                                                  <div key={idx} className="flex items-center gap-1 text-sm bg-gray-50 px-2 py-1.5 rounded border">
+                                                    <span className="text-gray-400 text-xs">{idx + 1}.</span>
+                                                    <span className="font-medium">{getProductName(item)}</span>
+                                                    {item.variant_name && item.variant_name !== 'Kg' && (
+                                                      <span className="text-orange-600 text-[10px] bg-orange-50 px-1 rounded">{item.variant_name}</span>
+                                                    )}
+                                                    <span className="text-gray-500 ml-auto">×{item.quantity}</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              {indent.remarks && (
+                                                <div className="text-xs text-gray-500 mt-2 pt-2 border-t">
+                                                  <span className="font-medium">Remarks:</span> {indent.remarks}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </React.Fragment>
                             );
                           })}

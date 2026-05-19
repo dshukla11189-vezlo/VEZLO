@@ -382,6 +382,16 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
 5. Updated Invoice phone number
 6. Fixed Wastage % consistency across dashboards
 
+### Completed (This Session - 20 May 2026)
+- **Retailer Portal "Create Order" Restructuring** ✅
+  - **Removed "Place Order" from hamburger menu** - Menu now shows: Home, My Orders, Closing, My Account
+  - **Added "Create New Order" card at top of My Orders tab** - Prominent green card with delivery date and "Create Order" button
+  - **Removed "Yesterday's Closing Not Recorded" banner** - Closing inventory feature cleaned up
+  - **Orders now show unique Order IDs** - Each order displays #XXXXXX format ID derived from MongoDB ObjectId
+  - **Single Edit/Delete per order** - Replaced multiple edit buttons per product with single Edit + Delete buttons per order
+  - **Expandable order details** - Orders are collapsible cards showing item details when expanded
+  - **Title changed from translation key to "Create Order"** - Fixed the "retailer.placeOrder" display issue
+
 ## Key API Endpoints
 - `GET /api/reports/pnl` - P&L with unified GRN Loss calculation
 - `GET /api/qc-grn/summary` - QC GRN Loss summary (uses shared helper)
@@ -398,6 +408,7 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
 ## Test Credentials
 - Admin: admin@freshflow.com / admin123
 - Retailer: tamannamart08@gmail.com / admin123
+- Retailer: bhaveshdewasi803@gmail.com / 12345
 - Staff: samrat@freshflow.com / admin123
 
 ## Refactoring Status
@@ -405,7 +416,9 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
 |------|---------------|---------------|--------|--------|
 | server.py | 12,207 | 14,685 | <8,000 | CRITICAL - Bloated |
 | RetailerOrders.js | 5,400+ | 8,101 | <2,000 | CRITICAL - Bloated |
+| Dashboard.js (Retailer) | 4,000+ | 4,292 | <2,000 | NEEDS REFACTOR |
 
 ## Active Modular Routes
 - `/app/backend/routes/labour.py` - Labour Management (ACTIVE)
 - `/app/backend/ocr_indent_processor.py` - OCR Indent Processing (ACTIVE)
+

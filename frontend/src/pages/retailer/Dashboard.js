@@ -99,7 +99,18 @@ export default function RetailerDashboard() {
   const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [cart, setCart] = useState({}); // {productId_variantId: {product, variant, quantity}}
   const [showCart, setShowCart] = useState(false);
-  const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({});
+  const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({}); // Categories collapsed by default
+  
+  // Catalogue language preference (stored in localStorage)
+  const [catalogueLanguage, setCatalogueLanguage] = useState(() => {
+    return localStorage.getItem('retailerCatalogueLanguage') || 'en';
+  });
+  
+  // Save catalogue language preference to localStorage
+  const changeCatalogueLanguage = (lang) => {
+    setCatalogueLanguage(lang);
+    localStorage.setItem('retailerCatalogueLanguage', lang);
+  };
   
   // Image enlargement state
   const [enlargedImage, setEnlargedImage] = useState(null);
@@ -2334,8 +2345,8 @@ export default function RetailerDashboard() {
         {/* ==================== PLACE ORDER TAB ==================== */}
         {activeTab === 'placeorder' && (
           <div className="space-y-4 pb-24">
-            {/* Header - No cart button here anymore */}
-            <div className="flex items-center justify-between">
+            {/* Header with Language Toggle */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h2 className="text-lg font-semibold text-gray-800">{editingIndentId ? 'Edit Order' : 'Create Order'}</h2>
                 <p className="text-sm text-gray-500">
@@ -2345,21 +2356,57 @@ export default function RetailerDashboard() {
                   }
                 </p>
               </div>
-              {editingIndentId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditingIndentId(null);
-                    setCart({});
-                    setActiveTab('orders');
-                  }}
-                  className="text-gray-600"
-                >
-                  <X size={16} className="mr-1" />
-                  Cancel Edit
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Language Toggle */}
+                <div className="flex items-center bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => changeCatalogueLanguage('en')}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                      catalogueLanguage === 'en' 
+                        ? 'bg-white shadow text-[#14532D]' 
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    English
+                  </button>
+                  <button
+                    onClick={() => changeCatalogueLanguage('hi')}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                      catalogueLanguage === 'hi' 
+                        ? 'bg-white shadow text-[#14532D]' 
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    हिंदी
+                  </button>
+                  <button
+                    onClick={() => changeCatalogueLanguage('mr')}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                      catalogueLanguage === 'mr' 
+                        ? 'bg-white shadow text-[#14532D]' 
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    मराठी
+                  </button>
+                </div>
+                
+                {editingIndentId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingIndentId(null);
+                      setCart({});
+                      setActiveTab('orders');
+                    }}
+                    className="text-gray-600"
+                  >
+                    <X size={16} className="mr-1" />
+                    Cancel Edit
+                  </Button>
+                )}
+              </div>
             </div>
 
             {/* Search */}
@@ -2394,7 +2441,7 @@ export default function RetailerDashboard() {
                   
                   if (filteredItems.length === 0) return null;
                   
-                  const isExpanded = expandedCatalogueCategories[category] !== false; // Default expanded
+                  const isExpanded = expandedCatalogueCategories[category] === true; // Default collapsed
                   const cartCount = filteredItems.reduce((sum, item) => {
                     return sum + (item.variants || []).reduce((vSum, vid) => {
                       const cartItem = getCartItem(item.product_id, vid);
@@ -2429,30 +2476,36 @@ export default function RetailerDashboard() {
                       {/* Products */}
                       {isExpanded && (
                         <div className="divide-y">
-                          {filteredItems.map(item => (
+                          {filteredItems.map(item => {
+                            // Construct proper image URL
+                            const productImageUrl = item.image_url?.startsWith('/') 
+                              ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
+                              : item.image_url;
+                            
+                            return (
                             <div key={item.product_id} className="p-3 hover:bg-gray-50">
                               <div className="flex items-center gap-3">
                                 {/* Product Image */}
                                 <div className="w-12 h-12 flex-shrink-0">
-                                  {item.image_url ? (
+                                  {productImageUrl ? (
                                     <img
-                                      src={item.image_url}
+                                      src={productImageUrl}
                                       alt={item.product_name}
                                       className="w-12 h-12 object-cover rounded border"
+                                      onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                                     />
-                                  ) : (
-                                    <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
-                                      <ImageIcon size={16} className="text-gray-400" />
-                                    </div>
-                                  )}
+                                  ) : null}
+                                  <div className={`w-12 h-12 bg-gray-100 rounded border items-center justify-center ${productImageUrl ? 'hidden' : 'flex'}`}>
+                                    <ImageIcon size={16} className="text-gray-400" />
+                                  </div>
                                 </div>
 
                                 {/* Product Info */}
                                 <div className="flex-1 min-w-0">
                                   <p className="font-medium text-gray-800 truncate">
-                                    {i18n.language === 'hi' && item.product_name_hi 
+                                    {catalogueLanguage === 'hi' && item.product_name_hi 
                                       ? item.product_name_hi 
-                                      : i18n.language === 'mr' && item.product_name_mr 
+                                      : catalogueLanguage === 'mr' && item.product_name_mr 
                                         ? item.product_name_mr 
                                         : item.product_name}
                                   </p>
@@ -2501,7 +2554,8 @@ export default function RetailerDashboard() {
                                 </div>
                               </div>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
                       )}
                     </div>
@@ -2550,26 +2604,37 @@ export default function RetailerDashboard() {
                     <p>Your cart is empty</p>
                   </div>
                 ) : (
-                  Object.entries(cart).map(([key, item]) => (
+                  Object.entries(cart).map(([key, item]) => {
+                    const cartImageUrl = item.image_url?.startsWith('/') 
+                      ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
+                      : item.image_url;
+                    
+                    return (
                     <div key={key} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       {/* Product Image */}
                       <div className="w-12 h-12 flex-shrink-0">
-                        {item.image_url ? (
+                        {cartImageUrl ? (
                           <img
-                            src={item.image_url}
+                            src={cartImageUrl}
                             alt={item.product_name}
                             className="w-12 h-12 object-cover rounded"
+                            onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                           />
-                        ) : (
-                          <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center">
-                            <Package size={16} className="text-gray-400" />
-                          </div>
-                        )}
+                        ) : null}
+                        <div className={`w-12 h-12 bg-gray-200 rounded items-center justify-center ${cartImageUrl ? 'hidden' : 'flex'}`}>
+                          <Package size={16} className="text-gray-400" />
+                        </div>
                       </div>
 
                       {/* Product Info */}
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-800 text-sm truncate">{item.product_name}</p>
+                        <p className="font-medium text-gray-800 text-sm truncate">
+                          {catalogueLanguage === 'hi' && item.product_name_hi 
+                            ? item.product_name_hi 
+                            : catalogueLanguage === 'mr' && item.product_name_mr 
+                              ? item.product_name_mr 
+                              : item.product_name}
+                        </p>
                         <p className="text-xs text-gray-500">{item.variant_name}</p>
                       </div>
 
@@ -2596,7 +2661,8 @@ export default function RetailerDashboard() {
                         </button>
                       </div>
                     </div>
-                  ))
+                  );
+                  })
                 )}
               </div>
 
@@ -2791,8 +2857,11 @@ export default function RetailerDashboard() {
                                 
                                 {/* Expanded Order Details - Each order as a collapsible card */}
                                 {isExpanded && dateIndents.map((indent) => {
-                                  // Generate short order ID from full ID
-                                  const shortOrderId = indent.id ? `#${indent.id.slice(-6).toUpperCase()}` : '#------';
+                                  // Generate ERP-style Order ID: ORD-YYYYMMDD-XXXX
+                                  const indentDate = indent.indent_date?.split('T')[0] || '';
+                                  const dateStr = indentDate.replace(/-/g, '');
+                                  const shortId = indent.id ? indent.id.slice(-4).toUpperCase() : '0000';
+                                  const orderId = `ORD-${dateStr}-${shortId}`;
                                   const isOrderExpanded = expandedOrderDates[`order_${indent.id}`];
                                   
                                   return (
@@ -2814,7 +2883,10 @@ export default function RetailerDashboard() {
                                           >
                                             <div className="flex items-center gap-3">
                                               {isOrderExpanded ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
-                                              <span className="font-mono text-sm font-semibold text-[#14532D]">{shortOrderId}</span>
+                                              <span className="text-sm">
+                                                <span className="text-gray-500">Order Id:</span>{' '}
+                                                <span className="font-mono font-semibold text-[#14532D]">{orderId}</span>
+                                              </span>
                                               {indent.created_by_retailer && (
                                                 <span className="inline-block px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded font-medium">
                                                   By You

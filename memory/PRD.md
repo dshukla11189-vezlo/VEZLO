@@ -415,6 +415,15 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
 - `POST /api/retailer-rejections/history-batch` - Batch rejection history for multiple products
 - `POST /api/qc-indents/ocr` - OCR image upload for Ninjacart indent extraction
 - `POST /api/qc-indents/create-from-ocr` - Create indent from OCR extracted data
+- `GET /api/retailer-catalogue` - Now enriches with product images from products collection
+
+### Completed (This Session - 20 May 2026 - Part 3)
+- **Retailer Portal UX Refinements** ✅
+  - **Product images now use full URLs** - Frontend constructs proper URL with `REACT_APP_BACKEND_URL` prefix for relative image paths
+  - **ERP-style Order ID format** - Changed from `#XXXXXX` to `Order Id: ORD-YYYYMMDD-XXXX` (e.g., `Order Id: ORD-20260519-225E`)
+  - **Language toggle on Create Order page** - Added English/हिंदी/मराठी button group with localStorage persistence (`retailerCatalogueLanguage`)
+  - **Categories collapsed by default** - Product categories on Create Order page now start collapsed (user clicks to expand)
+  - **Cart Modal shows translated names** - Product names in cart modal respect selected catalogue language
 
 ## Test Credentials
 - Admin: admin@freshflow.com / admin123
@@ -425,11 +434,13 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
 ## Refactoring Status
 | File | Original Lines | Current Lines | Target | Status |
 |------|---------------|---------------|--------|--------|
-| server.py | 12,207 | 14,685 | <8,000 | CRITICAL - Bloated |
+| server.py | 12,207 | 14,700+ | <8,000 | CRITICAL - Bloated |
 | RetailerOrders.js | 5,400+ | 8,101 | <2,000 | CRITICAL - Bloated |
-| Dashboard.js (Retailer) | 4,000+ | 4,292 | <2,000 | NEEDS REFACTOR |
+| Dashboard.js (Retailer) | 4,000+ | 4,500+ | <2,000 | NEEDS REFACTOR |
 
 ## Active Modular Routes
 - `/app/backend/routes/labour.py` - Labour Management (ACTIVE)
 - `/app/backend/ocr_indent_processor.py` - OCR Indent Processing (ACTIVE)
 
+## Known Limitations
+- **Product images may not persist after server restarts** - Images uploaded to `/app/uploads/products/` may be cleared during deployments. This is a preview environment limitation. Production deployments should use cloud storage (S3/GCS) for persistence.

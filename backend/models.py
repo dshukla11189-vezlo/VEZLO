@@ -624,7 +624,7 @@ class RetailerIndent(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class RetailerIndentCreate(BaseModel):
-    retailer_id: str
+    retailer_id: Optional[str] = None  # Optional for retailer users (uses their own ID)
     indent_date: datetime
     items: List[RetailerIndentItem]
     remarks: Optional[str] = None

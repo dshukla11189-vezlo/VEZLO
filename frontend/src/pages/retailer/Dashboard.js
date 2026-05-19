@@ -8,11 +8,12 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { 
-  Package, Truck, DollarSign, AlertTriangle, Plus, X,
+  Package, Truck, DollarSign, AlertTriangle, Plus, X, Minus,
   TrendingUp, Clock, CheckCircle, FileText, Download,
   ChevronDown, ChevronRight, Calendar, ShoppingBag, BarChart3,
   ClipboardList, Save, Trash2, RefreshCw, Pencil, Search, Check, Edit2,
-  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon, LogOut, ImageIcon, ZoomIn
+  Menu, User, IndianRupee, Wallet, CreditCard, BoxesIcon, LogOut, ImageIcon, ZoomIn,
+  ShoppingCart
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -92,6 +93,13 @@ export default function RetailerDashboard() {
   const [savingIndent, setSavingIndent] = useState(false);
   const [editingIndentId, setEditingIndentId] = useState(null);
   const [indentSearchQuery, setIndentSearchQuery] = useState(''); // Search in indent modal
+  
+  // NEW: Cart-based indent system
+  const [catalogue, setCatalogue] = useState([]); // Products from admin catalogue
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
+  const [cart, setCart] = useState({}); // {productId_variantId: {product, variant, quantity}}
+  const [showCart, setShowCart] = useState(false);
+  const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({});
   
   // Image enlargement state
   const [enlargedImage, setEnlargedImage] = useState(null);
@@ -175,7 +183,7 @@ export default function RetailerDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes] = await Promise.all([
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes, catalogueRes] = await Promise.all([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
@@ -186,7 +194,8 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-grn'),
         api.get('/api/retailer-payments'),
         api.get('/api/product-types'),
-        api.get('/api/retailer-immediately-payable')
+        api.get('/api/retailer-immediately-payable'),
+        api.get('/api/retailer-catalogue')
       ]);
       setDashboardData(dashRes.data);
       setIndents(indentsRes.data);
@@ -198,6 +207,8 @@ export default function RetailerDashboard() {
       setPayments(paymentsRes.data || []);
       setProductTypes(typesRes.data || []);
       setImmediatelyPayable(payableRes.data || null);
+      // Filter catalogue to only show items with show_on_portal: true
+      setCatalogue((catalogueRes.data || []).filter(item => item.show_on_portal !== false));
       
       // Build a map of dispatch_id -> GRN confirmed status
       const grnMap = {};
@@ -313,6 +324,140 @@ export default function RetailerDashboard() {
     const categoryOrder = { 'Vegetables': 1, 'Leafy': 2, 'Fruits': 3, 'Exotic': 4, 'Herbs': 5, 'Mushrooms': 6, 'Others': 99 };
     return Object.keys(productsByCategory).sort((a, b) => (categoryOrder[a] || 99) - (categoryOrder[b] || 99));
   }, [productsByCategory]);
+
+  // ==================== NEW CART-BASED INDENT SYSTEM ====================
+  // Group catalogue items by category
+  const catalogueByCategory = useMemo(() => {
+    const grouped = {};
+    catalogue.forEach(item => {
+      const category = item.category || 'Others';
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(item);
+    });
+    // Sort products within each category
+    Object.keys(grouped).forEach(cat => {
+      grouped[cat].sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''));
+    });
+    return grouped;
+  }, [catalogue]);
+
+  // Get sorted catalogue category names
+  const sortedCatalogueCategories = useMemo(() => {
+    const categoryOrder = { 'Vegetables': 1, 'Leafy': 2, 'Fruits': 3, 'Exotic': 4, 'Sprouts': 5, 'Herbs': 6, 'Others': 99 };
+    return Object.keys(catalogueByCategory).sort((a, b) => (categoryOrder[a] || 99) - (categoryOrder[b] || 99));
+  }, [catalogueByCategory]);
+
+  // Toggle catalogue category expansion
+  const toggleCatalogueCategory = (category) => {
+    setExpandedCatalogueCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Get variant name from ID
+  const getVariantName = (variantId) => {
+    const variant = packagings.find(v => v.id === variantId);
+    return variant ? variant.name : variantId;
+  };
+
+  // Add item to cart
+  const addToCart = (catalogueItem, variantId, variantName) => {
+    const key = `${catalogueItem.product_id}_${variantId}`;
+    setCart(prev => ({
+      ...prev,
+      [key]: {
+        product_id: catalogueItem.product_id,
+        product_name: catalogueItem.product_name,
+        product_name_hi: catalogueItem.product_name_hi,
+        product_name_mr: catalogueItem.product_name_mr,
+        category: catalogueItem.category,
+        image_url: catalogueItem.image_url,
+        variant_id: variantId,
+        variant_name: variantName,
+        quantity: 1
+      }
+    }));
+  };
+
+  // Update cart item quantity
+  const updateCartQuantity = (key, delta) => {
+    setCart(prev => {
+      const current = prev[key];
+      if (!current) return prev;
+      
+      const newQty = current.quantity + delta;
+      if (newQty <= 0) {
+        // Remove item from cart
+        const { [key]: removed, ...rest } = prev;
+        return rest;
+      }
+      return {
+        ...prev,
+        [key]: { ...current, quantity: newQty }
+      };
+    });
+  };
+
+  // Remove item from cart
+  const removeFromCart = (key) => {
+    setCart(prev => {
+      const { [key]: removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  // Get cart total items count
+  const cartItemCount = useMemo(() => {
+    return Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
+  }, [cart]);
+
+  // Check if product+variant is in cart
+  const getCartItem = (productId, variantId) => {
+    const key = `${productId}_${variantId}`;
+    return cart[key];
+  };
+
+  // Submit cart as indent
+  const submitCartAsIndent = async () => {
+    const cartItems = Object.values(cart);
+    if (cartItems.length === 0) {
+      toast.error('Cart is empty. Please add products first.');
+      return;
+    }
+
+    setSavingIndent(true);
+    try {
+      const items = cartItems.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id,
+        variant_name: item.variant_name,
+        quantity: item.quantity,
+        status: 'pending'
+      }));
+
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      await api.post('/api/retailer-indents', {
+        indent_date: tomorrow.toISOString(),
+        items
+      });
+
+      toast.success('Order placed successfully!');
+      setCart({});
+      setShowCart(false);
+      loadData(); // Reload to show new indent
+    } catch (error) {
+      console.error('Failed to place order:', error);
+      const errorMsg = error.response?.data?.detail || 'Failed to place order';
+      toast.error(typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg);
+    } finally {
+      setSavingIndent(false);
+    }
+  };
 
   const openCreateIndentModal = (existingIndent = null) => {
     // Set date to tomorrow by default
@@ -1610,6 +1755,7 @@ export default function RetailerDashboard() {
 
   const menuItems = [
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
+    { id: 'placeorder', label: t('retailer.placeOrder') || 'Place Order', icon: ShoppingCart },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
     { id: 'closing', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
     { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
@@ -2101,6 +2247,298 @@ export default function RetailerDashboard() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* ==================== PLACE ORDER TAB ==================== */}
+        {activeTab === 'placeorder' && (
+          <div className="space-y-4">
+            {/* Header with Cart Button */}
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">{t('retailer.placeOrder') || 'Place Order'}</h2>
+                <p className="text-sm text-gray-500">
+                  Order for: {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+                </p>
+              </div>
+              <Button
+                onClick={() => setShowCart(true)}
+                className="bg-[#14532D] hover:bg-[#166534] relative"
+                disabled={cartItemCount === 0}
+              >
+                <ShoppingCart size={18} className="mr-2" />
+                View Cart
+                {cartItemCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {cartItemCount}
+                  </span>
+                )}
+              </Button>
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <Input
+                placeholder="Search products..."
+                value={indentSearchQuery}
+                onChange={(e) => setIndentSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Product Categories */}
+            {catalogueLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading products...</div>
+            ) : catalogue.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No products available. Please contact admin.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sortedCatalogueCategories.map(category => {
+                  const items = catalogueByCategory[category] || [];
+                  const filteredItems = indentSearchQuery 
+                    ? items.filter(item => 
+                        item.product_name?.toLowerCase().includes(indentSearchQuery.toLowerCase()) ||
+                        item.product_name_hi?.toLowerCase().includes(indentSearchQuery.toLowerCase()) ||
+                        item.product_name_mr?.toLowerCase().includes(indentSearchQuery.toLowerCase())
+                      )
+                    : items;
+                  
+                  if (filteredItems.length === 0) return null;
+                  
+                  const isExpanded = expandedCatalogueCategories[category] !== false; // Default expanded
+                  const cartCount = filteredItems.reduce((sum, item) => {
+                    return sum + (item.variants || []).reduce((vSum, vid) => {
+                      const cartItem = getCartItem(item.product_id, vid);
+                      return vSum + (cartItem?.quantity || 0);
+                    }, 0);
+                  }, 0);
+
+                  return (
+                    <div key={category} className="border rounded-lg bg-white shadow-sm overflow-hidden">
+                      {/* Category Header */}
+                      <div
+                        className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-green-50 to-emerald-50 cursor-pointer"
+                        onClick={() => toggleCatalogueCategory(category)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <ChevronRight
+                            size={18}
+                            className={`text-green-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                          />
+                          <span className="font-semibold text-gray-800">{category}</span>
+                          <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
+                            {filteredItems.length} items
+                          </span>
+                          {cartCount > 0 && (
+                            <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
+                              {cartCount} in cart
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Products */}
+                      {isExpanded && (
+                        <div className="divide-y">
+                          {filteredItems.map(item => (
+                            <div key={item.product_id} className="p-3 hover:bg-gray-50">
+                              <div className="flex items-center gap-3">
+                                {/* Product Image */}
+                                <div className="w-12 h-12 flex-shrink-0">
+                                  {item.image_url ? (
+                                    <img
+                                      src={item.image_url}
+                                      alt={item.product_name}
+                                      className="w-12 h-12 object-cover rounded border"
+                                    />
+                                  ) : (
+                                    <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
+                                      <ImageIcon size={16} className="text-gray-400" />
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Product Info */}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-gray-800 truncate">
+                                    {i18n.language === 'hi' && item.product_name_hi 
+                                      ? item.product_name_hi 
+                                      : i18n.language === 'mr' && item.product_name_mr 
+                                        ? item.product_name_mr 
+                                        : item.product_name}
+                                  </p>
+                                  
+                                  {/* Variants as buttons */}
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {(item.variants || []).map(variantId => {
+                                      const variantName = getVariantName(variantId);
+                                      const cartItem = getCartItem(item.product_id, variantId);
+                                      
+                                      return (
+                                        <div key={variantId} className="flex items-center gap-1">
+                                          {cartItem ? (
+                                            // Quantity controls
+                                            <div className="flex items-center bg-green-100 rounded-full">
+                                              <button
+                                                onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, -1)}
+                                                className="w-7 h-7 rounded-full bg-white border border-green-300 flex items-center justify-center text-green-600 hover:bg-green-50"
+                                              >
+                                                <Minus size={14} />
+                                              </button>
+                                              <span className="px-3 font-semibold text-green-800 min-w-[32px] text-center">
+                                                {cartItem.quantity}
+                                              </span>
+                                              <button
+                                                onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, 1)}
+                                                className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
+                                              >
+                                                <Plus size={14} />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            // Add button
+                                            <button
+                                              onClick={() => addToCart(item, variantId, variantName)}
+                                              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-full hover:border-green-500 hover:bg-green-50 transition-colors"
+                                            >
+                                              <span className="text-gray-700">{variantName}</span>
+                                              <Plus size={14} className="text-green-600" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Floating Cart Button (Mobile) */}
+            {cartItemCount > 0 && (
+              <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 md:hidden">
+                <Button
+                  onClick={() => setShowCart(true)}
+                  className="bg-[#14532D] hover:bg-[#166534] shadow-lg px-6 py-3 rounded-full"
+                >
+                  <ShoppingCart size={18} className="mr-2" />
+                  View Cart ({cartItemCount} items)
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Cart Modal */}
+        {showCart && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+            <div className="bg-white w-full sm:max-w-lg sm:rounded-lg max-h-[85vh] flex flex-col rounded-t-2xl">
+              {/* Cart Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b bg-[#14532D] text-white sm:rounded-t-lg">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart size={20} />
+                  <h3 className="font-semibold">Your Cart</h3>
+                  <span className="text-sm opacity-80">({cartItemCount} items)</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setShowCart(false)} className="text-white hover:bg-white/20">
+                  <X size={20} />
+                </Button>
+              </div>
+
+              {/* Cart Items */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {Object.entries(cart).length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <ShoppingCart size={48} className="mx-auto mb-2 opacity-30" />
+                    <p>Your cart is empty</p>
+                  </div>
+                ) : (
+                  Object.entries(cart).map(([key, item]) => (
+                    <div key={key} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      {/* Product Image */}
+                      <div className="w-12 h-12 flex-shrink-0">
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt={item.product_name}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center">
+                            <Package size={16} className="text-gray-400" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Product Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 text-sm truncate">{item.product_name}</p>
+                        <p className="text-xs text-gray-500">{item.variant_name}</p>
+                      </div>
+
+                      {/* Quantity Controls */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateCartQuantity(key, -1)}
+                          className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-100"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-8 text-center font-semibold">{item.quantity}</span>
+                        <button
+                          onClick={() => updateCartQuantity(key, 1)}
+                          className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
+                        >
+                          <Plus size={14} />
+                        </button>
+                        <button
+                          onClick={() => removeFromCart(key)}
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Cart Footer */}
+              <div className="border-t p-4 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Total Items</span>
+                  <span className="font-semibold">{cartItemCount}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Delivery Date</span>
+                  <span className="font-semibold">
+                    {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                </div>
+                <Button
+                  onClick={submitCartAsIndent}
+                  disabled={savingIndent || cartItemCount === 0}
+                  className="w-full bg-[#14532D] hover:bg-[#166534] py-3"
+                >
+                  {savingIndent ? (
+                    <RefreshCw size={18} className="animate-spin mr-2" />
+                  ) : (
+                    <Check size={18} className="mr-2" />
+                  )}
+                  {savingIndent ? 'Placing Order...' : 'Place Order'}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ==================== ORDERS TAB ==================== */}

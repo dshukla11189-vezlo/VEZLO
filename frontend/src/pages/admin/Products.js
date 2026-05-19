@@ -67,9 +67,6 @@ const CatalogueProductRow = ({
       <td className="px-4 py-2">
         <div>
           <span className="font-medium text-gray-800">{product.name}</span>
-          {product.name_hi && (
-            <span className="ml-2 text-xs text-gray-500">({product.name_hi})</span>
-          )}
         </div>
       </td>
       

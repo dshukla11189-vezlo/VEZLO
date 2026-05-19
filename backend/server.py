@@ -13080,6 +13080,71 @@ async def populate_marathi_product_names(current_user: dict = Depends(get_curren
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/admin/populate-all-translations")
+async def populate_all_translations(current_user: dict = Depends(get_current_user)):
+    """Populate both Hindi and Marathi names for all products in one call"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate translations")
+    
+    try:
+        products = await db.products.find({}).to_list(1000)
+        updated_hindi = 0
+        updated_marathi = 0
+        missing_hindi = []
+        missing_marathi = []
+        
+        for product in products:
+            name = product.get("name", "").strip()
+            product_id = product.get("id")
+            update_fields = {}
+            
+            # Check Hindi translation
+            current_hi = product.get("name_hi", "") or ""
+            if not current_hi:
+                # Try exact match first, then try with/without trailing spaces
+                hindi_name = HINDI_PRODUCT_NAMES.get(name) or HINDI_PRODUCT_NAMES.get(name + " ") or HINDI_PRODUCT_NAMES.get(name.rstrip())
+                if hindi_name:
+                    update_fields["name_hi"] = hindi_name
+                else:
+                    missing_hindi.append(name)
+            
+            # Check Marathi translation
+            current_mr = product.get("name_mr", "") or ""
+            if not current_mr:
+                marathi_name = MARATHI_PRODUCT_NAMES.get(name) or MARATHI_PRODUCT_NAMES.get(name + " ") or MARATHI_PRODUCT_NAMES.get(name.rstrip())
+                if marathi_name:
+                    update_fields["name_mr"] = marathi_name
+                else:
+                    missing_marathi.append(name)
+            
+            # Update if we have any new translations
+            if update_fields:
+                result = await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": update_fields}
+                )
+                if result.modified_count > 0:
+                    if "name_hi" in update_fields:
+                        updated_hindi += 1
+                    if "name_mr" in update_fields:
+                        updated_marathi += 1
+        
+        return {
+            "success": True,
+            "total_products": len(products),
+            "updated_hindi": updated_hindi,
+            "updated_marathi": updated_marathi,
+            "missing_hindi": missing_hindi[:20] if missing_hindi else [],
+            "missing_marathi": missing_marathi[:20] if missing_marathi else [],
+            "message": f"Updated {updated_hindi} Hindi and {updated_marathi} Marathi translations"
+        }
+    except Exception as e:
+        print(f"Error populating translations: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.post("/admin/populate-referral-codes")
 async def populate_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
     """Populate referral codes for all retailers that don't have one"""

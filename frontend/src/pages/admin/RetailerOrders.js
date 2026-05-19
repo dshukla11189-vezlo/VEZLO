@@ -20,6 +20,7 @@ import {
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
@@ -956,13 +957,6 @@ export default function RetailerOrders() {
     const retailers = Array.from(retailerMap.entries()); // [[id, name], ...]
     const productVariants = Array.from(productVariantSet).sort(); // Sort alphabetically
 
-    // Group retailers into chunks of 5 for pagination
-    const RETAILERS_PER_PAGE = 5;
-    const retailerChunks = [];
-    for (let i = 0; i < retailers.length; i += RETAILERS_PER_PAGE) {
-      retailerChunks.push(retailers.slice(i, i + RETAILERS_PER_PAGE));
-    }
-
     // Get the date from first indent for filename
     const exportDate = filteredIndents[0]?.indent_date 
       ? new Date(filteredIndents[0].indent_date).toISOString().split('T')[0]
@@ -972,73 +966,86 @@ export default function RetailerOrders() {
       ? formatDate(filteredIndents[0].indent_date)
       : formatDate(new Date().toISOString());
 
-    // Create CSV content with multiple pages (sheets simulated as sections)
-    let csvContent = '';
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
     
-    // Add title with date
-    csvContent += `"Retailer Indents - ${formattedDate}"\n`;
-    csvContent += `"Total Products: ${productVariants.length}, Total Retailers: ${retailers.length}"\n\n`;
+    // Build worksheet data
+    const wsData = [];
     
-    retailerChunks.forEach((retailerChunk, pageIndex) => {
-      if (pageIndex > 0) {
-        // Add page separator
-        csvContent += '\n\n';
-        csvContent += `"--- Page ${pageIndex + 1} (Retailers ${pageIndex * RETAILERS_PER_PAGE + 1}-${Math.min((pageIndex + 1) * RETAILERS_PER_PAGE, retailers.length)}) ---"\n\n`;
-      }
-
-      // Header row: Sr No, Product, Variant, Retailer1, Retailer2, ..., Total
-      const headers = ['Sr No', 'Product', 'Variant'];
-      retailerChunk.forEach(([_, retailerName]) => {
-        headers.push(retailerName);
-      });
-      headers.push('Total'); // Add Total column header
-      csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
-
-      // Data rows
-      productVariants.forEach((productKey, index) => {
-        const [productName, variantName] = productKey.split('|');
-        const row = [
-          index + 1,
-          productName,
-          variantName
-        ];
-
-        // Add quantity for each retailer in this chunk and calculate row total
-        let rowTotal = 0;
-        retailerChunk.forEach(([retailerId, _]) => {
-          const qtyKey = `${productKey}|${retailerId}`;
-          const qty = quantityMap.get(qtyKey) || 0;
-          row.push(qty || '');
-          rowTotal += qty;
-        });
-        row.push(rowTotal); // Add horizontal total for this product
-
-        csvContent += row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
-      });
-
-      // Add totals row (vertical totals per retailer)
-      const totalsRow = ['', 'TOTAL', ''];
-      let grandTotal = 0;
-      retailerChunk.forEach(([retailerId, _]) => {
-        let totalQty = 0;
-        productVariants.forEach(productKey => {
-          const qtyKey = `${productKey}|${retailerId}`;
-          totalQty += quantityMap.get(qtyKey) || 0;
-        });
-        totalsRow.push(totalQty);
-        grandTotal += totalQty;
-      });
-      totalsRow.push(grandTotal); // Grand total (sum of all)
-      csvContent += totalsRow.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
+    // Row 1: Title (will be merged)
+    const titleRow = [`Retailer Indents - ${formattedDate} | Total Products: ${productVariants.length} | Total Retailers: ${retailers.length}`];
+    // Fill rest of title row with empty cells for merging
+    const totalCols = 3 + retailers.length + 1; // Sr No, Product, Variant, retailers..., Total
+    for (let i = 1; i < totalCols; i++) titleRow.push('');
+    wsData.push(titleRow);
+    
+    // Row 2: Empty row for spacing
+    wsData.push([]);
+    
+    // Row 3: Header row
+    const headerRow = ['Sr No', 'Product', 'Variant'];
+    retailers.forEach(([_, retailerName]) => {
+      headerRow.push(retailerName);
     });
-
-    // Download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `retailer_indents_compact_${exportDate}.csv`;
-    link.click();
-
+    headerRow.push('Total');
+    wsData.push(headerRow);
+    
+    // Data rows
+    productVariants.forEach((productKey, index) => {
+      const [productName, variantName] = productKey.split('|');
+      const row = [index + 1, productName, variantName];
+      
+      let rowTotal = 0;
+      retailers.forEach(([retailerId, _]) => {
+        const qtyKey = `${productKey}|${retailerId}`;
+        const qty = quantityMap.get(qtyKey) || 0;
+        row.push(qty || '');
+        rowTotal += qty;
+      });
+      row.push(rowTotal);
+      wsData.push(row);
+    });
+    
+    // Totals row
+    const totalsRow = ['', 'TOTAL', ''];
+    let grandTotal = 0;
+    retailers.forEach(([retailerId, _]) => {
+      let totalQty = 0;
+      productVariants.forEach(productKey => {
+        const qtyKey = `${productKey}|${retailerId}`;
+        totalQty += quantityMap.get(qtyKey) || 0;
+      });
+      totalsRow.push(totalQty);
+      grandTotal += totalQty;
+    });
+    totalsRow.push(grandTotal);
+    wsData.push(totalsRow);
+    
+    // Create worksheet from data
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    
+    // Set column widths
+    const colWidths = [
+      { wch: 6 },   // Sr No
+      { wch: 25 },  // Product
+      { wch: 12 },  // Variant
+    ];
+    retailers.forEach(() => colWidths.push({ wch: 15 }));
+    colWidths.push({ wch: 8 }); // Total
+    ws['!cols'] = colWidths;
+    
+    // Merge cells for title row (A1 to last column)
+    const lastCol = XLSX.utils.encode_col(totalCols - 1);
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } } // Merge title row
+    ];
+    
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(wb, ws, 'Indents');
+    
+    // Generate Excel file and download
+    XLSX.writeFile(wb, `retailer_indents_${exportDate}.xlsx`);
+    
     toast.success(`Exported ${productVariants.length} products × ${retailers.length} retailers`);
   };
 

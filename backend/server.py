@@ -13538,6 +13538,20 @@ async def get_all_retailers_immediately_payable(
 async def get_retailer_catalogue(current_user: dict = Depends(get_current_user)):
     """Get all products in the retailer catalogue with their allowed variants"""
     items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+    
+    # Enrich catalogue items with product images if missing
+    product_ids = [item.get("product_id") for item in items if item.get("product_id")]
+    products = await db.products.find(
+        {"id": {"$in": product_ids}}, 
+        {"_id": 0, "id": 1, "image_url": 1}
+    ).to_list(1000)
+    product_image_map = {p["id"]: p.get("image_url", "") for p in products}
+    
+    # Add image_url from products if not present in catalogue
+    for item in items:
+        if not item.get("image_url") and item.get("product_id"):
+            item["image_url"] = product_image_map.get(item["product_id"], "")
+    
     return items
 
 @api_router.post("/retailer-catalogue")

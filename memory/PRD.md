@@ -392,6 +392,17 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
   - **Expandable order details** - Orders are collapsible cards showing item details when expanded
   - **Title changed from translation key to "Create Order"** - Fixed the "retailer.placeOrder" display issue
 
+### Completed (This Session - 20 May 2026 - Continued)
+- **Retailer Portal UX Improvements (Part 2)** ✅
+  - **View Cart button moved to bottom center** - Fixed position, always visible regardless of scroll
+  - **Product images now showing** - Backend enriches catalogue items with product images from products collection
+  - **Auto-redirect after placing order** - User is redirected to Orders tab under My Orders after successful order placement
+  - **Order items displayed vertically** - Changed from grid layout to vertical list (one item per row) for better readability
+  - **Edit order uses cart-based interface** - Clicking Edit opens the same Create Order interface with items pre-loaded in cart
+  - **Create Order button on Home page** - Added prominent "Create New Order" card above Your Earnings on the retailer dashboard home
+  - **Edit mode indicators** - Header shows "Edit Order" and "Editing order for: [date]", floating button shows "Review Changes (X)"
+  - **Cancel Edit option** - Added "Cancel Edit" button when in edit mode to discard changes and return to Orders
+
 ## Key API Endpoints
 - `GET /api/reports/pnl` - P&L with unified GRN Loss calculation
 - `GET /api/qc-grn/summary` - QC GRN Loss summary (uses shared helper)

@@ -449,10 +449,99 @@ export default function RetailerDashboard() {
       toast.success('Order placed successfully!');
       setCart({});
       setShowCart(false);
-      loadData(); // Reload to show new indent
+      await loadData(); // Reload to show new indent
+      
+      // Redirect to Orders tab to show the newly created order
+      setActiveTab('orders');
+      setOrdersSubTab('pending');
     } catch (error) {
       console.error('Failed to place order:', error);
       const errorMsg = error.response?.data?.detail || 'Failed to place order';
+      toast.error(typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg);
+    } finally {
+      setSavingIndent(false);
+    }
+  };
+
+  // Open edit mode using cart-based interface (same as Create Order)
+  const openCartEditMode = (existingIndent) => {
+    if (!existingIndent) return;
+    
+    // Set editing state
+    setEditingIndentId(existingIndent.id);
+    
+    // Convert existing items to cart format
+    const newCart = {};
+    (existingIndent.items || []).forEach(item => {
+      // Find the catalogue item for this product to get image
+      const catalogueItem = catalogue.find(c => c.product_id === item.product_id);
+      
+      const key = `${item.product_id}_${item.variant_id}`;
+      newCart[key] = {
+        product_id: item.product_id,
+        product_name: item.product_name,
+        product_name_hi: catalogueItem?.product_name_hi || '',
+        product_name_mr: catalogueItem?.product_name_mr || '',
+        category: catalogueItem?.category || '',
+        image_url: catalogueItem?.image_url || '',
+        variant_id: item.variant_id,
+        variant_name: item.variant_name,
+        quantity: item.quantity
+      };
+    });
+    setCart(newCart);
+    
+    // Navigate to place order tab
+    setActiveTab('placeorder');
+  };
+
+  // Update cart as indent (for edit mode)
+  const updateCartAsIndent = async () => {
+    const cartItems = Object.values(cart);
+    if (cartItems.length === 0) {
+      toast.error('Cart is empty. Please add products first.');
+      return;
+    }
+
+    if (!editingIndentId) {
+      // If not editing, use regular submit
+      await submitCartAsIndent();
+      return;
+    }
+
+    setSavingIndent(true);
+    try {
+      const items = cartItems.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        variant_id: item.variant_id,
+        variant_name: item.variant_name,
+        quantity: item.quantity,
+        status: 'pending'
+      }));
+
+      // Get the indent date from the existing indent
+      const existingIndent = indents.find(i => i.id === editingIndentId);
+      const indentDate = existingIndent?.indent_date || new Date().toISOString();
+
+      await api.put(`/api/retailer-indents/${editingIndentId}`, {
+        indent_date: indentDate,
+        items: items,
+        remarks: ''
+      });
+
+      toast.success('Order updated successfully!');
+      setCart({});
+      setEditingIndentId(null);
+      setShowCart(false);
+      await loadData();
+      
+      // Redirect to Orders tab
+      setActiveTab('orders');
+      setOrdersSubTab('pending');
+    } catch (error) {
+      console.error('Failed to update order:', error);
+      const errorMsg = error.response?.data?.detail || 'Failed to update order';
       toast.error(typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg);
     } finally {
       setSavingIndent(false);
@@ -1842,6 +1931,33 @@ export default function RetailerDashboard() {
         {/* ==================== DASHBOARD TAB ==================== */}
         {activeTab === 'dashboard' && (
           <>
+            {/* Quick Create Order Card - Above Your Earnings */}
+            <Card className="mb-4 border-[#14532D] bg-gradient-to-r from-green-50 to-emerald-50 shadow-md">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-[#14532D] rounded-xl">
+                      <ShoppingCart size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-800">Create New Order</h3>
+                      <p className="text-sm text-gray-600">
+                        Order for {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+                      </p>
+                    </div>
+                  </div>
+                  <Button 
+                    className="bg-[#14532D] hover:bg-[#166534] px-6"
+                    onClick={() => setActiveTab('placeorder')}
+                    data-testid="home-create-order-btn"
+                  >
+                    <Plus size={18} className="mr-2" />
+                    Create Order
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Your Earnings - Big Card with Date Picker */}
             <Card className="mb-6 border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50 shadow-lg">
               <CardContent className="p-6">
@@ -2217,28 +2333,33 @@ export default function RetailerDashboard() {
 
         {/* ==================== PLACE ORDER TAB ==================== */}
         {activeTab === 'placeorder' && (
-          <div className="space-y-4">
-            {/* Header with Cart Button */}
-            <div className="flex justify-between items-center">
+          <div className="space-y-4 pb-24">
+            {/* Header - No cart button here anymore */}
+            <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-gray-800">Create Order</h2>
+                <h2 className="text-lg font-semibold text-gray-800">{editingIndentId ? 'Edit Order' : 'Create Order'}</h2>
                 <p className="text-sm text-gray-500">
-                  Order for: {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+                  {editingIndentId 
+                    ? `Editing order for: ${formatDate(indents.find(i => i.id === editingIndentId)?.indent_date)}`
+                    : `Order for: ${new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}`
+                  }
                 </p>
               </div>
-              <Button
-                onClick={() => setShowCart(true)}
-                className="bg-[#14532D] hover:bg-[#166534] relative"
-                disabled={cartItemCount === 0}
-              >
-                <ShoppingCart size={18} className="mr-2" />
-                View Cart
-                {cartItemCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                    {cartItemCount}
-                  </span>
-                )}
-              </Button>
+              {editingIndentId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingIndentId(null);
+                    setCart({});
+                    setActiveTab('orders');
+                  }}
+                  className="text-gray-600"
+                >
+                  <X size={16} className="mr-1" />
+                  Cancel Edit
+                </Button>
+              )}
             </div>
 
             {/* Search */}
@@ -2389,15 +2510,16 @@ export default function RetailerDashboard() {
               </div>
             )}
 
-            {/* Floating Cart Button (Mobile) */}
+            {/* Fixed View Cart Button at Bottom Center - Always Visible */}
             {cartItemCount > 0 && (
-              <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 md:hidden">
+              <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-30">
                 <Button
                   onClick={() => setShowCart(true)}
-                  className="bg-[#14532D] hover:bg-[#166534] shadow-lg px-6 py-3 rounded-full"
+                  className="bg-[#14532D] hover:bg-[#166534] shadow-xl px-8 py-4 rounded-full text-base font-semibold"
+                  data-testid="view-cart-floating-btn"
                 >
-                  <ShoppingCart size={18} className="mr-2" />
-                  View Cart ({cartItemCount} items)
+                  <ShoppingCart size={20} className="mr-2" />
+                  {editingIndentId ? `Review Changes (${cartItemCount})` : `View Cart (${cartItemCount} items)`}
                 </Button>
               </div>
             )}
@@ -2412,10 +2534,10 @@ export default function RetailerDashboard() {
               <div className="flex items-center justify-between px-4 py-3 border-b bg-[#14532D] text-white sm:rounded-t-lg">
                 <div className="flex items-center gap-2">
                   <ShoppingCart size={20} />
-                  <h3 className="font-semibold">Your Cart</h3>
+                  <h3 className="font-semibold">{editingIndentId ? 'Edit Order' : 'Your Cart'}</h3>
                   <span className="text-sm opacity-80">({cartItemCount} items)</span>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setShowCart(false)} className="text-white hover:bg-white/20">
+                <Button variant="ghost" size="sm" onClick={() => { setShowCart(false); if (editingIndentId) { setEditingIndentId(null); setCart({}); } }} className="text-white hover:bg-white/20">
                   <X size={20} />
                 </Button>
               </div>
@@ -2487,11 +2609,14 @@ export default function RetailerDashboard() {
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Delivery Date</span>
                   <span className="font-semibold">
-                    {new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    {editingIndentId 
+                      ? formatDate(indents.find(i => i.id === editingIndentId)?.indent_date)
+                      : new Date(new Date().setDate(new Date().getDate() + 1)).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+                    }
                   </span>
                 </div>
                 <Button
-                  onClick={submitCartAsIndent}
+                  onClick={editingIndentId ? updateCartAsIndent : submitCartAsIndent}
                   disabled={savingIndent || cartItemCount === 0}
                   className="w-full bg-[#14532D] hover:bg-[#166534] py-3"
                 >
@@ -2500,7 +2625,10 @@ export default function RetailerDashboard() {
                   ) : (
                     <Check size={18} className="mr-2" />
                   )}
-                  {savingIndent ? 'Placing Order...' : 'Place Order'}
+                  {savingIndent 
+                    ? (editingIndentId ? 'Updating Order...' : 'Placing Order...') 
+                    : (editingIndentId ? 'Update Order' : 'Place Order')
+                  }
                 </Button>
               </div>
             </div>
@@ -2710,7 +2838,7 @@ export default function RetailerDashboard() {
                                                     className="h-7 text-xs px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
                                                     onClick={(e) => {
                                                       e.stopPropagation();
-                                                      openCreateIndentModal(indent);
+                                                      openCartEditMode(indent);
                                                     }}
                                                     data-testid={`edit-order-${indent.id}`}
                                                   >
@@ -2738,15 +2866,17 @@ export default function RetailerDashboard() {
                                           {/* Order Items - Expandable */}
                                           {isOrderExpanded && (
                                             <div className="border-t bg-white p-3">
-                                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                              <div className="space-y-2">
                                                 {indent.items?.map((item, idx) => (
-                                                  <div key={idx} className="flex items-center gap-1 text-sm bg-gray-50 px-2 py-1.5 rounded border">
-                                                    <span className="text-gray-400 text-xs">{idx + 1}.</span>
-                                                    <span className="font-medium">{getProductName(item)}</span>
-                                                    {item.variant_name && item.variant_name !== 'Kg' && (
-                                                      <span className="text-orange-600 text-[10px] bg-orange-50 px-1 rounded">{item.variant_name}</span>
-                                                    )}
-                                                    <span className="text-gray-500 ml-auto">×{item.quantity}</span>
+                                                  <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 px-3 py-2 rounded border">
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-gray-400 text-xs w-5">{idx + 1}.</span>
+                                                      <span className="font-medium">{getProductName(item)}</span>
+                                                      {item.variant_name && item.variant_name !== 'Kg' && (
+                                                        <span className="text-orange-600 text-xs bg-orange-50 px-1.5 py-0.5 rounded">{item.variant_name}</span>
+                                                      )}
+                                                    </div>
+                                                    <span className="text-gray-600 font-semibold">×{item.quantity}</span>
                                                   </div>
                                                 ))}
                                               </div>

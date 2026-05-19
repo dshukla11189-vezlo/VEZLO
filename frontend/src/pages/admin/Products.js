@@ -20,7 +20,8 @@ const CatalogueProductRow = ({
   onEdit, 
   onSave, 
   onCancel, 
-  onRemove 
+  onRemove,
+  onToggleVisibility
 }) => {
   const [selectedVariants, setSelectedVariants] = useState(catalogueItem?.variants || []);
   
@@ -40,6 +41,7 @@ const CatalogueProductRow = ({
   };
 
   const isInCatalogue = !!catalogueItem;
+  const isVisible = catalogueItem?.show_on_portal !== false; // Default to true if not set
 
   return (
     <tr className={`border-b hover:bg-gray-50 ${isInCatalogue ? 'bg-teal-50/30' : ''}`}>
@@ -120,6 +122,22 @@ const CatalogueProductRow = ({
           </div>
         ) : (
           <span className="text-xs text-gray-400 italic">Not in catalogue</span>
+        )}
+      </td>
+      
+      {/* Show on Retailer Portal */}
+      <td className="px-4 py-2 text-center">
+        {isInCatalogue ? (
+          <label className="flex items-center justify-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isVisible}
+              onChange={() => onToggleVisibility(product.id, !isVisible)}
+              className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500 cursor-pointer"
+            />
+          </label>
+        ) : (
+          <span className="text-gray-300">-</span>
         )}
       </td>
       
@@ -484,6 +502,24 @@ export default function Products() {
       loadCatalogue();
     } catch (error) {
       toast.error('Failed to remove from catalogue');
+    }
+  };
+
+  // Toggle visibility on retailer portal
+  const toggleCatalogueVisibility = async (productId, showOnPortal) => {
+    try {
+      await api.put(`/api/retailer-catalogue/${productId}`, {
+        show_on_portal: showOnPortal
+      });
+      // Update local state immediately for responsiveness
+      setCatalogueItems(prev => prev.map(item => 
+        item.product_id === productId 
+          ? { ...item, show_on_portal: showOnPortal }
+          : item
+      ));
+      toast.success(showOnPortal ? 'Product visible to retailers' : 'Product hidden from retailers');
+    } catch (error) {
+      toast.error('Failed to update visibility');
     }
   };
 
@@ -1923,7 +1959,8 @@ export default function Products() {
                                 <th className="text-left px-4 py-2 font-medium text-gray-600 w-16">Image</th>
                                 <th className="text-left px-4 py-2 font-medium text-gray-600">Product Name</th>
                                 <th className="text-left px-4 py-2 font-medium text-gray-600">Variants</th>
-                                <th className="text-center px-4 py-2 font-medium text-gray-600 w-32">Actions</th>
+                                <th className="text-center px-4 py-2 font-medium text-gray-600 w-28">Show on Portal?</th>
+                                <th className="text-center px-4 py-2 font-medium text-gray-600 w-28">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1946,6 +1983,7 @@ export default function Products() {
                                     onSave={(variants) => saveCatalogueItem(product, variants)}
                                     onCancel={() => setEditingCatalogueItem(null)}
                                     onRemove={() => removeCatalogueItem(product.id, product.name)}
+                                    onToggleVisibility={toggleCatalogueVisibility}
                                   />
                                 );
                               })}

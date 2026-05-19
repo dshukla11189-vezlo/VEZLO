@@ -13565,6 +13565,7 @@ async def add_catalogue_item(
         "image_url": input.get("image_url", ""),
         "variants": input.get("variants", []),  # List of variant IDs
         "is_active": input.get("is_active", True),
+        "show_on_portal": input.get("show_on_portal", True),  # Visibility on retailer portal
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": current_user["user_id"]
     }
@@ -13599,13 +13600,17 @@ async def update_catalogue_item(
         raise HTTPException(status_code=404, detail="Catalogue item not found")
     
     update_data = {
-        "variants": input.get("variants", existing.get("variants", [])),
-        "is_active": input.get("is_active", existing.get("is_active", True)),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": current_user["user_id"]
     }
     
-    # Update optional fields if provided
+    # Update fields if provided
+    if "variants" in input:
+        update_data["variants"] = input["variants"]
+    if "is_active" in input:
+        update_data["is_active"] = input["is_active"]
+    if "show_on_portal" in input:
+        update_data["show_on_portal"] = input["show_on_portal"]
     if "product_name" in input:
         update_data["product_name"] = input["product_name"]
     if "product_name_hi" in input:
@@ -13672,6 +13677,7 @@ async def bulk_add_catalogue_items(
             "image_url": item.get("image_url", ""),
             "variants": item.get("variants", []),
             "is_active": item.get("is_active", True),
+            "show_on_portal": item.get("show_on_portal", True),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": current_user["user_id"]
         }

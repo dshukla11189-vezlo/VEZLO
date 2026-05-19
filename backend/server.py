@@ -13232,10 +13232,12 @@ async def get_retailer_immediately_payable(
     # Initialize result structure
     result = {
         "today_50_percent": [],
+        "pending_50_percent_recent": [],  # 50% not paid from last 1-4 days
         "due_today_remaining": [],
         "overdue": [],
         "totals": {
             "today_50_percent_total": 0,
+            "pending_50_percent_recent_total": 0,
             "due_today_remaining_total": 0,
             "overdue_total": 0,
             "grand_total": 0
@@ -13299,6 +13301,17 @@ async def get_retailer_immediately_payable(
             entry["reason"] = "50% upfront on delivery"
             result["today_50_percent"].append(entry)
             result["totals"]["today_50_percent_total"] += due_amount
+        
+        elif days_since >= 1 and days_since <= 4:
+            # Check if 50% upfront was paid
+            # If paid_amount < 50%, the unpaid 50% portion is still due
+            unpaid_50_percent = max(0, fifty_percent - paid_amount)
+            if unpaid_50_percent > 0:
+                entry["due_amount"] = round(unpaid_50_percent, 2)
+                entry["reason"] = f"Unpaid 50% from {days_since} day(s) ago"
+                entry["days_ago"] = days_since
+                result["pending_50_percent_recent"].append(entry)
+                result["totals"]["pending_50_percent_recent_total"] += unpaid_50_percent
             
         elif days_since == 5:
             entry["due_amount"] = round(pending_amount, 2)
@@ -13315,16 +13328,19 @@ async def get_retailer_immediately_payable(
     
     # Sort
     result["today_50_percent"].sort(key=lambda x: x["invoice_date"], reverse=True)
+    result["pending_50_percent_recent"].sort(key=lambda x: x.get("days_ago", 0))  # Sort by days ago (oldest first)
     result["due_today_remaining"].sort(key=lambda x: x["invoice_date"], reverse=True)
     result["overdue"].sort(key=lambda x: x.get("overdue_days", 0), reverse=True)
     
-    # Calculate grand total
+    # Calculate grand total (include pending 50% from recent days)
     result["totals"]["grand_total"] = round(
         result["totals"]["today_50_percent_total"] + 
+        result["totals"]["pending_50_percent_recent_total"] +
         result["totals"]["due_today_remaining_total"] + 
         result["totals"]["overdue_total"], 2
     )
     result["totals"]["today_50_percent_total"] = round(result["totals"]["today_50_percent_total"], 2)
+    result["totals"]["pending_50_percent_recent_total"] = round(result["totals"]["pending_50_percent_recent_total"], 2)
     result["totals"]["due_today_remaining_total"] = round(result["totals"]["due_today_remaining_total"], 2)
     result["totals"]["overdue_total"] = round(result["totals"]["overdue_total"], 2)
     
@@ -13397,6 +13413,7 @@ async def get_all_retailers_immediately_payable(
                 "retailer_id": retailer_id,
                 "retailer_name": shop_name,
                 "today_50_percent": 0,
+                "pending_50_recent": 0,  # Unpaid 50% from days 1-4
                 "due_today_remaining": 0,
                 "overdue": 0,
                 "total": 0,
@@ -13441,6 +13458,11 @@ async def get_all_retailers_immediately_payable(
         if days_since == 0:
             due = min(fifty_percent, pending_amount)
             retailer_payables[retailer_id]["today_50_percent"] += due
+        elif days_since >= 1 and days_since <= 4:
+            # Check if 50% upfront was paid
+            unpaid_50_percent = max(0, fifty_percent - paid_amount)
+            if unpaid_50_percent > 0:
+                retailer_payables[retailer_id]["pending_50_recent"] += unpaid_50_percent
         elif days_since == 5:
             retailer_payables[retailer_id]["due_today_remaining"] += pending_amount
         elif days_since > 5:
@@ -13450,9 +13472,10 @@ async def get_all_retailers_immediately_payable(
     result = []
     for data in retailer_payables.values():
         data["total"] = round(
-            data["today_50_percent"] + data["due_today_remaining"] + data["overdue"], 2
+            data["today_50_percent"] + data["pending_50_recent"] + data["due_today_remaining"] + data["overdue"], 2
         )
         data["today_50_percent"] = round(data["today_50_percent"], 2)
+        data["pending_50_recent"] = round(data["pending_50_recent"], 2)
         data["due_today_remaining"] = round(data["due_today_remaining"], 2)
         data["overdue"] = round(data["overdue"], 2)
         if data["total"] > 0:
@@ -13464,6 +13487,7 @@ async def get_all_retailers_immediately_payable(
     # Grand totals
     grand_totals = {
         "today_50_percent": round(sum(r["today_50_percent"] for r in result), 2),
+        "pending_50_recent": round(sum(r["pending_50_recent"] for r in result), 2),
         "due_today_remaining": round(sum(r["due_today_remaining"] for r in result), 2),
         "overdue": round(sum(r["overdue"] for r in result), 2),
         "total": round(sum(r["total"] for r in result), 2)

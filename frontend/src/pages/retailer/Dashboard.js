@@ -1812,26 +1812,42 @@ export default function RetailerDashboard() {
                     
                     {/* Date-wise breakdown - Stack on mobile, 3 cols on desktop */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-                      {/* Today's 50% Upfront */}
+                      {/* Today's 50% Upfront + Pending 50% from Recent Days */}
                       <div className="bg-white rounded-lg border border-green-200 p-3">
                         <div className="flex justify-between items-start sm:block">
-                          <p className="text-xs text-green-600 font-medium mb-1">50% Upfront (Today)</p>
+                          <p className="text-xs text-green-600 font-medium mb-1">50% Upfront</p>
                           <p className="text-lg sm:text-xl font-bold text-green-600">
-                            {formatCurrency(immediatelyPayable.totals.today_50_percent_total || 0)}
+                            {formatCurrency((immediatelyPayable.totals.today_50_percent_total || 0) + (immediatelyPayable.totals.pending_50_percent_recent_total || 0))}
                           </p>
                         </div>
-                        {immediatelyPayable.today_50_percent && immediatelyPayable.today_50_percent.length > 0 ? (
-                          <div className="mt-2 space-y-1 hidden sm:block">
-                            {immediatelyPayable.today_50_percent.slice(0, 2).map((item, idx) => (
-                              <div key={idx} className="text-xs text-gray-600 flex justify-between">
-                                <span>Inv #{item.invoice_number?.slice(-6) || 'N/A'}</span>
+                        <div className="mt-2 space-y-1">
+                          {/* Today's 50% */}
+                          {immediatelyPayable.today_50_percent && immediatelyPayable.today_50_percent.length > 0 ? (
+                            immediatelyPayable.today_50_percent.map((item, idx) => (
+                              <div key={`today-${idx}`} className="text-xs text-gray-600 flex justify-between">
+                                <span>Today</span>
                                 <span className="font-medium">{formatCurrency(item.due_amount)}</span>
                               </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-gray-400 mt-1 hidden sm:block">No deliveries today</p>
-                        )}
+                            ))
+                          ) : (
+                            <div className="text-xs text-gray-400">No deliveries today</div>
+                          )}
+                          
+                          {/* Pending 50% from recent days (1-4 days ago) */}
+                          {immediatelyPayable.pending_50_percent_recent && immediatelyPayable.pending_50_percent_recent.length > 0 && (
+                            <>
+                              <div className="border-t border-gray-100 my-1 pt-1">
+                                <p className="text-xs text-orange-500 font-medium">Pending from earlier:</p>
+                              </div>
+                              {immediatelyPayable.pending_50_percent_recent.map((item, idx) => (
+                                <div key={`recent-${idx}`} className="text-xs text-gray-600 flex justify-between">
+                                  <span>{new Date(item.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})}</span>
+                                  <span className="font-medium text-orange-600">{formatCurrency(item.due_amount)}</span>
+                                </div>
+                              ))}
+                            </>
+                          )}
+                        </div>
                       </div>
                       
                       {/* 5 Days Due (Remaining 50%) */}
@@ -1880,7 +1896,7 @@ export default function RetailerDashboard() {
                     </div>
                     
                     <p className="text-xs text-gray-500 text-center sm:text-right">
-                      For details, check the <button className="text-blue-600 underline hover:text-blue-800" onClick={() => setActiveTab('invoices')}>Invoices</button> tab
+                      For details, check the Invoices tab
                     </p>
                   </div>
                 </CardContent>

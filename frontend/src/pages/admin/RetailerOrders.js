@@ -3856,14 +3856,18 @@ export default function RetailerOrders() {
             </div>
             
             {/* Summary Row */}
-            <div className="grid grid-cols-3 gap-3 mb-3">
-              <div className="bg-white/80 rounded p-2 border border-red-100">
+            <div className="grid grid-cols-4 gap-3 mb-3">
+              <div className="bg-white/80 rounded p-2 border border-green-100">
                 <p className="text-xs text-gray-500">50% Upfront (Today)</p>
-                <p className="text-sm font-bold text-red-600">{formatCurrency(immediatelyPayable.grand_totals.today_50_percent)}</p>
+                <p className="text-sm font-bold text-green-600">{formatCurrency(immediatelyPayable.grand_totals.today_50_percent)}</p>
               </div>
               <div className="bg-white/80 rounded p-2 border border-orange-100">
+                <p className="text-xs text-gray-500">Pending 50% (1-4 days)</p>
+                <p className="text-sm font-bold text-orange-500">{formatCurrency(immediatelyPayable.grand_totals.pending_50_recent || 0)}</p>
+              </div>
+              <div className="bg-white/80 rounded p-2 border border-yellow-100">
                 <p className="text-xs text-gray-500">5-Day Credit Due</p>
-                <p className="text-sm font-bold text-orange-600">{formatCurrency(immediatelyPayable.grand_totals.due_today_remaining)}</p>
+                <p className="text-sm font-bold text-yellow-600">{formatCurrency(immediatelyPayable.grand_totals.due_today_remaining)}</p>
               </div>
               <div className="bg-white/80 rounded p-2 border border-red-200">
                 <p className="text-xs text-gray-500">Overdue (&gt;5 days)</p>

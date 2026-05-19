@@ -1091,41 +1091,44 @@ export default function RetailerOrders() {
         <title>Retailer Indents - ${formattedDate}</title>
         <style>
           @media print {
-            @page { size: landscape; margin: 10mm; }
+            @page { size: landscape; margin: 8mm; }
           }
           body { 
             font-family: Arial, sans-serif; 
-            font-size: 11px; 
+            font-size: 12px; 
             margin: 0; 
             padding: 10px;
           }
           h1 { 
             text-align: center; 
-            font-size: 16px; 
+            font-size: 18px; 
             margin-bottom: 5px;
             color: #14532D;
           }
           .summary { 
             text-align: center; 
-            font-size: 12px; 
-            margin-bottom: 15px;
+            font-size: 13px; 
+            margin-bottom: 12px;
             color: #666;
           }
           table { 
             width: 100%; 
             border-collapse: collapse; 
-            font-size: 10px;
+            font-size: 12px;
+            table-layout: auto;
           }
           th, td { 
-            border: 1px solid #ddd; 
-            padding: 4px 6px; 
+            border: 1px solid #ccc; 
+            padding: 6px 8px; 
             text-align: center;
+            white-space: nowrap;
           }
           th { 
             background-color: #14532D; 
             color: white; 
             font-weight: bold;
-            font-size: 9px;
+            font-size: 11px;
+            padding: 8px 10px;
           }
           td.product-name { 
             text-align: left; 
@@ -1133,12 +1136,11 @@ export default function RetailerOrders() {
           }
           td.variant { 
             text-align: left; 
-            color: #666;
+            color: #555;
           }
-          tr:nth-child(even) { background-color: #f9f9f9; }
-          tr:hover { background-color: #f0f0f0; }
+          tr:nth-child(even) { background-color: #f5f5f5; }
           .total-col { 
-            background-color: #e8f5e9 !important; 
+            background-color: #d4edda !important; 
             font-weight: bold;
             color: #14532D;
           }
@@ -1151,8 +1153,7 @@ export default function RetailerOrders() {
             color: white;
             font-weight: bold;
           }
-          .sr-no { width: 40px; }
-          .qty-cell { min-width: 50px; }
+          .sr-no { width: 35px; }
         </style>
       </head>
       <body>
@@ -1161,10 +1162,10 @@ export default function RetailerOrders() {
         <table>
           <thead>
             <tr>
-              <th class="sr-no">Sr No</th>
+              <th class="sr-no">Sr</th>
               <th>Product</th>
               <th>Variant</th>
-              ${retailers.map(([_, name]) => `<th class="qty-cell">${name}</th>`).join('')}
+              ${retailers.map(([_, name]) => `<th>${name}</th>`).join('')}
               <th class="total-col">Total</th>
             </tr>
           </thead>
@@ -1185,7 +1186,7 @@ export default function RetailerOrders() {
         const qtyKey = `${productKey}|${retailerId}`;
         const qty = quantityMap.get(qtyKey) || 0;
         rowTotal += qty;
-        htmlContent += `<td class="qty-cell">${qty || ''}</td>`;
+        htmlContent += `<td>${qty || ''}</td>`;
       });
       
       htmlContent += `<td class="total-col">${rowTotal}</td>`;

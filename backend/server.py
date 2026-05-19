@@ -9698,6 +9698,13 @@ async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCrea
     if not existing:
         raise HTTPException(status_code=404, detail="Dispatch not found")
     
+    indent_id = existing.get("indent_id")
+    
+    # Track items that existed before the edit (for done status management)
+    old_item_keys = {f"{item.get('product_id')}|{item.get('variant_id', '')}" for item in existing.get("items", [])}
+    new_item_keys = {f"{item.product_id}|{item.variant_id or ''}" for item in input.items}
+    removed_item_keys = old_item_keys - new_item_keys
+    
     # Get retailer info for commission
     retailer = await db.users.find_one({"id": existing["retailer_id"]}, {"_id": 0})
     commission = retailer.get("commission_percentage", 0) if retailer else 0
@@ -9724,6 +9731,43 @@ async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCrea
     }
     
     await db.retailer_dispatches.update_one({"id": dispatch_id}, {"$set": update_data})
+    
+    # If items were removed, check if they should be unmarked as "Done"
+    if removed_item_keys and indent_id:
+        # Get all OTHER dispatches for this indent (excluding current one)
+        other_dispatches = await db.retailer_dispatches.find(
+            {"indent_id": indent_id, "id": {"$ne": dispatch_id}}, 
+            {"_id": 0, "items": 1}
+        ).to_list(100)
+        
+        # Build set of product+variant keys that have dispatches in OTHER dispatches
+        other_dispatch_keys = set()
+        for d in other_dispatches:
+            for item in d.get("items", []):
+                key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                other_dispatch_keys.add(key)
+        
+        # Find removed items that have NO other dispatches
+        items_to_unmark = removed_item_keys - other_dispatch_keys
+        
+        if items_to_unmark:
+            # Get the indent and unmark those items as done
+            indent = await db.retailer_indents.find_one({"id": indent_id})
+            if indent:
+                updated_items = []
+                for item in indent.get("items", []):
+                    item_key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                    item_copy = dict(item)
+                    if item_key in items_to_unmark:
+                        # Remove marked_done flag so it appears in future dispatches
+                        item_copy.pop("marked_done", None)
+                    updated_items.append(item_copy)
+                
+                await db.retailer_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"items": updated_items}}
+                )
+    
     return {"id": dispatch_id, "message": "Dispatch updated successfully"}
 
 # Delete Retailer Dispatch
@@ -9743,21 +9787,42 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
     
     indent_id = existing.get("indent_id")
     
+    # Track items that were in this dispatch (for unmarking done status)
+    deleted_item_keys = {f"{item.get('product_id')}|{item.get('variant_id', '')}" for item in existing.get("items", [])}
+    
     await db.retailer_dispatches.delete_one({"id": dispatch_id})
     
     # Recalculate indent status based on remaining dispatches
     if indent_id:
         remaining_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
         
+        # Build set of product+variant keys that still have dispatches
+        remaining_dispatch_keys = set()
+        for d in remaining_dispatches:
+            for item in d.get("items", []):
+                key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                remaining_dispatch_keys.add(key)
+        
+        # Find deleted items that now have NO dispatches
+        items_to_unmark = deleted_item_keys - remaining_dispatch_keys
+        
         if len(remaining_dispatches) == 0:
-            # No dispatches left - set back to pending
-            await db.retailer_indents.update_one(
-                {"id": indent_id},
-                {"$set": {"status": "pending"}}
-            )
+            # No dispatches left - set back to pending and unmark all done items
+            indent = await db.retailer_indents.find_one({"id": indent_id})
+            if indent:
+                updated_items = []
+                for item in indent.get("items", []):
+                    item_copy = dict(item)
+                    item_copy.pop("marked_done", None)  # Remove done flag
+                    updated_items.append(item_copy)
+                
+                await db.retailer_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"status": "pending", "items": updated_items}}
+                )
         else:
             # Check if partially or fully dispatched
-            indent = await db.retailer_indents.find_one({"id": indent_id}, {"_id": 0})
+            indent = await db.retailer_indents.find_one({"id": indent_id})
             if indent:
                 total_dispatched = {}
                 for d in remaining_dispatches:
@@ -9773,9 +9838,19 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
                         break
                 
                 new_status = "dispatched" if fully_dispatched else "partial"
+                
+                # Also unmark items that no longer have dispatches
+                updated_items = []
+                for item in indent.get("items", []):
+                    item_key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                    item_copy = dict(item)
+                    if item_key in items_to_unmark:
+                        item_copy.pop("marked_done", None)
+                    updated_items.append(item_copy)
+                
                 await db.retailer_indents.update_one(
                     {"id": indent_id},
-                    {"$set": {"status": new_status}}
+                    {"$set": {"status": new_status, "items": updated_items}}
                 )
     
     return {"message": "Dispatch deleted successfully"}

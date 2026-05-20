@@ -13697,19 +13697,17 @@ async def get_retailer_immediately_payable(
         else:
             continue
         
-        # Calculate actual final payable
-        gross_value = inv.get("gross_value", 0) or inv.get("net_payable", 0) or 0
-        commission_pct = inv.get("commission_percentage", 0) or 0
+        # Use the invoice's stored values for consistency with Payment Summary
+        gross_value = inv.get("gross_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
         
-        # Get rejections for this invoice date + retailer
-        rejection_key = (inv.get("retailer_id"), inv_date_str)
-        total_rejections = rejection_map.get(rejection_key, 0)
-        
-        # Final payable = gross - rejections - commission (on net after rejections)
-        net_after_rejection = gross_value - total_rejections
-        commission_amount = (net_after_rejection * commission_pct / 100) if commission_pct else (inv.get("commission_amount", 0) or 0)
-        final_payable = net_after_rejection - commission_amount
+        # Use stored net_payable if available, otherwise calculate
+        final_payable = inv.get("net_payable", 0) or 0
+        if final_payable <= 0:
+            # Fallback calculation
+            final_payable = gross_value - rejection_amount - commission_amount
         
         # Pending amount
         pending_amount = max(0, final_payable - paid_amount)
@@ -13727,7 +13725,7 @@ async def get_retailer_immediately_payable(
             "retailer_id": inv.get("retailer_id"),
             "retailer_name": inv.get("retailer_name"),
             "gross_value": gross_value,
-            "rejection_amount": total_rejections,
+            "rejection_amount": rejection_amount,
             "commission_amount": round(commission_amount, 2),
             "final_payable": round(final_payable, 2),
             "paid_amount": paid_amount,
@@ -13884,19 +13882,18 @@ async def get_all_retailers_immediately_payable(
         else:
             continue
         
-        # Calculate actual final payable using dynamic rejection lookup
-        gross_value = inv.get("gross_value", 0) or inv.get("net_payable", 0) or 0
-        commission_pct = inv.get("commission_percentage", 0) or 0
+        # Use the invoice's stored values for consistency with Payment Summary
+        # The invoice already has the correct net_payable calculated
+        gross_value = inv.get("gross_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
         
-        # Get rejections for this invoice date + retailer
-        rejection_key = (retailer_id, inv_date_str)
-        total_rejections = rejection_map.get(rejection_key, 0)
-        
-        # Final payable = gross - rejections - commission (on net after rejections)
-        net_after_rejection = gross_value - total_rejections
-        commission_amount = (net_after_rejection * commission_pct / 100) if commission_pct else (inv.get("commission_amount", 0) or 0)
-        final_payable = net_after_rejection - commission_amount
+        # Use stored net_payable if available, otherwise calculate
+        final_payable = inv.get("net_payable", 0) or 0
+        if final_payable <= 0:
+            # Fallback calculation if net_payable not stored
+            final_payable = gross_value - rejection_amount - commission_amount
         
         pending_amount = max(0, final_payable - paid_amount)
         

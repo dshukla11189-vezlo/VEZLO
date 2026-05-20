@@ -70,7 +70,7 @@ export default function StockStatus() {
 
   const loadProducts = useCallback(async () => {
     try {
-      const response = await api.get('/api/products');
+      const response = await api.get('/api/products?include_images=false');
       setProducts(response.data);
     } catch (error) {
       console.error('Load products error:', error);

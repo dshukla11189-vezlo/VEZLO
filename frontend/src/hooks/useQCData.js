@@ -35,7 +35,7 @@ export function useQCData() {
         api.get('/api/qc-dispatches'),
         api.get('/api/qc-grns'),
         api.get('/api/qc-customers'),
-        api.get('/api/products'),
+        api.get('/api/products?include_images=false'),
         api.get('/api/qc-packaging'),
         api.get('/api/qc-invoices')
       ]);

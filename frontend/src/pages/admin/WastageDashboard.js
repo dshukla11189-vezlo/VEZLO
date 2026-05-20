@@ -142,7 +142,7 @@ export default function WastageDashboard() {
     try {
       const [wastageRes, productsRes] = await Promise.all([
         api.get(`/api/stock-status/wastage-dashboard?from_date=${dateFrom}&to_date=${dateTo}`),
-        api.get('/api/products')
+        api.get('/api/products?include_images=false')
       ]);
       setDashboardData(wastageRes.data);
       setProducts(productsRes.data);

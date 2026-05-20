@@ -252,7 +252,7 @@ export default function Procurement() {
       const [procRes, farmRes, prodRes, unitsRes] = await Promise.all([
         api.get('/api/procurement'),
         api.get('/api/farmers'),
-        api.get('/api/products'),
+        api.get('/api/products?include_images=false'),
         api.get('/api/units')
       ]);
       setProcurements(procRes.data);

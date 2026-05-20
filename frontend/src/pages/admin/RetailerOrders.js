@@ -2464,7 +2464,7 @@ export default function RetailerOrders() {
         // Fetch all products if not loaded
         let allProducts = products;
         if (!allProducts || allProducts.length === 0) {
-          const productsRes = await api.get('/api/products');
+          const productsRes = await api.get('/api/products?include_images=false');
           allProducts = productsRes.data || [];
         }
         

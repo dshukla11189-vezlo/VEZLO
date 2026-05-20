@@ -270,10 +270,10 @@ export default function Products() {
     image_url: ''  // Product image URL
   });
 
-  // Load products
+  // Load products (without images for performance)
   const loadProducts = useCallback(async () => {
     try {
-      const response = await api.get('/api/products');
+      const response = await api.get('/api/products?include_images=false');
       setProducts(response.data);
     } catch (error) {
       toast.error('Failed to load products');

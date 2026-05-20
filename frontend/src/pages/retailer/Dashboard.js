@@ -207,7 +207,7 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-dispatches'),
         api.get('/api/retailer-invoices'),
         api.get('/api/retailer-rejections'),
-        api.get('/api/products'),
+        api.get('/api/products?include_images=false'),
         api.get('/api/qc-packaging'),
         api.get('/api/retailer-grn'),
         api.get('/api/retailer-payments'),

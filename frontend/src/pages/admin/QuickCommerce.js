@@ -251,12 +251,17 @@ export default function QuickCommerce() {
   const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState('');
   const [invoiceDateFilter, setInvoiceDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
-  // Invoice list filters
-  const [invoiceListFilters, setInvoiceListFilters] = useState({
-    fromDate: '',
-    toDate: '',
-    customerName: '',
-    productName: ''
+  // Invoice list filters - default to last 30 days
+  const [invoiceListFilters, setInvoiceListFilters] = useState(() => {
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    return {
+      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+      toDate: today.toISOString().split('T')[0],
+      customerName: '',
+      productName: ''
+    };
   });
 
   // QC Daily Requirement state
@@ -298,15 +303,19 @@ export default function QuickCommerce() {
 
   const loadData = async () => {
     try {
-      // Use date filters and limit to improve performance
+      // Use date range for data loading - last 30 days to today
       const today = new Date().toISOString().split('T')[0];
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const fromDate = thirtyDaysAgo.toISOString().split('T')[0];
+      
       const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes, invoicesRes, settingsRes] = await Promise.all([
-        api.get(`/api/qc-indents?from_date=${today}&to_date=${today}&limit=100`),
-        api.get(`/api/qc-dispatches?from_date=${today}&to_date=${today}&limit=100`),
-        api.get(`/api/qc-grns?from_date=${today}&to_date=${today}&limit=100`),
+        api.get(`/api/qc-indents?from_date=${fromDate}&to_date=${today}&limit=500`),
+        api.get(`/api/qc-dispatches?from_date=${fromDate}&to_date=${today}&limit=500`),
+        api.get(`/api/qc-grns?from_date=${fromDate}&to_date=${today}&limit=500`),
         api.get('/api/qc-customers'),
         api.get('/api/products?include_images=false'),
-        api.get(`/api/qc-invoices?from_date=${today}&to_date=${today}&limit=100`),
+        api.get(`/api/qc-invoices?from_date=${fromDate}&to_date=${today}&limit=500`),
         api.get('/api/customer-product-settings')
       ]);
       

@@ -2857,9 +2857,9 @@ export default function RetailerDashboard() {
                 >
                   <ShoppingBag size={14} className="inline mr-1" />
                   <span className="hidden sm:inline">Orders</span>
-                  {indents.filter(i => i.status === 'pending' || i.status === 'partial').length > 0 && (
+                  {indents.filter(i => i.status === 'pending').length > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-[10px] sm:text-xs rounded-full">
-                      {indents.filter(i => i.status === 'pending' || i.status === 'partial').length}
+                      {indents.filter(i => i.status === 'pending').length}
                     </span>
                   )}
                 </button>
@@ -2909,8 +2909,8 @@ export default function RetailerDashboard() {
                 </CardHeader>
                 <CardContent className="p-0">
                   {(() => {
-                    // Group pending indents by date
-                    const pendingIndents = indents.filter(i => i.status === 'pending' || i.status === 'partial');
+                    // Only show pending indents (not partial - those are already being dispatched)
+                    const pendingIndents = indents.filter(i => i.status === 'pending');
                     const indentsByDate = pendingIndents.reduce((acc, indent) => {
                       const date = indent.indent_date?.split('T')[0] || 'Unknown';
                       if (!acc[date]) acc[date] = [];

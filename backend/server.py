@@ -14381,11 +14381,14 @@ async def get_all_retailers_immediately_payable(
         }
         
         if days_since == 0:
-            due = min(fifty_percent, pending_amount)
-            retailer_payables[retailer_id]["today_50_percent"] += due
-            entry["amount"] = round(due, 2)
-            entry["type"] = "today"
-            detailed_entries["upfront"].append(entry)
+            # Today's invoice: 50% upfront is due
+            # Only show unpaid portion of 50% upfront
+            unpaid_fifty = max(0, fifty_percent - paid_amount)
+            if unpaid_fifty > 0:
+                retailer_payables[retailer_id]["today_50_percent"] += unpaid_fifty
+                entry["amount"] = round(unpaid_fifty, 2)
+                entry["type"] = "today"
+                detailed_entries["upfront"].append(entry)
         elif days_since >= 1 and days_since <= 4:
             # Check if 50% upfront was paid
             unpaid_50_percent = max(0, fifty_percent - paid_amount)

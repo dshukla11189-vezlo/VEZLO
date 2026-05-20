@@ -461,9 +461,12 @@ export default function RetailerDashboard() {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(0, 0, 0, 0);
+      
+      // Use local date string to avoid timezone issues (YYYY-MM-DD format)
+      const tomorrowDateStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
 
       await api.post('/api/retailer-indents', {
-        indent_date: tomorrow.toISOString(),
+        indent_date: tomorrowDateStr,
         items
       });
 
@@ -676,7 +679,7 @@ export default function RetailerDashboard() {
       if (editingIndentId) {
         await api.put(`/api/retailer-indents/${editingIndentId}`, {
           retailer_id: dashboardData?.retailer?.id,
-          indent_date: new Date(createIndentDate).toISOString(),
+          indent_date: createIndentDate,  // Already in YYYY-MM-DD format
           items: items,
           remarks: ''
         });
@@ -684,7 +687,7 @@ export default function RetailerDashboard() {
       } else {
         await api.post('/api/retailer-indents', {
           retailer_id: dashboardData?.retailer?.id,
-          indent_date: new Date(createIndentDate).toISOString(),
+          indent_date: createIndentDate,  // Already in YYYY-MM-DD format
           items: items,
           remarks: ''
         });

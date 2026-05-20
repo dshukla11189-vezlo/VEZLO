@@ -9587,7 +9587,12 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
     )
     
     doc = indent.model_dump()
-    doc["indent_date"] = doc["indent_date"].isoformat()
+    # Store indent_date as YYYY-MM-DD string for consistent date matching
+    # This avoids timezone issues where IST dates become different UTC dates
+    if isinstance(doc["indent_date"], datetime):
+        doc["indent_date"] = doc["indent_date"].strftime("%Y-%m-%d")
+    else:
+        doc["indent_date"] = str(doc["indent_date"])[:10]
     doc["created_at"] = doc["created_at"].isoformat()
     
     # Mark if created by retailer
@@ -9653,7 +9658,7 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
         new_status = "partial"
     
     update_data = {
-        "indent_date": input.indent_date.isoformat(),
+        "indent_date": input.indent_date.strftime("%Y-%m-%d") if isinstance(input.indent_date, datetime) else str(input.indent_date)[:10],
         "items": new_items,
         "remarks": input.remarks,
         "status": new_status  # Update status based on dispatch completeness

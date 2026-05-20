@@ -1380,7 +1380,7 @@ export default function RetailerOrders() {
       if (editingIndent) {
         await api.put(`/api/retailer-indents/${editingIndent.id}`, {
           retailer_id: indentForm.retailer_id,
-          indent_date: new Date(indentForm.indent_date).toISOString(),
+          indent_date: indentForm.indent_date,  // Already in YYYY-MM-DD format from date input
           items: indentForm.items,
           remarks: indentForm.remarks
         });
@@ -1388,7 +1388,7 @@ export default function RetailerOrders() {
       } else {
         await api.post('/api/retailer-indents', {
           retailer_id: indentForm.retailer_id,
-          indent_date: new Date(indentForm.indent_date).toISOString(),
+          indent_date: indentForm.indent_date,  // Already in YYYY-MM-DD format from date input
           items: indentForm.items,
           remarks: indentForm.remarks
         });

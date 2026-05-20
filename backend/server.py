@@ -13688,10 +13688,11 @@ async def get_retailer_immediately_payable(
 
 @api_router.get("/admin/all-retailers-immediately-payable")
 async def get_all_retailers_immediately_payable(
+    retailer_id: str = None,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Get immediately payable summary for all retailers (Admin only)
+    Get immediately payable summary for all retailers OR a specific retailer (Admin only)
     Uses dynamic rejection lookup to calculate actual final payable amounts.
     Final payable = gross_value - rejections - commission (on net after rejections)
     """
@@ -13709,9 +13710,14 @@ async def get_all_retailers_immediately_payable(
     all_retailers = await db.retailers.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1}).to_list(1000)
     retailer_map = {r["id"]: r.get("company_name") or r.get("name", "Unknown") for r in all_retailers}
     
-    # Fetch all unpaid/partial invoices
+    # Build invoice query - filter by retailer if specified
+    invoice_query = {"status": {"$in": ["pending", "partial"]}}
+    if retailer_id:
+        invoice_query["retailer_id"] = retailer_id
+    
+    # Fetch unpaid/partial invoices
     invoices = await db.retailer_invoices.find(
-        {"status": {"$in": ["pending", "partial"]}},
+        invoice_query,
         {"_id": 0}
     ).to_list(5000)
     

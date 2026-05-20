@@ -385,14 +385,15 @@ export default function RetailerOrders() {
   const loadImmediatelyPayable = useCallback(async () => {
     setLoadingImmediatelyPayable(true);
     try {
-      const response = await api.get('/api/admin/all-retailers-immediately-payable');
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/admin/all-retailers-immediately-payable${params}`);
       setImmediatelyPayable(response.data);
     } catch (error) {
       console.error('Failed to load immediately payable:', error);
     } finally {
       setLoadingImmediatelyPayable(false);
     }
-  }, []);
+  }, [selectedRetailer]);
 
   // Load admin/staff users for "Received By" dropdown
   const loadStaffUsers = useCallback(async () => {
@@ -873,6 +874,11 @@ export default function RetailerOrders() {
       loadDispatches();
     }
   }, [dispatchDateFilter, loadDispatches]);
+
+  // Reload immediately payable when selected retailer changes
+  useEffect(() => {
+    loadImmediatelyPayable();
+  }, [selectedRetailer, loadImmediatelyPayable]);
 
   // Filter rejections by date, retailer, and product
   useEffect(() => {

@@ -296,29 +296,11 @@ app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 recent_errors = []
 MAX_ERROR_LOG = 100
 
-# Async function to save error to database
-async def save_error_to_db(error_entry):
-    """Save error to database for persistence"""
-    try:
-        error_entry["_id"] = str(uuid.uuid4())
-        await db.system_logs.insert_one(error_entry)
-        # Keep only last 500 logs in DB
-        count = await db.system_logs.count_documents({})
-        if count > 500:
-            oldest = await db.system_logs.find({}, {"_id": 1}).sort("timestamp", 1).limit(count - 500).to_list(count - 500)
-            if oldest:
-                await db.system_logs.delete_many({"_id": {"$in": [o["_id"] for o in oldest]}})
-    except Exception as e:
-        logger.error(f"Failed to save error to DB: {e}")
-
-# Request logging middleware
+# Request logging middleware - simplified to avoid crashes
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
     request_id = str(uuid.uuid4())[:8]
-    
-    # Log request
-    logger.info(f"[{request_id}] {request.method} {request.url.path} - Started")
     
     try:
         response = await call_next(request)
@@ -328,7 +310,7 @@ async def log_requests(request: Request, call_next):
         log_level = logging.WARNING if response.status_code >= 400 else logging.INFO
         logger.log(log_level, f"[{request_id}] {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
         
-        # Store errors (both 4xx and 5xx, and slow requests > 5s)
+        # Store errors in memory only (no DB writes in middleware)
         if response.status_code >= 400 or process_time > 5:
             error_entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -342,37 +324,28 @@ async def log_requests(request: Request, call_next):
             recent_errors.append(error_entry)
             if len(recent_errors) > MAX_ERROR_LOG:
                 recent_errors.pop(0)
-            
-            # Save to DB asynchronously
-            asyncio.create_task(save_error_to_db(error_entry.copy()))
         
         return response
     except Exception as e:
         process_time = time.time() - start_time
         error_msg = str(e)
-        tb = traceback.format_exc()
         
         logger.error(f"[{request_id}] {request.method} {request.url.path} - EXCEPTION: {error_msg}")
-        logger.error(f"[{request_id}] Traceback: {tb}")
         
-        # Store error
+        # Store error in memory only
         error_entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request_id,
             "method": request.method,
             "path": str(request.url.path),
             "status_code": 500,
-            "error": error_msg,
-            "traceback": tb[:500],  # Truncate traceback
+            "error": error_msg[:200],
             "process_time": round(process_time, 3),
             "type": "exception"
         }
         recent_errors.append(error_entry)
         if len(recent_errors) > MAX_ERROR_LOG:
             recent_errors.pop(0)
-        
-        # Save to DB asynchronously
-        asyncio.create_task(save_error_to_db(error_entry.copy()))
         
         raise
 

@@ -291,9 +291,24 @@ from fastapi.staticfiles import StaticFiles
 os.makedirs("/app/uploads/products", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 
-# Store recent errors for diagnostics (in-memory, last 50 errors)
+# Store recent errors for diagnostics (in-memory, last 100 errors)
 recent_errors = []
-MAX_ERROR_LOG = 50
+MAX_ERROR_LOG = 100
+
+# Async function to save error to database
+async def save_error_to_db(error_entry):
+    """Save error to database for persistence"""
+    try:
+        error_entry["_id"] = str(uuid.uuid4())
+        await db.system_logs.insert_one(error_entry)
+        # Keep only last 500 logs in DB
+        count = await db.system_logs.count_documents({})
+        if count > 500:
+            oldest = await db.system_logs.find({}, {"_id": 1}).sort("timestamp", 1).limit(count - 500).to_list(count - 500)
+            if oldest:
+                await db.system_logs.delete_many({"_id": {"$in": [o["_id"] for o in oldest]}})
+    except Exception as e:
+        logger.error(f"Failed to save error to DB: {e}")
 
 # Request logging middleware
 @app.middleware("http")
@@ -312,19 +327,23 @@ async def log_requests(request: Request, call_next):
         log_level = logging.WARNING if response.status_code >= 400 else logging.INFO
         logger.log(log_level, f"[{request_id}] {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
         
-        # Store errors
-        if response.status_code >= 400:
+        # Store errors (both 4xx and 5xx, and slow requests > 5s)
+        if response.status_code >= 400 or process_time > 5:
             error_entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "request_id": request_id,
                 "method": request.method,
                 "path": str(request.url.path),
                 "status_code": response.status_code,
-                "process_time": round(process_time, 3)
+                "process_time": round(process_time, 3),
+                "type": "slow_request" if process_time > 5 else "error"
             }
             recent_errors.append(error_entry)
             if len(recent_errors) > MAX_ERROR_LOG:
                 recent_errors.pop(0)
+            
+            # Save to DB asynchronously
+            asyncio.create_task(save_error_to_db(error_entry.copy()))
         
         return response
     except Exception as e:
@@ -344,11 +363,15 @@ async def log_requests(request: Request, call_next):
             "status_code": 500,
             "error": error_msg,
             "traceback": tb[:500],  # Truncate traceback
-            "process_time": round(process_time, 3)
+            "process_time": round(process_time, 3),
+            "type": "exception"
         }
         recent_errors.append(error_entry)
         if len(recent_errors) > MAX_ERROR_LOG:
             recent_errors.pop(0)
+        
+        # Save to DB asynchronously
+        asyncio.create_task(save_error_to_db(error_entry.copy()))
         
         raise
 
@@ -415,9 +438,13 @@ async def get_diagnostics(current_user: dict = Depends(get_current_user)):
         for coll in collections[:10]:  # Limit to 10 collections
             count = await db[coll].count_documents({})
             collection_counts[coll] = count
+        
+        # Get persisted logs from DB (last 50)
+        db_logs = await db.system_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(50).to_list(50)
     except Exception as e:
         db_status = f"error: {str(e)}"
         collection_counts = {}
+        db_logs = []
     
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -425,10 +452,48 @@ async def get_diagnostics(current_user: dict = Depends(get_current_user)):
             "status": db_status,
             "collections": collection_counts
         },
-        "recent_errors": recent_errors[-20:],  # Last 20 errors
-        "error_count": len(recent_errors),
-        "uptime_note": "Errors are stored in-memory and reset on server restart"
+        "recent_errors_memory": recent_errors[-20:],  # Last 20 errors in memory
+        "recent_errors_db": db_logs,  # Last 50 from database
+        "error_count_memory": len(recent_errors),
+        "note": "Memory logs reset on server restart. DB logs persist."
     }
+
+
+@api_router.get("/system-logs")
+async def get_system_logs(
+    limit: int = 100,
+    log_type: str = None,
+    from_time: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get system logs from database with optional filters"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        query = {}
+        if log_type:
+            query["type"] = log_type
+        if from_time:
+            query["timestamp"] = {"$gte": from_time}
+        
+        logs = await db.system_logs.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+        
+        # Get summary stats
+        total_count = await db.system_logs.count_documents({})
+        error_count = await db.system_logs.count_documents({"status_code": {"$gte": 500}})
+        slow_count = await db.system_logs.count_documents({"type": "slow_request"})
+        
+        return {
+            "logs": logs,
+            "summary": {
+                "total_logs": total_count,
+                "server_errors_5xx": error_count,
+                "slow_requests": slow_count
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # SECTION: AUTHENTICATION ROUTES (Lines ~190-305)

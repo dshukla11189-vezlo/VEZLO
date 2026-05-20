@@ -3762,38 +3762,44 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             best_match_score = 0
             
             for base_name, items in product_groups.items():
-                # Special handling for Mint Leaves ONLY - match by weight and roots type
+                # Special handling for Mint Leaves and Coriander - match by weight and roots type
                 is_mint_product = 'mint' in base_name.lower()
                 is_mint_sku = 'mint' in sku_name_lower
+                is_coriander_product = 'coriander' in base_name.lower()
+                is_coriander_sku = 'coriander' in sku_name_lower
                 
-                # Only apply Mint-specific matching if BOTH product and SKU mention mint
-                if is_mint_product and is_mint_sku and sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
-                    # For Mint PCS items, match based on BOTH roots type AND weight
-                    # This prevents 70-80gm "without roots" from matching 100gm "with roots"
-                    matched_mint_items = []
+                # Apply roots-specific matching for Mint and Coriander PCS items
+                needs_roots_matching = (is_mint_product and is_mint_sku) or (is_coriander_product and is_coriander_sku)
+                
+                if needs_roots_matching and sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
+                    # For PCS items with "with roots" or "without roots", match based on BOTH roots type AND weight
+                    # This prevents "without roots" from matching "with roots" variants
+                    matched_roots_items = []
                     for item in items:
                         pkg_name_lower = item.get('packaging_name', '').lower()
                         pkg_has_with_roots = 'with roots' in pkg_name_lower and 'without' not in pkg_name_lower
                         pkg_has_without_roots = 'without roots' in pkg_name_lower
                         
-                        # Match roots type (REQUIRED)
+                        # Match roots type (REQUIRED for items that specify roots)
                         roots_match = (sku_has_with_roots and pkg_has_with_roots) or \
-                                     (sku_has_without_roots and pkg_has_without_roots)
+                                     (sku_has_without_roots and pkg_has_without_roots) or \
+                                     (not pkg_has_with_roots and not pkg_has_without_roots)  # Unspecified packaging matches any
                         
                         if not roots_match:
                             continue  # Skip if roots type doesn't match
                         
-                        # Match weight (within 30gm tolerance for 70-80 range)
+                        # Match weight (within 30gm tolerance)
                         pkg_weight = item.get('packaging_weight_gm', 0)
                         weight_match = sku_weight > 0 and pkg_weight > 0 and abs(pkg_weight - sku_weight) <= 30
                         
-                        # For Mint, require BOTH roots match AND (weight match OR no weight specified)
+                        # Require BOTH roots match AND (weight match OR no weight specified)
                         if roots_match and (weight_match or sku_weight == 0 or pkg_weight == 0):
-                            logger.info(f"  Mint match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}, sku_weight={sku_weight}, pkg_weight={pkg_weight}")
-                            matched_mint_items.append(item)
+                            product_type = "Mint" if is_mint_sku else "Coriander"
+                            logger.info(f"  {product_type} match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}, sku_weight={sku_weight}, pkg_weight={pkg_weight}")
+                            matched_roots_items.append(item)
                     
-                    if matched_mint_items:
-                        best_match_group = (base_name, matched_mint_items)
+                    if matched_roots_items:
+                        best_match_group = (base_name, matched_roots_items)
                         best_match_score = 1.0
                         break
                 
@@ -3807,6 +3813,38 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 
                 if not type_matched_items:
                     continue  # No items match the required type
+                
+                # For Kg SKUs with "without roots" or "with roots", filter matching items
+                # This ensures Coriander (without roots)(KG) doesn't match "With Roots" variants
+                if not sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
+                    roots_filtered_items = []
+                    for item in type_matched_items:
+                        pkg_name_lower = item.get('packaging_name', '').lower()
+                        pkg_has_with_roots = 'with roots' in pkg_name_lower and 'without' not in pkg_name_lower
+                        pkg_has_without_roots = 'without roots' in pkg_name_lower
+                        
+                        # SKU "without roots" should NOT match packaging "with roots"
+                        if sku_has_without_roots and pkg_has_with_roots:
+                            continue
+                        # SKU "with roots" should NOT match packaging "without roots"  
+                        if sku_has_with_roots and pkg_has_without_roots:
+                            continue
+                        # SKU "without roots" matches packaging that doesn't say "with roots"
+                        if sku_has_without_roots and not pkg_has_with_roots:
+                            roots_filtered_items.append(item)
+                        # SKU "with roots" matches packaging that has "with roots" or doesn't specify
+                        elif sku_has_with_roots and (pkg_has_with_roots or (not pkg_has_with_roots and not pkg_has_without_roots)):
+                            roots_filtered_items.append(item)
+                        # No roots specified in SKU - include all
+                        elif not sku_has_with_roots and not sku_has_without_roots:
+                            roots_filtered_items.append(item)
+                    
+                    if roots_filtered_items:
+                        type_matched_items = roots_filtered_items
+                        logger.info(f"  Roots filtering for Kg SKU '{sku_name}': {len(roots_filtered_items)} items after filter")
+                    elif type_matched_items:
+                        # No items matched roots filter, but keep original items as fallback
+                        logger.warning(f"  Roots filtering yielded 0 items for '{sku_name}', using all {len(type_matched_items)} items")
                 
                 # Check product name match
                 product_words = set(base_name.split())

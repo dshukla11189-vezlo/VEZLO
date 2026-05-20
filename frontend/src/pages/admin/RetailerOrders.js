@@ -371,6 +371,25 @@ export default function RetailerOrders() {
     }
   }, [selectedRetailer]);
 
+  // Sync rejection amounts to invoices
+  const [syncingRejections, setSyncingRejections] = useState(false);
+  const syncRejectionsToInvoices = async () => {
+    setSyncingRejections(true);
+    try {
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.post(`/api/admin/sync-invoice-rejections${params}`);
+      toast.success(`Synced rejections to ${response.data.updated_count} invoices`);
+      // Reload invoices to reflect the updated rejection amounts
+      loadInvoices();
+      loadImmediatelyPayable();
+    } catch (error) {
+      console.error('Failed to sync rejections:', error);
+      toast.error('Failed to sync rejections to invoices');
+    } finally {
+      setSyncingRejections(false);
+    }
+  };
+
   const loadPayments = useCallback(async () => {
     try {
       const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
@@ -5998,6 +6017,17 @@ export default function RetailerOrders() {
               <div className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">Rejections</CardTitle>
                 <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={syncRejectionsToInvoices} 
+                    disabled={syncingRejections}
+                    title="Sync rejection amounts to invoices for Payment Summary"
+                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                  >
+                    <RefreshCw size={14} className={`mr-1 ${syncingRejections ? 'animate-spin' : ''}`} />
+                    {syncingRejections ? 'Syncing...' : 'Sync to Invoices'}
+                  </Button>
                   <Button size="sm" variant="outline" onClick={exportRejections} title="Export to Excel">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>

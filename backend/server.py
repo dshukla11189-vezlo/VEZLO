@@ -1684,10 +1684,16 @@ async def get_previous_day_procurements(
     end_date = (ref_date - timedelta(days=1)).strftime('%Y-%m-%d')  # Day before reference
     start_date = (ref_date - timedelta(days=7)).strftime('%Y-%m-%d')  # 7 days before reference
     
-    # Find all procurements in the date range
-    all_procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
+    # Find procurements in the date range (use indexed query)
+    query = {
+        "date": {
+            "$gte": start_date + "T00:00:00",
+            "$lte": end_date + "T23:59:59"
+        }
+    }
+    all_procurements = await db.procurements.find(query, {"_id": 0}).to_list(500)
     
-    # Filter procurements in the date range and collect unique farmer-product combinations
+    # Collect unique farmer-product combinations
     unique_items = {}  # Key: "farmer_id|product_id" -> latest procurement item
     
     for p in all_procurements:
@@ -1697,12 +1703,10 @@ async def get_previous_day_procurements(
         else:
             proc_date_str = str(proc_date)[:10]
         
-        # Check if procurement is within the 7-day window
-        if start_date <= proc_date_str <= end_date:
-            farmer_id = p.get("farmer_id", "")
-            farmer_name = p.get("farmer_name", "")
-            
-            for product in p.get("products", []):
+        farmer_id = p.get("farmer_id", "")
+        farmer_name = p.get("farmer_name", "")
+        
+        for product in p.get("products", []):
                 product_id = product.get("product_id", "")
                 # Create unique key for farmer-product combination
                 key = f"{farmer_id}|{product_id}"
@@ -3302,11 +3306,25 @@ async def delete_qc_dispatch_item_by_index(
 # SECTION: QC GRN ROUTES (Lines ~999-1450)
 # ============================================================================
 @api_router.get("/qc-grns")
-async def get_qc_grns(current_user: dict = Depends(get_current_user)):
+async def get_qc_grns(
+    from_date: str = None,
+    to_date: str = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    grns = await db.qc_grns.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            date_filter["$gte"] = from_date
+        if to_date:
+            date_filter["$lte"] = to_date + "T23:59:59"
+        query["grn_date"] = date_filter
+    
+    grns = await db.qc_grns.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     for g in grns:
         if isinstance(g.get('grn_date'), str):
             g['grn_date'] = datetime.fromisoformat(g['grn_date'])
@@ -4495,11 +4513,25 @@ async def get_grn_loss_summary(
 # SECTION: QC INVOICE ROUTES (Lines ~1453-1570)
 # ============================================================================
 @api_router.get("/qc-invoices")
-async def get_qc_invoices(current_user: dict = Depends(get_current_user)):
+async def get_qc_invoices(
+    from_date: str = None,
+    to_date: str = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    invoices = await db.qc_invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    query = {}
+    if from_date or to_date:
+        date_filter = {}
+        if from_date:
+            date_filter["$gte"] = from_date
+        if to_date:
+            date_filter["$lte"] = to_date + "T23:59:59"
+        query["invoice_date"] = date_filter
+    
+    invoices = await db.qc_invoices.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     for inv in invoices:
         if isinstance(inv.get('invoice_date'), str):
             inv['invoice_date'] = datetime.fromisoformat(inv['invoice_date'])
@@ -6572,29 +6604,23 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             purchases_by_product[product_id]["value"] += total_value
     
     # Get today's QC dispatches - handle both string dates and datetime objects
-    # First, get all dispatches and filter by date in Python for reliability
-    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
-    qc_dispatches = []
-    for d in all_qc_dispatches:
-        dispatch_date = d.get("dispatch_date", "")
-        if isinstance(dispatch_date, datetime):
-            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
-        else:
-            dispatch_date_str = str(dispatch_date)[:10]  # Get YYYY-MM-DD part
-        if dispatch_date_str == today:
-            qc_dispatches.append(d)
+    # Use indexed query with date filter
+    qc_dispatches_cursor = await db.qc_dispatches.find({
+        "$or": [
+            {"dispatch_date": {"$regex": f"^{today}"}},
+            {"dispatch_date": {"$gte": today + "T00:00:00", "$lte": today + "T23:59:59"}}
+        ]
+    }, {"_id": 0}).to_list(500)
+    qc_dispatches = qc_dispatches_cursor
     
-    # Get today's retailer dispatches (if exists)
-    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
-    retailer_dispatches = []
-    for d in all_retailer_dispatches:
-        dispatch_date = d.get("dispatch_date", "")
-        if isinstance(dispatch_date, datetime):
-            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
-        else:
-            dispatch_date_str = str(dispatch_date)[:10]
-        if dispatch_date_str == today:
-            retailer_dispatches.append(d)
+    # Get today's retailer dispatches using indexed query
+    retailer_dispatches_cursor = await db.retailer_dispatches.find({
+        "$or": [
+            {"dispatch_date": {"$regex": f"^{today}"}},
+            {"dispatch_date": {"$gte": today + "T00:00:00", "$lte": today + "T23:59:59"}}
+        ]
+    }, {"_id": 0}).to_list(500)
+    retailer_dispatches = retailer_dispatches_cursor
     
     # Get packaging weights for unit conversion from QC packaging table
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
@@ -14140,7 +14166,9 @@ async def startup_event():
             await db.qc_indents.create_index("indent_date")
             await db.qc_dispatches.create_index("dispatch_date")
             await db.qc_invoices.create_index("created_at")
+            await db.qc_invoices.create_index("invoice_date")
             await db.qc_grns.create_index("created_at")
+            await db.qc_grns.create_index("grn_date")
             
             # Products
             await db.products.create_index("name")
@@ -14149,6 +14177,7 @@ async def startup_event():
             # Procurements
             await db.procurements.create_index("procurement_date")
             await db.procurements.create_index("farmer_id")
+            await db.procurements.create_index("date")
             
             # Wastage
             await db.wastage.create_index("date")

@@ -298,13 +298,15 @@ export default function QuickCommerce() {
 
   const loadData = async () => {
     try {
+      // Use date filters and limit to improve performance
+      const today = new Date().toISOString().split('T')[0];
       const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes, invoicesRes, settingsRes] = await Promise.all([
-        api.get('/api/qc-indents'),
-        api.get('/api/qc-dispatches'),
-        api.get('/api/qc-grns'),
+        api.get(`/api/qc-indents?from_date=${today}&to_date=${today}&limit=100`),
+        api.get(`/api/qc-dispatches?from_date=${today}&to_date=${today}&limit=100`),
+        api.get(`/api/qc-grns?from_date=${today}&to_date=${today}&limit=100`),
         api.get('/api/qc-customers'),
-        api.get('/api/products'),
-        api.get('/api/qc-invoices'),
+        api.get('/api/products?include_images=false'),
+        api.get(`/api/qc-invoices?from_date=${today}&to_date=${today}&limit=100`),
         api.get('/api/customer-product-settings')
       ]);
       

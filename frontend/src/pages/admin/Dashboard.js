@@ -389,7 +389,7 @@ export default function AdminDashboard() {
     try {
       const [pnlResponse, productsResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`),
-        api.get('/api/products')
+        api.get('/api/products?include_images=false')
       ]);
       
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
@@ -488,7 +488,7 @@ export default function AdminDashboard() {
     try {
       const [pnlResponse, productsResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`),
-        api.get('/api/products')
+        api.get('/api/products?include_images=false')
       ]);
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
       
@@ -602,8 +602,8 @@ export default function AdminDashboard() {
       const [pnlResponse, summaryResponse, qcGrnsResponse, retailInvoicesResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${dateFrom}&to_date=${dateTo}`),
         api.get('/api/reports/today-summary'),
-        api.get('/api/qc-grns'),
-        api.get(`/api/retailer-invoices?from_date=${dateFrom}&to_date=${dateTo}`)
+        api.get(`/api/qc-grns?from_date=${dateFrom}&to_date=${dateTo}&limit=100`),
+        api.get(`/api/retailer-invoices?start_date=${dateFrom}&end_date=${dateTo}&limit=100`)
       ]);
       setPnlData(pnlResponse.data);
       setTodaySummary(summaryResponse.data);

@@ -13419,6 +13419,69 @@ async def populate_all_translations(current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/admin/sync-catalogue-translations")
+async def sync_catalogue_translations(current_user: dict = Depends(get_current_user)):
+    """Sync Hindi and Marathi translations from products table to retailer_catalogue"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can sync translations")
+    
+    try:
+        # Get all products with translations
+        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "name_hi": 1, "name_mr": 1}).to_list(1000)
+        product_map = {p.get("id"): p for p in products}
+        product_name_map = {p.get("name", "").lower().strip(): p for p in products}
+        
+        # Get all catalogue items
+        catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+        
+        updated_count = 0
+        for item in catalogue_items:
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            
+            # Find matching product
+            product = product_map.get(product_id) or product_name_map.get(product_name.lower().strip())
+            
+            if product:
+                update_fields = {}
+                
+                # Update Hindi if missing or empty
+                if product.get("name_hi") and not item.get("product_name_hi"):
+                    update_fields["product_name_hi"] = product["name_hi"]
+                
+                # Update Marathi if missing or empty
+                if product.get("name_mr") and not item.get("product_name_mr"):
+                    update_fields["product_name_mr"] = product["name_mr"]
+                
+                # Also update translations object if it exists
+                if update_fields:
+                    translations = item.get("translations", {})
+                    if product.get("name_hi"):
+                        translations["hi"] = product["name_hi"]
+                    if product.get("name_mr"):
+                        translations["mr"] = product["name_mr"]
+                    update_fields["translations"] = translations
+                    
+                    await db.retailer_catalogue.update_one(
+                        {"product_id": product_id},
+                        {"$set": update_fields}
+                    )
+                    updated_count += 1
+                    print(f"Updated catalogue: {product_name} -> Hi: {update_fields.get('product_name_hi', 'N/A')}")
+        
+        return {
+            "success": True,
+            "total_catalogue_items": len(catalogue_items),
+            "updated_count": updated_count,
+            "message": f"Synced translations for {updated_count} catalogue items"
+        }
+    except Exception as e:
+        print(f"Error syncing catalogue translations: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.post("/admin/populate-referral-codes")
 async def populate_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
     """Populate referral codes for all retailers that don't have one"""

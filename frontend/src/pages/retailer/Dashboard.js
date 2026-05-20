@@ -97,6 +97,7 @@ export default function RetailerDashboard() {
   // NEW: Cart-based indent system
   const [catalogue, setCatalogue] = useState([]); // Products from admin catalogue
   const [catalogueLoading, setCatalogueLoading] = useState(false);
+  const [catalogueImagesLoaded, setCatalogueImagesLoaded] = useState(false); // Track if images are loaded
   const [cart, setCart] = useState({}); // {productId_variantId: {product, variant, quantity}}
   const [showCart, setShowCart] = useState(false);
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({}); // Categories collapsed by default
@@ -213,7 +214,7 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-payments'),
         api.get('/api/product-types'),
         api.get('/api/retailer-immediately-payable'),
-        api.get('/api/retailer-catalogue'),
+        api.get('/api/retailer-catalogue'),  // Load without images first for speed
         api.get('/api/retailer-catalogue/mrp')
       ]);
       setDashboardData(dashRes.data);
@@ -271,6 +272,23 @@ export default function RetailerDashboard() {
       checkYesterdayClosing();
     }
   }, [dashboardData?.retailer?.id, checkYesterdayClosing]);
+
+  // Lazy load catalogue images when user goes to placeorder tab
+  useEffect(() => {
+    const loadCatalogueImages = async () => {
+      if (activeTab === 'placeorder' && !catalogueImagesLoaded && catalogue.length > 0) {
+        try {
+          const res = await api.get('/api/retailer-catalogue?include_images=true');
+          const catalogueWithImages = (res.data || []).filter(item => item.show_on_portal !== false);
+          setCatalogue(catalogueWithImages);
+          setCatalogueImagesLoaded(true);
+        } catch (error) {
+          console.error('Failed to load catalogue images:', error);
+        }
+      }
+    };
+    loadCatalogueImages();
+  }, [activeTab, catalogueImagesLoaded, catalogue.length]);
 
   const formatDate = (date) => {
     if (!date) return '-';

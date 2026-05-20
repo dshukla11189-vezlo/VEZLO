@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Union
 from datetime import datetime, timezone
 import uuid
 
@@ -625,7 +625,7 @@ class RetailerIndent(BaseModel):
 
 class RetailerIndentCreate(BaseModel):
     retailer_id: Optional[str] = None  # Optional for retailer users (uses their own ID)
-    indent_date: datetime
+    indent_date: Union[datetime, str]  # Accept both datetime and string formats
     items: List[RetailerIndentItem]
     remarks: Optional[str] = None
 

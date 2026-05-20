@@ -689,11 +689,19 @@ export default function Products() {
         
         try {
           const uploadRes = await api.post('/api/products/upload-image', formDataImg, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 30000  // 30 second timeout for image uploads
           });
           finalImageUrl = uploadRes.data.image_url;
         } catch (uploadErr) {
-          toast.error('Failed to upload image');
+          console.error('Image upload error:', uploadErr);
+          if (uploadErr.code === 'ECONNABORTED') {
+            toast.error('Image upload timed out. Please try a smaller image.');
+          } else if (uploadErr.response?.status === 413) {
+            toast.error('Image is too large. Please use an image under 5MB.');
+          } else {
+            toast.error('Failed to upload image. Please try again.');
+          }
           setUploadingImage(false);
           return;
         }
@@ -720,8 +728,40 @@ export default function Products() {
     }
   };
 
+  // Compress image before upload to reduce size
+  const compressImage = async (file, maxWidth = 800, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Scale down if needed
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob((blob) => {
+            resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          }, 'image/jpeg', quality);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Handle image file selection
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
       // Validate file type
@@ -734,8 +774,17 @@ export default function Products() {
         toast.error('Image size must be less than 5MB');
         return;
       }
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
+      
+      // Compress large images (>500KB) for faster upload
+      let processedFile = file;
+      if (file.size > 500 * 1024) {
+        toast.info('Compressing image...');
+        processedFile = await compressImage(file);
+        toast.success(`Image compressed: ${Math.round(file.size/1024)}KB → ${Math.round(processedFile.size/1024)}KB`);
+      }
+      
+      setImageFile(processedFile);
+      setImagePreview(URL.createObjectURL(processedFile));
     }
   };
 

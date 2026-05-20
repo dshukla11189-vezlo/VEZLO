@@ -14113,22 +14113,30 @@ async def get_all_retailers_immediately_payable(
 # This manages the product catalogue available for retailers to order from
 
 @api_router.get("/retailer-catalogue")
-async def get_retailer_catalogue(current_user: dict = Depends(get_current_user)):
+async def get_retailer_catalogue(
+    include_images: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
     """Get all products in the retailer catalogue with their allowed variants"""
     items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
     
-    # Enrich catalogue items with product images if missing
-    product_ids = [item.get("product_id") for item in items if item.get("product_id")]
-    products = await db.products.find(
-        {"id": {"$in": product_ids}}, 
-        {"_id": 0, "id": 1, "image_url": 1}
-    ).to_list(1000)
-    product_image_map = {p["id"]: p.get("image_url", "") for p in products}
-    
-    # Add image_url from products if not present in catalogue
-    for item in items:
-        if not item.get("image_url") and item.get("product_id"):
-            item["image_url"] = product_image_map.get(item["product_id"], "")
+    # Only fetch product images if explicitly requested (for performance)
+    if include_images:
+        product_ids = [item.get("product_id") for item in items if item.get("product_id")]
+        products = await db.products.find(
+            {"id": {"$in": product_ids}}, 
+            {"_id": 0, "id": 1, "image_url": 1}
+        ).to_list(1000)
+        product_image_map = {p["id"]: p.get("image_url", "") for p in products}
+        
+        # Add image_url from products if not present in catalogue
+        for item in items:
+            if not item.get("image_url") and item.get("product_id"):
+                item["image_url"] = product_image_map.get(item["product_id"], "")
+    else:
+        # Remove any existing image_url to reduce payload size
+        for item in items:
+            item.pop("image_url", None)
     
     return items
 

@@ -13597,7 +13597,334 @@ async def populate_all_translations(current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.post("/admin/sync-catalogue-translations")
+# Hindi translation dictionary for common vegetables, fruits, and produce
+HINDI_TRANSLATIONS = {
+    # Leafy Vegetables
+    "amaranthus green": "हरा चौलाई",
+    "amaranthus red": "लाल चौलाई",
+    "spinach": "पालक",
+    "palak": "पालक",
+    "fenugreek": "मेथी",
+    "methi": "मेथी",
+    "coriander": "धनिया",
+    "mint": "पुदीना",
+    "pudina": "पुदीना",
+    "curry leaves": "कड़ी पत्ता",
+    "lettuce": "सलाद पत्ता",
+    "iceberg lettuce": "आइसबर्ग सलाद पत्ता",
+    "cabbage": "पत्ता गोभी",
+    "cauliflower": "फूल गोभी",
+    
+    # Root Vegetables
+    "potato": "आलू",
+    "onion": "प्याज",
+    "garlic": "लहसुन",
+    "ginger": "अदरक",
+    "carrot": "गाजर",
+    "radish": "मूली",
+    "beetroot": "चुकंदर",
+    "sweet potato": "शकरकंद",
+    "turnip": "शलगम",
+    "raw groundnut": "कच्ची मूंगफली",
+    
+    # Gourds
+    "bottle gourd": "लौकी",
+    "lauki": "लौकी",
+    "bitter gourd": "करेला",
+    "karela": "करेला",
+    "ridge gourd": "तोरई",
+    "tori": "तोरई",
+    "sponge gourd": "नेनुआ",
+    "snake gourd": "चिचिंडा",
+    "ash gourd": "पेठा",
+    "ivy gourd": "कुंदरू",
+    "pointed gourd": "परवल",
+    "parwal": "परवल",
+    
+    # Beans & Legumes
+    "french beans": "फ्रेंच बीन्स",
+    "cluster beans": "ग्वार फली",
+    "broad beans": "सेम",
+    "green peas": "हरी मटर",
+    "chana": "चना",
+    
+    # Brinjal Family
+    "brinjal": "बैंगन",
+    "eggplant": "बैंगन",
+    "brinjal bharta": "भरता बैंगन",
+    "brinjal green": "हरा बैंगन",
+    
+    # Tomatoes & Peppers
+    "tomato": "टमाटर",
+    "cherry tomato": "चेरी टमाटर",
+    "capsicum": "शिमला मिर्च",
+    "green capsicum": "हरी शिमला मिर्च",
+    "red capsicum": "लाल शिमला मिर्च",
+    "yellow capsicum": "पीली शिमला मिर्च",
+    "red yellow capsicum": "लाल पीली शिमला मिर्च",
+    "green chilli": "हरी मिर्च",
+    "red chilli": "लाल मिर्च",
+    
+    # Cucumbers
+    "cucumber": "खीरा",
+    "green cucumber": "हरा खीरा",
+    "english cucumber": "अंग्रेजी खीरा",
+    
+    # Other Vegetables
+    "drumstick": "सहजन",
+    "moringa": "सहजन",
+    "ladyfinger": "भिंडी",
+    "okra": "भिंडी",
+    "bhindi": "भिंडी",
+    "pumpkin": "कद्दू",
+    "zucchini": "जुकिनी",
+    "green & yellow zucchini": "हरी और पीली जुकिनी",
+    "broccoli": "ब्रोकली",
+    "baby corn": "बेबी कॉर्न",
+    "sweet corn": "स्वीट कॉर्न",
+    "mushroom": "मशरूम",
+    "green onion": "हरा प्याज",
+    "spring onion": "स्प्रिंग प्याज",
+    
+    # Fruits
+    "apple": "सेब",
+    "apple - royal gala": "रॉयल गाला सेब",
+    "banana": "केला",
+    "elaichi banana": "इलायची केला",
+    "mango": "आम",
+    "mango - hapus": "हापुस आम",
+    "mango - kesar": "केसर आम",
+    "orange": "संतरा",
+    "mini orange": "मिनी संतरा",
+    "papaya": "पपीता",
+    "guava": "अमरूद",
+    "watermelon": "तरबूज",
+    "muskmelon": "खरबूजा",
+    "grapes": "अंगूर",
+    "pomegranate": "अनार",
+    "pineapple": "अनानास",
+    "coconut": "नारियल",
+    "lemon": "नींबू",
+    "lime": "नींबू",
+    "kiwi": "कीवी",
+    "strawberry": "स्ट्रॉबेरी",
+    "fig": "अंजीर",
+    "custard apple": "सीताफल",
+    "jackfruit": "कटहल",
+    "chikoo": "चीकू",
+    "sapota": "चीकू",
+}
+
+# Marathi translation dictionary
+MARATHI_TRANSLATIONS = {
+    # Leafy Vegetables
+    "amaranthus green": "हिरवी माठ",
+    "amaranthus red": "लाल माठ",
+    "spinach": "पालक",
+    "palak": "पालक",
+    "fenugreek": "मेथी",
+    "methi": "मेथी",
+    "coriander": "कोथिंबीर",
+    "mint": "पुदिना",
+    "curry leaves": "कढीपत्ता",
+    "lettuce": "सलाद पत्ता",
+    "iceberg lettuce": "आइसबर्ग सलाद पत्ता",
+    "cabbage": "कोबी",
+    "cauliflower": "फुलकोबी",
+    
+    # Root Vegetables
+    "potato": "बटाटा",
+    "onion": "कांदा",
+    "garlic": "लसूण",
+    "ginger": "आले",
+    "carrot": "गाजर",
+    "radish": "मुळा",
+    "beetroot": "बीट",
+    "sweet potato": "रताळे",
+    "turnip": "सलगम",
+    "raw groundnut": "कच्चा शेंगदाणा",
+    
+    # Gourds
+    "bottle gourd": "दुधी भोपळा",
+    "lauki": "दुधी भोपळा",
+    "bitter gourd": "कारले",
+    "karela": "कारले",
+    "ridge gourd": "दोडका",
+    "tori": "दोडका",
+    "sponge gourd": "घोसाळे",
+    "snake gourd": "पडवळ",
+    "ash gourd": "कोहळा",
+    "ivy gourd": "तोंडली",
+    "pointed gourd": "परवर",
+    "parwal": "परवर",
+    
+    # Beans & Legumes
+    "french beans": "फ्रेंच बीन्स",
+    "cluster beans": "गवार",
+    "broad beans": "पावटा",
+    "green peas": "हिरवे वाटाणे",
+    
+    # Brinjal Family
+    "brinjal": "वांगे",
+    "eggplant": "वांगे",
+    "brinjal bharta": "भरीत वांगे",
+    "brinjal green": "हिरवे वांगे",
+    
+    # Tomatoes & Peppers
+    "tomato": "टोमॅटो",
+    "cherry tomato": "चेरी टोमॅटो",
+    "capsicum": "ढोबळी मिरची",
+    "green capsicum": "हिरवी ढोबळी मिरची",
+    "red capsicum": "लाल ढोबळी मिरची",
+    "yellow capsicum": "पिवळी ढोबळी मिरची",
+    "red yellow capsicum": "लाल पिवळी ढोबळी मिरची",
+    "green chilli": "हिरवी मिरची",
+    
+    # Cucumbers
+    "cucumber": "काकडी",
+    "green cucumber": "हिरवी काकडी",
+    
+    # Other Vegetables
+    "drumstick": "शेवगा",
+    "moringa": "शेवगा",
+    "ladyfinger": "भेंडी",
+    "okra": "भेंडी",
+    "bhindi": "भेंडी",
+    "pumpkin": "भोपळा",
+    "zucchini": "झुकिनी",
+    "green & yellow zucchini": "हिरवी आणि पिवळी झुकिनी",
+    "broccoli": "ब्रोकोली",
+    "baby corn": "बेबी कॉर्न",
+    "sweet corn": "गोड मका",
+    "mushroom": "अळंबी",
+    
+    # Fruits
+    "apple": "सफरचंद",
+    "apple - royal gala": "रॉयल गाला सफरचंद",
+    "banana": "केळे",
+    "elaichi banana": "वेलची केळे",
+    "mango": "आंबा",
+    "mango - hapus": "हापूस आंबा",
+    "mango - kesar": "केशर आंबा",
+    "orange": "संत्रे",
+    "mini orange": "लहान संत्रे",
+    "papaya": "पपई",
+    "guava": "पेरू",
+    "watermelon": "कलिंगड",
+    "muskmelon": "खरबूज",
+    "grapes": "द्राक्षे",
+    "pomegranate": "डाळिंब",
+    "pineapple": "अननस",
+    "coconut": "नारळ",
+    "lemon": "लिंबू",
+    "kiwi": "किवी",
+    "strawberry": "स्ट्रॉबेरी",
+    "fig": "अंजीर",
+    "custard apple": "सीताफळ",
+    "jackfruit": "फणस",
+    "chikoo": "चिक्कू",
+    "sapota": "चिक्कू",
+}
+
+
+@api_router.post("/admin/auto-translate-products")
+async def auto_translate_products(current_user: dict = Depends(get_current_user)):
+    """
+    Automatically translate product names to Hindi and Marathi using built-in dictionary.
+    Updates both the products table and retailer_catalogue.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can auto-translate")
+    
+    try:
+        # Get all products
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        
+        updated_products = 0
+        translations_applied = []
+        
+        for product in products:
+            product_name = product.get("name", "").lower().strip()
+            product_id = product.get("id")
+            current_name_hi = product.get("name_hi")
+            current_name_mr = product.get("name_mr")
+            
+            update_fields = {}
+            
+            # Check if Hindi translation is missing
+            if not current_name_hi:
+                # Try exact match first
+                if product_name in HINDI_TRANSLATIONS:
+                    update_fields["name_hi"] = HINDI_TRANSLATIONS[product_name]
+                else:
+                    # Try partial match
+                    for key, value in HINDI_TRANSLATIONS.items():
+                        if key in product_name or product_name in key:
+                            update_fields["name_hi"] = value
+                            break
+            
+            # Check if Marathi translation is missing
+            if not current_name_mr:
+                if product_name in MARATHI_TRANSLATIONS:
+                    update_fields["name_mr"] = MARATHI_TRANSLATIONS[product_name]
+                else:
+                    for key, value in MARATHI_TRANSLATIONS.items():
+                        if key in product_name or product_name in key:
+                            update_fields["name_mr"] = value
+                            break
+            
+            # Update product if translations found
+            if update_fields:
+                await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": update_fields}
+                )
+                updated_products += 1
+                translations_applied.append({
+                    "product": product.get("name"),
+                    "hindi": update_fields.get("name_hi"),
+                    "marathi": update_fields.get("name_mr")
+                })
+        
+        # Now sync to retailer_catalogue
+        catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+        updated_catalogue = 0
+        
+        # Re-fetch updated products
+        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "name_hi": 1, "name_mr": 1}).to_list(1000)
+        product_map = {p.get("id"): p for p in products}
+        product_name_map = {p.get("name", "").lower().strip(): p for p in products}
+        
+        for item in catalogue_items:
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "").lower().strip()
+            
+            product = product_map.get(product_id) or product_name_map.get(product_name)
+            
+            if product:
+                update_fields = {}
+                if product.get("name_hi") and not item.get("product_name_hi"):
+                    update_fields["product_name_hi"] = product["name_hi"]
+                if product.get("name_mr") and not item.get("product_name_mr"):
+                    update_fields["product_name_mr"] = product["name_mr"]
+                
+                if update_fields:
+                    await db.retailer_catalogue.update_one(
+                        {"product_id": item.get("product_id")},
+                        {"$set": update_fields}
+                    )
+                    updated_catalogue += 1
+        
+        return {
+            "success": True,
+            "updated_products": updated_products,
+            "updated_catalogue": updated_catalogue,
+            "translations_applied": translations_applied[:30],  # Show first 30
+            "message": f"Auto-translated {updated_products} products and synced {updated_catalogue} catalogue items"
+        }
+    except Exception as e:
+        logger.error(f"Auto-translate error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 async def sync_catalogue_translations(current_user: dict = Depends(get_current_user)):
     """Sync Hindi and Marathi translations from products table to retailer_catalogue"""
     if current_user["role"] != "admin":

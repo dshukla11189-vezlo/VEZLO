@@ -256,6 +256,7 @@ export default function Products() {
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({});
   const [editingCatalogueItem, setEditingCatalogueItem] = useState(null);
   const [catalogueSaving, setCatalogueSaving] = useState({});
+  const [autoTranslating, setAutoTranslating] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -281,6 +282,26 @@ export default function Products() {
       setLoading(false);
     }
   }, []);
+
+  // Auto-translate products to Hindi & Marathi
+  const handleAutoTranslate = async () => {
+    setAutoTranslating(true);
+    try {
+      const response = await api.post('/api/admin/auto-translate-products');
+      if (response.data.success) {
+        toast.success(`Translated ${response.data.updated_products} products, synced ${response.data.updated_catalogue} catalogue items`);
+        loadProducts();
+        loadCatalogue();
+      } else {
+        toast.error('Translation failed');
+      }
+    } catch (error) {
+      console.error('Auto-translate error:', error);
+      toast.error('Failed to auto-translate products');
+    } finally {
+      setAutoTranslating(false);
+    }
+  };
 
   // Load units
   const loadUnits = useCallback(async () => {
@@ -1013,7 +1034,25 @@ export default function Products() {
         </div>
         
         {/* Add Product Button */}
-        <Dialog open={open} onOpenChange={(val) => {
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleAutoTranslate}
+            disabled={autoTranslating}
+            className="border-purple-300 text-purple-700 hover:bg-purple-50"
+          >
+            {autoTranslating ? (
+              <>
+                <span className="animate-spin mr-2">⏳</span>
+                Translating...
+              </>
+            ) : (
+              <>
+                🌐 Auto-Translate (Hindi/Marathi)
+              </>
+            )}
+          </Button>
+          <Dialog open={open} onOpenChange={(val) => {
           setOpen(val);
           if (!val) {
             setEditProduct(null);
@@ -1198,6 +1237,7 @@ export default function Products() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="data-table">

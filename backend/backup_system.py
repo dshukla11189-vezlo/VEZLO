@@ -66,6 +66,9 @@ COLLECTIONS_TO_BACKUP = [
 # Sensitive fields to exclude from backup
 SENSITIVE_FIELDS = ["password", "refresh_token", "access_token"]
 
+# Large fields to exclude from backup (performance)
+LARGE_FIELDS_TO_EXCLUDE = ["image_url", "image_data", "base64_image"]
+
 
 async def generate_backup_excel(db) -> bytes:
     """Generate Excel file with all collections data plus P&L reports"""
@@ -120,6 +123,11 @@ async def generate_backup_excel(db) -> bytes:
                     
                     # Remove sensitive fields
                     for field in SENSITIVE_FIELDS:
+                        if field in df.columns:
+                            df = df.drop(columns=[field])
+                    
+                    # Remove large fields (like Base64 images) for performance
+                    for field in LARGE_FIELDS_TO_EXCLUDE:
                         if field in df.columns:
                             df = df.drop(columns=[field])
                     

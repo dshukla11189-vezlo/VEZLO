@@ -251,17 +251,21 @@ export default function QuickCommerce() {
   const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState('');
   const [invoiceDateFilter, setInvoiceDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
-  // Invoice list filters - default to last 30 days
+  // Invoice list filters - default to today
   const [invoiceListFilters, setInvoiceListFilters] = useState(() => {
-    const today = new Date();
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(today.getDate() - 30);
+    const today = new Date().toISOString().split('T')[0];
     return {
-      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
-      toDate: today.toISOString().split('T')[0],
+      fromDate: today,
+      toDate: today,
       customerName: '',
       productName: ''
     };
+  });
+  
+  // Track applied date filters for API calls (separate from UI state)
+  const [appliedDateRange, setAppliedDateRange] = useState(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return { fromDate: today, toDate: today };
   });
 
   // QC Daily Requirement state
@@ -296,6 +300,11 @@ export default function QuickCommerce() {
     loadPackagingVariants();
   }, []);
 
+  // Reload data when applied date range changes
+  useEffect(() => {
+    loadData();
+  }, [appliedDateRange]);
+
   // Apply filters when indents or filters change
   useEffect(() => {
     applyIndentFilters();
@@ -303,19 +312,16 @@ export default function QuickCommerce() {
 
   const loadData = async () => {
     try {
-      // Use date range for data loading - last 30 days to today
-      const today = new Date().toISOString().split('T')[0];
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const fromDate = thirtyDaysAgo.toISOString().split('T')[0];
+      // Use applied date range for API calls (defaults to today)
+      const { fromDate, toDate } = appliedDateRange;
       
       const [indentsRes, dispatchesRes, grnsRes, customersRes, productsRes, invoicesRes, settingsRes] = await Promise.all([
-        api.get(`/api/qc-indents?from_date=${fromDate}&to_date=${today}&limit=500`),
-        api.get(`/api/qc-dispatches?from_date=${fromDate}&to_date=${today}&limit=500`),
-        api.get(`/api/qc-grns?from_date=${fromDate}&to_date=${today}&limit=500`),
+        api.get(`/api/qc-indents?from_date=${fromDate}&to_date=${toDate}&limit=500`),
+        api.get(`/api/qc-dispatches?from_date=${fromDate}&to_date=${toDate}&limit=500`),
+        api.get(`/api/qc-grns?from_date=${fromDate}&to_date=${toDate}&limit=500`),
         api.get('/api/qc-customers'),
         api.get('/api/products?include_images=false'),
-        api.get(`/api/qc-invoices?from_date=${fromDate}&to_date=${today}&limit=500`),
+        api.get(`/api/qc-invoices?from_date=${fromDate}&to_date=${toDate}&limit=500`),
         api.get('/api/customer-product-settings')
       ]);
       
@@ -4451,6 +4457,18 @@ Email: ${companyEmail}`;
                     className="w-36 h-9"
                   />
                 </div>
+                <Button 
+                  size="sm"
+                  onClick={() => {
+                    setAppliedDateRange({ 
+                      fromDate: invoiceListFilters.fromDate, 
+                      toDate: invoiceListFilters.toDate 
+                    });
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 h-9"
+                >
+                  <Filter size={14} className="mr-1" /> Apply
+                </Button>
                 <div className="flex items-center gap-2">
                   <Label className="text-sm whitespace-nowrap">Customer:</Label>
                   <Select 
@@ -4481,9 +4499,13 @@ Email: ${companyEmail}`;
                 <Button 
                   variant="ghost" 
                   size="sm"
-                  onClick={() => setInvoiceListFilters({ fromDate: '', toDate: '', customerName: '', productName: '' })}
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setInvoiceListFilters({ fromDate: today, toDate: today, customerName: '', productName: '' });
+                    setAppliedDateRange({ fromDate: today, toDate: today });
+                  }}
                 >
-                  Clear Filters
+                  Reset to Today
                 </Button>
               </div>
 

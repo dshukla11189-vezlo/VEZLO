@@ -10171,16 +10171,139 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     doc["created_at"] = doc["created_at"].isoformat()
     
     await db.retailer_rejections.insert_one(doc)
+    
+    # IMPORTANT: Auto-sync rejection amount to the invoice for this date/retailer
+    await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
+    
     return {"id": rejection.id, "message": "Rejection recorded successfully"}
+
+async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
+    """
+    Sync rejection amounts from retailer_rejections to the corresponding invoice.
+    This ensures Payment Summary shows correct rejection values.
+    """
+    try:
+        # Get all rejections for this retailer and date
+        rejections = await db.retailer_rejections.find({
+            "retailer_id": retailer_id,
+            "rejection_date": {"$regex": f"^{date_str}"}
+        }, {"_id": 0}).to_list(500)
+        
+        total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+        
+        # Find the invoice for this date and retailer
+        invoice = await db.retailer_invoices.find_one({
+            "retailer_id": retailer_id,
+            "invoice_date": {"$regex": f"^{date_str}"}
+        }, {"_id": 0})
+        
+        if invoice:
+            gross_value = invoice.get("gross_value", 0) or 0
+            commission_pct = invoice.get("commission_percentage", 0) or 0
+            
+            # Recalculate: net_mrp = gross - rejections, then apply commission
+            net_mrp_value = gross_value - total_rejection_value
+            commission_amount = net_mrp_value * (commission_pct / 100)
+            net_payable = net_mrp_value - commission_amount
+            
+            # Update the invoice
+            await db.retailer_invoices.update_one(
+                {"id": invoice["id"]},
+                {"$set": {
+                    "rejection_amount": round(total_rejection_value, 2),
+                    "total_mrp_value": round(net_mrp_value, 2),
+                    "commission_amount": round(commission_amount, 2),
+                    "net_payable": round(net_payable, 2)
+                }}
+            )
+            logger.info(f"Synced rejection amount ₹{total_rejection_value} to invoice {invoice.get('invoice_number')}")
+    except Exception as e:
+        logger.error(f"Failed to sync invoice rejection amount: {e}")
+
+@api_router.post("/admin/sync-invoice-rejections")
+async def sync_all_invoice_rejections(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Sync all rejection amounts from retailer_rejections to corresponding invoices.
+    This fixes invoices that have rejection_amount=0 but should have rejection values.
+    """
+    if current_user.get("role") not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get all rejections grouped by retailer_id and date
+    query = {}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(10000)
+    
+    # Group rejections by (retailer_id, date)
+    rejection_totals = {}
+    for rej in rejections:
+        rej_date = rej.get("rejection_date", "")[:10]
+        key = (rej.get("retailer_id"), rej_date)
+        if key not in rejection_totals:
+            rejection_totals[key] = 0
+        rejection_totals[key] += rej.get("rejection_value", 0) or 0
+    
+    # Update invoices
+    updated_count = 0
+    for (ret_id, date_str), total_rejection in rejection_totals.items():
+        if not ret_id or not date_str or total_rejection <= 0:
+            continue
+        
+        # Find invoice for this retailer and date
+        invoice = await db.retailer_invoices.find_one({
+            "retailer_id": ret_id,
+            "invoice_date": {"$regex": f"^{date_str}"}
+        }, {"_id": 0})
+        
+        if invoice:
+            gross_value = invoice.get("gross_value", 0) or 0
+            commission_pct = invoice.get("commission_percentage", 0) or 0
+            
+            net_mrp_value = gross_value - total_rejection
+            commission_amount = net_mrp_value * (commission_pct / 100)
+            net_payable = net_mrp_value - commission_amount
+            
+            result = await db.retailer_invoices.update_one(
+                {"id": invoice["id"]},
+                {"$set": {
+                    "rejection_amount": round(total_rejection, 2),
+                    "total_mrp_value": round(net_mrp_value, 2),
+                    "commission_amount": round(commission_amount, 2),
+                    "net_payable": round(net_payable, 2)
+                }}
+            )
+            if result.modified_count > 0:
+                updated_count += 1
+    
+    return {
+        "message": f"Synced rejection amounts to {updated_count} invoices",
+        "updated_count": updated_count,
+        "total_rejection_entries": len(rejection_totals)
+    }
 
 @api_router.delete("/retailer-rejections/{rejection_id}")
 async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can delete rejections")
     
+    # Get the rejection first to know which invoice to re-sync
+    rejection = await db.retailer_rejections.find_one({"id": rejection_id}, {"_id": 0})
+    
     result = await db.retailer_rejections.delete_one({"id": rejection_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Rejection not found")
+    
+    # Re-sync the invoice for this rejection's date/retailer
+    if rejection:
+        rej_date = rejection.get("rejection_date", "")[:10]
+        retailer_id = rejection.get("retailer_id")
+        if rej_date and retailer_id:
+            await sync_invoice_rejection_amount(retailer_id, rej_date)
     
     return {"message": "Rejection deleted successfully"}
 
@@ -10327,6 +10450,17 @@ async def update_retailer_rejection(rejection_id: str, rejection: RetailerReject
         {"id": rejection_id},
         {"$set": update_data}
     )
+    
+    # Re-sync the invoice for both old and new dates
+    old_date = existing.get("rejection_date", "")[:10]
+    old_retailer = existing.get("retailer_id")
+    new_date = rejection.rejection_date[:10] if rejection.rejection_date else ""
+    new_retailer = rejection.retailer_id
+    
+    if old_date and old_retailer:
+        await sync_invoice_rejection_amount(old_retailer, old_date)
+    if new_date and new_retailer and (new_date != old_date or new_retailer != old_retailer):
+        await sync_invoice_rejection_amount(new_retailer, new_date)
     
     return {"id": rejection_id, "message": "Rejection updated successfully"}
 

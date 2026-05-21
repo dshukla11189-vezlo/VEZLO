@@ -10251,7 +10251,8 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
                 
                 updated_item = {
                     **item,
-                    "rejection_qty": rejection_qty,
+                    "rejected_qty": rejection_qty,  # Use consistent field name
+                    "rejection_qty": rejection_qty,  # Keep both for backwards compatibility
                     "billable_qty": billable_qty,
                     "amount": round(amount, 2)
                 }
@@ -14477,28 +14478,44 @@ async def get_retailer_payment_details(
                 "total_pending": 0
             }
         
-        # Enrich items with rejection data from rejection_map
+        # Enrich items with rejection data - PRIORITY: item's own data first, then lookup
         enriched_items = []
         for item in inv.get("items", []):
             product_id = item.get("product_id")
             product_name = (item.get("product_name") or "").strip()
+            supplied_qty = item.get("supplied_qty") or item.get("quantity") or 0
             
-            # Look up rejection by product_id first, then by name
-            item_rejection = None
-            if product_id:
-                item_rejection = rejection_map.get((date_str, product_id))
-            if not item_rejection and product_name:
-                item_rejection = rejection_map.get((date_str, product_name))
-            
-            # Clone item and add rejection data
+            # Clone item
             enriched_item = dict(item)
-            if item_rejection:
-                enriched_item["rejected_qty"] = item_rejection["qty"]
-                enriched_item["rejection_value"] = item_rejection["value"]
+            
+            # PRIORITY 1: Use item's own rejection data if it exists (from invoice sync)
+            # Check both field names: rejected_qty and rejection_qty (inconsistency in codebase)
+            item_rejected_qty = item.get("rejected_qty") or item.get("rejection_qty")
+            item_rejection_value = item.get("rejection_value")
+            
+            if item_rejected_qty is not None and item_rejected_qty > 0:
+                # Use the synced data from the invoice item itself
+                # Cap at supplied qty to prevent negative billable
+                enriched_item["rejected_qty"] = min(float(item_rejected_qty), float(supplied_qty))
+                enriched_item["rejection_value"] = item_rejection_value or 0
             else:
-                # Keep existing values or default to 0
-                enriched_item["rejected_qty"] = item.get("rejected_qty", 0) or 0
-                enriched_item["rejection_value"] = item.get("rejection_value", 0) or 0
+                # PRIORITY 2: Look up rejection by product_id first, then by name
+                item_rejection = None
+                if product_id:
+                    item_rejection = rejection_map.get((date_str, product_id))
+                if not item_rejection and product_name:
+                    item_rejection = rejection_map.get((date_str, product_name))
+                
+                if item_rejection:
+                    # Cap rejection at supplied qty - never more than what was supplied
+                    rejected_qty = min(float(item_rejection["qty"]), float(supplied_qty))
+                    enriched_item["rejected_qty"] = rejected_qty
+                    # Recalculate rejection value based on capped qty
+                    mrp = item.get("mrp", 0) or 0
+                    enriched_item["rejection_value"] = rejected_qty * mrp
+                else:
+                    enriched_item["rejected_qty"] = 0
+                    enriched_item["rejection_value"] = 0
             
             enriched_items.append(enriched_item)
         

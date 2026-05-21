@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle, Calendar } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -5389,20 +5389,23 @@ Email: ${companyEmail}`;
                   <h4 className="font-semibold text-sm">Saved GRN Records</h4>
                   
                   {/* Date Filter */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-gray-500">Filter:</span>
+                  <div className="flex flex-wrap items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <Calendar size={14} className="text-gray-400" />
+                      <span>Filter:</span>
+                    </div>
                     <Input
                       type="date"
                       value={savedGrnDateFilters.fromDate}
                       onChange={(e) => setSavedGrnDateFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                      className="w-32 h-8 text-xs"
+                      className="w-36 h-8 text-xs border-gray-300 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                     />
                     <span className="text-xs text-gray-400">to</span>
                     <Input
                       type="date"
                       value={savedGrnDateFilters.toDate}
                       onChange={(e) => setSavedGrnDateFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                      className="w-32 h-8 text-xs"
+                      className="w-36 h-8 text-xs border-gray-300 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                     />
                     <Button 
                       size="sm" 

@@ -2155,22 +2155,27 @@ export default function RetailerDashboard() {
                     
                     {/* Date Filters */}
                     <div className="flex flex-wrap items-center gap-2 bg-white rounded-lg border border-gray-200 p-2 px-3">
-                      <span className="text-xs text-gray-500 font-medium">Filter:</span>
-                      <Input
-                        type="date"
-                        value={paymentDetailsDateFrom}
-                        onChange={(e) => setPaymentDetailsDateFrom(e.target.value)}
-                        className="w-32 h-8 text-xs border-gray-200"
-                        placeholder="From"
-                      />
+                      <div className="flex items-center gap-1 text-xs text-gray-500 font-medium">
+                        <Calendar size={14} className="text-gray-400" />
+                        <span>Filter:</span>
+                      </div>
+                      <div className="relative">
+                        <Input
+                          type="date"
+                          value={paymentDetailsDateFrom}
+                          onChange={(e) => setPaymentDetailsDateFrom(e.target.value)}
+                          className="w-36 h-8 text-xs border-gray-300 pr-2 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                        />
+                      </div>
                       <span className="text-gray-400 text-xs">to</span>
-                      <Input
-                        type="date"
-                        value={paymentDetailsDateTo}
-                        onChange={(e) => setPaymentDetailsDateTo(e.target.value)}
-                        className="w-32 h-8 text-xs border-gray-200"
-                        placeholder="To"
-                      />
+                      <div className="relative">
+                        <Input
+                          type="date"
+                          value={paymentDetailsDateTo}
+                          onChange={(e) => setPaymentDetailsDateTo(e.target.value)}
+                          className="w-36 h-8 text-xs border-gray-300 pr-2 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                        />
+                      </div>
                       <Button 
                         size="sm" 
                         onClick={handleApplyPaymentFilters}

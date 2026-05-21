@@ -14349,13 +14349,13 @@ async def get_retailer_payment_details(
     ist = timezone(timedelta(hours=5, minutes=30))
     today = datetime.now(ist).date()
     
-    # Build query - only get invoices with pending/partial status
+    # Build query - include all invoices if date filter is applied, otherwise only pending/partial
     query = {
-        "retailer_id": retailer_id,
-        "status": {"$in": ["pending", "partial"]}
+        "retailer_id": retailer_id
     }
     
-    # Apply date filters if provided
+    # If date filters are provided, show all invoices in that range (including paid ones)
+    # Otherwise, only show pending/partial invoices
     if start_date or end_date:
         date_query = {}
         if start_date:
@@ -14363,6 +14363,9 @@ async def get_retailer_payment_details(
         if end_date:
             date_query["$lte"] = end_date + "T23:59:59"
         query["invoice_date"] = date_query
+    else:
+        # Default: only pending/partial invoices
+        query["status"] = {"$in": ["pending", "partial"]}
     
     # Fetch invoices
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
@@ -14442,8 +14445,7 @@ async def get_retailer_payment_details(
             final_payable = gross_value - rejection_amount - commission_amount
         
         pending_amount = max(0, final_payable - paid_amount)
-        if pending_amount <= 0:
-            continue
+        is_all_clear = pending_amount <= 0
         
         # Calculate days since invoice
         days_since = (today - inv_date_obj).days
@@ -14453,16 +14455,17 @@ async def get_retailer_payment_details(
         upfront_due = 0
         final_due = 0
         
-        if days_since == 0:
-            # Today's invoice: 50% upfront due
-            upfront_due = min(fifty_percent, pending_amount)
-        elif days_since >= 1 and days_since <= 4:
-            # 1-4 days ago: check if 50% was paid
-            if paid_amount < fifty_percent:
-                upfront_due = max(0, fifty_percent - paid_amount)
-        elif days_since >= 5:
-            # 5+ days: all remaining is final payment due
-            final_due = pending_amount
+        if not is_all_clear:
+            if days_since == 0:
+                # Today's invoice: 50% upfront due
+                upfront_due = min(fifty_percent, pending_amount)
+            elif days_since >= 1 and days_since <= 4:
+                # 1-4 days ago: check if 50% was paid
+                if paid_amount < fifty_percent:
+                    upfront_due = max(0, fifty_percent - paid_amount)
+            elif days_since >= 5:
+                # 5+ days: all remaining is final payment due
+                final_due = pending_amount
         
         # Initialize date entry if not exists
         if date_str not in date_aggregates:
@@ -14517,7 +14520,8 @@ async def get_retailer_payment_details(
             "final_due": round(final_due, 2),
             "days_since": days_since,
             "items": enriched_items,
-            "payments": invoice_payments
+            "payments": invoice_payments,
+            "is_all_clear": is_all_clear
         })
         
         date_aggregates[date_str]["upfront_50_total"] += upfront_due
@@ -14527,13 +14531,16 @@ async def get_retailer_payment_details(
     # Convert to list and sort by date descending
     result_list = []
     for date_str, data in date_aggregates.items():
+        # Check if all invoices for this date are all_clear
+        all_invoices_clear = all(inv.get("is_all_clear", False) for inv in data["invoices"])
         result_list.append({
             "date": date_str,
             "upfront_50_total": round(data["upfront_50_total"], 2),
             "final_payment_total": round(data["final_payment_total"], 2),
             "total_pending": round(data["total_pending"], 2),
             "invoice_count": len(data["invoices"]),
-            "invoices": data["invoices"]
+            "invoices": data["invoices"],
+            "is_all_clear": all_invoices_clear
         })
     
     # Sort by date descending

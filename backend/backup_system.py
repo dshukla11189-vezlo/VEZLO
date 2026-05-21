@@ -28,11 +28,14 @@ COLLECTIONS_TO_BACKUP = [
     # Core
     "users",
     "products",
+    "product_types",
+    "product_categories",
     "units",
     # Procurement
     "farmers",
     "procurements",
     "procurement_templates",
+    "farmer_payments",
     # Quick Commerce
     "qc_packaging",
     "qc_customers",
@@ -41,8 +44,10 @@ COLLECTIONS_TO_BACKUP = [
     "qc_invoices",
     "qc_grns",
     "qc_daily_requirements",
+    "customer_product_settings",
     # Retailer
     "retailers",
+    "retailer_catalogue",
     "retailer_indents",
     "retailer_dispatches",
     "retailer_invoices",

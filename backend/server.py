@@ -12248,11 +12248,14 @@ async def sync_from_production(
                 # Core
                 'users': 'users',
                 'products': 'products',
+                'product_types': 'product_types',
+                'product_categories': 'product_categories',
                 'units': 'units',
                 # Procurement
                 'farmers': 'farmers',
                 'procurements': 'procurements',
                 'procurement_templates': 'procurement_templates',
+                'farmer_payments': 'farmer_payments',
                 # Quick Commerce
                 'qc_packaging': 'qc_packaging',
                 'qc_customers': 'qc_customers',
@@ -12261,8 +12264,10 @@ async def sync_from_production(
                 'qc_invoices': 'qc_invoices',
                 'qc_grns': 'qc_grns',
                 'qc_daily_requirements': 'qc_daily_requirements',
+                'customer_product_settings': 'customer_product_settings',
                 # Retailer
                 'retailers': 'retailers',
+                'retailer_catalogue': 'retailer_catalogue',
                 'retailer_indents': 'retailer_indents',
                 'retailer_dispatches': 'retailer_dispatches',
                 'retailer_invoices': 'retailer_invoices',
@@ -12429,12 +12434,27 @@ async def sync_from_production_direct(
             # Define API endpoints for each collection
             api_endpoints = {
                 'qc_packaging': '/api/qc-packaging',
-                'products': '/api/products',
+                'products': '/api/products?include_images=false',
+                'product_types': '/api/product-types',
+                'product_categories': '/api/product-categories',
                 'units': '/api/units',
                 'farmers': '/api/farmers',
                 'labours': '/api/labours',
                 'qc_customers': '/api/qc-customers',
                 'retailers': '/api/retailers',
+                'retailer_catalogue': '/api/retailer-catalogue',
+                'retailer_indents': '/api/retailer-indents',
+                'retailer_dispatches': '/api/retailer-dispatches',
+                'retailer_invoices': '/api/retailer-invoices',
+                'retailer_rejections': '/api/retailer-rejections',
+                'retailer_payments': '/api/retailer-payments',
+                'qc_indents': '/api/qc-indents',
+                'qc_dispatches': '/api/qc-dispatches',
+                'qc_grns': '/api/qc-grns',
+                'qc_invoices': '/api/qc-invoices',
+                'procurements': '/api/procurement',
+                'farmer_payments': '/api/farmer-payments',
+                'customer_product_settings': '/api/customer-product-settings',
             }
             
             # Endpoints that need date range params (fetch last 6 months)

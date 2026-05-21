@@ -16358,6 +16358,25 @@ async def save_retailer_daily_requirement(
         return {"message": "Daily requirement saved", "id": doc["id"]}
 
 
+@app.get("/api/retailer-daily-requirement/saved")
+async def get_retailer_daily_requirement_saved(
+    date: str = Query(..., description="Requirement date in YYYY-MM-DD format"),
+    retailer_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get saved daily requirement for a date (query param version for frontend compatibility)"""
+    query = {"requirement_date": date}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    else:
+        query["retailer_id"] = None
+    
+    doc = await db.retailer_daily_requirements.find_one(query, {"_id": 0})
+    if not doc:
+        return None
+    return doc
+
+
 @app.get("/api/retailer-daily-requirement/{requirement_date}")
 async def get_retailer_daily_requirement(
     requirement_date: str,

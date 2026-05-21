@@ -260,6 +260,8 @@ export default function Products() {
   
   const [formData, setFormData] = useState({
     name: '',
+    name_hi: '',  // Hindi translation
+    name_mr: '',  // Marathi translation
     category: '',
     unit: 'Kg',
     product_type: '',  // 'Fruits', 'Vegetables', 'Exotic', 'Leafy', etc.
@@ -300,6 +302,88 @@ export default function Products() {
       toast.error('Failed to auto-translate products');
     } finally {
       setAutoTranslating(false);
+    }
+  };
+
+  // Hindi translation dictionary for auto-populate in form
+  const HINDI_DICT = {
+    "amaranthus green": "हरा चौलाई", "amaranthus red": "लाल चौलाई", "spinach": "पालक", "palak": "पालक",
+    "fenugreek": "मेथी", "methi": "मेथी", "coriander": "धनिया", "mint": "पुदीना", "pudina": "पुदीना",
+    "curry leaves": "कड़ी पत्ता", "lettuce": "सलाद पत्ता", "cabbage": "पत्ता गोभी", "cauliflower": "फूल गोभी",
+    "potato": "आलू", "onion": "प्याज", "garlic": "लहसुन", "ginger": "अदरक", "carrot": "गाजर",
+    "radish": "मूली", "beetroot": "चुकंदर", "sweet potato": "शकरकंद", "bottle gourd": "लौकी",
+    "bitter gourd": "करेला", "ridge gourd": "तोरई", "french beans": "फ्रेंच बीन्स", "cluster beans": "ग्वार फली",
+    "brinjal": "बैंगन", "brinjal bharta": "भरता बैंगन", "brinjal green": "हरा बैंगन",
+    "tomato": "टमाटर", "cherry tomato": "चेरी टमाटर", "capsicum": "शिमला मिर्च",
+    "green capsicum": "हरी शिमला मिर्च", "red capsicum": "लाल शिमला मिर्च", "yellow capsicum": "पीली शिमला मिर्च",
+    "cucumber": "खीरा", "drumstick": "सहजन", "ladyfinger": "भिंडी", "okra": "भिंडी",
+    "pumpkin": "कद्दू", "zucchini": "जुकिनी", "broccoli": "ब्रोकली", "baby corn": "बेबी कॉर्न",
+    "mushroom": "मशरूम", "apple": "सेब", "banana": "केला", "mango": "आम", "orange": "संतरा",
+    "papaya": "पपीता", "guava": "अमरूद", "watermelon": "तरबूज", "grapes": "अंगूर",
+    "pomegranate": "अनार", "pineapple": "अनानास", "coconut": "नारियल", "lemon": "नींबू",
+    "kiwi": "कीवी", "strawberry": "स्ट्रॉबेरी", "fig": "अंजीर", "chikoo": "चीकू",
+    "raw groundnut": "कच्ची मूंगफली", "green peas": "हरी मटर", "pointed gourd": "परवल",
+    "ivy gourd": "कुंदरू", "ash gourd": "पेठा", "snake gourd": "चिचिंडा"
+  };
+
+  const MARATHI_DICT = {
+    "amaranthus green": "हिरवी माठ", "amaranthus red": "लाल माठ", "spinach": "पालक", "palak": "पालक",
+    "fenugreek": "मेथी", "methi": "मेथी", "coriander": "कोथिंबीर", "mint": "पुदिना",
+    "curry leaves": "कढीपत्ता", "lettuce": "सलाद पत्ता", "cabbage": "कोबी", "cauliflower": "फुलकोबी",
+    "potato": "बटाटा", "onion": "कांदा", "garlic": "लसूण", "ginger": "आले", "carrot": "गाजर",
+    "radish": "मुळा", "beetroot": "बीट", "sweet potato": "रताळे", "bottle gourd": "दुधी भोपळा",
+    "bitter gourd": "कारले", "ridge gourd": "दोडका", "french beans": "फ्रेंच बीन्स", "cluster beans": "गवार",
+    "brinjal": "वांगे", "brinjal bharta": "भरीत वांगे", "brinjal green": "हिरवे वांगे",
+    "tomato": "टोमॅटो", "cherry tomato": "चेरी टोमॅटो", "capsicum": "ढोबळी मिरची",
+    "cucumber": "काकडी", "drumstick": "शेवगा", "ladyfinger": "भेंडी", "okra": "भेंडी",
+    "pumpkin": "भोपळा", "broccoli": "ब्रोकोली", "baby corn": "बेबी कॉर्न", "mushroom": "अळंबी",
+    "apple": "सफरचंद", "banana": "केळे", "mango": "आंबा", "orange": "संत्रे",
+    "papaya": "पपई", "guava": "पेरू", "watermelon": "कलिंगड", "grapes": "द्राक्षे",
+    "pomegranate": "डाळिंब", "pineapple": "अननस", "coconut": "नारळ", "lemon": "लिंबू",
+    "raw groundnut": "कच्चा शेंगदाणा", "green peas": "हिरवे वाटाणे", "pointed gourd": "परवर",
+    "ivy gourd": "तोंडली", "ash gourd": "कोहळा", "snake gourd": "पडवळ"
+  };
+
+  // Auto-populate translations for current form
+  const autoPopulateFormTranslations = () => {
+    const productName = formData.name.toLowerCase().trim();
+    let hindiName = '';
+    let marathiName = '';
+    
+    // Try exact match first
+    if (HINDI_DICT[productName]) {
+      hindiName = HINDI_DICT[productName];
+    } else {
+      // Try partial match
+      for (const [key, value] of Object.entries(HINDI_DICT)) {
+        if (key.includes(productName) || productName.includes(key)) {
+          hindiName = value;
+          break;
+        }
+      }
+    }
+    
+    if (MARATHI_DICT[productName]) {
+      marathiName = MARATHI_DICT[productName];
+    } else {
+      for (const [key, value] of Object.entries(MARATHI_DICT)) {
+        if (key.includes(productName) || productName.includes(key)) {
+          marathiName = value;
+          break;
+        }
+      }
+    }
+    
+    setFormData(prev => ({
+      ...prev,
+      name_hi: hindiName || prev.name_hi,
+      name_mr: marathiName || prev.name_mr
+    }));
+    
+    if (hindiName || marathiName) {
+      toast.success('Translations auto-populated!');
+    } else {
+      toast.info('No translation found in dictionary. Please enter manually.');
     }
   };
 
@@ -740,7 +824,7 @@ export default function Products() {
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+      setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
       setImageFile(null);
       setImagePreview(null);
       loadProducts();
@@ -820,6 +904,8 @@ export default function Products() {
     setEditProduct(product);
     setFormData({
       name: product.name,
+      name_hi: product.name_hi || '',
+      name_mr: product.name_mr || '',
       category: product.category,
       unit: product.unit,
       product_type: product.product_type || '',
@@ -1056,7 +1142,7 @@ export default function Products() {
           setOpen(val);
           if (!val) {
             setEditProduct(null);
-            setFormData({ name: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+            setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
             setImageFile(null);
             setImagePreview(null);
           }
@@ -1082,6 +1168,45 @@ export default function Products() {
                   required
                 />
               </div>
+              
+              {/* Translation Fields */}
+              <div className="border rounded-lg p-3 bg-purple-50/50">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold text-purple-700">Translations</Label>
+                  <Button 
+                    type="button"
+                    size="sm" 
+                    variant="outline"
+                    onClick={autoPopulateFormTranslations}
+                    className="text-purple-600 border-purple-300 hover:bg-purple-100"
+                  >
+                    🌐 Auto-Populate
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="name_hi" className="text-xs">Hindi (हिंदी)</Label>
+                    <Input
+                      id="name_hi"
+                      value={formData.name_hi}
+                      onChange={(e) => setFormData({ ...formData, name_hi: e.target.value })}
+                      placeholder="हिंदी नाम"
+                      className="text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="name_mr" className="text-xs">Marathi (मराठी)</Label>
+                    <Input
+                      id="name_mr"
+                      value={formData.name_mr}
+                      onChange={(e) => setFormData({ ...formData, name_mr: e.target.value })}
+                      placeholder="मराठी नाव"
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+              
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="category">Category</Label>

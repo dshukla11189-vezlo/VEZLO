@@ -1145,6 +1145,21 @@ async def update_product(product_id: str, input: ProductUpdate, current_user: di
     if not result:
         raise HTTPException(status_code=404, detail="Product not found")
     
+    # Auto-sync translations to retailer_catalogue if translations were updated
+    if 'name_hi' in update_data or 'name_mr' in update_data:
+        catalogue_update = {}
+        if update_data.get('name_hi'):
+            catalogue_update["product_name_hi"] = update_data['name_hi']
+        if update_data.get('name_mr'):
+            catalogue_update["product_name_mr"] = update_data['name_mr']
+        
+        if catalogue_update:
+            await db.retailer_catalogue.update_many(
+                {"product_id": product_id},
+                {"$set": catalogue_update}
+            )
+            logger.info(f"Synced translations for product {product_id} to catalogue")
+    
     return Product(**result)
 
 @api_router.delete("/products/{product_id}")

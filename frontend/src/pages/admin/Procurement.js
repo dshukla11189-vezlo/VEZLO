@@ -65,22 +65,18 @@ export default function Procurement() {
   const [selectedProcurement, setSelectedProcurement] = useState(null);
   const [editMode, setEditMode] = useState(false);
   
-  // Date filter state for API loading
+  // Date filter state for API loading - default to TODAY only
   const [dateFilters, setDateFilters] = useState(() => {
     const today = new Date().toISOString().split('T')[0];
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     return {
-      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+      fromDate: today,
       toDate: today
     };
   });
   const [appliedDateRange, setAppliedDateRange] = useState(() => {
     const today = new Date().toISOString().split('T')[0];
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     return {
-      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+      fromDate: today,
       toDate: today
     };
   });
@@ -2625,17 +2621,15 @@ export default function Procurement() {
                   size="sm"
                   onClick={() => {
                     const today = new Date().toISOString().split('T')[0];
-                    const thirtyDaysAgo = new Date();
-                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
                     const newRange = {
-                      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+                      fromDate: today,
                       toDate: today
                     };
                     setDateFilters(newRange);
                     setAppliedDateRange(newRange);
                   }}
                 >
-                  Last 30 Days
+                  Reset to Today
                 </Button>
                 <span className="text-xs text-gray-500">
                   Data loaded: {appliedDateRange.fromDate} to {appliedDateRange.toDate}

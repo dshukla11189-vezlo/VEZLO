@@ -447,6 +447,23 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
   - **Categories collapsed by default** - Product categories on Create Order page now start collapsed (user clicks to expand)
   - **Cart Modal shows translated names** - Product names in cart modal respect selected catalogue language
 
+### Completed (This Session - 21 May 2026)
+- **Payment Details Redesign (Replaces "Immediately Payable")** ✅ (P0 - VERIFIED)
+  - **New Component**: Renamed "Immediately Payable" to "Payment Details" on Retailer Dashboard
+  - **Date Filters**: Added date range filters with "Apply" and "Reset" buttons
+  - **Aggregate Table**: Shows dates with pending payments in columns: Date | 50% Upfront | Final Payment | Total
+  - **Clickable Rows**: Each row opens a mobile-friendly scrollable modal
+  - **Item-Level Modal**: 
+    - **Header**: Gross Value, Rejection, Net Value, Commission, Final Payable
+    - **Item Table**: S.No, Product Name, Supplied Qty, Rejection Qty, Rejection Amount, Billable Qty, Amount
+    - Invoice-level breakdown with totals
+    - Footer shows payment status and total due
+  - **Mobile Responsive**: Modal scrollable with sticky headers on mobile
+  - **Backend API**: New `GET /api/retailer-payment-details` endpoint with date filtering
+    - Aggregates invoices by date
+    - Calculates 50% upfront vs final payment based on days since invoice (5-day credit period)
+    - Returns complete item-level details for modal display
+
 ## Test Credentials
 - Admin: admin@freshflow.com / admin123
 - Retailer: tamannamart08@gmail.com / admin123

@@ -65,6 +65,26 @@ export default function Procurement() {
   const [selectedProcurement, setSelectedProcurement] = useState(null);
   const [editMode, setEditMode] = useState(false);
   
+  // Date filter state for API loading
+  const [dateFilters, setDateFilters] = useState(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return {
+      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+      toDate: today
+    };
+  });
+  const [appliedDateRange, setAppliedDateRange] = useState(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return {
+      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+      toDate: today
+    };
+  });
+  
   // Units state - fetched from API
   const [units, setUnits] = useState([]);
   
@@ -237,6 +257,13 @@ export default function Procurement() {
     loadTemplates();
     loadStaffUsers();
   }, []);
+  
+  // Reload data when applied date range changes
+  useEffect(() => {
+    if (appliedDateRange.fromDate && appliedDateRange.toDate) {
+      loadData();
+    }
+  }, [appliedDateRange]);
 
   const loadStaffUsers = async () => {
     try {
@@ -249,8 +276,9 @@ export default function Procurement() {
 
   const loadData = async () => {
     try {
+      const { fromDate, toDate } = appliedDateRange;
       const [procRes, farmRes, prodRes, unitsRes] = await Promise.all([
-        api.get('/api/procurement'),
+        api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`),
         api.get('/api/farmers'),
         api.get('/api/products?include_images=false'),
         api.get('/api/units')
@@ -2558,7 +2586,65 @@ export default function Procurement() {
         </TabsList>
 
         <TabsContent value="history" className="mt-6">
-          {/* Filter Panel */}
+          {/* API Date Range Filter - Controls what data is loaded from server */}
+          <Card className="mb-4 border-blue-200 bg-blue-50/30">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <Label className="text-xs font-semibold text-blue-700">Load Data From</Label>
+                  <Input
+                    type="date"
+                    value={dateFilters.fromDate}
+                    onChange={(e) => setDateFilters({ ...dateFilters, fromDate: e.target.value })}
+                    className="w-36 h-9"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold text-blue-700">To</Label>
+                  <Input
+                    type="date"
+                    value={dateFilters.toDate}
+                    onChange={(e) => setDateFilters({ ...dateFilters, toDate: e.target.value })}
+                    className="w-36 h-9"
+                  />
+                </div>
+                <Button 
+                  size="sm"
+                  onClick={() => {
+                    setAppliedDateRange({ 
+                      fromDate: dateFilters.fromDate, 
+                      toDate: dateFilters.toDate 
+                    });
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 h-9"
+                >
+                  <Filter size={14} className="mr-1" /> Apply
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    const newRange = {
+                      fromDate: thirtyDaysAgo.toISOString().split('T')[0],
+                      toDate: today
+                    };
+                    setDateFilters(newRange);
+                    setAppliedDateRange(newRange);
+                  }}
+                >
+                  Last 30 Days
+                </Button>
+                <span className="text-xs text-gray-500">
+                  Data loaded: {appliedDateRange.fromDate} to {appliedDateRange.toDate}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Client-side Filter Panel */}
           <Card className="mb-4">
             <CardHeader>
               <div className="flex items-center justify-between">

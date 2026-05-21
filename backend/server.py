@@ -1670,7 +1670,7 @@ async def delete_farmer(farmer_id: str, current_user: dict = Depends(get_current
 async def get_procurements(
     from_date: str = None,
     to_date: str = None,
-    limit: int = 200,
+    limit: int = 1000,
     current_user: dict = Depends(get_current_user)
 ):
     if current_user["role"] not in ["admin", "staff"]:
@@ -10178,6 +10178,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     await db.retailer_rejections.insert_one(doc)
     
     # IMPORTANT: Auto-sync rejection amount to the invoice for this date/retailer
+    rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
     await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
     
     return {"id": rejection.id, "message": "Rejection recorded successfully"}

@@ -120,6 +120,20 @@ export default function QuickCommerce() {
     toDate: '',
     productName: ''
   });
+  
+  // Saved GRN Records date filter - defaults to last 5 days
+  const [savedGrnDateFilters, setSavedGrnDateFilters] = useState(() => {
+    const today = new Date();
+    const fiveDaysAgo = new Date(today);
+    fiveDaysAgo.setDate(today.getDate() - 5);
+    return {
+      fromDate: fiveDaysAgo.toISOString().split('T')[0],
+      toDate: today.toISOString().split('T')[0]
+    };
+  });
+  const [savedGrnData, setSavedGrnData] = useState([]);  // Filtered saved GRN records
+  const [loadingSavedGrns, setLoadingSavedGrns] = useState(false);
+  
   const [grnLossSummary, setGrnLossSummary] = useState({ total_loss: 0, items: [], itemsByDate: {} });
   const [grnLossFilters, setGrnLossFilters] = useState({
     // Default to 1st of current month to today
@@ -394,6 +408,43 @@ export default function QuickCommerce() {
       setLoading(false);
     }
   };
+
+  // Load Saved GRN records with date filter (separate from main data)
+  const loadSavedGrns = async (fromDate, toDate) => {
+    setLoadingSavedGrns(true);
+    try {
+      const res = await api.get(`/api/qc-grns?from_date=${fromDate}&to_date=${toDate}&limit=1000`);
+      setSavedGrnData(res.data);
+    } catch (error) {
+      console.error('Failed to load saved GRNs:', error);
+      toast.error('Failed to load saved GRN records');
+    } finally {
+      setLoadingSavedGrns(false);
+    }
+  };
+
+  // Apply Saved GRN date filter
+  const handleApplySavedGrnFilter = () => {
+    loadSavedGrns(savedGrnDateFilters.fromDate, savedGrnDateFilters.toDate);
+  };
+
+  // Reset to default last 5 days
+  const handleResetSavedGrnFilter = () => {
+    const today = new Date();
+    const fiveDaysAgo = new Date(today);
+    fiveDaysAgo.setDate(today.getDate() - 5);
+    const newFilters = {
+      fromDate: fiveDaysAgo.toISOString().split('T')[0],
+      toDate: today.toISOString().split('T')[0]
+    };
+    setSavedGrnDateFilters(newFilters);
+    loadSavedGrns(newFilters.fromDate, newFilters.toDate);
+  };
+
+  // Load saved GRNs on initial mount
+  useEffect(() => {
+    loadSavedGrns(savedGrnDateFilters.fromDate, savedGrnDateFilters.toDate);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load packaging variants from localStorage
   const loadPackagingVariants = async () => {
@@ -5333,15 +5384,59 @@ Email: ${companyEmail}`;
               )}
 
               {/* Saved GRNs - Collapsible by Date */}
-              {grns.length > 0 && (
-                <div className="mt-6">
-                  <h4 className="font-semibold text-sm mb-3">Saved GRN Records</h4>
+              <div className="mt-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <h4 className="font-semibold text-sm">Saved GRN Records</h4>
                   
-                  {/* Group GRNs by dispatch date */}
-                  {(() => {
+                  {/* Date Filter */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-gray-500">Filter:</span>
+                    <Input
+                      type="date"
+                      value={savedGrnDateFilters.fromDate}
+                      onChange={(e) => setSavedGrnDateFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                      className="w-32 h-8 text-xs"
+                    />
+                    <span className="text-xs text-gray-400">to</span>
+                    <Input
+                      type="date"
+                      value={savedGrnDateFilters.toDate}
+                      onChange={(e) => setSavedGrnDateFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                      className="w-32 h-8 text-xs"
+                    />
+                    <Button 
+                      size="sm" 
+                      onClick={handleApplySavedGrnFilter}
+                      disabled={loadingSavedGrns}
+                      className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-xs"
+                    >
+                      {loadingSavedGrns ? <Loader2 size={14} className="animate-spin" /> : 'Apply'}
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={handleResetSavedGrnFilter}
+                      className="h-8 px-3 text-xs"
+                    >
+                      Last 5 Days
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Loading state */}
+                {loadingSavedGrns ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={24} className="animate-spin text-blue-500" />
+                    <span className="ml-2 text-sm text-gray-500">Loading GRN records...</span>
+                  </div>
+                ) : savedGrnData.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-4">No GRN records found for selected date range</p>
+                ) : (
+                  /* Group GRNs by dispatch date */
+                  (() => {
                     // Group all items by dispatch date
                     const itemsByDate = {};
-                    grns.forEach(grn => {
+                    savedGrnData.forEach(grn => {
                       grn.items?.forEach((item, itemIndex) => {
                         const date = item.dispatch_date || 'Unknown';
                         if (!itemsByDate[date]) {
@@ -5562,7 +5657,7 @@ Email: ${companyEmail}`;
                                                   className="h-6 px-2 text-amber-600 hover:bg-amber-50"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    const grn = grns.find(g => g.id === item.grnId);
+                                                    const grn = savedGrnData.find(g => g.id === item.grnId);
                                                     if (grn) openGrnPaymentModal(grn, item.originalItemIndex);
                                                   }}
                                                   title="Record Payment"
@@ -5579,7 +5674,7 @@ Email: ${companyEmail}`;
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     // Find the GRN and load into matched items for editing
-                                                    const grn = grns.find(g => g.id === item.grnId);
+                                                    const grn = savedGrnData.find(g => g.id === item.grnId);
                                                     if (grn) {
                                                       setGrnMatchedItems(grn.items);
                                                       setGrnUploadResult({ 
@@ -5638,9 +5733,9 @@ Email: ${companyEmail}`;
                         })}
                       </div>
                     );
-                  })()}
-                </div>
-              )}
+                  })()
+                )}
+              </div>
 
               {/* Empty state */}
               {grnDispatchItems.length === 0 && grnMatchedItems.length === 0 && grns.length === 0 && (

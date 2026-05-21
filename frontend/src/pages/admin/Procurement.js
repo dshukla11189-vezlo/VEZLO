@@ -284,6 +284,8 @@ export default function Procurement() {
       setFarmers(farmRes.data);
       setProducts(prodRes.data);
       setUnits(unitsRes.data || []);
+      // Sync filters with applied range
+      setFilters(prev => ({ ...prev, fromDate, toDate }));
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
@@ -2582,63 +2584,7 @@ export default function Procurement() {
         </TabsList>
 
         <TabsContent value="history" className="mt-6">
-          {/* API Date Range Filter - Controls what data is loaded from server */}
-          <Card className="mb-4 border-blue-200 bg-blue-50/30">
-            <CardContent className="pt-4 pb-3">
-              <div className="flex flex-wrap gap-3 items-end">
-                <div>
-                  <Label className="text-xs font-semibold text-blue-700">Load Data From</Label>
-                  <Input
-                    type="date"
-                    value={dateFilters.fromDate}
-                    onChange={(e) => setDateFilters({ ...dateFilters, fromDate: e.target.value })}
-                    className="w-36 h-9"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs font-semibold text-blue-700">To</Label>
-                  <Input
-                    type="date"
-                    value={dateFilters.toDate}
-                    onChange={(e) => setDateFilters({ ...dateFilters, toDate: e.target.value })}
-                    className="w-36 h-9"
-                  />
-                </div>
-                <Button 
-                  size="sm"
-                  onClick={() => {
-                    setAppliedDateRange({ 
-                      fromDate: dateFilters.fromDate, 
-                      toDate: dateFilters.toDate 
-                    });
-                  }}
-                  className="bg-blue-600 hover:bg-blue-700 h-9"
-                >
-                  <Filter size={14} className="mr-1" /> Apply
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => {
-                    const today = new Date().toISOString().split('T')[0];
-                    const newRange = {
-                      fromDate: today,
-                      toDate: today
-                    };
-                    setDateFilters(newRange);
-                    setAppliedDateRange(newRange);
-                  }}
-                >
-                  Reset to Today
-                </Button>
-                <span className="text-xs text-gray-500">
-                  Data loaded: {appliedDateRange.fromDate} to {appliedDateRange.toDate}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Client-side Filter Panel */}
+          {/* Filter Panel with Apply button for API loading */}
           <Card className="mb-4">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -2646,9 +2592,35 @@ export default function Procurement() {
                   <Filter size={18} />
                   {t('procurement.filters')}
                 </CardTitle>
-                <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters-button">
-                  {t('procurement.clearAll')}
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm"
+                    onClick={() => {
+                      setAppliedDateRange({ 
+                        fromDate: filters.fromDate || dateFilters.fromDate, 
+                        toDate: filters.toDate || dateFilters.toDate 
+                      });
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Filter size={14} className="mr-1" /> Apply
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setFilters({ fromDate: today, toDate: today, farmerName: '', productName: '', status: '' });
+                      setDateFilters({ fromDate: today, toDate: today });
+                      setAppliedDateRange({ fromDate: today, toDate: today });
+                    }}
+                  >
+                    Reset to Today
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters-button">
+                    {t('procurement.clearAll')}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>

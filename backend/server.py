@@ -14367,6 +14367,54 @@ async def get_retailer_payment_details(
     # Fetch invoices
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
     
+    # Fetch all rejections for this retailer to enrich item data
+    all_rejections = await db.retailer_rejections.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0, "product_id": 1, "product_name": 1, "rejection_date": 1, "quantity": 1, "rejection_value": 1}
+    ).to_list(5000)
+    
+    # Group rejections by date and product for quick lookup
+    rejection_map = {}  # (date_str, product_id_or_name) -> {qty, value}
+    for rej in all_rejections:
+        rej_date = rej.get("rejection_date")
+        if isinstance(rej_date, datetime):
+            rej_date_str = rej_date.date().isoformat()
+        elif isinstance(rej_date, str):
+            rej_date_str = rej_date[:10]
+        else:
+            continue
+        
+        product_key = rej.get("product_id") or rej.get("product_name", "").strip()
+        if not product_key:
+            continue
+            
+        key = (rej_date_str, product_key)
+        if key not in rejection_map:
+            rejection_map[key] = {"qty": 0, "value": 0}
+        rejection_map[key]["qty"] += rej.get("quantity", 0) or 0
+        rejection_map[key]["value"] += rej.get("rejection_value", 0) or 0
+    
+    # Also fetch payments for this retailer to show payment history
+    all_payments = await db.retailer_payments.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0, "invoice_id": 1, "amount": 1, "payment_date": 1, "payment_mode": 1, "remarks": 1}
+    ).to_list(5000)
+    
+    # Group payments by invoice_id
+    payments_map = {}  # invoice_id -> [{amount, date, mode, remarks}]
+    for pmt in all_payments:
+        inv_id = pmt.get("invoice_id")
+        if not inv_id:
+            continue
+        if inv_id not in payments_map:
+            payments_map[inv_id] = []
+        payments_map[inv_id].append({
+            "amount": pmt.get("amount", 0),
+            "payment_date": pmt.get("payment_date"),
+            "payment_mode": pmt.get("payment_mode", ""),
+            "remarks": pmt.get("remarks", "")
+        })
+    
     # Group invoices by date and aggregate
     date_aggregates = {}  # date_str -> {invoices: [...], totals: {...}}
     
@@ -14426,6 +14474,34 @@ async def get_retailer_payment_details(
                 "total_pending": 0
             }
         
+        # Enrich items with rejection data from rejection_map
+        enriched_items = []
+        for item in inv.get("items", []):
+            product_id = item.get("product_id")
+            product_name = (item.get("product_name") or "").strip()
+            
+            # Look up rejection by product_id first, then by name
+            item_rejection = None
+            if product_id:
+                item_rejection = rejection_map.get((date_str, product_id))
+            if not item_rejection and product_name:
+                item_rejection = rejection_map.get((date_str, product_name))
+            
+            # Clone item and add rejection data
+            enriched_item = dict(item)
+            if item_rejection:
+                enriched_item["rejected_qty"] = item_rejection["qty"]
+                enriched_item["rejection_value"] = item_rejection["value"]
+            else:
+                # Keep existing values or default to 0
+                enriched_item["rejected_qty"] = item.get("rejected_qty", 0) or 0
+                enriched_item["rejection_value"] = item.get("rejection_value", 0) or 0
+            
+            enriched_items.append(enriched_item)
+        
+        # Get payment history for this invoice
+        invoice_payments = payments_map.get(inv.get("id"), [])
+        
         # Add invoice to the date
         date_aggregates[date_str]["invoices"].append({
             "invoice_id": inv.get("id"),
@@ -14440,7 +14516,8 @@ async def get_retailer_payment_details(
             "upfront_due": round(upfront_due, 2),
             "final_due": round(final_due, 2),
             "days_since": days_since,
-            "items": inv.get("items", [])
+            "items": enriched_items,
+            "payments": invoice_payments
         })
         
         date_aggregates[date_str]["upfront_50_total"] += upfront_due

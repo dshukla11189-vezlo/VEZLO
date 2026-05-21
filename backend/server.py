@@ -10215,7 +10215,12 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
         # Group rejections by product_id + variant_id for item-level sync
         rejection_by_item = {}
         for rej in rejections:
-            key = f"{rej.get('product_id', '')}_{rej.get('variant_id', '')}"
+            # Handle None, 'N/A', empty string, etc. as empty variant
+            variant_id = rej.get('variant_id', '') or ''
+            if variant_id in ['N/A', 'None', 'null']:
+                variant_id = ''
+            product_id = rej.get('product_id', '') or ''
+            key = f"{product_id}_{variant_id}"
             if key not in rejection_by_item:
                 rejection_by_item[key] = {"qty": 0, "value": 0}
             rejection_by_item[key]["qty"] += rej.get("quantity", 0) or 0
@@ -10239,7 +10244,12 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
             # Update item-level rejections in the invoice
             updated_items = []
             for item in invoice.get("items", []):
-                item_key = f"{item.get('product_id', '')}_{item.get('variant_id', '')}"
+                # Handle None, 'N/A', empty string, etc. as empty variant
+                item_variant_id = item.get('variant_id', '') or ''
+                if item_variant_id in ['N/A', 'None', 'null']:
+                    item_variant_id = ''
+                item_product_id = item.get('product_id', '') or ''
+                item_key = f"{item_product_id}_{item_variant_id}"
                 rej_data = rejection_by_item.get(item_key, {"qty": 0, "value": 0})
                 
                 # Update rejection_qty and recalculate billable_qty
@@ -10281,6 +10291,7 @@ async def sync_all_invoice_rejections(
     """
     Sync all rejection amounts from retailer_rejections to corresponding invoices.
     This fixes invoices that have rejection_amount=0 but should have rejection values.
+    Also syncs item-level rejection data.
     """
     if current_user.get("role") not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -10293,50 +10304,27 @@ async def sync_all_invoice_rejections(
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(10000)
     
     # Group rejections by (retailer_id, date)
-    rejection_totals = {}
+    rejection_keys = set()
     for rej in rejections:
         rej_date = rej.get("rejection_date", "")[:10]
-        key = (rej.get("retailer_id"), rej_date)
-        if key not in rejection_totals:
-            rejection_totals[key] = 0
-        rejection_totals[key] += rej.get("rejection_value", 0) or 0
+        ret_id = rej.get("retailer_id")
+        if ret_id and rej_date:
+            rejection_keys.add((ret_id, rej_date))
     
-    # Update invoices
+    # Call the proper sync function for each retailer+date combination
+    # This does both totals AND item-level sync
     updated_count = 0
-    for (ret_id, date_str), total_rejection in rejection_totals.items():
-        if not ret_id or not date_str or total_rejection <= 0:
-            continue
-        
-        # Find invoice for this retailer and date
-        invoice = await db.retailer_invoices.find_one({
-            "retailer_id": ret_id,
-            "invoice_date": {"$regex": f"^{date_str}"}
-        }, {"_id": 0})
-        
-        if invoice:
-            gross_value = invoice.get("gross_value", 0) or 0
-            commission_pct = invoice.get("commission_percentage", 0) or 0
-            
-            net_mrp_value = gross_value - total_rejection
-            commission_amount = net_mrp_value * (commission_pct / 100)
-            net_payable = net_mrp_value - commission_amount
-            
-            result = await db.retailer_invoices.update_one(
-                {"id": invoice["id"]},
-                {"$set": {
-                    "rejection_amount": round(total_rejection, 2),
-                    "total_mrp_value": round(net_mrp_value, 2),
-                    "commission_amount": round(commission_amount, 2),
-                    "net_payable": round(net_payable, 2)
-                }}
-            )
-            if result.modified_count > 0:
-                updated_count += 1
+    for (ret_id, date_str) in rejection_keys:
+        try:
+            await sync_invoice_rejection_amount(ret_id, date_str)
+            updated_count += 1
+        except Exception as e:
+            logger.error(f"Failed to sync for retailer {ret_id} date {date_str}: {e}")
     
     return {
         "message": f"Synced rejection amounts to {updated_count} invoices",
         "updated_count": updated_count,
-        "total_rejection_entries": len(rejection_totals)
+        "total_rejection_entries": len(rejection_keys)
     }
 
 @api_router.delete("/retailer-rejections/{rejection_id}")

@@ -1957,8 +1957,13 @@ export default function RetailerDashboard() {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => setSideMenuOpen(true)}
-              className="p-2"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSideMenuOpen(true);
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
+              className="p-2 touch-none"
               data-testid="hamburger-menu-btn"
             >
               <Menu size={24} />

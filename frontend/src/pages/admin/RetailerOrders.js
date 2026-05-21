@@ -1623,8 +1623,32 @@ export default function RetailerOrders() {
         remarks: ''
       }));
       
+      // Try to load previous day's remarks to carry forward
+      let previousRemarks = {};
+      try {
+        const prevDate = new Date(dailyReqDate);
+        prevDate.setDate(prevDate.getDate() - 1);
+        const prevDateStr = prevDate.toISOString().split('T')[0];
+        const prevRes = await api.get(`/api/retailer-daily-requirement/saved?date=${prevDateStr}`);
+        if (prevRes.data?.items) {
+          prevRes.data.items.forEach(item => {
+            if (item.remarks) {
+              previousRemarks[item.product_id] = item.remarks;
+            }
+          });
+        }
+      } catch (e) {
+        // No previous day's data, ignore
+      }
+      
+      // Apply previous day's remarks to new data
+      const requirementDataWithRemarks = requirementData.map(item => ({
+        ...item,
+        remarks: previousRemarks[item.productId] || ''
+      }));
+      
       // Set as original data (from indents - always fresh)
-      setOriginalReqData(requirementData);
+      setOriginalReqData(requirementDataWithRemarks);
       
       // Try to load saved data for this date
       try {
@@ -1647,13 +1671,13 @@ export default function RetailerOrders() {
           setDailyReqViewMode('saved');
         } else {
           setSavedReqData([]);
-          setDailyReqData(requirementData);
+          setDailyReqData(requirementDataWithRemarks);
           setDailyReqViewMode('original');
         }
       } catch (e) {
-        // No saved data, use original
+        // No saved data, use original with previous remarks
         setSavedReqData([]);
-        setDailyReqData(requirementData);
+        setDailyReqData(requirementDataWithRemarks);
         setDailyReqViewMode('original');
       }
       
@@ -2835,7 +2859,8 @@ export default function RetailerOrders() {
           qty_units: item.qtyUnits,
           qty_kg: item.qtyKg,
           wastage_pct: item.wastagePct,
-          requirement_kg: item.requirementKg
+          requirement_kg: item.requirementKg,
+          remarks: item.remarks || ''
         })),
         total_qty_units: dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0),
         total_qty_kg: dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0),

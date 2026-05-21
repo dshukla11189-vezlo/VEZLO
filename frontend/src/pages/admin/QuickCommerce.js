@@ -303,6 +303,10 @@ export default function QuickCommerce() {
   // Reload data when applied date range changes
   useEffect(() => {
     loadData();
+    // Also sync filter UI with applied range
+    setIndentFilters(prev => ({ ...prev, fromDate: appliedDateRange.fromDate, toDate: appliedDateRange.toDate }));
+    setDispatchFilters(prev => ({ ...prev, fromDate: appliedDateRange.fromDate, toDate: appliedDateRange.toDate }));
+    setInvoiceListFilters(prev => ({ ...prev, fromDate: appliedDateRange.fromDate, toDate: appliedDateRange.toDate }));
   }, [appliedDateRange]);
 
   // Apply filters when indents or filters change
@@ -3346,7 +3350,7 @@ Email: ${companyEmail}`;
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                 <div>
                   <Label className="text-xs">From Date</Label>
                   <Input
@@ -3362,6 +3366,20 @@ Email: ${companyEmail}`;
                     value={indentFilters.toDate}
                     onChange={(e) => setIndentFilters({ ...indentFilters, toDate: e.target.value })}
                   />
+                </div>
+                <div>
+                  <Button 
+                    size="sm"
+                    onClick={() => {
+                      setAppliedDateRange({ 
+                        fromDate: indentFilters.fromDate, 
+                        toDate: indentFilters.toDate 
+                      });
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 w-full"
+                  >
+                    <Filter size={14} className="mr-1" /> Apply
+                  </Button>
                 </div>
                 <div>
                   <Label className="text-xs">Customer</Label>
@@ -3382,9 +3400,22 @@ Email: ${companyEmail}`;
                   />
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Showing {filteredIndents.length} of {indents.length} indents
-              </p>
+              <div className="flex justify-between items-center mt-2">
+                <p className="text-xs text-gray-500">
+                  Showing {filteredIndents.length} of {indents.length} indents
+                </p>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setIndentFilters({ fromDate: today, toDate: today, customerName: '', productName: '' });
+                    setAppliedDateRange({ fromDate: today, toDate: today });
+                  }}
+                >
+                  Reset to Today
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -4044,6 +4075,18 @@ Email: ${companyEmail}`;
                     className="w-36 h-9"
                   />
                 </div>
+                <Button 
+                  size="sm"
+                  onClick={() => {
+                    setAppliedDateRange({ 
+                      fromDate: dispatchFilters.fromDate, 
+                      toDate: dispatchFilters.toDate 
+                    });
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 h-9"
+                >
+                  <Filter size={14} className="mr-1" /> Apply
+                </Button>
                 <div className="flex items-center gap-2">
                   <Label className="text-sm whitespace-nowrap">Customer:</Label>
                   <Select 
@@ -4074,9 +4117,13 @@ Email: ${companyEmail}`;
                 <Button 
                   variant="ghost" 
                   size="sm"
-                  onClick={() => setDispatchFilters({ fromDate: '', toDate: '', customerName: '', productName: '' })}
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setDispatchFilters({ fromDate: today, toDate: today, customerName: '', productName: '' });
+                    setAppliedDateRange({ fromDate: today, toDate: today });
+                  }}
                 >
-                  Clear Filters
+                  Reset to Today
                 </Button>
               </div>
 

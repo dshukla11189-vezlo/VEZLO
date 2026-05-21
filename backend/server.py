@@ -14589,7 +14589,7 @@ async def get_all_retailers_immediately_payable(
     today = datetime.now(ist).date()
     
     # Fetch all retailers to get company_name (shop name)
-    all_retailers = await db.retailers.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1}).to_list(1000)
+    all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "id": 1, "name": 1, "company_name": 1}).to_list(1000)
     retailer_map = {r["id"]: r.get("company_name") or r.get("name", "Unknown") for r in all_retailers}
     
     # Build invoice query - filter by retailer if specified
@@ -14750,8 +14750,16 @@ async def get_all_retailers_immediately_payable(
         "pending_50_recent": round(sum(r["pending_50_recent"] for r in result), 2),
         "due_today_remaining": round(sum(r["due_today_remaining"] for r in result), 2),
         "overdue": round(sum(r["overdue"] for r in result), 2),
-        "total": round(sum(r["total"] for r in result), 2)
+        "total": round(sum(r["total"] for r in result), 2),
+        # Combined totals for simplified 2-block view
+        "upfront_50_total": round(sum(r["today_50_percent"] + r["pending_50_recent"] for r in result), 2),
+        "final_payment_total": round(sum(r["due_today_remaining"] + r["overdue"] for r in result), 2)
     }
+    
+    # Add combined totals to each retailer for "By Outlet" display
+    for r in result:
+        r["upfront_50_total"] = round(r["today_50_percent"] + r["pending_50_recent"], 2)
+        r["final_payment_total"] = round(r["due_today_remaining"] + r["overdue"], 2)
     
     return {
         "retailers": result,

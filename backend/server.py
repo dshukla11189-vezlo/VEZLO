@@ -14319,6 +14319,166 @@ async def get_retailer_immediately_payable(
     return result
 
 
+@api_router.get("/retailer-payment-details")
+async def get_retailer_payment_details(
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get payment details aggregated by date for the retailer portal.
+    Shows dates where payment is pending (either 50% upfront or final payment).
+    Each row: Date, 50% Upfront Payment, Final Payment
+    Click on a row to see item-level breakdown.
+    """
+    from datetime import timedelta
+    
+    # Get retailer ID from current user
+    if current_user.get("role") != "retailer":
+        raise HTTPException(status_code=403, detail="Only retailers can access this endpoint")
+    
+    retailer_id = current_user.get("user_id")
+    if not retailer_id:
+        raise HTTPException(status_code=400, detail="Retailer ID not found")
+    
+    # Get retailer info for commission percentage
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "commission_percentage": 1})
+    commission_percentage = retailer.get("commission_percentage", 0) if retailer else 0
+    
+    # Get today's date in IST
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date()
+    
+    # Build query - only get invoices with pending/partial status
+    query = {
+        "retailer_id": retailer_id,
+        "status": {"$in": ["pending", "partial"]}
+    }
+    
+    # Apply date filters if provided
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["invoice_date"] = date_query
+    
+    # Fetch invoices
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
+    
+    # Group invoices by date and aggregate
+    date_aggregates = {}  # date_str -> {invoices: [...], totals: {...}}
+    
+    for inv in invoices:
+        # Parse invoice date
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            date_str = inv_date[:10]
+            inv_date_obj = datetime.fromisoformat(date_str).date()
+        elif isinstance(inv_date, datetime):
+            date_str = inv_date.date().isoformat()
+            inv_date_obj = inv_date.date()
+        else:
+            continue
+        
+        # Get invoice values
+        gross_value = inv.get("gross_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
+        final_payable = inv.get("net_payable", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        
+        # If net_payable is 0, calculate it
+        if final_payable <= 0:
+            final_payable = gross_value - rejection_amount - commission_amount
+        
+        pending_amount = max(0, final_payable - paid_amount)
+        if pending_amount <= 0:
+            continue
+        
+        # Calculate days since invoice
+        days_since = (today - inv_date_obj).days
+        fifty_percent = final_payable / 2
+        
+        # Determine 50% upfront due and final payment due
+        upfront_due = 0
+        final_due = 0
+        
+        if days_since == 0:
+            # Today's invoice: 50% upfront due
+            upfront_due = min(fifty_percent, pending_amount)
+        elif days_since >= 1 and days_since <= 4:
+            # 1-4 days ago: check if 50% was paid
+            if paid_amount < fifty_percent:
+                upfront_due = max(0, fifty_percent - paid_amount)
+        elif days_since >= 5:
+            # 5+ days: all remaining is final payment due
+            final_due = pending_amount
+        
+        # Initialize date entry if not exists
+        if date_str not in date_aggregates:
+            date_aggregates[date_str] = {
+                "date": date_str,
+                "invoices": [],
+                "upfront_50_total": 0,
+                "final_payment_total": 0,
+                "total_pending": 0
+            }
+        
+        # Add invoice to the date
+        date_aggregates[date_str]["invoices"].append({
+            "invoice_id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "gross_value": round(gross_value, 2),
+            "rejection_amount": round(rejection_amount, 2),
+            "net_value": round(gross_value - rejection_amount, 2),
+            "commission_amount": round(commission_amount, 2),
+            "final_payable": round(final_payable, 2),
+            "paid_amount": round(paid_amount, 2),
+            "pending_amount": round(pending_amount, 2),
+            "upfront_due": round(upfront_due, 2),
+            "final_due": round(final_due, 2),
+            "days_since": days_since,
+            "items": inv.get("items", [])
+        })
+        
+        date_aggregates[date_str]["upfront_50_total"] += upfront_due
+        date_aggregates[date_str]["final_payment_total"] += final_due
+        date_aggregates[date_str]["total_pending"] += pending_amount
+    
+    # Convert to list and sort by date descending
+    result_list = []
+    for date_str, data in date_aggregates.items():
+        result_list.append({
+            "date": date_str,
+            "upfront_50_total": round(data["upfront_50_total"], 2),
+            "final_payment_total": round(data["final_payment_total"], 2),
+            "total_pending": round(data["total_pending"], 2),
+            "invoice_count": len(data["invoices"]),
+            "invoices": data["invoices"]
+        })
+    
+    # Sort by date descending
+    result_list.sort(key=lambda x: x["date"], reverse=True)
+    
+    # Calculate grand totals
+    grand_upfront = sum(d["upfront_50_total"] for d in result_list)
+    grand_final = sum(d["final_payment_total"] for d in result_list)
+    grand_pending = sum(d["total_pending"] for d in result_list)
+    
+    return {
+        "dates": result_list,
+        "totals": {
+            "upfront_50_total": round(grand_upfront, 2),
+            "final_payment_total": round(grand_final, 2),
+            "grand_total": round(grand_upfront + grand_final, 2),
+            "total_pending": round(grand_pending, 2)
+        },
+        "commission_percentage": commission_percentage
+    }
+
+
 @api_router.get("/admin/all-retailers-immediately-payable")
 async def get_all_retailers_immediately_payable(
     retailer_id: str = None,

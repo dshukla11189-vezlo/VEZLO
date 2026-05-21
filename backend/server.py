@@ -10201,7 +10201,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
 async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
     """
     Sync rejection amounts from retailer_rejections to the corresponding invoice.
-    This ensures Payment Summary shows correct rejection values.
+    This ensures Payment Summary shows correct rejection values AND item-level rejections.
     """
     try:
         # Get all rejections for this retailer and date
@@ -10211,6 +10211,15 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
         }, {"_id": 0}).to_list(500)
         
         total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+        
+        # Group rejections by product_id + variant_id for item-level sync
+        rejection_by_item = {}
+        for rej in rejections:
+            key = f"{rej.get('product_id', '')}_{rej.get('variant_id', '')}"
+            if key not in rejection_by_item:
+                rejection_by_item[key] = {"qty": 0, "value": 0}
+            rejection_by_item[key]["qty"] += rej.get("quantity", 0) or 0
+            rejection_by_item[key]["value"] += rej.get("rejection_value", 0) or 0
         
         # Find the invoice for this date and retailer
         invoice = await db.retailer_invoices.find_one({
@@ -10227,17 +10236,39 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
             commission_amount = net_mrp_value * (commission_pct / 100)
             net_payable = net_mrp_value - commission_amount
             
-            # Update the invoice
+            # Update item-level rejections in the invoice
+            updated_items = []
+            for item in invoice.get("items", []):
+                item_key = f"{item.get('product_id', '')}_{item.get('variant_id', '')}"
+                rej_data = rejection_by_item.get(item_key, {"qty": 0, "value": 0})
+                
+                # Update rejection_qty and recalculate billable_qty
+                supplied_qty = item.get("supplied_qty", item.get("quantity", 0)) or 0
+                rejection_qty = rej_data["qty"]
+                billable_qty = max(0, supplied_qty - rejection_qty)
+                mrp = item.get("mrp", 0) or 0
+                amount = billable_qty * mrp
+                
+                updated_item = {
+                    **item,
+                    "rejection_qty": rejection_qty,
+                    "billable_qty": billable_qty,
+                    "amount": round(amount, 2)
+                }
+                updated_items.append(updated_item)
+            
+            # Update the invoice with both totals and item-level rejections
             await db.retailer_invoices.update_one(
                 {"id": invoice["id"]},
                 {"$set": {
                     "rejection_amount": round(total_rejection_value, 2),
                     "total_mrp_value": round(net_mrp_value, 2),
                     "commission_amount": round(commission_amount, 2),
-                    "net_payable": round(net_payable, 2)
+                    "net_payable": round(net_payable, 2),
+                    "items": updated_items
                 }}
             )
-            logger.info(f"Synced rejection amount ₹{total_rejection_value} to invoice {invoice.get('invoice_number')}")
+            logger.info(f"Synced rejection amount ₹{total_rejection_value} and {len(rejection_by_item)} item rejections to invoice {invoice.get('invoice_number')}")
     except Exception as e:
         logger.error(f"Failed to sync invoice rejection amount: {e}")
 

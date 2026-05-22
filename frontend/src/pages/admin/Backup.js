@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Link2, Unlink, RefreshCw, CloudDownload, Server } from 'lucide-react';
+import { Database, Download, Mail, Clock, CheckCircle, AlertCircle, Loader2, Link2, Unlink, RefreshCw, CloudDownload, Server, Bug, Eye, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function BackupPage() {
@@ -25,6 +25,13 @@ export default function BackupPage() {
   const [prodEmail, setProdEmail] = useState('admin@freshflow.com');
   const [prodPassword, setProdPassword] = useState('admin123');
   const [syncStatus, setSyncStatus] = useState(null);
+  
+  // Error Logs state
+  const [errorLogsLoading, setErrorLogsLoading] = useState(false);
+  const [errorLogs, setErrorLogs] = useState(null);
+  const [errorSummary, setErrorSummary] = useState(null);
+  const [showErrorLogs, setShowErrorLogs] = useState(false);
+  const [selectedError, setSelectedError] = useState(null);
 
   useEffect(() => {
     loadStatus();
@@ -226,6 +233,57 @@ export default function BackupPage() {
     } finally {
       setDownloadLoading(false);
     }
+  };
+
+  // ============== ERROR LOGS FUNCTIONS ==============
+  const loadErrorLogs = async () => {
+    setErrorLogsLoading(true);
+    try {
+      // Get summary for last 24 hours
+      const summaryRes = await api.get('/api/error-logs/summary?hours=24');
+      setErrorSummary(summaryRes.data);
+      
+      // Get detailed logs
+      const logsRes = await api.get('/api/error-logs?limit=50');
+      setErrorLogs(logsRes.data);
+      setShowErrorLogs(true);
+      
+      if (logsRes.data.summary.total_logs === 0) {
+        toast.info('No error logs found - system is running smoothly!');
+      } else {
+        toast.success(`Loaded ${logsRes.data.summary.total_logs} error logs`);
+      }
+    } catch (error) {
+      console.error('Failed to load error logs:', error);
+      toast.error('Failed to load error logs');
+    } finally {
+      setErrorLogsLoading(false);
+    }
+  };
+
+  const clearOldErrorLogs = async () => {
+    if (!window.confirm('Clear error logs older than 7 days?')) return;
+    
+    try {
+      const response = await api.delete('/api/error-logs/clear?older_than_days=7');
+      toast.success(response.data.message);
+      loadErrorLogs();
+    } catch (error) {
+      console.error('Failed to clear logs:', error);
+      toast.error('Failed to clear error logs');
+    }
+  };
+
+  const formatErrorTime = (timestamp) => {
+    if (!timestamp) return '-';
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-IN', { 
+      day: '2-digit', 
+      month: 'short', 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
   };
 
   if (loading) {
@@ -596,6 +654,278 @@ export default function BackupPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* ============== PRODUCTION ERROR LOGS SECTION ============== */}
+        <Card className="border-red-200 bg-red-50/30">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bug className="text-red-600" size={20} />
+                <CardTitle className="text-lg text-red-800">Production Error Logs</CardTitle>
+              </div>
+              <div className="flex gap-2">
+                {showErrorLogs && errorLogs?.summary?.total_logs > 0 && (
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={clearOldErrorLogs}
+                    className="text-red-600 border-red-300 hover:bg-red-50"
+                  >
+                    <Trash2 size={14} className="mr-1" /> Clear Old
+                  </Button>
+                )}
+                <Button 
+                  size="sm" 
+                  onClick={loadErrorLogs}
+                  disabled={errorLogsLoading}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {errorLogsLoading ? (
+                    <Loader2 size={14} className="mr-1 animate-spin" />
+                  ) : (
+                    <Eye size={14} className="mr-1" />
+                  )}
+                  {showErrorLogs ? 'Refresh Logs' : 'View Error Logs'}
+                </Button>
+              </div>
+            </div>
+            <p className="text-sm text-red-600 mt-1">
+              View and analyze errors from Production environment (stored in shared MongoDB)
+            </p>
+          </CardHeader>
+          
+          {showErrorLogs && (
+            <CardContent className="pt-0">
+              {/* Summary Stats */}
+              {errorSummary && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-white rounded-lg p-3 border border-red-100">
+                    <p className="text-xs text-gray-500">Last 24 Hours</p>
+                    <p className="text-2xl font-bold text-red-600">{errorSummary.summary?.total_errors || 0}</p>
+                    <p className="text-xs text-gray-400">total errors</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-red-100">
+                    <p className="text-xs text-gray-500">Critical</p>
+                    <p className="text-2xl font-bold text-red-800">{errorSummary.summary?.critical_errors || 0}</p>
+                    <p className="text-xs text-gray-400">500 errors</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-orange-100">
+                    <p className="text-xs text-gray-500">Error Rate</p>
+                    <p className="text-2xl font-bold text-orange-600">{errorSummary.summary?.error_rate_per_hour?.toFixed(1) || 0}</p>
+                    <p className="text-xs text-gray-400">per hour</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs text-gray-500">All Time</p>
+                    <p className="text-2xl font-bold text-gray-700">{errorLogs?.summary?.total_logs || 0}</p>
+                    <p className="text-xs text-gray-400">stored logs</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Environment Breakdown */}
+              {errorLogs?.summary?.by_environment && Object.keys(errorLogs.summary.by_environment).length > 0 && (
+                <div className="mb-4 p-3 bg-white rounded-lg border">
+                  <p className="text-xs font-medium text-gray-500 mb-2">Errors by Environment</p>
+                  <div className="flex gap-4">
+                    {Object.entries(errorLogs.summary.by_environment).map(([env, count]) => (
+                      <div key={env} className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          env === 'production' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {env}
+                        </span>
+                        <span className="font-bold">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Most Error-Prone Paths */}
+              {errorLogs?.summary?.most_error_prone_paths?.length > 0 && (
+                <div className="mb-4 p-3 bg-white rounded-lg border">
+                  <p className="text-xs font-medium text-gray-500 mb-2">Most Error-Prone APIs</p>
+                  <div className="space-y-1">
+                    {errorLogs.summary.most_error_prone_paths.slice(0, 5).map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-sm">
+                        <code className="text-xs bg-gray-100 px-2 py-0.5 rounded">{item._id}</code>
+                        <span className="text-red-600 font-medium">{item.count} errors</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Critical Errors */}
+              {errorSummary?.recent_critical_errors?.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-medium text-gray-500 mb-2">Recent Critical Errors (Last 24h)</p>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {errorSummary.recent_critical_errors.map((error, idx) => (
+                      <div 
+                        key={idx} 
+                        className="bg-white border border-red-100 rounded-lg p-3 cursor-pointer hover:border-red-300 transition-colors"
+                        onClick={() => setSelectedError(selectedError?.timestamp === error.timestamp ? null : error)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <code className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">{error.path}</code>
+                            <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
+                              error.environment === 'production' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
+                            }`}>
+                              {error.environment || 'unknown'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400">{formatErrorTime(error.timestamp)}</span>
+                        </div>
+                        {error.error_message && (
+                          <p className="text-xs text-red-600 mt-1 truncate">{error.error_message}</p>
+                        )}
+                        {error.error_type && (
+                          <span className="text-xs text-gray-500">Type: {error.error_type}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Detailed Error Logs Table */}
+              {errorLogs?.logs?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">All Stored Error Logs ({errorLogs.logs.length} shown)</p>
+                  <div className="overflow-x-auto max-h-80 overflow-y-auto border rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left">Time</th>
+                          <th className="p-2 text-left">Env</th>
+                          <th className="p-2 text-left">Path</th>
+                          <th className="p-2 text-center">Status</th>
+                          <th className="p-2 text-left">Type</th>
+                          <th className="p-2 text-right">Time (s)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {errorLogs.logs.map((log, idx) => (
+                          <tr 
+                            key={idx} 
+                            className={`border-t hover:bg-red-50 cursor-pointer ${log.is_critical ? 'bg-red-50' : ''}`}
+                            onClick={() => setSelectedError(selectedError?.request_id === log.request_id ? null : log)}
+                          >
+                            <td className="p-2 whitespace-nowrap">{formatErrorTime(log.timestamp)}</td>
+                            <td className="p-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                log.environment === 'production' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {log.environment || '?'}
+                              </span>
+                            </td>
+                            <td className="p-2 max-w-[200px] truncate font-mono">{log.path}</td>
+                            <td className="p-2 text-center">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                log.status_code >= 500 ? 'bg-red-600 text-white' : 
+                                log.status_code >= 400 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'
+                              }`}>
+                                {log.status_code}
+                              </span>
+                            </td>
+                            <td className="p-2 text-gray-500">{log.type}</td>
+                            <td className="p-2 text-right text-gray-500">{log.process_time}s</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* No Errors Message */}
+              {errorLogs?.logs?.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <CheckCircle size={40} className="mx-auto mb-2 text-green-500" />
+                  <p className="font-medium text-green-700">No error logs found!</p>
+                  <p className="text-sm">System is running smoothly.</p>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Error Detail Modal */}
+        {selectedError && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedError(null)}>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b bg-red-50 flex justify-between items-center">
+                <h3 className="font-semibold text-red-800 flex items-center gap-2">
+                  <Bug size={18} />
+                  Error Details
+                </h3>
+                <button onClick={() => setSelectedError(null)} className="text-gray-500 hover:text-gray-700">✕</button>
+              </div>
+              <div className="p-4 overflow-y-auto max-h-[60vh] space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Timestamp:</span>
+                    <p className="font-medium">{formatErrorTime(selectedError.timestamp)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Environment:</span>
+                    <p className="font-medium">{selectedError.environment || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Status Code:</span>
+                    <p className="font-medium text-red-600">{selectedError.status_code}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Process Time:</span>
+                    <p className="font-medium">{selectedError.process_time}s</p>
+                  </div>
+                </div>
+                
+                <div>
+                  <span className="text-gray-500 text-sm">Path:</span>
+                  <code className="block bg-gray-100 p-2 rounded text-sm mt-1">{selectedError.path}</code>
+                </div>
+                
+                {selectedError.query_params && (
+                  <div>
+                    <span className="text-gray-500 text-sm">Query Params:</span>
+                    <code className="block bg-gray-100 p-2 rounded text-sm mt-1">{selectedError.query_params}</code>
+                  </div>
+                )}
+                
+                {selectedError.error_message && (
+                  <div>
+                    <span className="text-gray-500 text-sm">Error Message:</span>
+                    <code className="block bg-red-50 text-red-700 p-2 rounded text-sm mt-1 whitespace-pre-wrap">{selectedError.error_message}</code>
+                  </div>
+                )}
+                
+                {selectedError.error_type && (
+                  <div>
+                    <span className="text-gray-500 text-sm">Error Type:</span>
+                    <p className="font-medium text-red-600">{selectedError.error_type}</p>
+                  </div>
+                )}
+                
+                {selectedError.stack_trace && (
+                  <div>
+                    <span className="text-gray-500 text-sm">Stack Trace:</span>
+                    <pre className="bg-gray-900 text-green-400 p-3 rounded text-xs mt-1 overflow-x-auto whitespace-pre-wrap">{selectedError.stack_trace}</pre>
+                  </div>
+                )}
+                
+                {selectedError.request_context && (
+                  <div>
+                    <span className="text-gray-500 text-sm">Request Context:</span>
+                    <pre className="bg-gray-100 p-2 rounded text-xs mt-1">{JSON.stringify(selectedError.request_context, null, 2)}</pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

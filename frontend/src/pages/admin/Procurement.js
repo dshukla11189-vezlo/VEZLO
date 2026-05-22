@@ -1323,11 +1323,20 @@ export default function Procurement() {
         new Date(a.date) - new Date(b.date)
       );
       
+      const totalDates = datesList.length;
+      let runningTotal = 0;
+      
       datesList.forEach((dateData, dateIdx) => {
         const pageBreak = pageNum > 0 ? 'page-break-before: always;' : '';
         pageNum++;
         
+        const isLastPage = dateIdx === totalDates - 1;
+        runningTotal += dateData.dateTotal;
+        
         const receiptNo = generateReceiptNo(farmer.name, dateData.date);
+        
+        // Page indicator for multi-page receipts
+        const pageIndicator = totalDates > 1 ? `<p style="margin: 5px 0 0 0; font-size: 10px; color: #666;">Page ${dateIdx + 1} of ${totalDates}</p>` : '';
         
         htmlContent += `
           <div style="${pageBreak} padding: 25px; font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
@@ -1341,6 +1350,7 @@ export default function Procurement() {
                 <div style="text-align: right;">
                   <h2 style="margin: 0; color: #14532D; font-size: 18px; font-weight: bold;">PURCHASE RECEIPT</h2>
                   <p style="margin: 5px 0 0 0; font-size: 12px; color: #333;"><strong>Receipt No:</strong> ${receiptNo}</p>
+                  ${pageIndicator}
                 </div>
               </div>
             </div>
@@ -1381,46 +1391,78 @@ export default function Procurement() {
                 `).join('')}
               </tbody>
               <tfoot>
-                <tr style="background: #dcfce7;">
-                  <td colspan="4" style="padding: 12px 8px; text-align: right; border: 1px solid #bbf7d0; font-weight: bold; font-size: 14px;">
-                    Total Amount:
-                  </td>
-                  <td style="padding: 12px 8px; text-align: right; border: 1px solid #bbf7d0; font-weight: bold; font-size: 16px; color: #14532D;">
-                    ₹${dateData.dateTotal.toFixed(2)}
-                  </td>
-                </tr>
+                ${!isLastPage ? `
+                  <!-- Sub-total for non-last pages -->
+                  <tr style="background: #f3f4f6;">
+                    <td colspan="4" style="padding: 10px 8px; text-align: right; border: 1px solid #e5e7eb; font-weight: 500; font-size: 12px; color: #666;">
+                      Sub-total (${dateData.date}):
+                    </td>
+                    <td style="padding: 10px 8px; text-align: right; border: 1px solid #e5e7eb; font-weight: 500; font-size: 14px; color: #666;">
+                      ₹${dateData.dateTotal.toFixed(2)}
+                    </td>
+                  </tr>
+                  <tr style="background: #e0e7ff;">
+                    <td colspan="5" style="padding: 8px; text-align: center; border: 1px solid #c7d2fe; font-style: italic; color: #4f46e5; font-size: 11px;">
+                      Continued on next page...
+                    </td>
+                  </tr>
+                ` : `
+                  <!-- Grand Total only on last page -->
+                  ${totalDates > 1 ? `
+                    <tr style="background: #f3f4f6;">
+                      <td colspan="4" style="padding: 10px 8px; text-align: right; border: 1px solid #e5e7eb; font-weight: 500; font-size: 12px; color: #666;">
+                        Sub-total (${dateData.date}):
+                      </td>
+                      <td style="padding: 10px 8px; text-align: right; border: 1px solid #e5e7eb; font-weight: 500; font-size: 14px; color: #666;">
+                        ₹${dateData.dateTotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  ` : ''}
+                  <tr style="background: #dcfce7;">
+                    <td colspan="4" style="padding: 12px 8px; text-align: right; border: 1px solid #bbf7d0; font-weight: bold; font-size: 14px;">
+                      ${totalDates > 1 ? 'GRAND TOTAL:' : 'Total Amount:'}
+                    </td>
+                    <td style="padding: 12px 8px; text-align: right; border: 1px solid #bbf7d0; font-weight: bold; font-size: 16px; color: #14532D;">
+                      ₹${farmer.grandTotal.toFixed(2)}
+                    </td>
+                  </tr>
+                `}
               </tfoot>
             </table>
             
-            <!-- Amount in Words -->
-            <div style="background: #fef3c7; border: 1px solid #fcd34d; padding: 10px 15px; border-radius: 5px; margin-bottom: 25px;">
-              <p style="margin: 0; font-size: 12px;">
-                <strong>Amount in Words:</strong> ${numberToWords(dateData.dateTotal)} Rupees Only
-              </p>
-            </div>
-            
-            <!-- Signature Section -->
-            <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px;">
-              <div style="text-align: center; width: 200px;">
-                <div style="border-top: 1px solid #333; padding-top: 8px;">
-                  <p style="margin: 0; font-size: 11px; color: #666;">Supplier Signature</p>
+            ${isLastPage ? `
+              <!-- Amount in Words - Only on last page -->
+              <div style="background: #fef3c7; border: 1px solid #fcd34d; padding: 10px 15px; border-radius: 5px; margin-bottom: 25px;">
+                <p style="margin: 0; font-size: 12px;">
+                  <strong>Amount in Words:</strong> ${numberToWords(farmer.grandTotal)} Rupees Only
+                </p>
+              </div>
+              
+              <!-- Signature Section - Only on last page -->
+              <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px;">
+                <div style="text-align: center; width: 200px;">
+                  <div style="border-top: 1px solid #333; padding-top: 8px;">
+                    <p style="margin: 0; font-size: 11px; color: #666;">Supplier Signature</p>
+                  </div>
+                </div>
+                <div style="text-align: center; width: 200px;">
+                  <div style="border-top: 1px solid #333; padding-top: 8px;">
+                    <p style="margin: 0; font-size: 11px; color: #666;">Authorized Signature</p>
+                  </div>
                 </div>
               </div>
-              <div style="text-align: center; width: 200px;">
-                <div style="border-top: 1px solid #333; padding-top: 8px;">
-                  <p style="margin: 0; font-size: 11px; color: #666;">Authorized Signature</p>
-                </div>
-              </div>
-            </div>
+            ` : ''}
             
             <!-- Footer -->
             <div style="margin-top: 30px; padding-top: 15px; border-top: 1px dashed #ccc; text-align: center;">
               <p style="margin: 0; font-size: 10px; color: #999;">
                 This is a computer-generated receipt. Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
               </p>
-              <p style="margin: 5px 0 0 0; font-size: 10px; color: #666;">
-                Thank you for your business!
-              </p>
+              ${isLastPage ? `
+                <p style="margin: 5px 0 0 0; font-size: 10px; color: #666;">
+                  Thank you for your business!
+                </p>
+              ` : ''}
             </div>
           </div>
         `;

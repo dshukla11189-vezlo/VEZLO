@@ -9,6 +9,14 @@
   - Files modified: `/app/frontend/src/pages/admin/VariableExpenses.js` (4 locations)
   - Result: Pending Reimbursement now correctly shows ₹140,308
 
+- **BUG FIX**: Fixed Marathi product names not appearing in Daily Purchase PDF/Excel
+  - Root cause: Export functions used cached translations from dailyReqData instead of fresh product data
+  - Solution: Modified `printDailyRequirement()` and `exportDailyReqToExcel()` to build fresh translation map from products array
+  - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js` (2 functions updated)
+  - Result: PDF/Excel now shows latest translations immediately after updating in Products page
+
+- **FIX**: Added `product_name_hi` and `product_name_mr` to saveDailyRequirement payload
+
 ### Previous Session (May 21-22, 2025)
 - Mobile remarks layout (card-based) for Daily Purchase table
 - GRN Date filters with 5-day default span

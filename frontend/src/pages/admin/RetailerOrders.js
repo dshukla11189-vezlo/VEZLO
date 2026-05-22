@@ -2650,20 +2650,55 @@ export default function RetailerOrders() {
     const lang = dailyReqPrintLang;
     const labels = dailyReqTranslations[lang] || dailyReqTranslations.en;
     
-    // Get display name based on selected print language
+    // Build a fresh product translation map from the current products list
+    // This ensures we use the LATEST translations even if dailyReqData has old/no translations
+    const productTranslationMap = {};
+    products.forEach(p => {
+      productTranslationMap[p.id] = {
+        name: p.name,
+        name_hi: p.name_hi || '',
+        name_mr: p.name_mr || ''
+      };
+      // Also map by name for fallback matching
+      productTranslationMap[p.name?.toLowerCase()] = {
+        name: p.name,
+        name_hi: p.name_hi || '',
+        name_mr: p.name_mr || ''
+      };
+    });
+    
+    // Get display name based on selected print language - using FRESH translations from products
     const getDisplayName = (item) => {
-      if (lang === 'hi' && item.productNameHi) return item.productNameHi;
-      if (lang === 'mr' && item.productNameMr) return item.productNameMr;
-      if ((lang === 'hi' || lang === 'mr') && !item.productNameHi && !item.productNameMr) {
+      // First try to get fresh translation from products by ID
+      let freshTranslation = productTranslationMap[item.productId];
+      // Fallback to name matching if ID not found
+      if (!freshTranslation && item.productName) {
+        freshTranslation = productTranslationMap[item.productName.toLowerCase()];
+      }
+      
+      // Use fresh translation if available, otherwise fall back to item's stored translation
+      const nameHi = freshTranslation?.name_hi || item.productNameHi || '';
+      const nameMr = freshTranslation?.name_mr || item.productNameMr || '';
+      
+      if (lang === 'hi' && nameHi) return nameHi;
+      if (lang === 'mr' && nameMr) return nameMr;
+      if ((lang === 'hi' || lang === 'mr') && !nameHi && !nameMr) {
         return `${item.productName} *`;
       }
       return item.productName;
     };
     
-    // Count missing translations
+    // Count missing translations - using fresh product data
     const missingTranslations = dailyReqData.filter(item => {
-      if (lang === 'hi') return !item.productNameHi;
-      if (lang === 'mr') return !item.productNameMr;
+      let freshTranslation = productTranslationMap[item.productId];
+      if (!freshTranslation && item.productName) {
+        freshTranslation = productTranslationMap[item.productName.toLowerCase()];
+      }
+      const nameHi = freshTranslation?.name_hi || item.productNameHi || '';
+      const nameMr = freshTranslation?.name_mr || item.productNameMr || '';
+      
+      if (lang === 'hi') return !nameHi;
+      if (lang === 'mr') return !nameMr;
       return false;
     }).length;
     
@@ -2749,11 +2784,34 @@ export default function RetailerOrders() {
     const lang = dailyReqPrintLang;
     const labels = dailyReqTranslations[lang] || dailyReqTranslations.en;
     
-    // Get display name based on selected print language
+    // Build a fresh product translation map from the current products list
+    const productTranslationMap = {};
+    products.forEach(p => {
+      productTranslationMap[p.id] = {
+        name: p.name,
+        name_hi: p.name_hi || '',
+        name_mr: p.name_mr || ''
+      };
+      productTranslationMap[p.name?.toLowerCase()] = {
+        name: p.name,
+        name_hi: p.name_hi || '',
+        name_mr: p.name_mr || ''
+      };
+    });
+    
+    // Get display name based on selected print language - using FRESH translations
     const getDisplayName = (item) => {
-      if (lang === 'hi' && item.productNameHi) return item.productNameHi;
-      if (lang === 'mr' && item.productNameMr) return item.productNameMr;
-      if ((lang === 'hi' || lang === 'mr') && !item.productNameHi && !item.productNameMr) {
+      let freshTranslation = productTranslationMap[item.productId];
+      if (!freshTranslation && item.productName) {
+        freshTranslation = productTranslationMap[item.productName.toLowerCase()];
+      }
+      
+      const nameHi = freshTranslation?.name_hi || item.productNameHi || '';
+      const nameMr = freshTranslation?.name_mr || item.productNameMr || '';
+      
+      if (lang === 'hi' && nameHi) return nameHi;
+      if (lang === 'mr' && nameMr) return nameMr;
+      if ((lang === 'hi' || lang === 'mr') && !nameHi && !nameMr) {
         return `${item.productName} *`;
       }
       return item.productName;

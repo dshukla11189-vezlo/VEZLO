@@ -304,31 +304,45 @@ system_health_metrics = {
     "total_db_errors": 0,
     "last_db_error": None,
     "consecutive_db_failures": 0,
-    "uptime_checks": []
+    "uptime_checks": [],
+    "environment": os.environ.get("ENVIRONMENT", "unknown")  # Track which env
 }
 
-# Function to log critical errors to database (called in background)
-async def persist_critical_error(error_data: dict):
-    """Persist critical errors to MongoDB for later analysis"""
+# Function to log errors to database (called in background)
+async def persist_error_log(error_data: dict, is_critical: bool = False):
+    """Persist errors to MongoDB error_logs collection for cross-environment analysis"""
     try:
         error_data["persisted_at"] = datetime.now(timezone.utc).isoformat()
-        await db.system_logs.insert_one(error_data)
+        error_data["is_critical"] = is_critical
+        error_data["environment"] = os.environ.get("ENVIRONMENT", "production")
+        error_data["server_id"] = os.environ.get("HOSTNAME", "unknown")
         
-        # Keep only last 1000 logs in DB
-        count = await db.system_logs.count_documents({})
-        if count > 1000:
-            oldest = await db.system_logs.find({}, {"_id": 1}).sort("timestamp", 1).limit(count - 1000).to_list(count - 1000)
+        await db.error_logs.insert_one(error_data)
+        
+        # Keep only last 5000 logs in DB (more storage for better analysis)
+        count = await db.error_logs.count_documents({})
+        if count > 5000:
+            # Delete oldest logs beyond 5000
+            oldest = await db.error_logs.find({}, {"_id": 1}).sort("timestamp", 1).limit(count - 5000).to_list(count - 5000)
             if oldest:
-                await db.system_logs.delete_many({"_id": {"$in": [o["_id"] for o in oldest]}})
+                await db.error_logs.delete_many({"_id": {"$in": [o["_id"] for o in oldest]}})
     except Exception as e:
         logger.error(f"Failed to persist error log: {e}")
 
-# Request logging middleware - enhanced with health tracking
+# Request logging middleware - enhanced with comprehensive error tracking
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
     request_id = str(uuid.uuid4())[:8]
     system_health_metrics["total_requests"] += 1
+    
+    # Capture request context for error logging
+    request_context = {
+        "user_agent": request.headers.get("user-agent", "")[:200],
+        "referer": request.headers.get("referer", "")[:200],
+        "content_type": request.headers.get("content-type", ""),
+        "origin": request.headers.get("origin", ""),
+    }
     
     try:
         response = await call_next(request)
@@ -343,7 +357,7 @@ async def log_requests(request: Request, call_next):
         if response.status_code < 500:
             system_health_metrics["consecutive_db_failures"] = 0
         
-        # Store errors in memory for diagnostics
+        # Store errors for diagnostics
         if response.status_code >= 400 or process_time > 5:
             system_health_metrics["total_errors"] += 1
             error_entry = {
@@ -351,20 +365,22 @@ async def log_requests(request: Request, call_next):
                 "request_id": request_id,
                 "method": request.method,
                 "path": str(request.url.path),
+                "query_params": str(request.query_params)[:500] if request.query_params else None,
                 "status_code": response.status_code,
                 "process_time": round(process_time, 3),
-                "type": "slow_request" if process_time > 5 else "error"
+                "type": "slow_request" if process_time > 5 else "http_error",
+                "request_context": request_context
             }
             recent_errors.append(error_entry)
             if len(recent_errors) > MAX_ERROR_LOG:
                 recent_errors.pop(0)
             
-            # Persist 500 errors to DB in background
-            if response.status_code >= 500:
+            # Persist 500 errors and slow requests to DB
+            if response.status_code >= 500 or process_time > 10:
                 system_health_metrics["total_db_errors"] += 1
                 system_health_metrics["consecutive_db_failures"] += 1
                 system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
-                asyncio.create_task(persist_critical_error(error_entry))
+                asyncio.create_task(persist_error_log(error_entry, is_critical=response.status_code >= 500))
         
         return response
     except Exception as e:
@@ -378,24 +394,27 @@ async def log_requests(request: Request, call_next):
         system_health_metrics["consecutive_db_failures"] += 1
         system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
         
-        # Store error in memory
+        # Comprehensive error entry
         error_entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request_id,
             "method": request.method,
             "path": str(request.url.path),
+            "query_params": str(request.query_params)[:500] if request.query_params else None,
             "status_code": 500,
-            "error": error_msg[:500],
-            "stack_trace": stack_trace[:1000] if "database" in error_msg.lower() or "mongo" in error_msg.lower() else None,
+            "error_message": error_msg[:1000],
+            "error_type": type(e).__name__,
+            "stack_trace": stack_trace[:2000],
             "process_time": round(process_time, 3),
-            "type": "exception"
+            "type": "exception",
+            "request_context": request_context
         }
         recent_errors.append(error_entry)
         if len(recent_errors) > MAX_ERROR_LOG:
             recent_errors.pop(0)
         
-        # Persist to DB
-        asyncio.create_task(persist_critical_error(error_entry))
+        # Always persist exceptions to DB
+        asyncio.create_task(persist_error_log(error_entry, is_critical=True))
         
         raise
 
@@ -598,6 +617,171 @@ async def get_system_logs(
                 "server_errors_5xx": error_count,
                 "slow_requests": slow_count
             }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# ERROR LOGS ANALYSIS ENDPOINTS (For Production Error Analysis)
+# ============================================================================
+@api_router.get("/error-logs")
+async def get_error_logs(
+    limit: int = 100,
+    error_type: str = None,  # exception, http_error, slow_request
+    from_date: str = None,   # YYYY-MM-DD
+    to_date: str = None,     # YYYY-MM-DD
+    environment: str = None, # production, preview
+    critical_only: bool = False,
+    path_filter: str = None, # Filter by API path
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get error logs from MongoDB for cross-environment analysis.
+    Production errors are stored in the same DB and can be viewed from preview.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        query = {}
+        
+        if error_type:
+            query["type"] = error_type
+        if environment:
+            query["environment"] = environment
+        if critical_only:
+            query["is_critical"] = True
+        if path_filter:
+            query["path"] = {"$regex": path_filter, "$options": "i"}
+        
+        # Date filters
+        if from_date or to_date:
+            query["timestamp"] = {}
+            if from_date:
+                query["timestamp"]["$gte"] = f"{from_date}T00:00:00"
+            if to_date:
+                query["timestamp"]["$lte"] = f"{to_date}T23:59:59"
+        
+        # Get logs
+        logs = await db.error_logs.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+        
+        # Get summary stats
+        total_count = await db.error_logs.count_documents({})
+        critical_count = await db.error_logs.count_documents({"is_critical": True})
+        
+        # Get counts by environment
+        env_pipeline = [
+            {"$group": {"_id": "$environment", "count": {"$sum": 1}}}
+        ]
+        env_stats = await db.error_logs.aggregate(env_pipeline).to_list(10)
+        env_counts = {e["_id"]: e["count"] for e in env_stats if e["_id"]}
+        
+        # Get counts by error type
+        type_pipeline = [
+            {"$group": {"_id": "$type", "count": {"$sum": 1}}}
+        ]
+        type_stats = await db.error_logs.aggregate(type_pipeline).to_list(10)
+        type_counts = {t["_id"]: t["count"] for t in type_stats if t["_id"]}
+        
+        # Get most common error paths
+        path_pipeline = [
+            {"$match": {"status_code": {"$gte": 500}}},
+            {"$group": {"_id": "$path", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        path_stats = await db.error_logs.aggregate(path_pipeline).to_list(10)
+        
+        return {
+            "logs": logs,
+            "summary": {
+                "total_logs": total_count,
+                "critical_errors": critical_count,
+                "by_environment": env_counts,
+                "by_type": type_counts,
+                "most_error_prone_paths": path_stats
+            },
+            "filters_applied": {
+                "error_type": error_type,
+                "from_date": from_date,
+                "to_date": to_date,
+                "environment": environment,
+                "critical_only": critical_only,
+                "path_filter": path_filter
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/error-logs/summary")
+async def get_error_logs_summary(
+    hours: int = 24,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get error summary for last N hours - useful for quick health check"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        cutoff_time = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        
+        # Get recent errors
+        recent_query = {"timestamp": {"$gte": cutoff_time}}
+        recent_count = await db.error_logs.count_documents(recent_query)
+        critical_recent = await db.error_logs.count_documents({**recent_query, "is_critical": True})
+        
+        # Get hourly breakdown
+        hourly_pipeline = [
+            {"$match": {"timestamp": {"$gte": cutoff_time}}},
+            {"$addFields": {
+                "hour": {"$substr": ["$timestamp", 0, 13]}  # Extract YYYY-MM-DDTHH
+            }},
+            {"$group": {
+                "_id": "$hour",
+                "count": {"$sum": 1},
+                "critical": {"$sum": {"$cond": ["$is_critical", 1, 0]}}
+            }},
+            {"$sort": {"_id": -1}},
+            {"$limit": 24}
+        ]
+        hourly_stats = await db.error_logs.aggregate(hourly_pipeline).to_list(24)
+        
+        # Get sample of recent critical errors
+        recent_critical = await db.error_logs.find(
+            {**recent_query, "is_critical": True},
+            {"_id": 0, "timestamp": 1, "path": 1, "error_message": 1, "error_type": 1, "environment": 1}
+        ).sort("timestamp", -1).limit(10).to_list(10)
+        
+        return {
+            "time_range": f"Last {hours} hours",
+            "cutoff_time": cutoff_time,
+            "summary": {
+                "total_errors": recent_count,
+                "critical_errors": critical_recent,
+                "error_rate_per_hour": round(recent_count / hours, 2) if hours > 0 else 0
+            },
+            "hourly_breakdown": hourly_stats,
+            "recent_critical_errors": recent_critical
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/error-logs/clear")
+async def clear_error_logs(
+    older_than_days: int = 7,
+    current_user: dict = Depends(get_current_user)
+):
+    """Clear error logs older than specified days"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        result = await db.error_logs.delete_many({"timestamp": {"$lt": cutoff}})
+        
+        return {
+            "message": f"Cleared {result.deleted_count} logs older than {older_than_days} days",
+            "deleted_count": result.deleted_count
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

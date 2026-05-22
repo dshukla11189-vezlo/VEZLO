@@ -274,13 +274,18 @@ export default function WastageDashboard() {
   // Fix historical wastage values - useful when wastage_value is 0 for items without purchases
   const [fixingWastage, setFixingWastage] = useState(false);
   const fixHistoricalWastageValues = async () => {
-    if (!window.confirm('This will recalculate wastage values for ALL historical records using historical purchase prices. Continue?')) {
+    if (!window.confirm('This will recalculate wastage values for ALL historical records using historical purchase prices. This may take a minute. Continue?')) {
       return;
     }
     
     setFixingWastage(true);
+    toast.info('Processing... This may take up to a minute for large datasets.');
+    
     try {
-      const response = await api.post('/api/stock-status/fix-all-wastage-values');
+      // Use longer timeout for this operation (2 minutes)
+      const response = await api.post('/api/stock-status/fix-all-wastage-values', {}, {
+        timeout: 120000  // 2 minute timeout
+      });
       const data = response.data;
       toast.success(data.message || `Fixed ${data.total_fixed} records`);
       // Reload data
@@ -288,7 +293,11 @@ export default function WastageDashboard() {
       loadSelectedDateWastage(selectedWastageDate);
     } catch (error) {
       console.error('Fix wastage error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to fix wastage values');
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        toast.error('Request timed out. The operation may still be running in the background. Please refresh the page in a minute.');
+      } else {
+        toast.error(error.response?.data?.detail || 'Failed to fix wastage values. Please try again.');
+      }
     } finally {
       setFixingWastage(false);
     }

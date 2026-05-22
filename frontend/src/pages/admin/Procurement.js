@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock, FileText, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -1245,6 +1245,139 @@ export default function Procurement() {
       { label: 'UPI ID', getter: (d) => d.upi_id || '-' },
       { label: 'Materials Supplied', getter: (d) => d.materials_supplied || '-' }
     ]);
+  };
+
+  // ==================== PDF DOWNLOAD BY FARMER ====================
+  const downloadFarmerPurchasePDF = () => {
+    if (filteredProcurements.length === 0) {
+      toast.error('No purchases to download. Apply date filters first.');
+      return;
+    }
+    
+    // Group procurements by farmer
+    const byFarmer = {};
+    filteredProcurements.forEach(proc => {
+      const farmerName = proc.farmer_name || 'Unknown';
+      if (!byFarmer[farmerName]) {
+        byFarmer[farmerName] = {
+          name: farmerName,
+          contact: proc.farmer_contact || '',
+          items: [],
+          grandTotal: 0
+        };
+      }
+      proc.products?.forEach(item => {
+        byFarmer[farmerName].items.push({
+          date: formatDate(proc.date),
+          product: item.product_name,
+          quantity: `${item.quantity} ${item.unit}${item.unit_size ? ` (${item.unit_size}gm)` : ''}`,
+          rate: item.rate,
+          total: item.total
+        });
+        byFarmer[farmerName].grandTotal += (item.total || 0);
+      });
+    });
+    
+    const farmerList = Object.values(byFarmer);
+    
+    if (farmerList.length === 0) {
+      toast.error('No farmer data found');
+      return;
+    }
+    
+    // Format date range for header
+    const fromDateStr = appliedDateRange.fromDate ? formatDate(appliedDateRange.fromDate) : '';
+    const toDateStr = appliedDateRange.toDate ? formatDate(appliedDateRange.toDate) : '';
+    const dateRangeText = fromDateStr === toDateStr ? fromDateStr : `${fromDateStr} to ${toDateStr}`;
+    
+    // Generate HTML for each farmer
+    let htmlContent = '';
+    
+    farmerList.forEach((farmer, farmerIdx) => {
+      const pageBreak = farmerIdx > 0 ? 'page-break-before: always;' : '';
+      
+      htmlContent += `
+        <div style="${pageBreak} padding: 20px; font-family: Arial, sans-serif;">
+          <!-- Header -->
+          <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #14532D; padding-bottom: 10px;">
+            <h1 style="margin: 0; color: #14532D; font-size: 24px;">Mr Organix</h1>
+            <p style="margin: 5px 0; color: #666; font-size: 12px;">Purchase Statement</p>
+            <p style="margin: 5px 0; color: #333; font-size: 14px; font-weight: bold;">${dateRangeText}</p>
+          </div>
+          
+          <!-- Farmer Info -->
+          <div style="margin-bottom: 15px; background: #f8f9fa; padding: 10px; border-radius: 5px;">
+            <p style="margin: 0; font-size: 16px; font-weight: bold; color: #14532D;">Farmer: ${farmer.name}</p>
+            ${farmer.contact ? `<p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Contact: ${farmer.contact}</p>` : ''}
+          </div>
+          
+          <!-- Items Table -->
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            <thead>
+              <tr style="background: #14532D; color: white;">
+                <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">S.No</th>
+                <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Date</th>
+                <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Product</th>
+                <th style="padding: 8px; text-align: right; border: 1px solid #ccc;">Quantity</th>
+                <th style="padding: 8px; text-align: right; border: 1px solid #ccc;">Rate (₹)</th>
+                <th style="padding: 8px; text-align: right; border: 1px solid #ccc;">Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${farmer.items.map((item, idx) => `
+                <tr style="background: ${idx % 2 === 0 ? '#fff' : '#f9f9f9'};">
+                  <td style="padding: 8px; border: 1px solid #ddd;">${idx + 1}</td>
+                  <td style="padding: 8px; border: 1px solid #ddd;">${item.date}</td>
+                  <td style="padding: 8px; border: 1px solid #ddd;">${item.product}</td>
+                  <td style="padding: 8px; text-align: right; border: 1px solid #ddd;">${item.quantity}</td>
+                  <td style="padding: 8px; text-align: right; border: 1px solid #ddd;">₹${item.rate?.toFixed(2)}</td>
+                  <td style="padding: 8px; text-align: right; border: 1px solid #ddd; font-weight: 500;">₹${item.total?.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="background: #e8f5e9; font-weight: bold;">
+                <td colspan="5" style="padding: 10px; text-align: right; border: 1px solid #ddd;">Grand Total:</td>
+                <td style="padding: 10px; text-align: right; border: 1px solid #ddd; color: #14532D; font-size: 14px;">₹${farmer.grandTotal.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          
+          <!-- Footer -->
+          <div style="margin-top: 30px; text-align: center; color: #999; font-size: 10px;">
+            <p>Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+          </div>
+        </div>
+      `;
+    });
+    
+    // Create print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Purchase Statement - ${dateRangeText}</title>
+          <style>
+            @media print {
+              body { margin: 0; }
+              @page { margin: 15mm; }
+            }
+          </style>
+        </head>
+        <body>
+          ${htmlContent}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    
+    // Auto-trigger print dialog
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+    
+    toast.success(`Generated PDF for ${farmerList.length} farmer(s)`);
   };
 
   const getUnitLabel = (unit, unitSize) => {
@@ -2692,9 +2825,14 @@ export default function Procurement() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">{t('procurement.purchaseHistory')}</CardTitle>
-              <Button size="sm" variant="outline" onClick={exportProcurements} title="Export to Excel">
-                <FileSpreadsheet size={14} className="mr-1" /> Export
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={downloadFarmerPurchasePDF} title="Download PDF by Farmer">
+                  <FileText size={14} className="mr-1" /> PDF
+                </Button>
+                <Button size="sm" variant="outline" onClick={exportProcurements} title="Export to Excel">
+                  <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="data-table">

@@ -1611,6 +1611,13 @@ export default function RetailerOrders() {
       
       // Transform backend data to frontend format
       // Simplified: requirementKg = qtyKg (no wastage calculation)
+      // Apply rounding: minimum 1 kg, round up to next whole number
+      const roundUpRequirement = (qty) => {
+        if (qty <= 0) return 0;
+        if (qty < 1) return 1;  // Minimum 1 kg
+        return Math.ceil(qty);  // Round up to next whole number
+      };
+      
       const requirementData = result.items.map(item => ({
         productId: item.product_id,
         productName: item.product_name,
@@ -1619,7 +1626,7 @@ export default function RetailerOrders() {
         category: item.category || 'Other',
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
-        requirementKg: item.qty_kg, // Directly use qtyKg as requirement
+        requirementKg: roundUpRequirement(item.qty_kg), // Round up, min 1 kg
         remarks: ''
       }));
       
@@ -4757,8 +4764,7 @@ export default function RetailerOrders() {
                                             />
                                           </td>
                                           <td className="p-2">
-                                            <Input
-                                              type="text"
+                                            <textarea
                                               placeholder="Add remarks..."
                                               value={item.remarks || ''}
                                               onChange={(e) => {
@@ -4767,8 +4773,9 @@ export default function RetailerOrders() {
                                                 setDailyReqData(newData);
                                                 setDailyReqSaved(false);
                                               }}
-                                              className="h-7 w-full text-xs"
+                                              className="w-full min-w-[150px] md:min-w-[200px] text-xs p-2 border rounded resize-y min-h-[60px] md:min-h-[36px]"
                                               disabled={dailyReqViewMode === 'original'}
+                                              rows={2}
                                             />
                                           </td>
                                           <td className="p-2 text-center">

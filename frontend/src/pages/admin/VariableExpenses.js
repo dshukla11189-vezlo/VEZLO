@@ -55,6 +55,7 @@ export default function VariableExpenses() {
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterSettled, setFilterSettled] = useState('all');
   const [filterPaidBy, setFilterPaidBy] = useState('all'); // New filter for Paid By
+  const [filterPaidTo, setFilterPaidTo] = useState('all'); // Filter for Paid To (vendor)
   
   // Form data
   const [formData, setFormData] = useState({
@@ -123,6 +124,7 @@ export default function VariableExpenses() {
       if (filterCategory !== 'all') params.append('category', filterCategory);
       if (filterSettled !== 'all') params.append('settled', filterSettled);
       if (filterPaidBy !== 'all') params.append('paid_by', filterPaidBy);
+      if (filterPaidTo !== 'all') params.append('paid_to', filterPaidTo);
       
       if (params.toString()) url += '?' + params.toString();
       
@@ -134,7 +136,7 @@ export default function VariableExpenses() {
     } finally {
       setLoading(false);
     }
-  }, [filterDateFrom, filterDateTo, filterCategory, filterSettled, filterPaidBy]);
+  }, [filterDateFrom, filterDateTo, filterCategory, filterSettled, filterPaidBy, filterPaidTo]);
 
   const loadEmployees = async () => {
     try {
@@ -727,10 +729,20 @@ export default function VariableExpenses() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Paid To</label>
+                <Input
+                  type="text"
+                  placeholder="Vendor name..."
+                  value={filterPaidTo === 'all' ? '' : filterPaidTo}
+                  onChange={(e) => setFilterPaidTo(e.target.value || 'all')}
+                  className="w-36 h-8 text-sm"
+                />
+              </div>
               <Button 
                 variant="ghost" 
                 size="sm"
-                onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('all'); setFilterSettled('all'); setFilterPaidBy('all'); }}
+                onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('all'); setFilterSettled('all'); setFilterPaidBy('all'); setFilterPaidTo('all'); }}
               >
                 Clear
               </Button>

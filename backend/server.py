@@ -9188,6 +9188,7 @@ async def get_variable_expenses(
     category: str = None,
     settled: str = None,
     paid_by: str = None,
+    paid_to: str = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get variable expenses with optional filters"""
@@ -9209,6 +9210,9 @@ async def get_variable_expenses(
         query["is_settled"] = settled.lower() == "true"
     if paid_by:
         query["paid_by"] = paid_by
+    if paid_to:
+        # Case-insensitive partial match for paid_to (vendor name)
+        query["paid_to"] = {"$regex": paid_to, "$options": "i"}
     
     expenses = await db.variable_expenses.find(query, {"_id": 0}).sort("date", -1).to_list(500)
     return expenses

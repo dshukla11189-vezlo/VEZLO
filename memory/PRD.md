@@ -1,5 +1,25 @@
 # Mr Organix - Product Requirements Document
 
+## Changelog (May 2025)
+
+### May 22, 2025
+- **BUG FIX**: Fixed Employee Reimbursement calculation showing ₹0 in Variable Expenses
+  - Root cause: Filter incorrectly required `payment_status === 'paid'` for employee-paid expenses
+  - Solution: Changed filter to only check `paid_by_type === 'employee' && settlement_status !== 'settled'`
+  - Files modified: `/app/frontend/src/pages/admin/VariableExpenses.js` (4 locations)
+  - Result: Pending Reimbursement now correctly shows ₹140,308
+
+### Previous Session (May 21-22, 2025)
+- Mobile remarks layout (card-based) for Daily Purchase table
+- GRN Date filters with 5-day default span
+- Remarks carry-forward via `/api/retailer-daily-requirement/saved` endpoint
+- Purchase Qty rounding (minimum 1kg, Math.ceil for decimals)
+- "Paid To" filter in Variable Expenses
+- Payment Details redesign in Retailer Portal
+- Rejection Qty bug fix (item-level sync)
+
+---
+
 ## Original Problem Statement
 End-to-end full-stack system for a fruits and vegetables retail and quick commerce business. The system manages inventory, procurement, sales, wastage tracking, and comprehensive P&L reporting.
 

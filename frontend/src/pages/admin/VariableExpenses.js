@@ -467,9 +467,11 @@ export default function VariableExpenses() {
   };
 
   // Get employees with pending reimbursements
+  // Note: We only check paid_by_type and settlement_status, NOT payment_status
+  // Because when an employee pays for an expense, the vendor is effectively paid by the employee
+  // We need to reimburse the employee regardless of the payment_status field
   const getEmployeesWithPendingReimbursements = () => {
     const pending = expenses.filter(e => 
-      e.payment_status === 'paid' && 
       e.paid_by_type === 'employee' && 
       e.settlement_status !== 'settled'
     );
@@ -533,7 +535,9 @@ export default function VariableExpenses() {
   const unsettledExpenses = expenses.filter(e => e.payment_status !== 'paid' && !e.is_settled);
   const pendingExpenses = expenses.filter(e => e.payment_status === 'pending');
   const partiallyPaidExpenses = expenses.filter(e => e.payment_status === 'partially_paid');
-  const pendingReimbursementExpenses = expenses.filter(e => e.payment_status === 'paid' && e.paid_by_type === 'employee' && e.settlement_status !== 'settled');
+  // Pending reimbursement = any expense paid by an employee that hasn't been settled yet
+  // We don't check payment_status because when employee pays, the vendor is effectively paid
+  const pendingReimbursementExpenses = expenses.filter(e => e.paid_by_type === 'employee' && e.settlement_status !== 'settled');
   const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const unsettledAmount = unsettledExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const pendingReimbursementAmount = pendingReimbursementExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -799,8 +803,8 @@ export default function VariableExpenses() {
                       expenses.map((expense) => {
                         const statusConfig = PAYMENT_STATUS_OPTIONS.find(s => s.value === expense.payment_status) || PAYMENT_STATUS_OPTIONS[0];
                         // Show checkbox for: unpaid expenses OR employee-paid expenses pending reimbursement
-                        const isPendingReimbursement = expense.payment_status === 'paid' && 
-                          expense.paid_by_type === 'employee' && 
+                        // For employee-paid expenses, we don't require payment_status === 'paid'
+                        const isPendingReimbursement = expense.paid_by_type === 'employee' && 
                           expense.settlement_status !== 'settled';
                         const showCheckbox = (expense.payment_status !== 'paid' && !expense.is_settled) || isPendingReimbursement;
                         return (
@@ -850,7 +854,7 @@ export default function VariableExpenses() {
                             </span>
                           </td>
                           <td className="p-2 text-center">
-                            {expense.payment_status === 'paid' && expense.paid_by_type === 'employee' ? (
+                            {expense.paid_by_type === 'employee' ? (
                               expense.settlement_status === 'settled' ? (
                                 <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Settled</span>
                               ) : (

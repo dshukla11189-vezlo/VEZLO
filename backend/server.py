@@ -10986,12 +10986,22 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     commission_amount = total_mrp_value * commission / 100
     net_payable = total_mrp_value - commission_amount
     
-    # Generate invoice number: RET-INV-DDMMMYYYY-NNN
+    # Generate invoice number: XXX-INV-DDMMMYYYY-NNN (XXX = first 3 letters of shop/retailer name)
+    # Use company_name (shop name) if available, otherwise use retailer name
+    shop_name = retailer.get("company_name") or retailer.get("name") or "RET"
+    # Get first 3 letters, uppercase, remove special chars
+    prefix = ''.join(c for c in shop_name[:3] if c.isalnum()).upper()
+    if len(prefix) < 3:
+        prefix = (prefix + "XXX")[:3]  # Pad if needed
+    
     today = input.invoice_date.strftime("%d%b%Y").upper()
-    count = await db.retailer_invoices.count_documents({
-        "invoice_date": {"$regex": f"^{input.invoice_date.strftime('%Y-%m-%d')}"}
+    
+    # Count existing invoices for THIS retailer on this date (not all invoices)
+    date_pattern = f"^{prefix}-INV-{today}-"
+    existing_count = await db.retailer_invoices.count_documents({
+        "invoice_number": {"$regex": date_pattern}
     })
-    invoice_number = f"RET-INV-{today}-{str(count + 1).zfill(3)}"
+    invoice_number = f"{prefix}-INV-{today}-{str(existing_count + 1).zfill(3)}"
     
     invoice = RetailerInvoice(
         invoice_number=invoice_number,

@@ -5416,6 +5416,9 @@ async def get_pnl_report(
                         elif 'bunch' in unit_lower:
                             # Bunch is typically used for leafy items, ~100gm
                             packaging_weight_gm = 100
+                        # Note: For "X Kg Loose" variants (e.g., "10 Kg Loose"), we assume supplied_qty
+                        # is already in kg, not in units. This is because loose items are typically
+                        # weighed and sold by actual weight, not by pre-packaged units.
             
             # If we have packaging weight in gm, convert qty to kg; otherwise assume qty is already in kg
             if packaging_weight_gm > 0:

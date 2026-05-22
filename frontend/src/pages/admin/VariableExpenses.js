@@ -103,6 +103,7 @@ export default function VariableExpenses() {
   const [showReimbursementModal, setShowReimbursementModal] = useState(false);
   const [reimbursementExpense, setReimbursementExpense] = useState(null);
   const [reimbursementForm, setReimbursementForm] = useState({
+    amount: 0,  // Amount being reimbursed
     payment_date: new Date().toISOString().split('T')[0],
     payment_mode: 'Bank Transfer',
     payment_reference: '',
@@ -414,8 +415,13 @@ export default function VariableExpenses() {
 
   // Open reimbursement modal for a single expense
   const openReimbursementModal = (expense) => {
+    // Calculate remaining amount to reimburse
+    const totalReimbursed = expense.total_reimbursed || 0;
+    const remainingAmount = expense.amount - totalReimbursed;
+    
     setReimbursementExpense(expense);
     setReimbursementForm({
+      amount: remainingAmount,  // Pre-fill with remaining amount
       payment_date: new Date().toISOString().split('T')[0],
       payment_mode: 'Bank Transfer',
       payment_reference: '',
@@ -428,15 +434,31 @@ export default function VariableExpenses() {
   const handleReimbursementSubmit = async () => {
     if (!reimbursementExpense) return;
     
+    const reimbursementAmount = parseFloat(reimbursementForm.amount) || 0;
+    if (reimbursementAmount <= 0) {
+      toast.error('Please enter a valid reimbursement amount');
+      return;
+    }
+    
+    const totalReimbursed = (reimbursementExpense.total_reimbursed || 0) + reimbursementAmount;
+    const expenseTotal = reimbursementExpense.amount || 0;
+    
+    // Determine settlement status based on total reimbursed vs expense amount
+    let settlementStatus = 'partial';
+    if (totalReimbursed >= expenseTotal) {
+      settlementStatus = 'settled';
+    }
+    
     try {
-      // Only send the fields that need to be updated, not the entire expense object
       await api.put(`/api/expenses/variable/${reimbursementExpense.id}`, {
-        settlement_status: 'settled',
+        settlement_status: settlementStatus,
         settlement_date: reimbursementForm.payment_date,
         settlement_mode: reimbursementForm.payment_mode,
         settlement_reference: reimbursementForm.payment_reference,
         settlement_remarks: reimbursementForm.remarks,
-        is_settled: true
+        total_reimbursed: totalReimbursed,
+        last_reimbursement_amount: reimbursementAmount,
+        is_settled: settlementStatus === 'settled'
       });
       toast.success('Reimbursement recorded successfully');
       setShowReimbursementModal(false);
@@ -480,10 +502,11 @@ export default function VariableExpenses() {
     pending.forEach(e => {
       const empName = e.paid_by || 'Unknown';
       if (!byEmployee[empName]) {
-        byEmployee[empName] = { name: empName, expenses: [], total: 0 };
+        byEmployee[empName] = { name: empName, expenses: [], total: 0, totalReimbursed: 0 };
       }
       byEmployee[empName].expenses.push(e);
       byEmployee[empName].total += e.amount || 0;
+      byEmployee[empName].totalReimbursed += e.total_reimbursed || 0;
     });
     
     return Object.values(byEmployee);
@@ -540,7 +563,8 @@ export default function VariableExpenses() {
   const pendingReimbursementExpenses = expenses.filter(e => e.paid_by_type === 'employee' && e.settlement_status !== 'settled');
   const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const unsettledAmount = unsettledExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const pendingReimbursementAmount = pendingReimbursementExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  // Calculate remaining reimbursement amount (total - already reimbursed)
+  const pendingReimbursementAmount = pendingReimbursementExpenses.reduce((sum, e) => sum + ((e.amount || 0) - (e.total_reimbursed || 0)), 0);
   const paidAmount = expenses.filter(e => e.payment_status === 'paid' || e.is_settled).reduce((sum, e) => sum + (e.amount || 0), 0);
   
   // Group by category for summary
@@ -645,25 +669,31 @@ export default function VariableExpenses() {
                 <Users size={16} /> Pending Employee Reimbursements
               </h3>
               <div className="flex flex-wrap gap-2">
-                {employeesWithPendingReimbursements.map(emp => (
-                  <div 
-                    key={emp.name}
-                    className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2"
-                  >
-                    <div>
-                      <span className="text-sm font-medium text-purple-800">{emp.name}</span>
-                      <span className="text-xs text-purple-600 ml-2">({emp.expenses.length} items)</span>
-                      <span className="text-sm font-bold text-purple-700 ml-2">₹{emp.total.toLocaleString()}</span>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="h-7 bg-purple-600 hover:bg-purple-700 text-white"
-                      onClick={() => openBulkSettlementModal(emp)}
+                {employeesWithPendingReimbursements.map(emp => {
+                  const remainingAmount = emp.total - emp.totalReimbursed;
+                  return (
+                    <div 
+                      key={emp.name}
+                      className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2"
                     >
-                      <IndianRupee size={12} className="mr-1" /> Settle All
-                    </Button>
-                  </div>
-                ))}
+                      <div>
+                        <span className="text-sm font-medium text-purple-800">{emp.name}</span>
+                        <span className="text-xs text-purple-600 ml-2">({emp.expenses.length} items)</span>
+                        <span className="text-sm font-bold text-purple-700 ml-2">₹{remainingAmount.toLocaleString()}</span>
+                        {emp.totalReimbursed > 0 && (
+                          <span className="text-xs text-green-600 ml-1">(₹{emp.totalReimbursed.toLocaleString()} paid)</span>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-7 bg-purple-600 hover:bg-purple-700 text-white"
+                        onClick={() => openBulkSettlementModal(emp)}
+                      >
+                        <IndianRupee size={12} className="mr-1" /> Settle All
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -857,6 +887,24 @@ export default function VariableExpenses() {
                             {expense.paid_by_type === 'employee' ? (
                               expense.settlement_status === 'settled' ? (
                                 <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">Settled</span>
+                              ) : expense.settlement_status === 'partial' ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <div className="flex items-center gap-1">
+                                    <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">Partial</span>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      className="h-5 w-5 p-0"
+                                      onClick={() => openReimbursementModal(expense)}
+                                      title="Record More Reimbursement"
+                                    >
+                                      <IndianRupee size={12} className="text-green-600" />
+                                    </Button>
+                                  </div>
+                                  <span className="text-[10px] text-gray-500">
+                                    ₹{(expense.total_reimbursed || 0).toLocaleString()} / ₹{expense.amount?.toLocaleString()}
+                                  </span>
+                                </div>
                               ) : (
                                 <div className="flex items-center justify-center gap-1">
                                   <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">Pending</span>
@@ -1430,10 +1478,47 @@ export default function VariableExpenses() {
                     <span className="text-gray-600">Category:</span>
                     <span className="font-medium">{reimbursementExpense.category}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between mb-1">
                     <span className="text-gray-600">Description:</span>
                     <span className="font-medium">{reimbursementExpense.description || '-'}</span>
                   </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-600">Total Amount:</span>
+                    <span className="font-medium">₹{reimbursementExpense.amount?.toLocaleString()}</span>
+                  </div>
+                  {(reimbursementExpense.total_reimbursed || 0) > 0 && (
+                    <>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-gray-600">Already Reimbursed:</span>
+                        <span className="font-medium text-green-600">₹{(reimbursementExpense.total_reimbursed || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between border-t pt-1 mt-1">
+                        <span className="text-gray-600 font-medium">Remaining:</span>
+                        <span className="font-bold text-purple-600">₹{(reimbursementExpense.amount - (reimbursementExpense.total_reimbursed || 0)).toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reimbursement Amount *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                    <Input
+                      type="number"
+                      value={reimbursementForm.amount}
+                      onChange={(e) => setReimbursementForm(prev => ({ ...prev, amount: e.target.value }))}
+                      className="pl-7"
+                      placeholder="Enter amount to reimburse"
+                      max={reimbursementExpense.amount - (reimbursementExpense.total_reimbursed || 0)}
+                    />
+                  </div>
+                  {parseFloat(reimbursementForm.amount) < (reimbursementExpense.amount - (reimbursementExpense.total_reimbursed || 0)) && parseFloat(reimbursementForm.amount) > 0 && (
+                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                      <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                      Partial reimbursement - Status will be set to "Partial"
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -1482,7 +1567,11 @@ export default function VariableExpenses() {
                 <Button variant="outline" className="flex-1" onClick={() => { setShowReimbursementModal(false); setReimbursementExpense(null); }}>
                   Cancel
                 </Button>
-                <Button className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={handleReimbursementSubmit}>
+                <Button 
+                  className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                  onClick={handleReimbursementSubmit}
+                  disabled={!reimbursementForm.amount || parseFloat(reimbursementForm.amount) <= 0}
+                >
                   <CheckCircle size={14} className="mr-1" /> Confirm Reimbursement
                 </Button>
               </div>

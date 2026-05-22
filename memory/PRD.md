@@ -3,11 +3,19 @@
 ## Changelog (May 2025)
 
 ### May 22, 2025
+- **FEATURE**: Added Partial Reimbursement support in Variable Expenses
+  - New "Reimbursement Amount" field in modal with ₹ prefix
+  - Tracks `total_reimbursed` and `settlement_status` (pending/partial/settled)
+  - Shows amber warning for partial payments
+  - Settlement column displays progress (e.g., "₹2,500 / ₹5,000")
+  - Updated pending reimbursement calculation to show remaining amounts
+  - Files modified: `/app/frontend/src/pages/admin/VariableExpenses.js`
+
 - **BUG FIX**: Fixed Employee Reimbursement calculation showing ₹0 in Variable Expenses
   - Root cause: Filter incorrectly required `payment_status === 'paid'` for employee-paid expenses
   - Solution: Changed filter to only check `paid_by_type === 'employee' && settlement_status !== 'settled'`
   - Files modified: `/app/frontend/src/pages/admin/VariableExpenses.js` (4 locations)
-  - Result: Pending Reimbursement now correctly shows ₹140,308
+  - Result: Pending Reimbursement now correctly shows remaining amounts
 
 - **BUG FIX**: Fixed Marathi product names not appearing in Daily Purchase PDF/Excel
   - Root cause: Export functions used cached translations from dailyReqData instead of fresh product data

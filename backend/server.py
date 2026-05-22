@@ -274,16 +274,27 @@ logger = logging.getLogger("freshflow")
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(
     mongo_url,
-    maxPoolSize=50,              # Max connection pool size
-    minPoolSize=5,               # Keep minimum connections ready
-    maxIdleTimeMS=30000,         # Close idle connections after 30s
-    serverSelectionTimeoutMS=10000,  # 10s timeout for server selection
-    connectTimeoutMS=10000,      # 10s timeout for initial connection
-    socketTimeoutMS=30000,       # 30s timeout for socket operations
+    maxPoolSize=20,              # Reduced pool size to prevent exhaustion
+    minPoolSize=2,               # Minimum connections ready
+    maxIdleTimeMS=10000,         # Close idle connections after 10s (faster cleanup)
+    serverSelectionTimeoutMS=5000,   # 5s timeout for server selection
+    connectTimeoutMS=5000,       # 5s timeout for initial connection
+    socketTimeoutMS=20000,       # 20s timeout for socket operations
+    waitQueueTimeoutMS=5000,     # 5s wait for connection from pool
     retryWrites=True,            # Auto-retry failed writes
     retryReads=True,             # Auto-retry failed reads
+    appName="MrOrganix",         # Identify app in MongoDB logs
 )
 db = client[os.environ['DB_NAME']]
+
+# Log connection pool stats periodically
+async def log_connection_stats():
+    """Log MongoDB connection pool statistics"""
+    try:
+        server_info = await client.server_info()
+        logger.info(f"MongoDB connected: version {server_info.get('version', 'unknown')}")
+    except Exception as e:
+        logger.error(f"MongoDB connection check failed: {e}")
 
 # Setup backup scheduler on startup
 backup_scheduler = None
@@ -15434,6 +15445,17 @@ logger = logging.getLogger(__name__)
 async def startup_event():
     """Initialize backup scheduler, Gmail sync scheduler, and seed default data on startup"""
     global backup_scheduler
+    
+    # Test MongoDB connection first
+    try:
+        logger.info("Testing MongoDB connection...")
+        await log_connection_stats()
+        test_count = await db.products.count_documents({})
+        logger.info(f"MongoDB connection OK - {test_count} products found")
+    except Exception as e:
+        logger.error(f"MongoDB connection FAILED on startup: {e}")
+        # Don't raise - let the app start anyway, it might recover
+    
     try:
         # Create database indexes for performance
         logger.info("Creating database indexes for performance...")

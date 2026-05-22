@@ -2862,6 +2862,8 @@ export default function RetailerOrders() {
         items: dailyReqData.map(item => ({
           product_id: item.productId,
           product_name: item.productName,
+          product_name_hi: item.productNameHi || '',
+          product_name_mr: item.productNameMr || '',
           category: item.category || 'Other',
           qty_units: item.qtyUnits,
           qty_kg: item.qtyKg,

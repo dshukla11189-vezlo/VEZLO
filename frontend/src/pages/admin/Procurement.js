@@ -213,6 +213,7 @@ export default function Procurement() {
     remarks: ''
   });
   const [selectedForSettlement, setSelectedForSettlement] = useState([]);  // For bulk settlement
+  const [selectedForPDF, setSelectedForPDF] = useState([]);  // For PDF download
   const [fixingLegacyData, setFixingLegacyData] = useState(false);  // For legacy data migration
 
   // Farmer form
@@ -1249,33 +1250,54 @@ export default function Procurement() {
 
   // ==================== PDF DOWNLOAD BY FARMER ====================
   const downloadFarmerPurchasePDF = () => {
-    if (filteredProcurements.length === 0) {
-      toast.error('No purchases to download. Apply date filters first.');
+    // Use selected procurements if any, otherwise use all filtered
+    const procurementsToExport = selectedForPDF.length > 0 
+      ? filteredProcurements.filter(p => selectedForPDF.includes(p.id))
+      : filteredProcurements;
+    
+    if (procurementsToExport.length === 0) {
+      toast.error('No purchases to download. Select items or apply date filters.');
       return;
     }
     
-    // Group procurements by farmer
+    // Group procurements by farmer, then by date
     const byFarmer = {};
-    filteredProcurements.forEach(proc => {
+    procurementsToExport.forEach(proc => {
       const farmerName = proc.farmer_name || 'Unknown';
+      const procDate = formatDate(proc.date);
+      
       if (!byFarmer[farmerName]) {
         byFarmer[farmerName] = {
           name: farmerName,
           contact: proc.farmer_contact || '',
-          items: [],
+          address: '', // Can be added if available
+          dates: {},
           grandTotal: 0
         };
       }
+      
+      if (!byFarmer[farmerName].dates[procDate]) {
+        byFarmer[farmerName].dates[procDate] = {
+          date: procDate,
+          items: [],
+          dateTotal: 0,
+          procurementIds: []
+        };
+      }
+      
       proc.products?.forEach(item => {
-        byFarmer[farmerName].items.push({
-          date: formatDate(proc.date),
+        byFarmer[farmerName].dates[procDate].items.push({
           product: item.product_name,
-          quantity: `${item.quantity} ${item.unit}${item.unit_size ? ` (${item.unit_size}gm)` : ''}`,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitSize: item.unit_size,
           rate: item.rate,
           total: item.total
         });
+        byFarmer[farmerName].dates[procDate].dateTotal += (item.total || 0);
         byFarmer[farmerName].grandTotal += (item.total || 0);
       });
+      byFarmer[farmerName].dates[procDate].procurementIds.push(proc.id);
     });
     
     const farmerList = Object.values(byFarmer);
@@ -1285,71 +1307,144 @@ export default function Procurement() {
       return;
     }
     
-    // Format date range for header
-    const fromDateStr = appliedDateRange.fromDate ? formatDate(appliedDateRange.fromDate) : '';
-    const toDateStr = appliedDateRange.toDate ? formatDate(appliedDateRange.toDate) : '';
-    const dateRangeText = fromDateStr === toDateStr ? fromDateStr : `${fromDateStr} to ${toDateStr}`;
+    // Generate receipt number (based on timestamp)
+    const generateReceiptNo = (farmerName, date) => {
+      const dateStr = date.replace(/\s/g, '').replace(/,/g, '');
+      const farmerInitials = farmerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 3);
+      return `PUR-${farmerInitials}-${dateStr}`;
+    };
     
-    // Generate HTML for each farmer
+    // Generate HTML for each farmer with separate pages per date
     let htmlContent = '';
+    let pageNum = 0;
     
-    farmerList.forEach((farmer, farmerIdx) => {
-      const pageBreak = farmerIdx > 0 ? 'page-break-before: always;' : '';
+    farmerList.forEach((farmer) => {
+      const datesList = Object.values(farmer.dates).sort((a, b) => 
+        new Date(a.date) - new Date(b.date)
+      );
       
-      htmlContent += `
-        <div style="${pageBreak} padding: 20px; font-family: Arial, sans-serif;">
-          <!-- Header -->
-          <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #14532D; padding-bottom: 10px;">
-            <h1 style="margin: 0; color: #14532D; font-size: 24px;">Mr Organix</h1>
-            <p style="margin: 5px 0; color: #666; font-size: 12px;">Purchase Statement</p>
-            <p style="margin: 5px 0; color: #333; font-size: 14px; font-weight: bold;">${dateRangeText}</p>
-          </div>
-          
-          <!-- Farmer Info -->
-          <div style="margin-bottom: 15px; background: #f8f9fa; padding: 10px; border-radius: 5px;">
-            <p style="margin: 0; font-size: 16px; font-weight: bold; color: #14532D;">Farmer: ${farmer.name}</p>
-            ${farmer.contact ? `<p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Contact: ${farmer.contact}</p>` : ''}
-          </div>
-          
-          <!-- Items Table -->
-          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-            <thead>
-              <tr style="background: #14532D; color: white;">
-                <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">S.No</th>
-                <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Date</th>
-                <th style="padding: 8px; text-align: left; border: 1px solid #ccc;">Product</th>
-                <th style="padding: 8px; text-align: right; border: 1px solid #ccc;">Quantity</th>
-                <th style="padding: 8px; text-align: right; border: 1px solid #ccc;">Rate (₹)</th>
-                <th style="padding: 8px; text-align: right; border: 1px solid #ccc;">Amount (₹)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${farmer.items.map((item, idx) => `
-                <tr style="background: ${idx % 2 === 0 ? '#fff' : '#f9f9f9'};">
-                  <td style="padding: 8px; border: 1px solid #ddd;">${idx + 1}</td>
-                  <td style="padding: 8px; border: 1px solid #ddd;">${item.date}</td>
-                  <td style="padding: 8px; border: 1px solid #ddd;">${item.product}</td>
-                  <td style="padding: 8px; text-align: right; border: 1px solid #ddd;">${item.quantity}</td>
-                  <td style="padding: 8px; text-align: right; border: 1px solid #ddd;">₹${item.rate?.toFixed(2)}</td>
-                  <td style="padding: 8px; text-align: right; border: 1px solid #ddd; font-weight: 500;">₹${item.total?.toFixed(2)}</td>
+      datesList.forEach((dateData, dateIdx) => {
+        const pageBreak = pageNum > 0 ? 'page-break-before: always;' : '';
+        pageNum++;
+        
+        const receiptNo = generateReceiptNo(farmer.name, dateData.date);
+        
+        htmlContent += `
+          <div style="${pageBreak} padding: 25px; font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+            <!-- Header -->
+            <div style="border-bottom: 3px solid #14532D; padding-bottom: 15px; margin-bottom: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                  <h1 style="margin: 0; color: #14532D; font-size: 28px; font-weight: bold;">Mr Organix</h1>
+                  <p style="margin: 5px 0 0 0; color: #666; font-size: 11px;">Fresh Fruits & Vegetables</p>
+                </div>
+                <div style="text-align: right;">
+                  <h2 style="margin: 0; color: #14532D; font-size: 18px; font-weight: bold;">PURCHASE RECEIPT</h2>
+                  <p style="margin: 5px 0 0 0; font-size: 12px; color: #333;"><strong>Receipt No:</strong> ${receiptNo}</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Receipt Info Row -->
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 5px;">
+              <div style="flex: 1;">
+                <p style="margin: 0 0 5px 0; font-size: 11px; color: #666; text-transform: uppercase;">Supplier / Farmer</p>
+                <p style="margin: 0; font-size: 16px; font-weight: bold; color: #14532D;">${farmer.name}</p>
+                ${farmer.contact ? `<p style="margin: 5px 0 0 0; font-size: 12px; color: #333;">📞 ${farmer.contact}</p>` : ''}
+              </div>
+              <div style="text-align: right;">
+                <p style="margin: 0 0 5px 0; font-size: 11px; color: #666; text-transform: uppercase;">Purchase Date</p>
+                <p style="margin: 0; font-size: 16px; font-weight: bold; color: #333;">${dateData.date}</p>
+              </div>
+            </div>
+            
+            <!-- Items Table -->
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;">
+              <thead>
+                <tr style="background: #14532D; color: white;">
+                  <th style="padding: 10px 8px; text-align: center; border: 1px solid #0f4024; width: 50px;">S.No</th>
+                  <th style="padding: 10px 8px; text-align: left; border: 1px solid #0f4024;">Product / Item</th>
+                  <th style="padding: 10px 8px; text-align: center; border: 1px solid #0f4024; width: 100px;">Quantity</th>
+                  <th style="padding: 10px 8px; text-align: right; border: 1px solid #0f4024; width: 100px;">Rate (₹)</th>
+                  <th style="padding: 10px 8px; text-align: right; border: 1px solid #0f4024; width: 120px;">Amount (₹)</th>
                 </tr>
-              `).join('')}
-            </tbody>
-            <tfoot>
-              <tr style="background: #e8f5e9; font-weight: bold;">
-                <td colspan="5" style="padding: 10px; text-align: right; border: 1px solid #ddd;">Grand Total:</td>
-                <td style="padding: 10px; text-align: right; border: 1px solid #ddd; color: #14532D; font-size: 14px;">₹${farmer.grandTotal.toFixed(2)}</td>
-              </tr>
-            </tfoot>
-          </table>
-          
-          <!-- Footer -->
-          <div style="margin-top: 30px; text-align: center; color: #999; font-size: 10px;">
-            <p>Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+              </thead>
+              <tbody>
+                ${dateData.items.map((item, idx) => `
+                  <tr style="background: ${idx % 2 === 0 ? '#fff' : '#f9fafb'};">
+                    <td style="padding: 10px 8px; text-align: center; border: 1px solid #e5e7eb;">${idx + 1}</td>
+                    <td style="padding: 10px 8px; border: 1px solid #e5e7eb; font-weight: 500;">${item.product}</td>
+                    <td style="padding: 10px 8px; text-align: center; border: 1px solid #e5e7eb;">${item.quantity} ${item.unit}${item.unitSize ? ` (${item.unitSize}gm)` : ''}</td>
+                    <td style="padding: 10px 8px; text-align: right; border: 1px solid #e5e7eb;">₹${item.rate?.toFixed(2)}</td>
+                    <td style="padding: 10px 8px; text-align: right; border: 1px solid #e5e7eb; font-weight: 600;">₹${item.total?.toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr style="background: #dcfce7;">
+                  <td colspan="4" style="padding: 12px 8px; text-align: right; border: 1px solid #bbf7d0; font-weight: bold; font-size: 14px;">
+                    Total Amount:
+                  </td>
+                  <td style="padding: 12px 8px; text-align: right; border: 1px solid #bbf7d0; font-weight: bold; font-size: 16px; color: #14532D;">
+                    ₹${dateData.dateTotal.toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+            
+            <!-- Amount in Words -->
+            <div style="background: #fef3c7; border: 1px solid #fcd34d; padding: 10px 15px; border-radius: 5px; margin-bottom: 25px;">
+              <p style="margin: 0; font-size: 12px;">
+                <strong>Amount in Words:</strong> ${numberToWords(dateData.dateTotal)} Rupees Only
+              </p>
+            </div>
+            
+            <!-- Signature Section -->
+            <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px;">
+              <div style="text-align: center; width: 200px;">
+                <div style="border-top: 1px solid #333; padding-top: 8px;">
+                  <p style="margin: 0; font-size: 11px; color: #666;">Supplier Signature</p>
+                </div>
+              </div>
+              <div style="text-align: center; width: 200px;">
+                <div style="border-top: 1px solid #333; padding-top: 8px;">
+                  <p style="margin: 0; font-size: 11px; color: #666;">Authorized Signature</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Footer -->
+            <div style="margin-top: 30px; padding-top: 15px; border-top: 1px dashed #ccc; text-align: center;">
+              <p style="margin: 0; font-size: 10px; color: #999;">
+                This is a computer-generated receipt. Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+              <p style="margin: 5px 0 0 0; font-size: 10px; color: #666;">
+                Thank you for your business!
+              </p>
+            </div>
           </div>
-        </div>
-      `;
+        `;
+      });
     });
+    
+    // Helper function to convert number to words
+    function numberToWords(num) {
+      if (num === 0) return 'Zero';
+      
+      const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+        'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+      
+      const numStr = Math.floor(num).toString();
+      
+      if (num < 0) return 'Negative ' + numberToWords(-num);
+      if (num < 20) return ones[num];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
+      if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' ' + numberToWords(num % 100) : '');
+      if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + numberToWords(num % 1000) : '');
+      if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + numberToWords(num % 100000) : '');
+      return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 ? ' ' + numberToWords(num % 10000000) : '');
+    }
     
     // Create print window
     const printWindow = window.open('', '_blank');
@@ -1357,11 +1452,13 @@ export default function Procurement() {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Purchase Statement - ${dateRangeText}</title>
+          <title>Purchase Receipt - Mr Organix</title>
           <style>
+            * { box-sizing: border-box; }
+            body { margin: 0; padding: 0; }
             @media print {
               body { margin: 0; }
-              @page { margin: 15mm; }
+              @page { margin: 10mm; size: A4; }
             }
           </style>
         </head>
@@ -1377,7 +1474,31 @@ export default function Procurement() {
       printWindow.print();
     }, 500);
     
-    toast.success(`Generated PDF for ${farmerList.length} farmer(s)`);
+    const selectedCount = selectedForPDF.length > 0 ? selectedForPDF.length : procurementsToExport.length;
+    toast.success(`Generated ${pageNum} receipt(s) for ${farmerList.length} farmer(s)`);
+    
+    // Clear selection after download
+    if (selectedForPDF.length > 0) {
+      setSelectedForPDF([]);
+    }
+  };
+  
+  // Toggle PDF selection for a single procurement
+  const togglePDFSelection = (procId) => {
+    setSelectedForPDF(prev => 
+      prev.includes(procId) 
+        ? prev.filter(id => id !== procId)
+        : [...prev, procId]
+    );
+  };
+  
+  // Toggle all PDF selections
+  const toggleAllPDFSelection = () => {
+    if (selectedForPDF.length === filteredProcurements.length) {
+      setSelectedForPDF([]);
+    } else {
+      setSelectedForPDF(filteredProcurements.map(p => p.id));
+    }
   };
 
   const getUnitLabel = (unit, unitSize) => {
@@ -2824,10 +2945,24 @@ export default function Procurement() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">{t('procurement.purchaseHistory')}</CardTitle>
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-lg">{t('procurement.purchaseHistory')}</CardTitle>
+                {selectedForPDF.length > 0 && (
+                  <span className="text-sm text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                    {selectedForPDF.length} selected
+                  </span>
+                )}
+              </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={downloadFarmerPurchasePDF} title="Download PDF by Farmer">
-                  <FileText size={14} className="mr-1" /> PDF
+                <Button 
+                  size="sm" 
+                  variant={selectedForPDF.length > 0 ? "default" : "outline"} 
+                  onClick={downloadFarmerPurchasePDF} 
+                  title={selectedForPDF.length > 0 ? `Download PDF for ${selectedForPDF.length} selected` : "Download PDF for all filtered"}
+                  className={selectedForPDF.length > 0 ? "bg-blue-600 hover:bg-blue-700" : ""}
+                >
+                  <FileText size={14} className="mr-1" /> 
+                  PDF {selectedForPDF.length > 0 && `(${selectedForPDF.length})`}
                 </Button>
                 <Button size="sm" variant="outline" onClick={exportProcurements} title="Export to Excel">
                   <FileSpreadsheet size={14} className="mr-1" /> Export
@@ -2839,7 +2974,13 @@ export default function Procurement() {
                 <table>
                   <thead>
                     <tr>
-                      <th className="w-8"></th>
+                      <th className="w-8">
+                        <Checkbox
+                          checked={filteredProcurements.length > 0 && selectedForPDF.length === filteredProcurements.length}
+                          onCheckedChange={toggleAllPDFSelection}
+                          title="Select all for PDF"
+                        />
+                      </th>
                       <th>{t('procurement.date')}</th>
                       <th>{t('procurement.farmer')}</th>
                       <th>{t('procurement.products')}</th>
@@ -2856,23 +2997,23 @@ export default function Procurement() {
                       const isPendingSettlement = (proc.payment_status === 'paid' || proc.payment_status === 'partial') && 
                         proc.paid_by_type === 'employee' && 
                         proc.settlement_status !== 'settled';
+                      const isSelectedForPDF = selectedForPDF.includes(proc.id);
                       return (
                       <tr 
                         key={proc.id} 
                         data-testid={`procurement-row-${proc.id}`}
-                        className={isPendingSettlement ? 'employee-pending-settlement' : ''}
+                        className={`${isPendingSettlement ? 'employee-pending-settlement' : ''} ${isSelectedForPDF ? 'bg-blue-50' : ''}`}
                         style={isPendingSettlement ? { 
-                          backgroundColor: '#DDD6FE', 
+                          backgroundColor: isSelectedForPDF ? '#DBEAFE' : '#DDD6FE', 
                           borderLeft: '4px solid #7C3AED' 
-                        } : {}}
+                        } : isSelectedForPDF ? { backgroundColor: '#EFF6FF' } : {}}
                       >
                         <td>
-                          {isPendingSettlement && (
-                            <Checkbox
-                              checked={selectedForSettlement.includes(proc.id)}
-                              onCheckedChange={() => toggleSettlementSelection(proc.id)}
-                            />
-                          )}
+                          <Checkbox
+                            checked={isSelectedForPDF}
+                            onCheckedChange={() => togglePDFSelection(proc.id)}
+                            title="Select for PDF"
+                          />
                         </td>
                         <td>{formatDate(proc.date)}</td>
                         <td className="font-medium">{proc.farmer_name}</td>

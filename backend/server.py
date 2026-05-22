@@ -270,9 +270,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger("freshflow")
 
-# MongoDB connection
+# MongoDB connection with optimized settings for production reliability
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(
+    mongo_url,
+    maxPoolSize=50,              # Max connection pool size
+    minPoolSize=5,               # Keep minimum connections ready
+    maxIdleTimeMS=30000,         # Close idle connections after 30s
+    serverSelectionTimeoutMS=10000,  # 10s timeout for server selection
+    connectTimeoutMS=10000,      # 10s timeout for initial connection
+    socketTimeoutMS=30000,       # 30s timeout for socket operations
+    retryWrites=True,            # Auto-retry failed writes
+    retryReads=True,             # Auto-retry failed reads
+)
 db = client[os.environ['DB_NAME']]
 
 # Setup backup scheduler on startup
@@ -450,15 +460,26 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 @api_router.get("/health")
 async def health_check():
     """Basic health check endpoint"""
+    db_status = "unknown"
+    db_ping_ms = -1
+    db_query_ms = -1
+    products_count = -1
+    
     try:
-        # Test MongoDB connection
+        # Test MongoDB ping
         start = time.time()
         await db.command("ping")
         db_ping_ms = round((time.time() - start) * 1000, 2)
         db_status = "connected"
+        
+        # Test actual query
+        query_start = time.time()
+        products_count = await db.products.count_documents({})
+        db_query_ms = round((time.time() - query_start) * 1000, 2)
     except Exception as e:
-        db_status = f"error: {str(e)}"
-        db_ping_ms = -1
+        db_status = f"error: {str(e)[:100]}"
+        system_health_metrics["consecutive_db_failures"] += 1
+        system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
     
     is_healthy = db_status == "connected" and system_health_metrics["consecutive_db_failures"] < 5
     
@@ -467,6 +488,8 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": db_status,
         "db_ping_ms": db_ping_ms,
+        "db_query_ms": db_query_ms,
+        "products_count": products_count,
         "consecutive_failures": system_health_metrics["consecutive_db_failures"],
         "version": "1.0.0"
     }
@@ -953,8 +976,38 @@ async def get_products(
     if not include_images:
         projection["image_url"] = 0
     
-    products = await db.products.find({}, projection).to_list(1000)
-    return [Product(**p) for p in products]
+    # Retry logic for intermittent connection issues
+    max_retries = 3
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            products = await db.products.find({}, projection).to_list(1000)
+            # Reset consecutive failures on success
+            system_health_metrics["consecutive_db_failures"] = 0
+            return [Product(**p) for p in products]
+        except Exception as e:
+            last_error = e
+            system_health_metrics["consecutive_db_failures"] += 1
+            system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
+            logger.error(f"Products fetch attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+    
+    # All retries failed - log and raise
+    error_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "request_id": str(uuid.uuid4())[:8],
+        "method": "GET",
+        "path": "/api/products",
+        "status_code": 500,
+        "error_message": str(last_error)[:500],
+        "error_type": type(last_error).__name__,
+        "type": "db_connection_failure",
+        "retries_attempted": max_retries
+    }
+    asyncio.create_task(persist_error_log(error_entry, is_critical=True))
+    raise HTTPException(status_code=500, detail=f"Database connection error after {max_retries} retries")
 
 # ==================== UNITS MANAGEMENT ====================
 @api_router.get("/units")

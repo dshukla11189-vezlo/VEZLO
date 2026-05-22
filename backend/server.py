@@ -296,11 +296,39 @@ app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 recent_errors = []
 MAX_ERROR_LOG = 100
 
-# Request logging middleware - simplified to avoid crashes
+# Track system health metrics
+system_health_metrics = {
+    "startup_time": datetime.now(timezone.utc).isoformat(),
+    "total_requests": 0,
+    "total_errors": 0,
+    "total_db_errors": 0,
+    "last_db_error": None,
+    "consecutive_db_failures": 0,
+    "uptime_checks": []
+}
+
+# Function to log critical errors to database (called in background)
+async def persist_critical_error(error_data: dict):
+    """Persist critical errors to MongoDB for later analysis"""
+    try:
+        error_data["persisted_at"] = datetime.now(timezone.utc).isoformat()
+        await db.system_logs.insert_one(error_data)
+        
+        # Keep only last 1000 logs in DB
+        count = await db.system_logs.count_documents({})
+        if count > 1000:
+            oldest = await db.system_logs.find({}, {"_id": 1}).sort("timestamp", 1).limit(count - 1000).to_list(count - 1000)
+            if oldest:
+                await db.system_logs.delete_many({"_id": {"$in": [o["_id"] for o in oldest]}})
+    except Exception as e:
+        logger.error(f"Failed to persist error log: {e}")
+
+# Request logging middleware - enhanced with health tracking
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
     request_id = str(uuid.uuid4())[:8]
+    system_health_metrics["total_requests"] += 1
     
     try:
         response = await call_next(request)
@@ -308,10 +336,16 @@ async def log_requests(request: Request, call_next):
         
         # Log response
         log_level = logging.WARNING if response.status_code >= 400 else logging.INFO
-        logger.log(log_level, f"[{request_id}] {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
+        if process_time > 2 or response.status_code >= 400:  # Only log slow or error requests
+            logger.log(log_level, f"[{request_id}] {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
         
-        # Store errors in memory only (no DB writes in middleware)
+        # Reset consecutive DB failures on successful request
+        if response.status_code < 500:
+            system_health_metrics["consecutive_db_failures"] = 0
+        
+        # Store errors in memory for diagnostics
         if response.status_code >= 400 or process_time > 5:
+            system_health_metrics["total_errors"] += 1
             error_entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "request_id": request_id,
@@ -324,28 +358,44 @@ async def log_requests(request: Request, call_next):
             recent_errors.append(error_entry)
             if len(recent_errors) > MAX_ERROR_LOG:
                 recent_errors.pop(0)
+            
+            # Persist 500 errors to DB in background
+            if response.status_code >= 500:
+                system_health_metrics["total_db_errors"] += 1
+                system_health_metrics["consecutive_db_failures"] += 1
+                system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
+                asyncio.create_task(persist_critical_error(error_entry))
         
         return response
     except Exception as e:
         process_time = time.time() - start_time
         error_msg = str(e)
+        stack_trace = traceback.format_exc()
         
         logger.error(f"[{request_id}] {request.method} {request.url.path} - EXCEPTION: {error_msg}")
         
-        # Store error in memory only
+        system_health_metrics["total_errors"] += 1
+        system_health_metrics["consecutive_db_failures"] += 1
+        system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
+        
+        # Store error in memory
         error_entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request_id,
             "method": request.method,
             "path": str(request.url.path),
             "status_code": 500,
-            "error": error_msg[:200],
+            "error": error_msg[:500],
+            "stack_trace": stack_trace[:1000] if "database" in error_msg.lower() or "mongo" in error_msg.lower() else None,
             "process_time": round(process_time, 3),
             "type": "exception"
         }
         recent_errors.append(error_entry)
         if len(recent_errors) > MAX_ERROR_LOG:
             recent_errors.pop(0)
+        
+        # Persist to DB
+        asyncio.create_task(persist_critical_error(error_entry))
         
         raise
 
@@ -383,16 +433,70 @@ async def health_check():
     """Basic health check endpoint"""
     try:
         # Test MongoDB connection
+        start = time.time()
         await db.command("ping")
+        db_ping_ms = round((time.time() - start) * 1000, 2)
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {str(e)}"
+        db_ping_ms = -1
+    
+    is_healthy = db_status == "connected" and system_health_metrics["consecutive_db_failures"] < 5
     
     return {
-        "status": "healthy" if db_status == "connected" else "degraded",
+        "status": "healthy" if is_healthy else "degraded",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": db_status,
+        "db_ping_ms": db_ping_ms,
+        "consecutive_failures": system_health_metrics["consecutive_db_failures"],
         "version": "1.0.0"
+    }
+
+@api_router.get("/health/detailed")
+async def health_check_detailed():
+    """Detailed health check - no auth required, for monitoring"""
+    try:
+        start = time.time()
+        await db.command("ping")
+        db_ping_ms = round((time.time() - start) * 1000, 2)
+        db_status = "connected"
+        
+        # Test a simple query
+        query_start = time.time()
+        await db.users.find_one({}, {"_id": 1})
+        query_ms = round((time.time() - query_start) * 1000, 2)
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+        db_ping_ms = -1
+        query_ms = -1
+    
+    # Calculate metrics
+    startup = datetime.fromisoformat(system_health_metrics["startup_time"].replace("Z", "+00:00"))
+    uptime_seconds = (datetime.now(timezone.utc) - startup).total_seconds()
+    
+    total_req = system_health_metrics["total_requests"]
+    total_err = system_health_metrics["total_errors"]
+    error_rate = round((total_err / total_req * 100), 2) if total_req > 0 else 0
+    
+    is_healthy = db_status == "connected" and system_health_metrics["consecutive_db_failures"] < 5
+    
+    return {
+        "status": "healthy" if is_healthy else "degraded",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "uptime_seconds": int(uptime_seconds),
+        "database": {
+            "status": db_status,
+            "ping_ms": db_ping_ms,
+            "query_ms": query_ms
+        },
+        "metrics": {
+            "total_requests": total_req,
+            "total_errors": total_err,
+            "error_rate_percent": error_rate,
+            "consecutive_db_failures": system_health_metrics["consecutive_db_failures"],
+            "last_error": system_health_metrics["last_db_error"]
+        },
+        "recent_errors_count": len([e for e in recent_errors if e.get("status_code", 0) >= 500])
     }
 
 @api_router.get("/diagnostics")
@@ -402,8 +506,10 @@ async def get_diagnostics(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
-        # Test MongoDB
+        # Test MongoDB connection with timeout
+        start = time.time()
         await db.command("ping")
+        db_ping_ms = round((time.time() - start) * 1000, 2)
         db_status = "connected"
         
         # Get collection stats
@@ -415,19 +521,46 @@ async def get_diagnostics(current_user: dict = Depends(get_current_user)):
         
         # Get persisted logs from DB (last 50)
         db_logs = await db.system_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(50).to_list(50)
+        total_db_logs = await db.system_logs.count_documents({})
     except Exception as e:
         db_status = f"error: {str(e)}"
+        db_ping_ms = -1
         collection_counts = {}
         db_logs = []
+        total_db_logs = 0
+    
+    # Calculate uptime
+    startup = datetime.fromisoformat(system_health_metrics["startup_time"].replace("Z", "+00:00"))
+    uptime_seconds = (datetime.now(timezone.utc) - startup).total_seconds()
+    uptime_str = f"{int(uptime_seconds // 3600)}h {int((uptime_seconds % 3600) // 60)}m"
+    
+    # Error rate calculation
+    total_req = system_health_metrics["total_requests"]
+    total_err = system_health_metrics["total_errors"]
+    error_rate = round((total_err / total_req * 100), 2) if total_req > 0 else 0
     
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system_health": {
+            "status": "critical" if system_health_metrics["consecutive_db_failures"] > 5 else ("degraded" if db_status != "connected" else "healthy"),
+            "uptime": uptime_str,
+            "startup_time": system_health_metrics["startup_time"],
+            "total_requests": total_req,
+            "total_errors": total_err,
+            "error_rate_percent": error_rate,
+            "consecutive_db_failures": system_health_metrics["consecutive_db_failures"],
+            "last_db_error": system_health_metrics["last_db_error"]
+        },
         "database": {
             "status": db_status,
+            "ping_ms": db_ping_ms,
             "collections": collection_counts
         },
-        "recent_errors_memory": recent_errors[-20:],  # Last 20 errors in memory
-        "recent_errors_db": db_logs,  # Last 50 from database
+        "recent_errors_memory": recent_errors[-30:],  # Last 30 errors in memory
+        "persisted_errors": {
+            "total_count": total_db_logs,
+            "recent": db_logs[:20]  # Last 20 from database
+        },
         "error_count_memory": len(recent_errors),
         "note": "Memory logs reset on server restart. DB logs persist."
     }

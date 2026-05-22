@@ -4719,39 +4719,121 @@ export default function RetailerOrders() {
                             {/* Category Items - Collapsible */}
                             {isExpanded && (
                               <div className="bg-white">
-                                <table className="w-full text-sm">
-                                  <thead>
-                                    <tr className="border-b bg-gray-50 text-xs">
-                                      <th className="p-2 text-left w-10">#</th>
-                                      <th className="p-2 text-left">Product Name</th>
-                                      <th className="p-2 text-center w-20">Qty (Units)</th>
-                                      <th className="p-2 text-center w-28">Purchase Req (Kg)</th>
-                                      <th className="p-2 text-left w-48">Remarks</th>
-                                      <th className="p-2 text-center w-10">X</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {items.map((item, localIdx) => {
-                                      // Find global index for editing
-                                      const globalIdx = dailyReqData.findIndex(d => d.productId === item.productId && d.productName === item.productName);
-                                      // Get display name (Hindi if available and language is Hindi)
-                                      // Get display name based on language (English, Hindi, or Marathi)
-                                      const displayName = i18n.language === 'hi' && item.productNameHi 
-                                        ? item.productNameHi 
-                                        : i18n.language === 'mr' && item.productNameMr 
-                                          ? item.productNameMr 
-                                          : item.productName;
-                                      return (
-                                        <tr key={`${item.productId}-${localIdx}`} className="border-b hover:bg-gray-50">
-                                          <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                          <td className="p-2 font-medium">{displayName}</td>
-                                          <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
-                                          <td className="p-2">
+                                {/* Desktop Table View */}
+                                <div className="hidden md:block">
+                                  <table className="w-full text-sm">
+                                    <thead>
+                                      <tr className="border-b bg-gray-50 text-xs">
+                                        <th className="p-2 text-left w-10">#</th>
+                                        <th className="p-2 text-left">Product Name</th>
+                                        <th className="p-2 text-center w-20">Qty (Units)</th>
+                                        <th className="p-2 text-center w-28">Purchase Req (Kg)</th>
+                                        <th className="p-2 text-left w-48">Remarks</th>
+                                        <th className="p-2 text-center w-10">X</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {items.map((item, localIdx) => {
+                                        const globalIdx = dailyReqData.findIndex(d => d.productId === item.productId && d.productName === item.productName);
+                                        const displayName = i18n.language === 'hi' && item.productNameHi 
+                                          ? item.productNameHi 
+                                          : i18n.language === 'mr' && item.productNameMr 
+                                            ? item.productNameMr 
+                                            : item.productName;
+                                        return (
+                                          <tr key={`${item.productId}-${localIdx}`} className="border-b hover:bg-gray-50">
+                                            <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                            <td className="p-2 font-medium">{displayName}</td>
+                                            <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
+                                            <td className="p-2">
+                                              <Input
+                                                type="number"
+                                                step="0.1"
+                                                min="0"
+                                                placeholder="Kg"
+                                                value={item.requirementKg}
+                                                onChange={(e) => {
+                                                  const newData = [...dailyReqData];
+                                                  newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
+                                                  setDailyReqData(newData);
+                                                  setDailyReqSaved(false);
+                                                }}
+                                                className="h-7 w-20 text-center text-xs font-bold text-blue-700"
+                                                disabled={dailyReqViewMode === 'original'}
+                                              />
+                                            </td>
+                                            <td className="p-2">
+                                              <textarea
+                                                placeholder="Add remarks..."
+                                                value={item.remarks || ''}
+                                                onChange={(e) => {
+                                                  const newData = [...dailyReqData];
+                                                  newData[globalIdx].remarks = e.target.value;
+                                                  setDailyReqData(newData);
+                                                  setDailyReqSaved(false);
+                                                }}
+                                                className="w-full min-w-[200px] text-xs p-2 border rounded resize-y min-h-[36px]"
+                                                disabled={dailyReqViewMode === 'original'}
+                                                rows={2}
+                                              />
+                                            </td>
+                                            <td className="p-2 text-center">
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setDeletedItems(prev => [...prev, dailyReqData[globalIdx]]);
+                                                  const newData = dailyReqData.filter((_, i) => i !== globalIdx);
+                                                  setDailyReqData(newData);
+                                                  setDailyReqSaved(false);
+                                                }}
+                                                className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
+                                                disabled={dailyReqViewMode === 'original'}
+                                              >
+                                                <X size={12} />
+                                              </Button>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                    <tfoot>
+                                      <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
+                                        <td className="p-2" colSpan="2">Category Total</td>
+                                        <td className="p-2 text-center">{categoryTotalUnits}</td>
+                                        <td className="p-2 text-center text-blue-700">{categoryTotalRequirement.toFixed(2)}</td>
+                                        <td className="p-2" colSpan="2"></td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                                
+                                {/* Mobile Card View - Remarks below each item */}
+                                <div className="md:hidden divide-y">
+                                  {items.map((item, localIdx) => {
+                                    const globalIdx = dailyReqData.findIndex(d => d.productId === item.productId && d.productName === item.productName);
+                                    const displayName = i18n.language === 'hi' && item.productNameHi 
+                                      ? item.productNameHi 
+                                      : i18n.language === 'mr' && item.productNameMr 
+                                        ? item.productNameMr 
+                                        : item.productName;
+                                    return (
+                                      <div key={`mobile-${item.productId}-${localIdx}`} className="p-3 space-y-2">
+                                        {/* Row 1: Name, Qty, Purchase Req, Delete */}
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs text-gray-400 w-5">{localIdx + 1}.</span>
+                                          <span className="flex-1 font-medium text-sm truncate">{displayName}</span>
+                                          <div className="flex items-center gap-1 text-xs">
+                                            <span className="text-gray-500">Qty:</span>
+                                            <span className="font-semibold">{item.qtyUnits}</span>
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                            <span className="text-xs text-gray-500">Kg:</span>
                                             <Input
                                               type="number"
                                               step="0.1"
                                               min="0"
-                                              placeholder="Kg"
                                               value={item.requirementKg}
                                               onChange={(e) => {
                                                 const newData = [...dailyReqData];
@@ -4759,56 +4841,55 @@ export default function RetailerOrders() {
                                                 setDailyReqData(newData);
                                                 setDailyReqSaved(false);
                                               }}
-                                              className="h-7 w-20 text-center text-xs font-bold text-blue-700"
+                                              className="h-7 w-14 text-center text-xs font-bold text-blue-700"
                                               disabled={dailyReqViewMode === 'original'}
                                             />
-                                          </td>
-                                          <td className="p-2">
-                                            <textarea
-                                              placeholder="Add remarks..."
-                                              value={item.remarks || ''}
-                                              onChange={(e) => {
-                                                const newData = [...dailyReqData];
-                                                newData[globalIdx].remarks = e.target.value;
-                                                setDailyReqData(newData);
-                                                setDailyReqSaved(false);
-                                              }}
-                                              className="w-full min-w-[150px] md:min-w-[200px] text-xs p-2 border rounded resize-y min-h-[60px] md:min-h-[36px]"
-                                              disabled={dailyReqViewMode === 'original'}
-                                              rows={2}
-                                            />
-                                          </td>
-                                          <td className="p-2 text-center">
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                // Add to deleted items for potential re-add
-                                                setDeletedItems(prev => [...prev, dailyReqData[globalIdx]]);
-                                                const newData = dailyReqData.filter((_, i) => i !== globalIdx);
-                                                setDailyReqData(newData);
-                                                setDailyReqSaved(false);
-                                              }}
-                                              className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
-                                              disabled={dailyReqViewMode === 'original'}
-                                            >
-                                              <X size={12} />
-                                            </Button>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                  <tfoot>
-                                    <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
-                                      <td className="p-2" colSpan="2">Category Total</td>
-                                      <td className="p-2 text-center">{categoryTotalUnits}</td>
-                                      <td className="p-2 text-center text-blue-700">{categoryTotalRequirement.toFixed(2)}</td>
-                                      <td className="p-2" colSpan="2"></td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
+                                          </div>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setDeletedItems(prev => [...prev, dailyReqData[globalIdx]]);
+                                              const newData = dailyReqData.filter((_, i) => i !== globalIdx);
+                                              setDailyReqData(newData);
+                                              setDailyReqSaved(false);
+                                            }}
+                                            className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
+                                            disabled={dailyReqViewMode === 'original'}
+                                          >
+                                            <X size={14} />
+                                          </Button>
+                                        </div>
+                                        
+                                        {/* Row 2: Remarks - Full width below */}
+                                        <textarea
+                                          placeholder="Add remarks..."
+                                          value={item.remarks || ''}
+                                          onChange={(e) => {
+                                            const newData = [...dailyReqData];
+                                            newData[globalIdx].remarks = e.target.value;
+                                            setDailyReqData(newData);
+                                            setDailyReqSaved(false);
+                                          }}
+                                          className="w-full text-xs p-2 border rounded resize-y min-h-[50px] bg-gray-50"
+                                          disabled={dailyReqViewMode === 'original'}
+                                          rows={2}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                  {/* Mobile Category Total */}
+                                  <div className={`p-3 font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
+                                    <div className="flex justify-between">
+                                      <span>Category Total</span>
+                                      <div className="flex gap-4">
+                                        <span>Units: {categoryTotalUnits}</span>
+                                        <span className="text-blue-700">Req: {categoryTotalRequirement.toFixed(2)} Kg</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             )}
                           </div>

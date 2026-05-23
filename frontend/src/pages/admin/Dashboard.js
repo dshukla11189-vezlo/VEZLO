@@ -682,16 +682,25 @@ export default function AdminDashboard() {
     const aggregateCustomers = (customers) => {
       const sales_amount = customers.reduce((sum, c) => sum + (c.sales_amount || 0), 0);
       const sales_qty = customers.reduce((sum, c) => sum + (c.sales_qty || 0), 0);
-      const cogs = customers.reduce((sum, c) => sum + (c.cogs_share || 0), 0); // Use cogs_share from API
+      const cogs = customers.reduce((sum, c) => sum + (c.cogs_share || 0), 0);
       const wastage = customers.reduce((sum, c) => sum + (c.wastage_share || 0), 0);
       const rejection = customers.reduce((sum, c) => sum + (c.rejection_share || 0), 0);
       const commission = customers.reduce((sum, c) => sum + (c.commission || 0), 0);
-      const gross_profit = customers.reduce((sum, c) => sum + (c.gross_profit || 0), 0);
-      const net_profit = customers.reduce((sum, c) => sum + (c.net_profit || 0), 0);
       const invoices = customers.reduce((sum, c) => sum + (c.invoices || 0), 0);
+      
+      // CORRECT FORMULAS:
+      // Gross P/L = Sales - COGS - Wastage - Rejection
+      const gross_profit = sales_amount - cogs - wastage - rejection;
+      // Net P/L = Gross P/L - Commission
+      const net_profit = gross_profit - commission;
+      // GM% = Gross P/L / Sales * 100
       const gross_margin_pct = sales_amount > 0 ? (gross_profit / sales_amount * 100) : 0;
+      // NM% = Net P/L / Sales * 100
       const net_margin_pct = sales_amount > 0 ? (net_profit / sales_amount * 100) : 0;
+      // Profit per unit = Gross P/L / Qty
       const profit_per_unit = sales_qty > 0 ? (gross_profit / sales_qty) : 0;
+      // Rejection % = Rejection / Sales * 100
+      const rejection_pct = sales_amount > 0 ? (rejection / sales_amount * 100) : 0;
       
       return {
         count: customers.length,
@@ -700,6 +709,7 @@ export default function AdminDashboard() {
         cogs,
         wastage,
         rejection,
+        rejection_pct,
         commission,
         gross_profit,
         gross_margin_pct,
@@ -707,12 +717,33 @@ export default function AdminDashboard() {
         net_margin_pct,
         profit_per_unit,
         invoices,
-        customers: customers.map(c => ({
-          ...c,
-          cogs: c.cogs_share || 0, // Map cogs_share to cogs for display
-          wastage: c.wastage_share || 0,
-          rejection: c.rejection_share || 0
-        })).sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0))
+        customers: customers.map(c => {
+          // Calculate correct values for each customer
+          const cust_cogs = c.cogs_share || 0;
+          const cust_wastage = c.wastage_share || 0;
+          const cust_rejection = c.rejection_share || 0;
+          const cust_commission = c.commission || 0;
+          const cust_sales = c.sales_amount || 0;
+          const cust_qty = c.sales_qty || 0;
+          
+          // Correct Gross P/L = Sales - COGS - Wastage - Rejection
+          const cust_gross_profit = cust_sales - cust_cogs - cust_wastage - cust_rejection;
+          // Correct Net P/L = Gross P/L - Commission
+          const cust_net_profit = cust_gross_profit - cust_commission;
+          
+          return {
+            ...c,
+            cogs: cust_cogs,
+            wastage: cust_wastage,
+            rejection: cust_rejection,
+            rejection_pct: cust_sales > 0 ? (cust_rejection / cust_sales * 100) : 0,
+            gross_profit: cust_gross_profit,
+            gross_margin_pct: cust_sales > 0 ? (cust_gross_profit / cust_sales * 100) : 0,
+            net_profit: cust_net_profit,
+            net_margin_pct: cust_sales > 0 ? (cust_net_profit / cust_sales * 100) : 0,
+            profit_per_unit: cust_qty > 0 ? (cust_gross_profit / cust_qty) : 0
+          };
+        }).sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0))
       };
     };
     
@@ -1931,9 +1962,9 @@ export default function AdminDashboard() {
                       </p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
-                      <p className="text-[10px] text-gray-500 uppercase">Avg/Day</p>
-                      <p className={`text-base font-bold ${(verticalData.qc.gross_profit / daysInRange) >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>
-                        ₹{((verticalData.qc.gross_profit / daysInRange) / 1000).toFixed(1)}K
+                      <p className="text-[10px] text-gray-500 uppercase">Avg Sales/Day</p>
+                      <p className="text-base font-bold text-indigo-700">
+                        ₹{((verticalData.qc.sales_amount / daysInRange) / 1000).toFixed(1)}K
                       </p>
                     </div>
                   </div>
@@ -1998,9 +2029,9 @@ export default function AdminDashboard() {
                       </p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
-                      <p className="text-[10px] text-gray-500 uppercase">Avg/Day</p>
-                      <p className={`text-base font-bold ${(verticalData.retail.gross_profit / daysInRange) >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>
-                        ₹{((verticalData.retail.gross_profit / daysInRange) / 1000).toFixed(1)}K
+                      <p className="text-[10px] text-gray-500 uppercase">Avg Sales/Day</p>
+                      <p className="text-base font-bold text-indigo-700">
+                        ₹{((verticalData.retail.sales_amount / daysInRange) / 1000).toFixed(1)}K
                       </p>
                     </div>
                   </div>
@@ -2013,84 +2044,24 @@ export default function AdminDashboard() {
               </Card>
             </div>
 
-            {/* Comparison Section (when retailers are selected) */}
+            {/* Comparison Section (when retailers are selected) - Just a notification */}
             {selectedRetailers.length > 0 && (
               <Card className="border-2 border-blue-200 bg-blue-50/30">
-                <CardHeader className="py-3">
+                <CardContent className="py-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <BarChart3 size={16} className="text-blue-600" /> 
-                      Comparing {selectedRetailers.length} Retailer(s)
-                    </CardTitle>
+                    <div className="flex items-center gap-2 text-sm text-blue-700">
+                      <BarChart3 size={16} /> 
+                      <span className="font-medium">{selectedRetailers.length} Retailer(s) selected for comparison:</span>
+                      <span className="text-blue-600">{selectedRetailers.join(', ')}</span>
+                    </div>
                     <Button 
                       size="sm" 
                       variant="ghost" 
                       onClick={() => setSelectedRetailers([])}
-                      className="text-gray-500 hover:text-red-500"
+                      className="text-gray-500 hover:text-red-500 h-7"
                     >
                       <X size={14} className="mr-1" /> Clear
                     </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Comparison Chart */}
-                    <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={comparisonData} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" tickFormatter={(v) => `₹${v/1000}K`} fontSize={10} />
-                        <YAxis type="category" dataKey="customer" width={100} fontSize={10} />
-                        <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, '']} />
-                        <Legend />
-                        <Bar dataKey="sales_amount" fill="#14532D" name="Sales" />
-                        <Bar dataKey="cogs" fill="#EF4444" name="COGS" />
-                        <Bar dataKey="gross_profit" fill="#3B82F6" name="Gross Profit" />
-                      </BarChart>
-                    </ResponsiveContainer>
-
-                    {/* Comparison Table */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-blue-100">
-                          <tr>
-                            <th className="p-2 text-left">Customer</th>
-                            <th className="p-2 text-right">Sales</th>
-                            <th className="p-2 text-right">COGS</th>
-                            <th className="p-2 text-right">Gross Profit</th>
-                            <th className="p-2 text-right">Margin %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {comparisonData.map((c, idx) => (
-                            <tr key={idx} className="border-b hover:bg-blue-50">
-                              <td className="p-2 font-medium">{c.customer}</td>
-                              <td className="p-2 text-right text-green-700">₹{c.sales_amount?.toLocaleString()}</td>
-                              <td className="p-2 text-right text-red-600">₹{c.cogs?.toLocaleString()}</td>
-                              <td className={`p-2 text-right font-bold ${c.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                                ₹{c.gross_profit?.toLocaleString()}
-                              </td>
-                              <td className="p-2 text-right">
-                                {c.sales_amount > 0 ? ((c.gross_profit / c.sales_amount) * 100).toFixed(1) : 0}%
-                              </td>
-                            </tr>
-                          ))}
-                          {/* Totals Row */}
-                          <tr className="bg-blue-100 font-bold">
-                            <td className="p-2">TOTAL</td>
-                            <td className="p-2 text-right text-green-700">
-                              ₹{comparisonData.reduce((sum, c) => sum + (c.sales_amount || 0), 0).toLocaleString()}
-                            </td>
-                            <td className="p-2 text-right text-red-600">
-                              ₹{comparisonData.reduce((sum, c) => sum + (c.cogs || 0), 0).toLocaleString()}
-                            </td>
-                            <td className="p-2 text-right text-blue-700">
-                              ₹{comparisonData.reduce((sum, c) => sum + (c.gross_profit || 0), 0).toLocaleString()}
-                            </td>
-                            <td className="p-2 text-right">-</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -2275,6 +2246,7 @@ export default function AdminDashboard() {
                           <th className="p-2 text-right">COGS</th>
                           <th className="p-2 text-right">Wastage</th>
                           <th className="p-2 text-right">Rejection</th>
+                          <th className="p-2 text-right">Rej %</th>
                           <th className="p-2 text-right">Gross P/L</th>
                           <th className="p-2 text-right">GM %</th>
                           <th className="p-2 text-right">Commission</th>
@@ -2286,8 +2258,8 @@ export default function AdminDashboard() {
                       </thead>
                       <tbody>
                         {(selectedVertical === 'qc' ? verticalData.qc.customers : verticalData.retail.customers).map((c, idx) => {
-                          const avgSalesDay = c.sales_amount / daysInRange;
-                          const profitPerUnit = c.sales_qty > 0 ? c.gross_profit / c.sales_qty : 0;
+                          // Avg/Day = Sales / Days in range
+                          const avgSalesDay = (c.sales_amount || 0) / daysInRange;
                           return (
                             <tr key={c.customer} className="border-t hover:bg-gray-50">
                               {selectedVertical === 'retail' && (
@@ -2301,39 +2273,44 @@ export default function AdminDashboard() {
                               )}
                               <td className="p-2 text-gray-500">{idx + 1}</td>
                               <td className="p-2 font-medium">{c.customer}</td>
-                              <td className="p-2 text-right text-green-700 font-semibold">₹{c.sales_amount?.toLocaleString()}</td>
-                              <td className="p-2 text-right">{c.sales_qty?.toLocaleString()}</td>
-                              <td className="p-2 text-right text-indigo-600">₹{(avgSalesDay / 1000).toFixed(1)}K</td>
-                              <td className="p-2 text-right text-red-600">₹{(c.cogs || 0).toLocaleString()}</td>
-                              <td className="p-2 text-right text-orange-600">₹{(c.wastage || 0).toLocaleString()}</td>
-                              <td className="p-2 text-right text-rose-600">₹{(c.rejection || 0).toLocaleString()}</td>
-                              <td className={`p-2 text-right font-bold ${c.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                                ₹{c.gross_profit?.toLocaleString()}
+                              <td className="p-2 text-right text-green-700 font-semibold">₹{(c.sales_amount || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right">{(c.sales_qty || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right text-indigo-600">₹{Math.round(avgSalesDay).toLocaleString()}</td>
+                              <td className="p-2 text-right text-red-600">₹{Math.round(c.cogs || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right text-orange-600">₹{Math.round(c.wastage || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right text-rose-600">₹{Math.round(c.rejection || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right">
+                                <span className={`px-1 py-0.5 rounded text-[10px] ${(c.rejection_pct || 0) > 10 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                                  {(c.rejection_pct || 0).toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className={`p-2 text-right font-bold ${(c.gross_profit || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                ₹{Math.round(c.gross_profit || 0).toLocaleString()}
                               </td>
                               <td className="p-2 text-right">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  c.gross_margin_pct >= 20 ? 'bg-green-100 text-green-700' : 
-                                  c.gross_margin_pct >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                  (c.gross_margin_pct || 0) >= 20 ? 'bg-green-100 text-green-700' : 
+                                  (c.gross_margin_pct || 0) >= 0 ? 'bg-yellow-100 text-yellow-700' : 
                                   'bg-red-100 text-red-700'
                                 }`}>
-                                  {c.gross_margin_pct?.toFixed(1)}%
+                                  {(c.gross_margin_pct || 0).toFixed(1)}%
                                 </span>
                               </td>
-                              <td className="p-2 text-right text-amber-600">₹{(c.commission || 0).toLocaleString()}</td>
-                              <td className={`p-2 text-right font-bold ${c.net_profit >= 0 ? 'text-green-800' : 'text-red-700'}`}>
-                                ₹{(c.net_profit || 0).toLocaleString()}
+                              <td className="p-2 text-right text-amber-600">₹{Math.round(c.commission || 0).toLocaleString()}</td>
+                              <td className={`p-2 text-right font-bold ${(c.net_profit || 0) >= 0 ? 'text-green-800' : 'text-red-700'}`}>
+                                ₹{Math.round(c.net_profit || 0).toLocaleString()}
                               </td>
                               <td className="p-2 text-right">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  c.net_margin_pct >= 10 ? 'bg-green-100 text-green-700' : 
-                                  c.net_margin_pct >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                  (c.net_margin_pct || 0) >= 10 ? 'bg-green-100 text-green-700' : 
+                                  (c.net_margin_pct || 0) >= 0 ? 'bg-yellow-100 text-yellow-700' : 
                                   'bg-red-100 text-red-700'
                                 }`}>
-                                  {c.net_margin_pct?.toFixed(1)}%
+                                  {(c.net_margin_pct || 0).toFixed(1)}%
                                 </span>
                               </td>
-                              <td className={`p-2 text-right ${profitPerUnit >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
-                                ₹{profitPerUnit.toFixed(1)}
+                              <td className={`p-2 text-right ${(c.profit_per_unit || 0) >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                                ₹{(c.profit_per_unit || 0).toFixed(1)}
                               </td>
                               <td className="p-2 text-center">
                                 <Button 
@@ -2357,19 +2334,24 @@ export default function AdminDashboard() {
                           <td className="p-2 font-bold">TOTAL</td>
                           <td className="p-2 text-right text-green-700">₹{(selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount).toLocaleString()}</td>
                           <td className="p-2 text-right">{(selectedVertical === 'qc' ? verticalData.qc.sales_qty : verticalData.retail.sales_qty).toLocaleString()}</td>
-                          <td className="p-2 text-right text-indigo-600">₹{(((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / daysInRange) / 1000).toFixed(1)}K</td>
-                          <td className="p-2 text-right text-red-600">₹{(selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs).toLocaleString()}</td>
-                          <td className="p-2 text-right text-orange-600">₹{(selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage).toLocaleString()}</td>
-                          <td className="p-2 text-right text-rose-600">₹{(selectedVertical === 'qc' ? 0 : verticalData.retail.rejection).toLocaleString()}</td>
+                          <td className="p-2 text-right text-indigo-600">₹{Math.round((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / daysInRange).toLocaleString()}</td>
+                          <td className="p-2 text-right text-red-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs).toLocaleString()}</td>
+                          <td className="p-2 text-right text-orange-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage).toLocaleString()}</td>
+                          <td className="p-2 text-right text-rose-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.rejection : verticalData.retail.rejection).toLocaleString()}</td>
+                          <td className="p-2 text-right">
+                            <span className="px-1 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600">
+                              {(selectedVertical === 'qc' ? verticalData.qc.rejection_pct : verticalData.retail.rejection_pct).toFixed(1)}%
+                            </span>
+                          </td>
                           <td className={`p-2 text-right ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                            ₹{(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit).toLocaleString()}
+                            ₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit).toLocaleString()}
                           </td>
                           <td className="p-2 text-right">
                             {(selectedVertical === 'qc' ? verticalData.qc.gross_margin_pct : verticalData.retail.gross_margin_pct).toFixed(1)}%
                           </td>
-                          <td className="p-2 text-right text-amber-600">₹{(selectedVertical === 'qc' ? 0 : verticalData.retail.commission).toLocaleString()}</td>
+                          <td className="p-2 text-right text-amber-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.commission : verticalData.retail.commission).toLocaleString()}</td>
                           <td className={`p-2 text-right ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'text-green-800' : 'text-red-700'}`}>
-                            ₹{(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit).toLocaleString()}
+                            ₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit).toLocaleString()}
                           </td>
                           <td className="p-2 text-right">
                             {(selectedVertical === 'qc' ? verticalData.qc.net_margin_pct : verticalData.retail.net_margin_pct).toFixed(1)}%

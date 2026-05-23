@@ -3,6 +3,16 @@
 ## Changelog (May 2025)
 
 ### May 23, 2025
+- **FIX**: Customer-wise Sales Dashboard P&L Formula Corrections ✅
+  - **Gross P/L**: Corrected to Sales - COGS - Wastage - Rejection (was using API's gross_profit which excluded rejection)
+  - **Net P/L**: Corrected to Gross P/L - Commission (was using API's net_profit which included variable expenses)
+  - **GM%**: Now calculated from corrected Gross P/L / Sales
+  - **NM%**: Now calculated from corrected Net P/L / Sales
+  - **Avg/Day**: Fixed to show Sales/Days (was showing Gross Profit/Days incorrectly)
+  - **Added Rejection %**: New column showing Rejection/Sales * 100
+  - **Removed comparison charts**: Simplified to text notification when retailers are selected
+  - Verified: Tamanna Mart (₹51,720 sales, 23 days) → Avg/Day = ₹2,249 ✅
+
 - **FEATURE**: Customer-wise Sales Dashboard Redesign ✅ (P0 - VERIFIED)
   - **Vertical Grouping**: Customers tab now shows two clickable vertical cards (Quick Commerce vs Retail)
   - **Vertical Cards Display**: Sales, COGS, Wastage, Gross P/L (%), ₹/Unit, Avg/Day for each vertical

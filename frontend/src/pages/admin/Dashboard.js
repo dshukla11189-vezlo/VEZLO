@@ -9,9 +9,11 @@ import { toast } from 'sonner';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet, Building2
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet, Building2, Store, ShoppingBag, Check, Eye
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Checkbox } from '../../components/ui/checkbox';
 
 const COLORS = ['#14532D', '#D97706', '#3B82F6', '#8B5CF6', '#EF4444', '#10B981', '#F59E0B', '#6366F1'];
 
@@ -53,6 +55,11 @@ export default function AdminDashboard() {
   const [populatingMarathi, setPopulatingMarathi] = useState(false);
   const [populatingReferrals, setPopulatingReferrals] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  
+  // Customer Vertical View State
+  const [selectedVertical, setSelectedVertical] = useState(null); // 'qc' or 'retail' or null
+  const [selectedRetailers, setSelectedRetailers] = useState([]); // For multi-select comparison
+  const [showVerticalModal, setShowVerticalModal] = useState(false);
   
   // Persist filters to localStorage
   useEffect(() => {
@@ -675,6 +682,44 @@ export default function AdminDashboard() {
   const productPnl = pnlData?.product_pnl || [];
   const expenses = pnlData?.expenses || {};
   const purchaseByFarmer = pnlData?.purchase_by_farmer || [];
+
+  // Aggregate customer data by vertical (QC vs Retail)
+  const verticalData = useMemo(() => {
+    const qcCustomers = customerPnl.filter(c => c.type === 'QC');
+    const retailCustomers = customerPnl.filter(c => c.type === 'Retail');
+    
+    const aggregateCustomers = (customers) => ({
+      count: customers.length,
+      sales_amount: customers.reduce((sum, c) => sum + (c.sales_amount || 0), 0),
+      sales_qty: customers.reduce((sum, c) => sum + (c.sales_qty || 0), 0),
+      cogs: customers.reduce((sum, c) => sum + (c.cogs || 0), 0),
+      gross_profit: customers.reduce((sum, c) => sum + (c.gross_profit || 0), 0),
+      invoices: customers.reduce((sum, c) => sum + (c.invoices || 0), 0),
+      customers: customers.sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0))
+    });
+    
+    return {
+      qc: aggregateCustomers(qcCustomers),
+      retail: aggregateCustomers(retailCustomers)
+    };
+  }, [customerPnl]);
+
+  // Get comparison data for selected retailers
+  const comparisonData = useMemo(() => {
+    if (selectedRetailers.length === 0) return [];
+    return customerPnl
+      .filter(c => selectedRetailers.includes(c.customer))
+      .sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0));
+  }, [customerPnl, selectedRetailers]);
+
+  // Toggle retailer selection for comparison
+  const toggleRetailerSelection = (customerName) => {
+    setSelectedRetailers(prev => 
+      prev.includes(customerName)
+        ? prev.filter(c => c !== customerName)
+        : [...prev, customerName]
+    );
+  };
 
   // Prepare pie chart data for expenses
   const variableExpenseData = Object.entries(expenses.variable_by_category || {}).map(([name, value]) => ({
@@ -1772,69 +1817,352 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'customers' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Customer Sales Chart */}
-            <Card className="lg:col-span-2">
+          <div className="space-y-4">
+            {/* Vertical Cards - QC vs Retail */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Quick Commerce Card */}
+              <Card 
+                className={`cursor-pointer transition-all hover:shadow-lg border-2 ${
+                  selectedVertical === 'qc' ? 'border-orange-500 bg-orange-50' : 'border-transparent hover:border-orange-200'
+                }`}
+                onClick={() => { setSelectedVertical('qc'); setShowVerticalModal(true); setSelectedRetailers([]); }}
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
+                        <Zap className="text-white" size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-800">Quick Commerce</h3>
+                        <p className="text-xs text-gray-500">{verticalData.qc.count} customer(s) • {verticalData.qc.invoices} invoices</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="text-gray-400" size={24} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white rounded-lg p-3 border">
+                      <p className="text-xs text-gray-500">Sales</p>
+                      <p className="text-lg font-bold text-green-700">₹{(verticalData.qc.sales_amount / 1000).toFixed(1)}K</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border">
+                      <p className="text-xs text-gray-500">COGS</p>
+                      <p className="text-lg font-bold text-red-600">₹{(verticalData.qc.cogs / 1000).toFixed(1)}K</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border">
+                      <p className="text-xs text-gray-500">Gross Profit</p>
+                      <p className={`text-lg font-bold ${verticalData.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        ₹{(verticalData.qc.gross_profit / 1000).toFixed(1)}K
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-center">
+                    <Button size="sm" variant="outline" className="text-orange-600 border-orange-300 hover:bg-orange-50">
+                      <Eye size={14} className="mr-1" /> View Details
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Retail Card */}
+              <Card 
+                className={`cursor-pointer transition-all hover:shadow-lg border-2 ${
+                  selectedVertical === 'retail' ? 'border-green-500 bg-green-50' : 'border-transparent hover:border-green-200'
+                }`}
+                onClick={() => { setSelectedVertical('retail'); setShowVerticalModal(true); setSelectedRetailers([]); }}
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-600 to-green-700 flex items-center justify-center">
+                        <Store className="text-white" size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-800">Retail</h3>
+                        <p className="text-xs text-gray-500">{verticalData.retail.count} customer(s) • {verticalData.retail.invoices} invoices</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="text-gray-400" size={24} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white rounded-lg p-3 border">
+                      <p className="text-xs text-gray-500">Sales</p>
+                      <p className="text-lg font-bold text-green-700">₹{(verticalData.retail.sales_amount / 1000).toFixed(1)}K</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border">
+                      <p className="text-xs text-gray-500">COGS</p>
+                      <p className="text-lg font-bold text-red-600">₹{(verticalData.retail.cogs / 1000).toFixed(1)}K</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border">
+                      <p className="text-xs text-gray-500">Gross Profit</p>
+                      <p className={`text-lg font-bold ${verticalData.retail.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        ₹{(verticalData.retail.gross_profit / 1000).toFixed(1)}K
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-center">
+                    <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50">
+                      <Eye size={14} className="mr-1" /> View Details
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Comparison Section (when retailers are selected) */}
+            {selectedRetailers.length > 0 && (
+              <Card className="border-2 border-blue-200 bg-blue-50/30">
+                <CardHeader className="py-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <BarChart3 size={16} className="text-blue-600" /> 
+                      Comparing {selectedRetailers.length} Retailer(s)
+                    </CardTitle>
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => setSelectedRetailers([])}
+                      className="text-gray-500 hover:text-red-500"
+                    >
+                      <X size={14} className="mr-1" /> Clear
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Comparison Chart */}
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={comparisonData} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" tickFormatter={(v) => `₹${v/1000}K`} fontSize={10} />
+                        <YAxis type="category" dataKey="customer" width={100} fontSize={10} />
+                        <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, '']} />
+                        <Legend />
+                        <Bar dataKey="sales_amount" fill="#14532D" name="Sales" />
+                        <Bar dataKey="cogs" fill="#EF4444" name="COGS" />
+                        <Bar dataKey="gross_profit" fill="#3B82F6" name="Gross Profit" />
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* Comparison Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-blue-100">
+                          <tr>
+                            <th className="p-2 text-left">Customer</th>
+                            <th className="p-2 text-right">Sales</th>
+                            <th className="p-2 text-right">COGS</th>
+                            <th className="p-2 text-right">Gross Profit</th>
+                            <th className="p-2 text-right">Margin %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {comparisonData.map((c, idx) => (
+                            <tr key={idx} className="border-b hover:bg-blue-50">
+                              <td className="p-2 font-medium">{c.customer}</td>
+                              <td className="p-2 text-right text-green-700">₹{c.sales_amount?.toLocaleString()}</td>
+                              <td className="p-2 text-right text-red-600">₹{c.cogs?.toLocaleString()}</td>
+                              <td className={`p-2 text-right font-bold ${c.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                ₹{c.gross_profit?.toLocaleString()}
+                              </td>
+                              <td className="p-2 text-right">
+                                {c.sales_amount > 0 ? ((c.gross_profit / c.sales_amount) * 100).toFixed(1) : 0}%
+                              </td>
+                            </tr>
+                          ))}
+                          {/* Totals Row */}
+                          <tr className="bg-blue-100 font-bold">
+                            <td className="p-2">TOTAL</td>
+                            <td className="p-2 text-right text-green-700">
+                              ₹{comparisonData.reduce((sum, c) => sum + (c.sales_amount || 0), 0).toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right text-red-600">
+                              ₹{comparisonData.reduce((sum, c) => sum + (c.cogs || 0), 0).toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right text-blue-700">
+                              ₹{comparisonData.reduce((sum, c) => sum + (c.gross_profit || 0), 0).toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right">-</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* All Customers Summary */}
+            <Card>
               <CardHeader className="py-3">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Users size={16} /> Customer-wise Sales
+                  <Users size={16} /> All Customers Summary
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {customerPnl.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={customerPnl.slice(0, 10)} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" tickFormatter={(v) => `₹${v/1000}K`} fontSize={10} />
-                      <YAxis type="category" dataKey="customer" width={120} fontSize={10} />
-                      <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, 'Sales']} />
-                      <Bar dataKey="sales_amount" fill="#14532D" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[300px] flex items-center justify-center text-gray-400">
-                    No customer data
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-gray-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-gray-800">{customerPnl.length}</p>
+                    <p className="text-xs text-gray-500">Total Customers</p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Customer Summary */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm">Top Customers</CardTitle>
-                <p className="text-[10px] text-gray-500 mt-1">Click customer name for detailed breakdown</p>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="max-h-[350px] overflow-y-auto">
-                  {customerPnl.map((c, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 border-b hover:bg-gray-50">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold">
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <p 
-                            className="font-medium text-sm text-blue-600 hover:text-blue-800 cursor-pointer hover:underline"
-                            onClick={() => openCustomerDetail(c.customer)}
-                          >
-                            {c.customer}
-                          </p>
-                          <p className="text-[10px] text-gray-500">{c.invoices} invoices</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-green-700">₹{c.sales_amount.toLocaleString()}</p>
-                        <p className="text-[10px] text-gray-500">{c.sales_qty} units</p>
-                      </div>
-                    </div>
-                  ))}
-                  {customerPnl.length === 0 && (
-                    <div className="p-4 text-center text-gray-400">No customers</div>
-                  )}
+                  <div className="bg-green-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-green-700">₹{(summary.total_sales / 1000).toFixed(0)}K</p>
+                    <p className="text-xs text-gray-500">Total Sales</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-orange-700">{verticalData.qc.count}</p>
+                    <p className="text-xs text-gray-500">QC Customers</p>
+                  </div>
+                  <div className="bg-emerald-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-emerald-700">{verticalData.retail.count}</p>
+                    <p className="text-xs text-gray-500">Retail Customers</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {/* Vertical Detail Modal */}
+        {showVerticalModal && selectedVertical && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowVerticalModal(false)}>
+            <div 
+              className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className={`p-4 ${selectedVertical === 'qc' ? 'bg-gradient-to-r from-orange-500 to-orange-600' : 'bg-gradient-to-r from-green-600 to-green-700'}`}>
+                <div className="flex items-center justify-between text-white">
+                  <div className="flex items-center gap-3">
+                    {selectedVertical === 'qc' ? <Zap size={24} /> : <Store size={24} />}
+                    <div>
+                      <h2 className="text-xl font-bold">{selectedVertical === 'qc' ? 'Quick Commerce' : 'Retail'} Details</h2>
+                      <p className="text-sm opacity-90">
+                        {selectedVertical === 'qc' ? verticalData.qc.count : verticalData.retail.count} customers • 
+                        {selectedVertical === 'qc' ? verticalData.qc.invoices : verticalData.retail.invoices} invoices
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowVerticalModal(false)} className="p-1 hover:bg-white/20 rounded">
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-4 overflow-y-auto max-h-[calc(85vh-120px)]">
+                {/* Aggregated Summary */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-green-700">
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-xs text-gray-500">Total Sales</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-red-600">
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-xs text-gray-500">Total COGS</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <p className={`text-xl font-bold ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-xs text-gray-500">Gross Profit</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-blue-700">
+                      {(selectedVertical === 'qc' ? verticalData.qc.sales_qty : verticalData.retail.sales_qty).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500">Units Sold</p>
+                  </div>
+                </div>
+
+                {/* Retailer Multi-Select (only for Retail) */}
+                {selectedVertical === 'retail' && verticalData.retail.customers.length > 1 && (
+                  <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-2">
+                      <BarChart3 size={14} /> Select retailers to compare (click checkboxes)
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {verticalData.retail.customers.map(c => (
+                        <label 
+                          key={c.customer}
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs cursor-pointer transition-all ${
+                            selectedRetailers.includes(c.customer) 
+                              ? 'bg-blue-600 text-white' 
+                              : 'bg-white border border-gray-300 hover:border-blue-400'
+                          }`}
+                        >
+                          <Checkbox
+                            checked={selectedRetailers.includes(c.customer)}
+                            onCheckedChange={() => toggleRetailerSelection(c.customer)}
+                            className="w-3 h-3"
+                          />
+                          {c.customer}
+                        </label>
+                      ))}
+                    </div>
+                    {selectedRetailers.length > 0 && (
+                      <p className="text-xs text-blue-600 mt-2">
+                        {selectedRetailers.length} selected - Close modal to see comparison chart
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Customer List */}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className={`${selectedVertical === 'qc' ? 'bg-orange-100' : 'bg-green-100'}`}>
+                      <tr>
+                        {selectedVertical === 'retail' && <th className="p-2 text-center w-10">Compare</th>}
+                        <th className="p-2 text-left">#</th>
+                        <th className="p-2 text-left">Customer</th>
+                        <th className="p-2 text-right">Sales</th>
+                        <th className="p-2 text-right">COGS</th>
+                        <th className="p-2 text-right">Gross Profit</th>
+                        <th className="p-2 text-center">Invoices</th>
+                        <th className="p-2 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedVertical === 'qc' ? verticalData.qc.customers : verticalData.retail.customers).map((c, idx) => (
+                        <tr key={c.customer} className="border-t hover:bg-gray-50">
+                          {selectedVertical === 'retail' && (
+                            <td className="p-2 text-center">
+                              <Checkbox
+                                checked={selectedRetailers.includes(c.customer)}
+                                onCheckedChange={() => toggleRetailerSelection(c.customer)}
+                              />
+                            </td>
+                          )}
+                          <td className="p-2 text-gray-500">{idx + 1}</td>
+                          <td className="p-2 font-medium">{c.customer}</td>
+                          <td className="p-2 text-right text-green-700 font-semibold">₹{c.sales_amount?.toLocaleString()}</td>
+                          <td className="p-2 text-right text-red-600">₹{c.cogs?.toLocaleString()}</td>
+                          <td className={`p-2 text-right font-bold ${c.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                            ₹{c.gross_profit?.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-center">{c.invoices}</td>
+                          <td className="p-2 text-center">
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="h-7 text-blue-600"
+                              onClick={() => { setShowVerticalModal(false); openCustomerDetail(c.customer); }}
+                            >
+                              <Eye size={12} className="mr-1" /> Details
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

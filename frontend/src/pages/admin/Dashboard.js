@@ -362,7 +362,7 @@ export default function AdminDashboard() {
       const periodDays = calculateDaysBetween(customerDetailDateFrom, customerDetailDateTo);
       
       setCustomerDetailData({
-        daily: customerDailyData,
+        daily: customerDailyData.sort((a, b) => new Date(b.date) - new Date(a.date)), // Sort latest date first
         totals,
         daysCount: customerDailyData.length,  // Active days for display
         periodDays: periodDays  // Total period days for Daily Avg calculation
@@ -687,6 +687,10 @@ export default function AdminDashboard() {
       const rejection = customers.reduce((sum, c) => sum + (c.rejection_share || 0), 0);
       const commission = customers.reduce((sum, c) => sum + (c.commission || 0), 0);
       const invoices = customers.reduce((sum, c) => sum + (c.invoices || 0), 0);
+      // Sum unique sales days across all customers (for vertical-level avg calc)
+      const total_sales_days = customers.reduce((sum, c) => sum + (c.sales_days || 0), 0);
+      // Use max sales days as proxy for days with any sales in this vertical
+      const max_sales_days = Math.max(...customers.map(c => c.sales_days || 0), 1);
       
       // CORRECT FORMULAS:
       // Gross P/L = Sales - COGS - Wastage - Rejection
@@ -701,6 +705,8 @@ export default function AdminDashboard() {
       const profit_per_unit = sales_qty > 0 ? (gross_profit / sales_qty) : 0;
       // Rejection % = Rejection / Sales * 100
       const rejection_pct = sales_amount > 0 ? (rejection / sales_amount * 100) : 0;
+      // Avg Gross Profit/Day = Gross P/L / max_sales_days
+      const avg_profit_per_day = max_sales_days > 0 ? (gross_profit / max_sales_days) : 0;
       
       return {
         count: customers.length,
@@ -716,6 +722,8 @@ export default function AdminDashboard() {
         net_profit,
         net_margin_pct,
         profit_per_unit,
+        avg_profit_per_day,
+        max_sales_days,
         invoices,
         customers: customers.map(c => {
           // Calculate correct values for each customer
@@ -725,6 +733,7 @@ export default function AdminDashboard() {
           const cust_commission = c.commission || 0;
           const cust_sales = c.sales_amount || 0;
           const cust_qty = c.sales_qty || 0;
+          const cust_sales_days = c.sales_days || 1;
           
           // Correct Gross P/L = Sales - COGS - Wastage - Rejection
           const cust_gross_profit = cust_sales - cust_cogs - cust_wastage - cust_rejection;
@@ -741,7 +750,9 @@ export default function AdminDashboard() {
             gross_margin_pct: cust_sales > 0 ? (cust_gross_profit / cust_sales * 100) : 0,
             net_profit: cust_net_profit,
             net_margin_pct: cust_sales > 0 ? (cust_net_profit / cust_sales * 100) : 0,
-            profit_per_unit: cust_qty > 0 ? (cust_gross_profit / cust_qty) : 0
+            profit_per_unit: cust_qty > 0 ? (cust_gross_profit / cust_qty) : 0,
+            sales_days: cust_sales_days,
+            avg_sales_per_day: cust_sales / cust_sales_days
           };
         }).sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0))
       };
@@ -1933,23 +1944,23 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Sales</p>
-                      <p className="text-base font-bold text-green-700">₹{(verticalData.qc.sales_amount / 1000).toFixed(1)}K</p>
+                      <p className="text-base font-bold text-green-700">{formatCurrency(verticalData.qc.sales_amount)}</p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">COGS</p>
-                      <p className="text-base font-bold text-red-600">₹{(verticalData.qc.cogs / 1000).toFixed(1)}K</p>
+                      <p className="text-base font-bold text-red-600">{formatCurrency(verticalData.qc.cogs)}</p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Wastage</p>
-                      <p className="text-base font-bold text-orange-600">₹{(verticalData.qc.wastage / 1000).toFixed(1)}K</p>
+                      <p className="text-base font-bold text-orange-600">{formatCurrency(verticalData.qc.wastage)}</p>
                     </div>
                   </div>
-                  {/* Row 2: Gross P/L with %, ₹/Unit, Avg/Day */}
+                  {/* Row 2: Gross P/L with %, ₹/Unit, Avg Profit/Day */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Gross P/L</p>
                       <p className={`text-base font-bold ${verticalData.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        ₹{(verticalData.qc.gross_profit / 1000).toFixed(1)}K
+                        {formatCurrency(verticalData.qc.gross_profit)}
                       </p>
                       <p className={`text-[10px] ${verticalData.qc.gross_profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                         ({verticalData.qc.gross_margin_pct.toFixed(1)}%)
@@ -1962,9 +1973,9 @@ export default function AdminDashboard() {
                       </p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
-                      <p className="text-[10px] text-gray-500 uppercase">Avg Sales/Day</p>
-                      <p className="text-base font-bold text-indigo-700">
-                        ₹{((verticalData.qc.sales_amount / daysInRange) / 1000).toFixed(1)}K
+                      <p className="text-[10px] text-gray-500 uppercase">Avg Profit/Day</p>
+                      <p className={`text-base font-bold ${verticalData.qc.avg_profit_per_day >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>
+                        {formatCurrency(verticalData.qc.avg_profit_per_day)}
                       </p>
                     </div>
                   </div>
@@ -2000,23 +2011,23 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Sales</p>
-                      <p className="text-base font-bold text-green-700">₹{(verticalData.retail.sales_amount / 1000).toFixed(1)}K</p>
+                      <p className="text-base font-bold text-green-700">{formatCurrency(verticalData.retail.sales_amount)}</p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">COGS</p>
-                      <p className="text-base font-bold text-red-600">₹{(verticalData.retail.cogs / 1000).toFixed(1)}K</p>
+                      <p className="text-base font-bold text-red-600">{formatCurrency(verticalData.retail.cogs)}</p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Wastage</p>
-                      <p className="text-base font-bold text-orange-600">₹{(verticalData.retail.wastage / 1000).toFixed(1)}K</p>
+                      <p className="text-base font-bold text-orange-600">{formatCurrency(verticalData.retail.wastage)}</p>
                     </div>
                   </div>
-                  {/* Row 2: Gross P/L with %, ₹/Unit, Avg/Day */}
+                  {/* Row 2: Gross P/L with %, ₹/Unit, Avg Profit/Day */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Gross P/L</p>
                       <p className={`text-base font-bold ${verticalData.retail.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        ₹{(verticalData.retail.gross_profit / 1000).toFixed(1)}K
+                        {formatCurrency(verticalData.retail.gross_profit)}
                       </p>
                       <p className={`text-[10px] ${verticalData.retail.gross_profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                         ({verticalData.retail.gross_margin_pct.toFixed(1)}%)
@@ -2029,9 +2040,9 @@ export default function AdminDashboard() {
                       </p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
-                      <p className="text-[10px] text-gray-500 uppercase">Avg Sales/Day</p>
-                      <p className="text-base font-bold text-indigo-700">
-                        ₹{((verticalData.retail.sales_amount / daysInRange) / 1000).toFixed(1)}K
+                      <p className="text-[10px] text-gray-500 uppercase">Avg Profit/Day</p>
+                      <p className={`text-base font-bold ${verticalData.retail.avg_profit_per_day >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>
+                        {formatCurrency(verticalData.retail.avg_profit_per_day)}
                       </p>
                     </div>
                   </div>
@@ -2132,7 +2143,7 @@ export default function AdminDashboard() {
                   {/* Row 1 */}
                   <div className="bg-green-50 rounded-lg p-2 text-center border border-green-200">
                     <p className="text-lg font-bold text-green-700">
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount)}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Sales</p>
                   </div>
@@ -2144,31 +2155,32 @@ export default function AdminDashboard() {
                   </div>
                   <div className="bg-indigo-50 rounded-lg p-2 text-center border border-indigo-200">
                     <p className="text-lg font-bold text-indigo-700">
-                      ₹{(((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / daysInRange) / 1000).toFixed(1)}K
+                      {formatCurrency((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / (selectedVertical === 'qc' ? verticalData.qc.max_sales_days : verticalData.retail.max_sales_days))}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Avg Sales/Day</p>
+                    <p className="text-[9px] text-gray-400">({selectedVertical === 'qc' ? verticalData.qc.max_sales_days : verticalData.retail.max_sales_days} active days)</p>
                   </div>
                   <div className="bg-red-50 rounded-lg p-2 text-center border border-red-200">
                     <p className="text-lg font-bold text-red-600">
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs)}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">COGS</p>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-2 text-center border border-orange-200">
                     <p className="text-lg font-bold text-orange-600">
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage)}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Wastage</p>
                   </div>
                   <div className="bg-rose-50 rounded-lg p-2 text-center border border-rose-200">
                     <p className="text-lg font-bold text-rose-600">
-                      ₹{((selectedVertical === 'qc' ? 0 : verticalData.retail.rejection) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? 0 : verticalData.retail.rejection)}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Rejection</p>
                   </div>
                   <div className={`rounded-lg p-2 text-center border ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
                     <p className={`text-lg font-bold ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit)}
                     </p>
                     <p className={`text-[10px] ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                       ({(selectedVertical === 'qc' ? verticalData.qc.gross_margin_pct : verticalData.retail.gross_margin_pct).toFixed(1)}%)
@@ -2177,13 +2189,13 @@ export default function AdminDashboard() {
                   </div>
                   <div className="bg-amber-50 rounded-lg p-2 text-center border border-amber-200">
                     <p className="text-lg font-bold text-amber-700">
-                      ₹{((selectedVertical === 'qc' ? 0 : verticalData.retail.commission) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? 0 : verticalData.retail.commission)}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Commission</p>
                   </div>
                   <div className={`rounded-lg p-2 text-center border ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300'}`}>
                     <p className={`text-lg font-bold ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'text-green-800' : 'text-red-700'}`}>
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) / 1000).toFixed(1)}K
+                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit)}
                     </p>
                     <p className={`text-[10px] ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                       ({(selectedVertical === 'qc' ? verticalData.qc.net_margin_pct : verticalData.retail.net_margin_pct).toFixed(1)}%)
@@ -2258,8 +2270,8 @@ export default function AdminDashboard() {
                       </thead>
                       <tbody>
                         {(selectedVertical === 'qc' ? verticalData.qc.customers : verticalData.retail.customers).map((c, idx) => {
-                          // Avg/Day = Sales / Days in range
-                          const avgSalesDay = (c.sales_amount || 0) / daysInRange;
+                          // Avg/Day = Sales / customer's actual sales days (from API)
+                          const avgSalesDay = (c.sales_amount || 0) / (c.sales_days || 1);
                           return (
                             <tr key={c.customer} className="border-t hover:bg-gray-50">
                               {selectedVertical === 'retail' && (
@@ -2272,7 +2284,10 @@ export default function AdminDashboard() {
                                 </td>
                               )}
                               <td className="p-2 text-gray-500">{idx + 1}</td>
-                              <td className="p-2 font-medium">{c.customer}</td>
+                              <td className="p-2 font-medium">
+                                {c.customer}
+                                <span className="text-[10px] text-gray-400 ml-1">({c.sales_days || 0}d)</span>
+                              </td>
                               <td className="p-2 text-right text-green-700 font-semibold">₹{(c.sales_amount || 0).toLocaleString()}</td>
                               <td className="p-2 text-right">{(c.sales_qty || 0).toLocaleString()}</td>
                               <td className="p-2 text-right text-indigo-600">₹{Math.round(avgSalesDay).toLocaleString()}</td>
@@ -2317,7 +2332,7 @@ export default function AdminDashboard() {
                                   size="sm" 
                                   variant="ghost" 
                                   className="h-6 text-blue-600 text-xs"
-                                  onClick={() => { setShowVerticalModal(false); openCustomerDetail(c.customer); }}
+                                  onClick={() => { openCustomerDetail(c.customer); setShowVerticalModal(false); }}
                                 >
                                   <Eye size={10} className="mr-1" /> Details
                                 </Button>
@@ -2688,7 +2703,7 @@ export default function AdminDashboard() {
 
       {/* Customer Detail Modal */}
       {selectedCustomer && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-blue-50 to-white">
@@ -2827,6 +2842,7 @@ export default function AdminDashboard() {
                       <th className="p-2 text-right font-medium text-gray-600">QTY</th>
                       <th className="p-2 text-right font-medium text-orange-600">PURCHASE</th>
                       <th className="p-2 text-right font-medium text-red-600">WASTAGE</th>
+                      <th className="p-2 text-right font-medium text-rose-600">REJECTION</th>
                       <th className="p-2 text-right font-medium text-amber-600">COMMISSION</th>
                       <th className="p-2 text-right font-medium text-gray-600">GROSS P/L</th>
                       <th className="p-2 text-right font-medium text-gray-600">GM %</th>
@@ -2854,6 +2870,17 @@ export default function AdminDashboard() {
                           <td className="p-2 text-right">{day.qty.toLocaleString()}</td>
                           <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
                           <td className="p-2 text-right text-red-600">{day.wastage > 0 ? `₹${day.wastage.toLocaleString()}` : '-'}</td>
+                          <td className="p-2 text-right text-rose-600">
+                            {/* Distribute rejection proportionally by daily sales */}
+                            {customerDetailData?.totals?.rejectionShare > 0 && customerDetailData?.totals?.sales > 0 ? (
+                              <>
+                                ₹{Math.round((customerDetailData.totals.rejectionShare * day.sales / customerDetailData.totals.sales)).toLocaleString()}
+                                <span className="text-[9px] ml-0.5 text-rose-400">
+                                  ({((customerDetailData.totals.rejectionShare * day.sales / customerDetailData.totals.sales) / day.sales * 100).toFixed(1)}%)
+                                </span>
+                              </>
+                            ) : '-'}
+                          </td>
                           <td className="p-2 text-right text-amber-600">{day.commission > 0 ? `₹${day.commission.toLocaleString()}` : '-'}</td>
                           <td className={`p-2 text-right font-semibold ${day.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                             ₹{day.grossProfit.toLocaleString()}
@@ -2875,7 +2902,7 @@ export default function AdminDashboard() {
                         {/* Product-wise breakdown row */}
                         {expandedCustomerDates[day.date] && day.items && day.items.length > 0 && (
                           <tr className="bg-blue-50/50">
-                            <td colSpan={10} className="p-2">
+                            <td colSpan={11} className="p-2">
                               <div className="bg-white rounded border overflow-hidden">
                                 <table className="w-full text-[10px]">
                                   <thead className="bg-gray-50">

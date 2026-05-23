@@ -3,6 +3,28 @@
 ## Changelog (May 2025)
 
 ### May 23, 2025
+- **FIX**: Currency Format & Date-wise Rejection Display ✅
+  - **Indian Currency Format**: All amounts now use Lakhs (L) format from `formatCurrency()` function
+    - ₹6.3L instead of ₹6.3K for amounts ≥1 Lakh
+    - Applied to vertical cards and modal header summary
+  - **Date-wise Rejection**: Added REJECTION column in Customer Detail modal
+    - Shows rejection amount and % distributed proportionally by daily sales
+    - Formula: `day_rejection = total_rejection × (day_sales / total_sales)`
+  - **Date Sorting**: Customer detail date-wise breakdown now sorted descending (latest first)
+    - 23 May appears on top, then 22 May, etc.
+  - Files modified: `/app/frontend/src/pages/admin/Dashboard.js`
+
+- **FIX**: Customer-wise Sales Dashboard - Accurate Metrics Per Retailer ✅
+  - **Avg Profit/Day in Cards**: Changed from "Avg Sales/Day" to "Avg Gross Profit/Day" (based on actual sales days)
+  - **Avg Sales/Day per Customer**: Now uses customer's actual `sales_days` from API instead of date range
+    - Tamanna Mart: ₹51,720 / 22 days = ₹2,351/day (was incorrectly using 23 days)
+  - **Actual Rejection per Retailer**: Backend now tracks rejection by `retailer_id` instead of proportional distribution
+    - Tamanna Mart: 13.0% rejection, Savtamali: 6.3% rejection (was all showing 12.5%)
+  - **GM% and NM% now vary per customer**: Based on their actual rejection, not proportional distribution
+  - **Customer names now show sales days**: e.g., "Tamanna Mart (Retail) (22d)"
+  - Backend files modified: `/app/backend/server.py` (rejection_by_retailer tracking, retailer_id in sales_by_customer)
+  - Frontend files modified: `/app/frontend/src/pages/admin/Dashboard.js`
+
 - **FIX**: Customer-wise Sales Dashboard P&L Formula Corrections ✅
   - **Gross P/L**: Corrected to Sales - COGS - Wastage - Rejection (was using API's gross_profit which excluded rejection)
   - **Net P/L**: Corrected to Gross P/L - Commission (was using API's net_profit which included variable expenses)

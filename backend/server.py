@@ -5560,7 +5560,7 @@ async def get_pnl_report(
                 line_items_by_date[item_dispatch_date] = []
             
             if customer not in sales_by_customer:
-                sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC"}
+                sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "QC", "sales_dates": set()}
             
             # Calculate kg from DISPATCH qty (what was sent), not GRN qty (what was received)
             # Use supplied_qty for wastage distribution as it represents what was dispatched
@@ -5589,6 +5589,7 @@ async def get_pnl_report(
             total_sales_qty += qty
             sales_by_customer[customer]["amount"] += amount
             sales_by_customer[customer]["qty"] += qty
+            sales_by_customer[customer]["sales_dates"].add(item_dispatch_date)  # Track unique sales dates
             sales_by_date[item_dispatch_date]["sales"] += amount
             sales_by_date[item_dispatch_date]["sales_qty"] += qty
             sales_by_date[item_dispatch_date]["qc_sales"] = sales_by_date[item_dispatch_date].get("qc_sales", 0) + amount
@@ -5724,13 +5725,21 @@ async def get_pnl_report(
         "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
     }, {"_id": 0}).to_list(1000)
     
-    # Group rejections by date
+    # Group rejections by date AND by retailer_id for accurate per-customer tracking
+    rejection_by_retailer = {}  # retailer_id -> rejection_value
     for rej in retailer_rejections:
         rej_date = rej.get("rejection_date", "")[:10]
         if rej_date not in retail_rejection_by_date:
             retail_rejection_by_date[rej_date] = {"qty": 0, "value": 0}
         retail_rejection_by_date[rej_date]["qty"] += rej.get("quantity", 0) or 0
         retail_rejection_by_date[rej_date]["value"] += rej.get("rejection_value", 0) or 0
+        
+        # Track rejection by retailer_id for per-customer allocation
+        retailer_id = rej.get("retailer_id", "")
+        if retailer_id:
+            if retailer_id not in rejection_by_retailer:
+                rejection_by_retailer[retailer_id] = 0
+            rejection_by_retailer[retailer_id] += rej.get("rejection_value", 0) or 0
     
     for dispatch in retailer_dispatches:
         # Use company_name instead of retailer_name (owner's name)
@@ -5747,7 +5756,7 @@ async def get_pnl_report(
         commission_amount = gross_mrp * commission_pct / 100
         
         if customer not in sales_by_customer:
-            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail"}
+            sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail", "sales_dates": set(), "retailer_id": retailer_id}
         if dispatch_date not in sales_by_date:
             sales_by_date[dispatch_date] = {"sales": 0, "sales_qty": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "variable_exp": 0, "fixed_exp": 0, "qc_sales": 0, "retail_sales": 0, "retail_gross_mrp": 0, "retail_rejection": 0, "retail_rejection_qty": 0, "retail_commission": 0, "retail_cogs": 0}
         if dispatch_date not in product_by_date:
@@ -5866,6 +5875,7 @@ async def get_pnl_report(
         retail_sales_qty += dispatch_qty
         sales_by_customer[customer]["amount"] += gross_mrp
         sales_by_customer[customer]["qty"] += dispatch_qty
+        sales_by_customer[customer]["sales_dates"].add(dispatch_date)  # Track unique sales dates
         sales_by_date[dispatch_date]["sales"] += gross_mrp
         sales_by_date[dispatch_date]["sales_qty"] += dispatch_qty
         sales_by_date[dispatch_date]["retail_sales"] = sales_by_date[dispatch_date].get("retail_sales", 0) + gross_mrp
@@ -6458,7 +6468,9 @@ async def get_pnl_report(
             "sales_amount": round(data["amount"], 2),
             "sales_qty": round(data["qty"], 2),
             "invoices": data["invoices"],
-            "type": data.get("type", "QC")  # Include customer type
+            "type": data.get("type", "QC"),  # Include customer type
+            "sales_days": len(data.get("sales_dates", set())),  # Count unique sales days
+            "retailer_id": data.get("retailer_id", "")  # For rejection mapping
         })
     
     # Product P&L with additional metrics
@@ -6607,7 +6619,12 @@ async def get_pnl_report(
             customer_share = customer_sales / total_retail_sales
             # Allocate Retail-specific costs proportionally
             customer_entry["grn_loss_share"] = 0  # Retail doesn't have GRN loss
-            customer_entry["rejection_share"] = round(total_retail_rejection * customer_share, 2)
+            
+            # Use ACTUAL rejection for this retailer if available, otherwise proportional
+            retailer_id = cust_data.get("retailer_id", "")
+            actual_rejection = rejection_by_retailer.get(retailer_id, 0) if retailer_id else 0
+            customer_entry["rejection_share"] = round(actual_rejection, 2)
+            
             customer_entry["commission"] = round(total_retail_commission * customer_share, 2)
             # Allocate ONLY Retail-specific variable expenses (NOT including "all" expenses)
             customer_entry["variable_expenses"] = round(variable_retail * customer_share, 2)

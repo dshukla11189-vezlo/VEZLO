@@ -5,15 +5,17 @@
 ### May 23, 2025
 - **FEATURE**: Customer-wise Sales Dashboard Redesign ✅ (P0 - VERIFIED)
   - **Vertical Grouping**: Customers tab now shows two clickable vertical cards (Quick Commerce vs Retail)
-  - **Vertical Cards Display**: Sales, COGS, Gross Profit, and "View Details" button for each vertical
-  - **Drill-down Modal**: Clicking a vertical card opens modal with customer list and aggregated summary
+  - **Vertical Cards Display**: Sales, COGS, Wastage, Gross P/L (%), ₹/Unit, Avg/Day for each vertical
+  - **Date Picker**: Added date range filter at top of Customers tab
+  - **Drill-down Modal**: Clicking a vertical card opens modal with comprehensive metrics:
+    - Header: Sales, Qty, Avg Sales/Day, COGS, Wastage, Rejection, Gross P/L (%), Commission, Net P/L (%), ₹/Unit
+    - Customer Table: All above metrics per customer with comparison checkboxes
+    - TOTAL row with aggregated values
   - **Multi-Customer Comparison**: Retail modal includes "Select retailers to compare" with checkboxes
-  - **Comparison View**: After selecting retailers and closing modal, shows comparison bar chart and table
-  - **Comparison Table**: Shows Sales, COGS, Gross Profit, Margin % for selected retailers with TOTAL row
-  - **Customer Details**: Each customer has "Details" button opening detailed P&L modal with date-wise breakdown
+  - **Bug Fix**: Fixed COGS showing ₹0 - was using wrong field `cogs` instead of `cogs_share` from API
   - **React Hook Fix**: Fixed conditional useMemo error by moving hooks before loading conditional return
   - Files modified: `/app/frontend/src/pages/admin/Dashboard.js`
-  - All 19 test cases passed (100% frontend success rate)
+  - All features verified working via screenshots
 
 ### May 22, 2025
 - **FEATURE**: Added Partial Reimbursement support in Variable Expenses

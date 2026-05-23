@@ -679,15 +679,42 @@ export default function AdminDashboard() {
     const qcCustomers = customerPnl.filter(c => c.type === 'QC');
     const retailCustomers = customerPnl.filter(c => c.type === 'Retail');
     
-    const aggregateCustomers = (customers) => ({
-      count: customers.length,
-      sales_amount: customers.reduce((sum, c) => sum + (c.sales_amount || 0), 0),
-      sales_qty: customers.reduce((sum, c) => sum + (c.sales_qty || 0), 0),
-      cogs: customers.reduce((sum, c) => sum + (c.cogs || 0), 0),
-      gross_profit: customers.reduce((sum, c) => sum + (c.gross_profit || 0), 0),
-      invoices: customers.reduce((sum, c) => sum + (c.invoices || 0), 0),
-      customers: customers.sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0))
-    });
+    const aggregateCustomers = (customers) => {
+      const sales_amount = customers.reduce((sum, c) => sum + (c.sales_amount || 0), 0);
+      const sales_qty = customers.reduce((sum, c) => sum + (c.sales_qty || 0), 0);
+      const cogs = customers.reduce((sum, c) => sum + (c.cogs_share || 0), 0); // Use cogs_share from API
+      const wastage = customers.reduce((sum, c) => sum + (c.wastage_share || 0), 0);
+      const rejection = customers.reduce((sum, c) => sum + (c.rejection_share || 0), 0);
+      const commission = customers.reduce((sum, c) => sum + (c.commission || 0), 0);
+      const gross_profit = customers.reduce((sum, c) => sum + (c.gross_profit || 0), 0);
+      const net_profit = customers.reduce((sum, c) => sum + (c.net_profit || 0), 0);
+      const invoices = customers.reduce((sum, c) => sum + (c.invoices || 0), 0);
+      const gross_margin_pct = sales_amount > 0 ? (gross_profit / sales_amount * 100) : 0;
+      const net_margin_pct = sales_amount > 0 ? (net_profit / sales_amount * 100) : 0;
+      const profit_per_unit = sales_qty > 0 ? (gross_profit / sales_qty) : 0;
+      
+      return {
+        count: customers.length,
+        sales_amount,
+        sales_qty,
+        cogs,
+        wastage,
+        rejection,
+        commission,
+        gross_profit,
+        gross_margin_pct,
+        net_profit,
+        net_margin_pct,
+        profit_per_unit,
+        invoices,
+        customers: customers.map(c => ({
+          ...c,
+          cogs: c.cogs_share || 0, // Map cogs_share to cogs for display
+          wastage: c.wastage_share || 0,
+          rejection: c.rejection_share || 0
+        })).sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0))
+      };
+    };
     
     return {
       qc: aggregateCustomers(qcCustomers),
@@ -1819,6 +1846,36 @@ export default function AdminDashboard() {
 
         {activeTab === 'customers' && (
           <div className="space-y-4">
+            {/* Date Picker for Customers Tab */}
+            <Card className="border-gray-200">
+              <CardContent className="py-3 px-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-medium text-gray-600">Date Range:</span>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-36 h-8 text-sm"
+                    />
+                    <span className="text-gray-400">to</span>
+                    <Input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-36 h-8 text-sm"
+                    />
+                    <Button variant="outline" size="sm" onClick={loadPnlData} className="ml-2">
+                      <RefreshCw size={14} className="mr-1" /> Apply
+                    </Button>
+                  </div>
+                  <span className="text-xs text-gray-400 ml-auto">
+                    {daysInRange} days selected
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Vertical Cards - QC vs Retail */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Quick Commerce Card */}
@@ -1841,19 +1898,42 @@ export default function AdminDashboard() {
                     </div>
                     <ChevronRight className="text-gray-400" size={24} />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-white rounded-lg p-3 border">
-                      <p className="text-xs text-gray-500">Sales</p>
-                      <p className="text-lg font-bold text-green-700">₹{(verticalData.qc.sales_amount / 1000).toFixed(1)}K</p>
+                  {/* Row 1: Sales, COGS, Wastage */}
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Sales</p>
+                      <p className="text-base font-bold text-green-700">₹{(verticalData.qc.sales_amount / 1000).toFixed(1)}K</p>
                     </div>
-                    <div className="bg-white rounded-lg p-3 border">
-                      <p className="text-xs text-gray-500">COGS</p>
-                      <p className="text-lg font-bold text-red-600">₹{(verticalData.qc.cogs / 1000).toFixed(1)}K</p>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">COGS</p>
+                      <p className="text-base font-bold text-red-600">₹{(verticalData.qc.cogs / 1000).toFixed(1)}K</p>
                     </div>
-                    <div className="bg-white rounded-lg p-3 border">
-                      <p className="text-xs text-gray-500">Gross Profit</p>
-                      <p className={`text-lg font-bold ${verticalData.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Wastage</p>
+                      <p className="text-base font-bold text-orange-600">₹{(verticalData.qc.wastage / 1000).toFixed(1)}K</p>
+                    </div>
+                  </div>
+                  {/* Row 2: Gross P/L with %, ₹/Unit, Avg/Day */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Gross P/L</p>
+                      <p className={`text-base font-bold ${verticalData.qc.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                         ₹{(verticalData.qc.gross_profit / 1000).toFixed(1)}K
+                      </p>
+                      <p className={`text-[10px] ${verticalData.qc.gross_profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        ({verticalData.qc.gross_margin_pct.toFixed(1)}%)
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">₹/Unit</p>
+                      <p className={`text-base font-bold ${verticalData.qc.profit_per_unit >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                        ₹{verticalData.qc.profit_per_unit.toFixed(1)}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Avg/Day</p>
+                      <p className={`text-base font-bold ${(verticalData.qc.gross_profit / daysInRange) >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>
+                        ₹{((verticalData.qc.gross_profit / daysInRange) / 1000).toFixed(1)}K
                       </p>
                     </div>
                   </div>
@@ -1885,19 +1965,42 @@ export default function AdminDashboard() {
                     </div>
                     <ChevronRight className="text-gray-400" size={24} />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-white rounded-lg p-3 border">
-                      <p className="text-xs text-gray-500">Sales</p>
-                      <p className="text-lg font-bold text-green-700">₹{(verticalData.retail.sales_amount / 1000).toFixed(1)}K</p>
+                  {/* Row 1: Sales, COGS, Wastage */}
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Sales</p>
+                      <p className="text-base font-bold text-green-700">₹{(verticalData.retail.sales_amount / 1000).toFixed(1)}K</p>
                     </div>
-                    <div className="bg-white rounded-lg p-3 border">
-                      <p className="text-xs text-gray-500">COGS</p>
-                      <p className="text-lg font-bold text-red-600">₹{(verticalData.retail.cogs / 1000).toFixed(1)}K</p>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">COGS</p>
+                      <p className="text-base font-bold text-red-600">₹{(verticalData.retail.cogs / 1000).toFixed(1)}K</p>
                     </div>
-                    <div className="bg-white rounded-lg p-3 border">
-                      <p className="text-xs text-gray-500">Gross Profit</p>
-                      <p className={`text-lg font-bold ${verticalData.retail.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Wastage</p>
+                      <p className="text-base font-bold text-orange-600">₹{(verticalData.retail.wastage / 1000).toFixed(1)}K</p>
+                    </div>
+                  </div>
+                  {/* Row 2: Gross P/L with %, ₹/Unit, Avg/Day */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Gross P/L</p>
+                      <p className={`text-base font-bold ${verticalData.retail.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                         ₹{(verticalData.retail.gross_profit / 1000).toFixed(1)}K
+                      </p>
+                      <p className={`text-[10px] ${verticalData.retail.gross_profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        ({verticalData.retail.gross_margin_pct.toFixed(1)}%)
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">₹/Unit</p>
+                      <p className={`text-base font-bold ${verticalData.retail.profit_per_unit >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                        ₹{verticalData.retail.profit_per_unit.toFixed(1)}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Avg/Day</p>
+                      <p className={`text-base font-bold ${(verticalData.retail.gross_profit / daysInRange) >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>
+                        ₹{((verticalData.retail.gross_profit / daysInRange) / 1000).toFixed(1)}K
                       </p>
                     </div>
                   </div>
@@ -2028,7 +2131,7 @@ export default function AdminDashboard() {
         {showVerticalModal && selectedVertical && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowVerticalModal(false)}>
             <div 
-              className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden"
+              className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
               {/* Modal Header */}
@@ -2040,7 +2143,8 @@ export default function AdminDashboard() {
                       <h2 className="text-xl font-bold">{selectedVertical === 'qc' ? 'Quick Commerce' : 'Retail'} Details</h2>
                       <p className="text-sm opacity-90">
                         {selectedVertical === 'qc' ? verticalData.qc.count : verticalData.retail.count} customers • 
-                        {selectedVertical === 'qc' ? verticalData.qc.invoices : verticalData.retail.invoices} invoices
+                        {selectedVertical === 'qc' ? verticalData.qc.invoices : verticalData.retail.invoices} invoices • 
+                        {formatDate(dateFrom)} - {formatDate(dateTo)} ({daysInRange} days)
                       </p>
                     </div>
                   </div>
@@ -2051,32 +2155,75 @@ export default function AdminDashboard() {
               </div>
 
               {/* Modal Content */}
-              <div className="p-4 overflow-y-auto max-h-[calc(85vh-120px)]">
-                {/* Aggregated Summary */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-xl font-bold text-green-700">
+              <div className="p-4 overflow-y-auto max-h-[calc(90vh-100px)]">
+                {/* Comprehensive Aggregated Summary - 2 rows */}
+                <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-2 mb-4">
+                  {/* Row 1 */}
+                  <div className="bg-green-50 rounded-lg p-2 text-center border border-green-200">
+                    <p className="text-lg font-bold text-green-700">
                       ₹{((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / 1000).toFixed(1)}K
                     </p>
-                    <p className="text-xs text-gray-500">Total Sales</p>
+                    <p className="text-[10px] text-gray-600 uppercase">Sales</p>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-xl font-bold text-red-600">
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs) / 1000).toFixed(1)}K
-                    </p>
-                    <p className="text-xs text-gray-500">Total COGS</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className={`text-xl font-bold ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                      ₹{((selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) / 1000).toFixed(1)}K
-                    </p>
-                    <p className="text-xs text-gray-500">Gross Profit</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-xl font-bold text-blue-700">
+                  <div className="bg-blue-50 rounded-lg p-2 text-center border border-blue-200">
+                    <p className="text-lg font-bold text-blue-700">
                       {(selectedVertical === 'qc' ? verticalData.qc.sales_qty : verticalData.retail.sales_qty).toLocaleString()}
                     </p>
-                    <p className="text-xs text-gray-500">Units Sold</p>
+                    <p className="text-[10px] text-gray-600 uppercase">Qty</p>
+                  </div>
+                  <div className="bg-indigo-50 rounded-lg p-2 text-center border border-indigo-200">
+                    <p className="text-lg font-bold text-indigo-700">
+                      ₹{(((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / daysInRange) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">Avg Sales/Day</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-2 text-center border border-red-200">
+                    <p className="text-lg font-bold text-red-600">
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">COGS</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-2 text-center border border-orange-200">
+                    <p className="text-lg font-bold text-orange-600">
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">Wastage</p>
+                  </div>
+                  <div className="bg-rose-50 rounded-lg p-2 text-center border border-rose-200">
+                    <p className="text-lg font-bold text-rose-600">
+                      ₹{((selectedVertical === 'qc' ? 0 : verticalData.retail.rejection) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">Rejection</p>
+                  </div>
+                  <div className={`rounded-lg p-2 text-center border ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                    <p className={`text-lg font-bold ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) / 1000).toFixed(1)}K
+                    </p>
+                    <p className={`text-[10px] ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      ({(selectedVertical === 'qc' ? verticalData.qc.gross_margin_pct : verticalData.retail.gross_margin_pct).toFixed(1)}%)
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">Gross P/L</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-lg p-2 text-center border border-amber-200">
+                    <p className="text-lg font-bold text-amber-700">
+                      ₹{((selectedVertical === 'qc' ? 0 : verticalData.retail.commission) / 1000).toFixed(1)}K
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">Commission</p>
+                  </div>
+                  <div className={`rounded-lg p-2 text-center border ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300'}`}>
+                    <p className={`text-lg font-bold ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'text-green-800' : 'text-red-700'}`}>
+                      ₹{((selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) / 1000).toFixed(1)}K
+                    </p>
+                    <p className={`text-[10px] ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      ({(selectedVertical === 'qc' ? verticalData.qc.net_margin_pct : verticalData.retail.net_margin_pct).toFixed(1)}%)
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">Net P/L</p>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-2 text-center border border-purple-200">
+                    <p className={`text-lg font-bold ${(selectedVertical === 'qc' ? verticalData.qc.profit_per_unit : verticalData.retail.profit_per_unit) >= 0 ? 'text-purple-700' : 'text-red-600'}`}>
+                      ₹{(selectedVertical === 'qc' ? verticalData.qc.profit_per_unit : verticalData.retail.profit_per_unit).toFixed(1)}
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase">₹/Unit</p>
                   </div>
                 </div>
 
@@ -2113,54 +2260,128 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* Customer List */}
+                {/* Customer List - Comprehensive Table */}
                 <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className={`${selectedVertical === 'qc' ? 'bg-orange-100' : 'bg-green-100'}`}>
-                      <tr>
-                        {selectedVertical === 'retail' && <th className="p-2 text-center w-10">Compare</th>}
-                        <th className="p-2 text-left">#</th>
-                        <th className="p-2 text-left">Customer</th>
-                        <th className="p-2 text-right">Sales</th>
-                        <th className="p-2 text-right">COGS</th>
-                        <th className="p-2 text-right">Gross Profit</th>
-                        <th className="p-2 text-center">Invoices</th>
-                        <th className="p-2 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selectedVertical === 'qc' ? verticalData.qc.customers : verticalData.retail.customers).map((c, idx) => (
-                        <tr key={c.customer} className="border-t hover:bg-gray-50">
-                          {selectedVertical === 'retail' && (
-                            <td className="p-2 text-center">
-                              <Checkbox
-                                checked={selectedRetailers.includes(c.customer)}
-                                onCheckedChange={() => toggleRetailerSelection(c.customer)}
-                              />
-                            </td>
-                          )}
-                          <td className="p-2 text-gray-500">{idx + 1}</td>
-                          <td className="p-2 font-medium">{c.customer}</td>
-                          <td className="p-2 text-right text-green-700 font-semibold">₹{c.sales_amount?.toLocaleString()}</td>
-                          <td className="p-2 text-right text-red-600">₹{c.cogs?.toLocaleString()}</td>
-                          <td className={`p-2 text-right font-bold ${c.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                            ₹{c.gross_profit?.toLocaleString()}
-                          </td>
-                          <td className="p-2 text-center">{c.invoices}</td>
-                          <td className="p-2 text-center">
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="h-7 text-blue-600"
-                              onClick={() => { setShowVerticalModal(false); openCustomerDetail(c.customer); }}
-                            >
-                              <Eye size={12} className="mr-1" /> Details
-                            </Button>
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className={`${selectedVertical === 'qc' ? 'bg-orange-100' : 'bg-green-100'}`}>
+                        <tr>
+                          {selectedVertical === 'retail' && <th className="p-2 text-center w-8 sticky left-0 bg-inherit">✓</th>}
+                          <th className="p-2 text-left sticky left-0 bg-inherit">#</th>
+                          <th className="p-2 text-left min-w-[140px]">Customer</th>
+                          <th className="p-2 text-right">Sales</th>
+                          <th className="p-2 text-right">Qty</th>
+                          <th className="p-2 text-right">Avg/Day</th>
+                          <th className="p-2 text-right">COGS</th>
+                          <th className="p-2 text-right">Wastage</th>
+                          <th className="p-2 text-right">Rejection</th>
+                          <th className="p-2 text-right">Gross P/L</th>
+                          <th className="p-2 text-right">GM %</th>
+                          <th className="p-2 text-right">Commission</th>
+                          <th className="p-2 text-right">Net P/L</th>
+                          <th className="p-2 text-right">NM %</th>
+                          <th className="p-2 text-right">₹/Unit</th>
+                          <th className="p-2 text-center">Action</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {(selectedVertical === 'qc' ? verticalData.qc.customers : verticalData.retail.customers).map((c, idx) => {
+                          const avgSalesDay = c.sales_amount / daysInRange;
+                          const profitPerUnit = c.sales_qty > 0 ? c.gross_profit / c.sales_qty : 0;
+                          return (
+                            <tr key={c.customer} className="border-t hover:bg-gray-50">
+                              {selectedVertical === 'retail' && (
+                                <td className="p-2 text-center">
+                                  <Checkbox
+                                    checked={selectedRetailers.includes(c.customer)}
+                                    onCheckedChange={() => toggleRetailerSelection(c.customer)}
+                                    className="w-3 h-3"
+                                  />
+                                </td>
+                              )}
+                              <td className="p-2 text-gray-500">{idx + 1}</td>
+                              <td className="p-2 font-medium">{c.customer}</td>
+                              <td className="p-2 text-right text-green-700 font-semibold">₹{c.sales_amount?.toLocaleString()}</td>
+                              <td className="p-2 text-right">{c.sales_qty?.toLocaleString()}</td>
+                              <td className="p-2 text-right text-indigo-600">₹{(avgSalesDay / 1000).toFixed(1)}K</td>
+                              <td className="p-2 text-right text-red-600">₹{(c.cogs || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right text-orange-600">₹{(c.wastage || 0).toLocaleString()}</td>
+                              <td className="p-2 text-right text-rose-600">₹{(c.rejection || 0).toLocaleString()}</td>
+                              <td className={`p-2 text-right font-bold ${c.gross_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                ₹{c.gross_profit?.toLocaleString()}
+                              </td>
+                              <td className="p-2 text-right">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  c.gross_margin_pct >= 20 ? 'bg-green-100 text-green-700' : 
+                                  c.gross_margin_pct >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {c.gross_margin_pct?.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="p-2 text-right text-amber-600">₹{(c.commission || 0).toLocaleString()}</td>
+                              <td className={`p-2 text-right font-bold ${c.net_profit >= 0 ? 'text-green-800' : 'text-red-700'}`}>
+                                ₹{(c.net_profit || 0).toLocaleString()}
+                              </td>
+                              <td className="p-2 text-right">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  c.net_margin_pct >= 10 ? 'bg-green-100 text-green-700' : 
+                                  c.net_margin_pct >= 0 ? 'bg-yellow-100 text-yellow-700' : 
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {c.net_margin_pct?.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className={`p-2 text-right ${profitPerUnit >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                                ₹{profitPerUnit.toFixed(1)}
+                              </td>
+                              <td className="p-2 text-center">
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="h-6 text-blue-600 text-xs"
+                                  onClick={() => { setShowVerticalModal(false); openCustomerDetail(c.customer); }}
+                                >
+                                  <Eye size={10} className="mr-1" /> Details
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      {/* Totals Row */}
+                      <tfoot className={`font-semibold ${selectedVertical === 'qc' ? 'bg-orange-50' : 'bg-green-50'} border-t-2`}>
+                        <tr>
+                          {selectedVertical === 'retail' && <td className="p-2"></td>}
+                          <td className="p-2"></td>
+                          <td className="p-2 font-bold">TOTAL</td>
+                          <td className="p-2 text-right text-green-700">₹{(selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount).toLocaleString()}</td>
+                          <td className="p-2 text-right">{(selectedVertical === 'qc' ? verticalData.qc.sales_qty : verticalData.retail.sales_qty).toLocaleString()}</td>
+                          <td className="p-2 text-right text-indigo-600">₹{(((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / daysInRange) / 1000).toFixed(1)}K</td>
+                          <td className="p-2 text-right text-red-600">₹{(selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs).toLocaleString()}</td>
+                          <td className="p-2 text-right text-orange-600">₹{(selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage).toLocaleString()}</td>
+                          <td className="p-2 text-right text-rose-600">₹{(selectedVertical === 'qc' ? 0 : verticalData.retail.rejection).toLocaleString()}</td>
+                          <td className={`p-2 text-right ${(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                            ₹{(selectedVertical === 'qc' ? verticalData.qc.gross_profit : verticalData.retail.gross_profit).toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right">
+                            {(selectedVertical === 'qc' ? verticalData.qc.gross_margin_pct : verticalData.retail.gross_margin_pct).toFixed(1)}%
+                          </td>
+                          <td className="p-2 text-right text-amber-600">₹{(selectedVertical === 'qc' ? 0 : verticalData.retail.commission).toLocaleString()}</td>
+                          <td className={`p-2 text-right ${(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit) >= 0 ? 'text-green-800' : 'text-red-700'}`}>
+                            ₹{(selectedVertical === 'qc' ? verticalData.qc.net_profit : verticalData.retail.net_profit).toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right">
+                            {(selectedVertical === 'qc' ? verticalData.qc.net_margin_pct : verticalData.retail.net_margin_pct).toFixed(1)}%
+                          </td>
+                          <td className="p-2 text-right text-purple-600">
+                            ₹{(selectedVertical === 'qc' ? verticalData.qc.profit_per_unit : verticalData.retail.profit_per_unit).toFixed(1)}
+                          </td>
+                          <td className="p-2"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>

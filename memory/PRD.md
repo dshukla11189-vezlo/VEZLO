@@ -2,6 +2,19 @@
 
 ## Changelog (May 2025)
 
+### May 23, 2025
+- **FEATURE**: Customer-wise Sales Dashboard Redesign ✅ (P0 - VERIFIED)
+  - **Vertical Grouping**: Customers tab now shows two clickable vertical cards (Quick Commerce vs Retail)
+  - **Vertical Cards Display**: Sales, COGS, Gross Profit, and "View Details" button for each vertical
+  - **Drill-down Modal**: Clicking a vertical card opens modal with customer list and aggregated summary
+  - **Multi-Customer Comparison**: Retail modal includes "Select retailers to compare" with checkboxes
+  - **Comparison View**: After selecting retailers and closing modal, shows comparison bar chart and table
+  - **Comparison Table**: Shows Sales, COGS, Gross Profit, Margin % for selected retailers with TOTAL row
+  - **Customer Details**: Each customer has "Details" button opening detailed P&L modal with date-wise breakdown
+  - **React Hook Fix**: Fixed conditional useMemo error by moving hooks before loading conditional return
+  - Files modified: `/app/frontend/src/pages/admin/Dashboard.js`
+  - All 19 test cases passed (100% frontend success rate)
+
 ### May 22, 2025
 - **FEATURE**: Added Partial Reimbursement support in Variable Expenses
   - New "Reimbursement Amount" field in modal with ₹ prefix

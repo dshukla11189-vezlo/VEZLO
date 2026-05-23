@@ -3,6 +3,20 @@
 ## Changelog (May 2025)
 
 ### May 23, 2025
+- **FIX**: Customer Detail Modal - Correct P&L Calculations & Column Order ✅
+  - **Gross P/L formula corrected**: Sales - COGS - Wastage - Rejection (per day)
+  - **Net P/L added**: Gross P/L - Commission (per day)
+  - **Column order updated to match summary**: DATE, SALES, QTY, COGS, WASTAGE, REJECTION, GROSS P/L, GM%, COMMISSION, NET P/L, NM%, ₹/UNIT
+  - **Exact rejection per date**: Fetches rejection data by retailer_id and date from API
+  - Backend: `/api/retailer-rejections` queried for date-wise rejection by retailer
+  - Files modified: `/app/frontend/src/pages/admin/Dashboard.js`
+
+- **FEATURE**: Language Toggle for Indent & Dispatch Tabs ✅
+  - **Indent tab**: Added language dropdown (English/Hindi/Marathi) - affects expanded view and PDF export
+  - **Dispatch tab**: Added language dropdown before Export button - affects expanded view and CSV export
+  - Uses product translations from products collection (name_hi, name_mr)
+  - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 - **FIX**: Currency Format & Date-wise Rejection Display ✅
   - **Indian Currency Format**: All amounts now use Lakhs (L) format from `formatCurrency()` function
     - ₹6.3L instead of ₹6.3K for amounts ≥1 Lakh

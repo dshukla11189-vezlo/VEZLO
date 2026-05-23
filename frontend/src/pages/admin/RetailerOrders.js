@@ -287,6 +287,10 @@ export default function RetailerOrders() {
   // Print language state for Daily Requirement PDF/Excel
   const [dailyReqPrintLang, setDailyReqPrintLang] = useState('en'); // 'en', 'hi', 'mr'
   
+  // Language state for Indent and Dispatch tabs
+  const [indentLanguage, setIndentLanguage] = useState('en'); // 'en', 'hi', 'mr'
+  const [dispatchLanguage, setDispatchLanguage] = useState('en'); // 'en', 'hi', 'mr'
+  
   // MRP tab state
   const [mrpData, setMrpData] = useState([]);
   const [mrpLoading, setMrpLoading] = useState(false);
@@ -839,6 +843,37 @@ export default function RetailerOrders() {
     return item.product_name || item.productName || item.name || '';
   }, [productMap, i18n.language]);
 
+  // Helper to get product name in a specific language
+  const getProductNameInLang = useCallback((item, lang) => {
+    if (!item) return '';
+    
+    // Try to find the product in our lookup map
+    let product = null;
+    const productId = item.product_id || item.productId;
+    if (productId) {
+      product = productMap.get(productId);
+    }
+    if (!product) {
+      const itemName = item.product_name || item.productName || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    // Return translated name based on specified language
+    if (product) {
+      if (lang === 'hi' && product.name_hi) return product.name_hi;
+      if (lang === 'mr' && product.name_mr) return product.name_mr;
+      return product.name;
+    }
+    
+    // Fallback: check item's own translations
+    if (lang === 'hi' && (item.name_hi || item.productNameHi)) return item.name_hi || item.productNameHi;
+    if (lang === 'mr' && (item.name_mr || item.productNameMr)) return item.name_mr || item.productNameMr;
+    
+    return item.product_name || item.productName || item.name || '';
+  }, [productMap]);
+
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true);
@@ -1052,7 +1087,11 @@ export default function RetailerOrders() {
     // Data rows
     productVariants.forEach((productKey, index) => {
       const [productName, variantName] = productKey.split('|');
-      const row = [index + 1, productName, variantName];
+      // Get translated product name based on selected language
+      const translatedName = indentLanguage !== 'en' 
+        ? getProductNameInLang({ product_name: productName }, indentLanguage) 
+        : productName;
+      const row = [index + 1, translatedName, variantName];
       
       let rowTotal = 0;
       retailers.forEach(([retailerId, _]) => {
@@ -1229,11 +1268,15 @@ export default function RetailerOrders() {
     // Data rows
     productVariants.forEach((productKey, index) => {
       const [productName, variantName] = productKey.split('|');
+      // Get translated product name based on selected language
+      const translatedName = indentLanguage !== 'en' 
+        ? getProductNameInLang({ product_name: productName }, indentLanguage) 
+        : productName;
       let rowTotal = 0;
       
       htmlContent += `<tr>`;
       htmlContent += `<td>${index + 1}</td>`;
-      htmlContent += `<td class="product-name">${productName}</td>`;
+      htmlContent += `<td class="product-name">${translatedName}</td>`;
       htmlContent += `<td class="variant">${variantName}</td>`;
       
       retailers.forEach(([retailerId, _]) => {
@@ -1293,7 +1336,7 @@ export default function RetailerOrders() {
         dataToExport.push({
           date: dispatch.dispatch_date,
           retailer: getRetailerNameById(dispatch.retailer_id) || dispatch.retailer_name,
-          product: item.product_name,
+          product: getProductNameInLang(item, dispatchLanguage), // Use selected language
           variant: item.variant_name || '-',
           quantity: item.dispatched_qty,
           rate: item.rate || 0,
@@ -5486,7 +5529,18 @@ export default function RetailerOrders() {
                   )}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                {/* Language Toggle for Indent */}
+                <select 
+                  value={indentLanguage} 
+                  onChange={(e) => setIndentLanguage(e.target.value)}
+                  className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                  title="Language for expanded view & PDF"
+                >
+                  <option value="en">English</option>
+                  <option value="hi">हिंदी</option>
+                  <option value="mr">मराठी</option>
+                </select>
                 <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
                   <FileSpreadsheet size={14} className="mr-1" /> Export
                 </Button>
@@ -5619,7 +5673,7 @@ export default function RetailerOrders() {
                                         return (
                                           <tr key={idx} className={remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}>
                                             <td className="p-2 text-center text-gray-400">{idx + 1}</td>
-                                            <td className="p-2">{getProductName(item)}</td>
+                                            <td className="p-2">{getProductNameInLang(item, indentLanguage)}</td>
                                             <td className="p-2">{item.variant_name || '-'}</td>
                                             <td className="p-2 text-right">{item.quantity}</td>
                                             {showDispatchColumns && (
@@ -5698,9 +5752,22 @@ export default function RetailerOrders() {
                   )}
                 </div>
               </div>
-              <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel">
-                <FileSpreadsheet size={14} className="mr-1" /> Export
-              </Button>
+              <div className="flex gap-2 items-center">
+                {/* Language Toggle for Dispatch */}
+                <select 
+                  value={dispatchLanguage} 
+                  onChange={(e) => setDispatchLanguage(e.target.value)}
+                  className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                  title="Language for expanded view & export"
+                >
+                  <option value="en">English</option>
+                  <option value="hi">हिंदी</option>
+                  <option value="mr">मराठी</option>
+                </select>
+                <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel">
+                  <FileSpreadsheet size={14} className="mr-1" /> Export
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -5782,7 +5849,7 @@ export default function RetailerOrders() {
                                     {dispatch.items?.map((item, idx) => (
                                       <tr key={idx} className="border-t">
                                         <td className="p-2 text-center text-gray-400">{idx + 1}</td>
-                                        <td className="p-2 font-medium">{getProductName(item)}</td>
+                                        <td className="p-2 font-medium">{getProductNameInLang(item, dispatchLanguage)}</td>
                                         <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
                                         <td className="p-2 text-center">{item.indent_qty || '-'}</td>
                                         <td className="p-2 text-center font-semibold">{item.supplied_qty}</td>

@@ -236,6 +236,11 @@ export default function AdminDashboard() {
   const [productPnlData, setProductPnlData] = useState([]);
   const [loadingProductPnl, setLoadingProductPnl] = useState(false);
   
+  // AI Demand Forecasting state
+  const [forecastData, setForecastData] = useState(null);
+  const [loadingForecast, setLoadingForecast] = useState(false);
+  const [expandedForecastRetailer, setExpandedForecastRetailer] = useState(null);
+  
   // Persist product date filters
   useEffect(() => {
     localStorage.setItem('dashboard_productDateFrom', productDateFrom);
@@ -275,6 +280,27 @@ export default function AdminDashboard() {
       const customerType = customerPnlEntry?.type || 'QC';
       const grnLossShare = customerPnlEntry?.grn_loss_share || 0;
       const rejectionShare = customerPnlEntry?.rejection_share || 0;
+      const retailerId = customerPnlEntry?.retailer_id || '';
+      
+      // Fetch rejection data by date for this retailer (if Retail type)
+      let rejectionByDate = {};
+      if (customerType === 'Retail' && retailerId) {
+        try {
+          const rejResponse = await api.get(`/api/retailer-rejections?from_date=${customerDetailDateFrom}&to_date=${customerDetailDateTo}`);
+          const rejections = rejResponse.data || [];
+          rejections.forEach(rej => {
+            if (rej.retailer_id === retailerId) {
+              const rejDate = (rej.rejection_date || '').slice(0, 10);
+              if (rejDate) {
+                rejectionByDate[rejDate] = (rejectionByDate[rejDate] || 0) + (rej.rejection_value || 0);
+              }
+            }
+          });
+        } catch (rejErr) {
+          console.warn('Could not fetch rejection data:', rejErr);
+        }
+      }
+      
       // NEW: Get variable expenses, fixed expenses, and commission from customer_pnl
       const variableExpenses = customerPnlEntry?.variable_expenses || 0;
       const fixedExpenses = customerPnlEntry?.fixed_expenses || 0;
@@ -297,8 +323,19 @@ export default function AdminDashboard() {
         const purchase = customerItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
         const wastage = customerItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
         const commission = customerItems.reduce((sum, item) => sum + (item.commission || 0), 0);
-        const grossProfit = customerItems.reduce((sum, item) => sum + (item.gross_profit || 0), 0);
+        
+        // Get EXACT rejection for this date (from rejectionByDate lookup)
+        const dayRejection = rejectionByDate[day.date] || 0;
+        const dayRejectionPct = sales > 0 ? (dayRejection / sales * 100) : 0;
+        
+        // CORRECT FORMULA: Gross P/L = Sales - COGS - Wastage - Rejection
+        const grossProfit = sales - purchase - wastage - dayRejection;
         const grossMargin = sales > 0 ? (grossProfit / sales * 100) : 0;
+        
+        // Net P/L = Gross P/L - Commission
+        const netProfit = grossProfit - commission;
+        const netMargin = sales > 0 ? (netProfit / sales * 100) : 0;
+        
         const profitPerUnit = qty > 0 ? (grossProfit / qty) : 0;
         
         return {
@@ -308,9 +345,13 @@ export default function AdminDashboard() {
           kg,
           purchase,
           wastage,
-          commission,
+          rejection: dayRejection,  // Exact rejection for this date
+          rejectionPct: dayRejectionPct,  // Rejection % for this date
           grossProfit,
           grossMargin,
+          commission,
+          netProfit,
+          netMargin,
           profitPerUnit,
           items: customerItems // Product-wise breakdown
         };
@@ -323,9 +364,11 @@ export default function AdminDashboard() {
         kg: acc.kg + day.kg,
         purchase: acc.purchase + day.purchase,
         wastage: acc.wastage + day.wastage,
+        rejection: acc.rejection + day.rejection,
+        grossProfit: acc.grossProfit + day.grossProfit,
         commission: acc.commission + day.commission,
-        grossProfit: acc.grossProfit + day.grossProfit
-      }), { sales: 0, qty: 0, kg: 0, purchase: 0, wastage: 0, commission: 0, grossProfit: 0 });
+        netProfit: acc.netProfit + day.netProfit
+      }), { sales: 0, qty: 0, kg: 0, purchase: 0, wastage: 0, rejection: 0, grossProfit: 0, commission: 0, netProfit: 0 });
       
       // For Retail customers, the line-item gross_profit doesn't include rejection
       // We need to subtract rejection_share to get the TRUE gross profit that matches dashboard
@@ -602,6 +645,27 @@ export default function AdminDashboard() {
       setLoadingProductDetail(false);
     }
   }, [productDateFrom, productDateTo]);
+
+  // Load AI Demand Forecast
+  const loadForecast = useCallback(async () => {
+    setLoadingForecast(true);
+    try {
+      const response = await api.get('/api/reports/demand-forecast');
+      setForecastData(response.data);
+    } catch (error) {
+      console.error('Failed to load forecast:', error);
+      toast.error('Failed to load demand forecast');
+    } finally {
+      setLoadingForecast(false);
+    }
+  }, []);
+
+  // Load forecast when customers tab is active
+  useEffect(() => {
+    if (activeTab === 'customers' && !forecastData && !loadingForecast) {
+      loadForecast();
+    }
+  }, [activeTab, forecastData, loadingForecast, loadForecast]);
 
   const loadPnlData = useCallback(async () => {
     setLoading(true);
@@ -2840,13 +2904,15 @@ export default function AdminDashboard() {
                       <th className="p-2 text-left font-medium text-gray-600">DATE</th>
                       <th className="p-2 text-right font-medium text-green-600">SALES</th>
                       <th className="p-2 text-right font-medium text-gray-600">QTY</th>
-                      <th className="p-2 text-right font-medium text-orange-600">PURCHASE</th>
-                      <th className="p-2 text-right font-medium text-red-600">WASTAGE</th>
+                      <th className="p-2 text-right font-medium text-red-600">COGS</th>
+                      <th className="p-2 text-right font-medium text-orange-600">WASTAGE</th>
                       <th className="p-2 text-right font-medium text-rose-600">REJECTION</th>
-                      <th className="p-2 text-right font-medium text-amber-600">COMMISSION</th>
-                      <th className="p-2 text-right font-medium text-gray-600">GROSS P/L</th>
+                      <th className="p-2 text-right font-medium text-emerald-600">GROSS P/L</th>
                       <th className="p-2 text-right font-medium text-gray-600">GM %</th>
-                      <th className="p-2 text-right font-medium text-gray-600">₹/UNIT</th>
+                      <th className="p-2 text-right font-medium text-amber-600">COMMISSION</th>
+                      <th className="p-2 text-right font-medium text-green-700">NET P/L</th>
+                      <th className="p-2 text-right font-medium text-gray-600">NM %</th>
+                      <th className="p-2 text-right font-medium text-purple-600">₹/UNIT</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2868,41 +2934,51 @@ export default function AdminDashboard() {
                           </td>
                           <td className="p-2 text-right text-green-600 font-medium">₹{day.sales.toLocaleString()}</td>
                           <td className="p-2 text-right">{day.qty.toLocaleString()}</td>
-                          <td className="p-2 text-right text-orange-600">₹{day.purchase.toLocaleString()}</td>
-                          <td className="p-2 text-right text-red-600">{day.wastage > 0 ? `₹${day.wastage.toLocaleString()}` : '-'}</td>
+                          <td className="p-2 text-right text-red-600">₹{day.purchase.toLocaleString()}</td>
+                          <td className="p-2 text-right text-orange-600">{day.wastage > 0 ? `₹${day.wastage.toLocaleString()}` : '-'}</td>
                           <td className="p-2 text-right text-rose-600">
-                            {/* Distribute rejection proportionally by daily sales */}
-                            {customerDetailData?.totals?.rejectionShare > 0 && customerDetailData?.totals?.sales > 0 ? (
+                            {day.rejection > 0 ? (
                               <>
-                                ₹{Math.round((customerDetailData.totals.rejectionShare * day.sales / customerDetailData.totals.sales)).toLocaleString()}
+                                ₹{Math.round(day.rejection).toLocaleString()}
                                 <span className="text-[9px] ml-0.5 text-rose-400">
-                                  ({((customerDetailData.totals.rejectionShare * day.sales / customerDetailData.totals.sales) / day.sales * 100).toFixed(1)}%)
+                                  ({day.rejectionPct?.toFixed(1)}%)
                                 </span>
                               </>
                             ) : '-'}
                           </td>
-                          <td className="p-2 text-right text-amber-600">{day.commission > 0 ? `₹${day.commission.toLocaleString()}` : '-'}</td>
-                          <td className={`p-2 text-right font-semibold ${day.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                            ₹{day.grossProfit.toLocaleString()}
+                          <td className={`p-2 text-right font-semibold ${day.grossProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                            ₹{Math.round(day.grossProfit).toLocaleString()}
                           </td>
                           <td className="p-2 text-right">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                              day.grossMargin >= 30 ? 'bg-green-100 text-green-700' : 
-                              day.grossMargin >= 15 ? 'bg-blue-100 text-blue-700' :
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              day.grossMargin >= 20 ? 'bg-green-100 text-green-700' : 
                               day.grossMargin >= 0 ? 'bg-yellow-100 text-yellow-700' :
                               'bg-red-100 text-red-700'
                             }`}>
                               {day.grossMargin.toFixed(1)}%
                             </span>
                           </td>
-                          <td className={`p-2 text-right ${day.profitPerUnit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            ₹{day.profitPerUnit.toFixed(2)}
+                          <td className="p-2 text-right text-amber-600">{day.commission > 0 ? `₹${Math.round(day.commission).toLocaleString()}` : '-'}</td>
+                          <td className={`p-2 text-right font-semibold ${day.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            ₹{Math.round(day.netProfit).toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              day.netMargin >= 10 ? 'bg-green-100 text-green-700' : 
+                              day.netMargin >= 0 ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {day.netMargin.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className={`p-2 text-right ${day.profitPerUnit >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                            ₹{day.profitPerUnit.toFixed(1)}
                           </td>
                         </tr>
                         {/* Product-wise breakdown row */}
                         {expandedCustomerDates[day.date] && day.items && day.items.length > 0 && (
                           <tr className="bg-blue-50/50">
-                            <td colSpan={11} className="p-2">
+                            <td colSpan={13} className="p-2">
                               <div className="bg-white rounded border overflow-hidden">
                                 <table className="w-full text-[10px]">
                                   <thead className="bg-gray-50">

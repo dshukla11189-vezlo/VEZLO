@@ -664,26 +664,17 @@ export default function AdminDashboard() {
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
   };
 
-  if (loading) {
-    return (
-      <Layout title={t('app.dashboard')}>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
-        </div>
-      </Layout>
-    );
-  }
-
+  // Extract data from pnlData (moved before conditional return to satisfy React hooks rules)
   const summary = pnlData?.summary || {};
   const dailyPnlRaw = pnlData?.daily_pnl || [];
   // Sort by date descending (latest date on top)
-  const dailyPnl = [...dailyPnlRaw].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const dailyPnl = useMemo(() => [...dailyPnlRaw].sort((a, b) => new Date(b.date) - new Date(a.date)), [dailyPnlRaw]);
   const customerPnl = pnlData?.customer_pnl || [];
   const productPnl = pnlData?.product_pnl || [];
   const expenses = pnlData?.expenses || {};
   const purchaseByFarmer = pnlData?.purchase_by_farmer || [];
 
-  // Aggregate customer data by vertical (QC vs Retail)
+  // Aggregate customer data by vertical (QC vs Retail) - Must be before conditional return
   const verticalData = useMemo(() => {
     const qcCustomers = customerPnl.filter(c => c.type === 'QC');
     const retailCustomers = customerPnl.filter(c => c.type === 'Retail');
@@ -704,7 +695,7 @@ export default function AdminDashboard() {
     };
   }, [customerPnl]);
 
-  // Get comparison data for selected retailers
+  // Get comparison data for selected retailers - Must be before conditional return
   const comparisonData = useMemo(() => {
     if (selectedRetailers.length === 0) return [];
     return customerPnl
@@ -720,6 +711,16 @@ export default function AdminDashboard() {
         : [...prev, customerName]
     );
   };
+
+  if (loading) {
+    return (
+      <Layout title={t('app.dashboard')}>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#14532D]"></div>
+        </div>
+      </Layout>
+    );
+  }
 
   // Prepare pie chart data for expenses
   const variableExpenseData = Object.entries(expenses.variable_by_category || {}).map(([name, value]) => ({

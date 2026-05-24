@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -16,6 +16,69 @@ import {
   ShoppingCart
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+// Lazy loading image component - only loads image when visible in viewport
+const LazyImage = ({ src, alt, className, onError, onClick }) => {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef(null);
+  
+  useEffect(() => {
+    if (!src) return;
+    
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' } // Start loading 100px before entering viewport
+    );
+    
+    if (imgRef.current) {
+      observer.observe(imgRef.current);
+    }
+    
+    return () => observer.disconnect();
+  }, [src]);
+  
+  const handleLoad = () => setIsLoaded(true);
+  const handleError = (e) => {
+    setHasError(true);
+    if (onError) onError(e);
+  };
+  
+  if (!src || hasError) {
+    return (
+      <div className={`${className} bg-gray-100 rounded border flex items-center justify-center`} onClick={onClick}>
+        <ImageIcon size={16} className="text-gray-400" />
+      </div>
+    );
+  }
+  
+  return (
+    <div ref={imgRef} className="relative" onClick={onClick}>
+      {!isLoaded && (
+        <div className={`${className} bg-gray-100 rounded border flex items-center justify-center animate-pulse`}>
+          <ImageIcon size={16} className="text-gray-300" />
+        </div>
+      )}
+      {isVisible && (
+        <img
+          src={src}
+          alt={alt}
+          className={`${className} ${isLoaded ? '' : 'absolute opacity-0'}`}
+          onLoad={handleLoad}
+          onError={handleError}
+          loading="eager"
+          decoding="async"
+        />
+      )}
+    </div>
+  );
+};
 
 export default function RetailerDashboard() {
   const { t, i18n } = useTranslation();
@@ -238,19 +301,42 @@ export default function RetailerDashboard() {
       const filteredCatalogue = (catalogueRes.data || []).filter(item => item.show_on_portal !== false);
       setCatalogue(filteredCatalogue);
       
-      // Preload all product images immediately in the background
-      const preloadImages = () => {
-        filteredCatalogue.forEach(item => {
-          if (item.image_url) {
-            const imageUrl = item.image_url.startsWith('/') 
-              ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
-              : item.image_url;
-            const img = new Image();
-            img.src = imageUrl;
+      // Preload images in batches to prevent browser crash
+      // This loads 5 images at a time with a small delay between batches
+      const preloadImagesInBatches = async () => {
+        const itemsWithImages = filteredCatalogue.filter(item => item.image_url);
+        const BATCH_SIZE = 5; // Load 5 images at a time
+        const BATCH_DELAY = 100; // 100ms delay between batches
+        
+        for (let i = 0; i < itemsWithImages.length; i += BATCH_SIZE) {
+          const batch = itemsWithImages.slice(i, i + BATCH_SIZE);
+          
+          // Load batch of images with error handling
+          await Promise.allSettled(
+            batch.map(item => {
+              return new Promise((resolve) => {
+                const imageUrl = item.image_url.startsWith('/') 
+                  ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
+                  : item.image_url;
+                const img = new Image();
+                img.onload = () => resolve();
+                img.onerror = () => resolve(); // Don't fail on error, just continue
+                img.src = imageUrl;
+                // Timeout after 5 seconds to prevent hanging
+                setTimeout(resolve, 5000);
+              });
+            })
+          );
+          
+          // Small delay before next batch to prevent overwhelming the browser
+          if (i + BATCH_SIZE < itemsWithImages.length) {
+            await new Promise(r => setTimeout(r, BATCH_DELAY));
           }
-        });
+        }
       };
-      preloadImages();
+      
+      // Start preloading in background (don't await - let it run async)
+      preloadImagesInBatches().catch(err => console.log('Image preload error:', err));
       
       // Set MRP data
       setMrpData(mrpRes.data?.mrp_data || {});
@@ -2628,9 +2714,11 @@ export default function RetailerDashboard() {
                             return (
                             <div key={item.product_id} className="p-3 hover:bg-gray-50">
                               <div className="flex items-center gap-3">
-                                {/* Product Image - Clickable to enlarge */}
-                                <div 
-                                  className={`w-12 h-12 flex-shrink-0 ${productImageUrl ? 'cursor-pointer' : ''}`}
+                                {/* Product Image - Lazy loaded, clickable to enlarge */}
+                                <LazyImage
+                                  src={productImageUrl}
+                                  alt={item.product_name}
+                                  className="w-12 h-12 object-cover rounded border hover:opacity-80 transition-opacity cursor-pointer"
                                   onClick={() => {
                                     if (productImageUrl) {
                                       const displayName = catalogueLanguage === 'hi' && item.product_name_hi 
@@ -2641,21 +2729,7 @@ export default function RetailerDashboard() {
                                       setEnlargedImage({ url: productImageUrl, name: displayName });
                                     }
                                   }}
-                                >
-                                  {productImageUrl ? (
-                                    <img
-                                      src={productImageUrl}
-                                      alt={item.product_name}
-                                      loading="eager"
-                                      decoding="async"
-                                      className="w-12 h-12 object-cover rounded border hover:opacity-80 transition-opacity"
-                                      onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                                    />
-                                  ) : null}
-                                  <div className={`w-12 h-12 bg-gray-100 rounded border items-center justify-center ${productImageUrl ? 'hidden' : 'flex'}`}>
-                                    <ImageIcon size={16} className="text-gray-400" />
-                                  </div>
-                                </div>
+                                />
 
                                 {/* Product Info */}
                                 <div className="flex-1 min-w-0">
@@ -2856,21 +2930,11 @@ export default function RetailerDashboard() {
                     return (
                     <div key={key} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       {/* Product Image */}
-                      <div className="w-12 h-12 flex-shrink-0">
-                        {cartImageUrl ? (
-                          <img
-                            src={cartImageUrl}
-                            alt={item.product_name}
-                            loading="eager"
-                            decoding="async"
-                            className="w-12 h-12 object-cover rounded"
-                            onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                          />
-                        ) : null}
-                        <div className={`w-12 h-12 bg-gray-200 rounded items-center justify-center ${cartImageUrl ? 'hidden' : 'flex'}`}>
-                          <Package size={16} className="text-gray-400" />
-                        </div>
-                      </div>
+                      <LazyImage
+                        src={cartImageUrl}
+                        alt={item.product_name}
+                        className="w-12 h-12 object-cover rounded flex-shrink-0"
+                      />
 
                       {/* Product Info */}
                       <div className="flex-1 min-w-0">

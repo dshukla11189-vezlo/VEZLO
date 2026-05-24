@@ -3,6 +3,21 @@
 ## Changelog (May 2025)
 
 ### May 24, 2025
+- **FEATURE**: Product-Level Rejection Analysis Deep Dive ✅
+  - **Split "Highest Single Rejection" Block**:
+    - Left side: Shows highest single rejection (product, shop, date, value, reason)
+    - Right side: "Product Deep Dive" with dropdown selector + View button
+  - **New Product Drilldown Modal** (select any product):
+    - **Summary Row**: Supplied Qty, Supplied Value, Rejected Qty, Rejection Loss
+    - **Rejection % Cards**:
+      - By Count: Rejected Qty / Supplied Qty (e.g., 70.0% = 7/10)
+      - By Value: Rejection Value / Supplied Value (e.g., 67.4% = ₹155/₹230)
+    - **Rejection % by Shop**: Ranked list showing which shops reject this product most
+    - **Rejection Reasons**: Breakdown by reason (Damaged, Rotten, etc.)
+    - **Rejection by Day of Week**: Visual bar chart
+    - **Rejection by Date**: Expandable rows showing daily breakdown with details
+  - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 - **FEATURE**: Enhanced Rejection Analytics with Proper % Calculations and Expandable Dates ✅
   - **Fixed Rejection % Calculation**:
     - Now properly loads ALL dispatches within the rejection date range (not just single-day filter)

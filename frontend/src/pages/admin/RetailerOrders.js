@@ -216,6 +216,8 @@ export default function RetailerOrders() {
   const [rejectionRetailerDrilldown, setRejectionRetailerDrilldown] = useState(null); // For retailer-specific drill-down
   const [allDispatchesForRejection, setAllDispatchesForRejection] = useState([]); // All dispatches for rejection % calc
   const [loadingRejectionDispatches, setLoadingRejectionDispatches] = useState(false);
+  const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState(''); // Selected product for drilldown
+  const [rejectionProductDrilldown, setRejectionProductDrilldown] = useState(null); // Product drilldown modal data
   
   // Closing Inventory Management (Admin)
   const [closingInventoryData, setClosingInventoryData] = useState([]);
@@ -7669,27 +7671,154 @@ export default function RetailerOrders() {
                       </div>
                     </div>
                     
-                    {/* Max Single Rejection Highlight */}
-                    {rejectionAnalytics.maxSingleRejection && (
-                      <div className="bg-gradient-to-r from-red-100 to-orange-100 rounded-lg p-3 mb-6 border border-red-200">
-                        <p className="text-xs text-red-600 font-semibold uppercase mb-1">⚠️ Highest Single Rejection</p>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <p className="font-semibold text-red-800">{rejectionAnalytics.maxSingleRejection.product_name}</p>
-                            <p className="text-xs text-red-600">
-                              {rejectionAnalytics.maxSingleRejection.shop_name} • {formatDate(rejectionAnalytics.maxSingleRejection.rejection_date)}
-                            </p>
+                    {/* Max Single Rejection + Product Analysis Selector */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      {/* Left: Highest Single Rejection */}
+                      {rejectionAnalytics.maxSingleRejection && (
+                        <div className="bg-gradient-to-r from-red-100 to-orange-100 rounded-lg p-3 border border-red-200">
+                          <p className="text-xs text-red-600 font-semibold uppercase mb-2">⚠️ Highest Single Rejection</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-semibold text-red-800">{rejectionAnalytics.maxSingleRejection.product_name}</p>
+                              <p className="text-xs text-red-600">
+                                {rejectionAnalytics.maxSingleRejection.shop_name} • {formatDate(rejectionAnalytics.maxSingleRejection.rejection_date)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-red-700">{formatCurrency(rejectionAnalytics.maxSingleRejection.rejection_value)}</p>
+                              <p className="text-xs text-red-500">{rejectionAnalytics.maxSingleRejection.quantity} items</p>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-red-700">{formatCurrency(rejectionAnalytics.maxSingleRejection.rejection_value)}</p>
-                            <p className="text-xs text-red-500">{rejectionAnalytics.maxSingleRejection.quantity} items</p>
-                          </div>
+                          {rejectionAnalytics.maxSingleRejection.reason && (
+                            <p className="text-xs text-red-600 mt-1 italic">Reason: {rejectionAnalytics.maxSingleRejection.reason}</p>
+                          )}
                         </div>
-                        {rejectionAnalytics.maxSingleRejection.reason && (
-                          <p className="text-xs text-red-600 mt-1 italic">Reason: {rejectionAnalytics.maxSingleRejection.reason}</p>
-                        )}
+                      )}
+                      
+                      {/* Right: Product Analysis Selector */}
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border border-blue-200">
+                        <p className="text-xs text-blue-600 font-semibold uppercase mb-2">🔍 Product Deep Dive</p>
+                        <p className="text-xs text-gray-600 mb-2">Select a product to see detailed rejection analysis</p>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={selectedProductForAnalysis}
+                            onChange={(e) => setSelectedProductForAnalysis(e.target.value)}
+                            className="flex-1 h-9 text-sm border border-blue-200 rounded-lg px-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          >
+                            <option value="">-- Select Product --</option>
+                            {rejectionAnalytics.byProductCount.map((p, idx) => (
+                              <option key={idx} value={p.name}>{p.name} ({p.rejPctByCount.toFixed(1)}%)</option>
+                            ))}
+                          </select>
+                          <Button
+                            size="sm"
+                            disabled={!selectedProductForAnalysis}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const product = rejectionAnalytics.byProductCount.find(p => p.name === selectedProductForAnalysis);
+                              if (product) {
+                                // Build product drilldown data
+                                const productRejections = rejectionAnalytics.filteredRejections.filter(r => r.product_name === selectedProductForAnalysis);
+                                const suppliedQty = rejectionAnalytics.productDispatchMap?.[selectedProductForAnalysis]?.qty || 0;
+                                const suppliedValue = rejectionAnalytics.productDispatchMap?.[selectedProductForAnalysis]?.value || 0;
+                                
+                                // By retailer
+                                const byRetailer = {};
+                                productRejections.forEach(r => {
+                                  const shopName = rejectionAnalytics.retailerCompanyMap?.[r.retailer_id] || r.retailer_name || 'Unknown';
+                                  if (!byRetailer[shopName]) {
+                                    byRetailer[shopName] = { name: shopName, qty: 0, value: 0, count: 0, suppliedQty: 0 };
+                                  }
+                                  byRetailer[shopName].qty += (r.quantity || 0);
+                                  byRetailer[shopName].value += (r.rejection_value || 0);
+                                  byRetailer[shopName].count += 1;
+                                });
+                                
+                                // Get supplied qty per retailer from dispatches
+                                (allDispatchesForRejection || []).forEach(d => {
+                                  const shopName = rejectionAnalytics.retailerCompanyMap?.[d.retailer_id] || d.retailer_name || 'Unknown';
+                                  (d.items || []).forEach(item => {
+                                    if (item.product_name === selectedProductForAnalysis) {
+                                      if (!byRetailer[shopName]) {
+                                        byRetailer[shopName] = { name: shopName, qty: 0, value: 0, count: 0, suppliedQty: 0 };
+                                      }
+                                      byRetailer[shopName].suppliedQty += (item.supplied_qty || item.dispatched_qty || item.quantity || 0);
+                                    }
+                                  });
+                                });
+                                
+                                const byRetailerList = Object.values(byRetailer)
+                                  .map(r => ({
+                                    ...r,
+                                    rejPct: r.suppliedQty > 0 ? (r.qty / r.suppliedQty * 100) : (r.qty > 0 ? 100 : 0)
+                                  }))
+                                  .filter(r => r.qty > 0 || r.suppliedQty > 0)
+                                  .sort((a, b) => b.rejPct - a.rejPct);
+                                
+                                // By date
+                                const byDate = {};
+                                productRejections.forEach(r => {
+                                  const date = r.rejection_date?.split('T')[0] || 'Unknown';
+                                  if (!byDate[date]) {
+                                    byDate[date] = { date, qty: 0, value: 0, count: 0, rejections: [] };
+                                  }
+                                  byDate[date].qty += (r.quantity || 0);
+                                  byDate[date].value += (r.rejection_value || 0);
+                                  byDate[date].count += 1;
+                                  byDate[date].rejections.push(r);
+                                });
+                                const byDateList = Object.values(byDate).sort((a, b) => b.date.localeCompare(a.date));
+                                
+                                // By day of week
+                                const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                                const byDay = dayNames.map(d => ({ day: d, qty: 0, value: 0 }));
+                                productRejections.forEach(r => {
+                                  const date = r.rejection_date?.split('T')[0];
+                                  if (date) {
+                                    const dayIndex = new Date(date).getDay();
+                                    byDay[dayIndex].qty += (r.quantity || 0);
+                                    byDay[dayIndex].value += (r.rejection_value || 0);
+                                  }
+                                });
+                                
+                                // By reason
+                                const byReason = {};
+                                productRejections.forEach(r => {
+                                  const reason = r.reason || 'No reason';
+                                  if (!byReason[reason]) {
+                                    byReason[reason] = { reason, qty: 0, value: 0, count: 0 };
+                                  }
+                                  byReason[reason].qty += (r.quantity || 0);
+                                  byReason[reason].value += (r.rejection_value || 0);
+                                  byReason[reason].count += 1;
+                                });
+                                const byReasonList = Object.values(byReason).sort((a, b) => b.value - a.value);
+                                
+                                setRejectionProductDrilldown({
+                                  productName: selectedProductForAnalysis,
+                                  suppliedQty,
+                                  suppliedValue,
+                                  rejectedQty: product.qty,
+                                  rejectedValue: product.value,
+                                  rejPctByCount: product.rejPctByCount,
+                                  rejPctByValue: product.rejPctByValue,
+                                  totalRejections: productRejections.length,
+                                  byRetailer: byRetailerList,
+                                  byDate: byDateList,
+                                  byDay,
+                                  byReason: byReasonList,
+                                  rejections: productRejections
+                                });
+                              }
+                            }}
+                            className="h-9 bg-blue-600 hover:bg-blue-700 text-white"
+                          >
+                            <Eye size={14} className="mr-1" />
+                            View
+                          </Button>
+                        </div>
                       </div>
-                    )}
+                    </div>
                     
                     {/* Analytics Sections */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -8071,6 +8200,230 @@ export default function RetailerOrders() {
                     </>
                   );
                 })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PRODUCT REJECTION DRILL-DOWN ==================== */}
+        {rejectionProductDrilldown && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setRejectionProductDrilldown(null)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setRejectionProductDrilldown(null)}
+                      className="p-1 hover:bg-white/20 rounded transition-colors"
+                    >
+                      <ChevronRight size={20} className="rotate-180" />
+                    </button>
+                    <div>
+                      <h3 className="text-lg font-bold">{rejectionProductDrilldown.productName}</h3>
+                      <p className="text-xs text-blue-100">
+                        Product Rejection Analysis • {rejectionProductDrilldown.totalRejections} rejections in period
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setRejectionProductDrilldown(null)} className="p-2 hover:bg-white/20 rounded-lg transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Body */}
+              <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 80px)' }}>
+                {/* Summary Cards - Row 1 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 text-center">
+                    <p className="text-[10px] text-blue-500 uppercase font-medium">Supplied Qty</p>
+                    <p className="text-xl font-bold text-blue-700">{rejectionProductDrilldown.suppliedQty.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 border border-green-200 text-center">
+                    <p className="text-[10px] text-green-500 uppercase font-medium">Supplied Value</p>
+                    <p className="text-xl font-bold text-green-700">{formatCurrency(rejectionProductDrilldown.suppliedValue)}</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-3 border border-red-200 text-center">
+                    <p className="text-[10px] text-red-500 uppercase font-medium">Rejected Qty</p>
+                    <p className="text-xl font-bold text-red-700">{rejectionProductDrilldown.rejectedQty.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3 border border-orange-200 text-center">
+                    <p className="text-[10px] text-orange-500 uppercase font-medium">Rejection Loss</p>
+                    <p className="text-xl font-bold text-orange-700">{formatCurrency(rejectionProductDrilldown.rejectedValue)}</p>
+                  </div>
+                </div>
+                
+                {/* Rejection % Cards */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-gradient-to-r from-red-100 to-red-50 rounded-lg p-4 border border-red-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-red-600 uppercase font-semibold">Rejection % (by Count)</p>
+                        <p className="text-xs text-gray-500 mt-1">Rejected Qty / Supplied Qty</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-3xl font-bold text-red-600">{rejectionProductDrilldown.rejPctByCount.toFixed(1)}%</p>
+                        <p className="text-xs text-red-500">{rejectionProductDrilldown.rejectedQty} / {rejectionProductDrilldown.suppliedQty}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gradient-to-r from-orange-100 to-orange-50 rounded-lg p-4 border border-orange-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-orange-600 uppercase font-semibold">Rejection % (by Value)</p>
+                        <p className="text-xs text-gray-500 mt-1">Rej Value / Supplied Value</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-3xl font-bold text-orange-600">{rejectionProductDrilldown.rejPctByValue.toFixed(1)}%</p>
+                        <p className="text-xs text-orange-500">{formatCurrency(rejectionProductDrilldown.rejectedValue)} / {formatCurrency(rejectionProductDrilldown.suppliedValue)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Analytics Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {/* By Retailer */}
+                  <div className="bg-gray-50 rounded-lg p-3 border">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                      <ShoppingCart size={14} className="text-indigo-500" />
+                      Rejection % by Shop (Highest First)
+                    </h4>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {rejectionProductDrilldown.byRetailer.slice(0, 10).map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                              {idx + 1}
+                            </span>
+                            <span className="font-medium text-gray-800 truncate max-w-[100px]" title={item.name}>{item.name}</span>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-red-600">{item.rejPct.toFixed(1)}%</p>
+                            <p className="text-[10px] text-gray-500">{item.qty} / {item.suppliedQty} qty</p>
+                          </div>
+                        </div>
+                      ))}
+                      {rejectionProductDrilldown.byRetailer.length === 0 && (
+                        <p className="text-sm text-gray-500 text-center py-2">No retailer data</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* By Reason */}
+                  <div className="bg-gray-50 rounded-lg p-3 border">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                      <FileText size={14} className="text-indigo-500" />
+                      Rejection Reasons
+                    </h4>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {rejectionProductDrilldown.byReason.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                          <span className="font-medium text-gray-700">{item.reason}</span>
+                          <div className="text-right">
+                            <p className="font-semibold text-red-600">{formatCurrency(item.value)}</p>
+                            <p className="text-xs text-gray-500">{item.qty} qty • {item.count} times</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Day of Week Chart */}
+                <div className="bg-gray-50 rounded-lg p-3 border mb-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                    <Clock size={14} className="text-indigo-500" />
+                    Rejection by Day of Week
+                  </h4>
+                  <div className="grid grid-cols-7 gap-2">
+                    {rejectionProductDrilldown.byDay.map((item, idx) => {
+                      const maxValue = Math.max(...rejectionProductDrilldown.byDay.map(d => d.value));
+                      const pct = maxValue > 0 ? (item.value / maxValue * 100) : 0;
+                      return (
+                        <div key={idx} className="text-center">
+                          <div className="text-[10px] text-gray-500 mb-1">{item.day.slice(0, 3)}</div>
+                          <div className="h-16 bg-gray-200 rounded relative flex items-end justify-center">
+                            <div 
+                              className="w-full bg-gradient-to-t from-indigo-500 to-indigo-300 rounded transition-all absolute bottom-0"
+                              style={{ height: `${Math.max(pct, 5)}%` }}
+                            />
+                          </div>
+                          <div className="text-[9px] font-medium text-indigo-600 mt-1">{item.qty} qty</div>
+                          <div className="text-[8px] text-gray-500">{formatCurrency(item.value)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Date-wise Breakdown */}
+                <div className="bg-gray-50 rounded-lg p-3 border">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                    <Calendar size={14} className="text-indigo-500" />
+                    Rejection by Date (Latest First)
+                  </h4>
+                  <div className="space-y-1 max-h-60 overflow-y-auto">
+                    {rejectionProductDrilldown.byDate.map((item, idx) => {
+                      const dayName = new Date(item.date).toLocaleDateString('en-IN', { weekday: 'short' });
+                      const isExpanded = expandedRejectionDates[`product_${item.date}`];
+                      return (
+                        <div key={idx} className="bg-white rounded border">
+                          <div 
+                            className="flex items-center justify-between p-2 cursor-pointer hover:bg-indigo-50 transition-colors"
+                            onClick={() => setExpandedRejectionDates(prev => ({
+                              ...prev,
+                              [`product_${item.date}`]: !prev[`product_${item.date}`]
+                            }))}
+                          >
+                            <div className="flex items-center gap-3">
+                              <ChevronRight size={14} className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                              <span className="font-medium text-gray-800">{formatDate(item.date)}</span>
+                              <span className="text-xs text-gray-500">{dayName}</span>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="text-gray-500">{item.count} items</span>
+                              <span className="text-gray-500">{item.qty} qty</span>
+                              <span className="font-semibold text-red-600">{formatCurrency(item.value)}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Expanded Details */}
+                          {isExpanded && item.rejections && (
+                            <div className="border-t bg-indigo-50/50 p-2">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-gray-600">
+                                    <th className="p-1 text-left">Shop</th>
+                                    <th className="p-1 text-center">Qty</th>
+                                    <th className="p-1 text-left">Reason</th>
+                                    <th className="p-1 text-right">Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {item.rejections.map((rej, rejIdx) => (
+                                    <tr key={rejIdx} className={`${rejIdx % 2 === 0 ? 'bg-white/50' : ''}`}>
+                                      <td className="p-1 font-medium truncate max-w-[120px]" title={rejectionAnalytics.retailerCompanyMap?.[rej.retailer_id] || rej.retailer_name}>
+                                        {rejectionAnalytics.retailerCompanyMap?.[rej.retailer_id] || rej.retailer_name}
+                                      </td>
+                                      <td className="p-1 text-center">{rej.quantity}</td>
+                                      <td className="p-1 text-gray-500">{rej.reason || '-'}</td>
+                                      <td className="p-1 text-right font-medium text-red-600">{formatCurrency(rej.rejection_value)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {rejectionProductDrilldown.byDate.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-4">No date data available</p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

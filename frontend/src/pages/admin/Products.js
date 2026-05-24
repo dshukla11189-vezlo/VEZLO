@@ -8,58 +8,143 @@ import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers, ImageIcon, Upload, X, ChevronRight, Check, Save } from 'lucide-react';
 
-// Catalogue Product Row Component - For editing variants
+// Searchable Weight Multi-Select Component
+const WeightMultiSelect = ({ selectedWeights, onChange, packagingVariants }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const filteredVariants = packagingVariants.filter(pkg => 
+    pkg.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+  const toggleWeight = (weightId) => {
+    const newWeights = selectedWeights.includes(weightId)
+      ? selectedWeights.filter(id => id !== weightId)
+      : [...selectedWeights, weightId];
+    onChange(newWeights);
+  };
+  
+  const removeWeight = (weightId, e) => {
+    e.stopPropagation();
+    onChange(selectedWeights.filter(id => id !== weightId));
+  };
+  
+  return (
+    <div className="relative">
+      <div 
+        className="min-h-[28px] px-2 py-1 text-xs rounded border border-gray-300 bg-white cursor-pointer flex flex-wrap gap-1 items-center"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        {selectedWeights.length === 0 ? (
+          <span className="text-gray-400">Type to search weights...</span>
+        ) : (
+          selectedWeights.map(wid => {
+            const pkg = packagingVariants.find(p => p.id === wid);
+            return pkg ? (
+              <span key={wid} className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] flex items-center gap-1">
+                {pkg.name}
+                <X size={10} className="cursor-pointer hover:text-purple-900" onClick={(e) => removeWeight(wid, e)} />
+              </span>
+            ) : null;
+          })
+        )}
+      </div>
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-hidden">
+          <div className="p-2 border-b">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search weights..."
+              className="w-full h-7 px-2 text-xs rounded border border-gray-200 focus:border-purple-400 focus:outline-none"
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+            />
+          </div>
+          <div className="max-h-32 overflow-y-auto">
+            {filteredVariants.length === 0 ? (
+              <div className="p-2 text-xs text-gray-400 text-center">No matches found</div>
+            ) : (
+              filteredVariants.map(pkg => (
+                <div
+                  key={pkg.id}
+                  className={`px-3 py-1.5 text-xs cursor-pointer flex items-center justify-between hover:bg-purple-50 ${
+                    selectedWeights.includes(pkg.id) ? 'bg-purple-100' : ''
+                  }`}
+                  onClick={(e) => { e.stopPropagation(); toggleWeight(pkg.id); }}
+                >
+                  <span>{pkg.name} <span className="text-gray-400">({pkg.weight_gm}gm)</span></span>
+                  {selectedWeights.includes(pkg.id) && <Check size={12} className="text-purple-600" />}
+                </div>
+              ))
+            )}
+          </div>
+          <div className="p-2 border-t bg-gray-50">
+            <button 
+              className="w-full text-xs text-gray-500 hover:text-gray-700"
+              onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Catalogue Product Row Component - For editing variants (Bulk Edit Mode)
 const CatalogueProductRow = ({ 
   product, 
   index, 
   catalogueItem, 
-  isEditing, 
-  isSaving,
+  isEditMode,
   packagingVariants,
   units, 
-  getVariantNames,
-  onEdit, 
-  onSave, 
-  onCancel, 
+  editedData,
+  onDataChange,
   onRemove,
   onToggleVisibility
 }) => {
-  const [selectedVariants, setSelectedVariants] = useState(catalogueItem?.variants || []);
-  const [purchaseUnit, setPurchaseUnit] = useState(catalogueItem?.purchase_unit || '');
-  const [purchaseWeightVariant, setPurchaseWeightVariant] = useState(catalogueItem?.purchase_weight_variant || '');
-  
-  // Get retail-only packaging variants for weight dropdown
-  const retailPackagingVariants = packagingVariants.filter(v => {
+  // Get retail-only packaging variants
+  const retailPackagingVariants = useMemo(() => packagingVariants.filter(v => {
     const verticals = v.verticals;
     if (!verticals) return true;
     if (Array.isArray(verticals)) {
       return verticals.includes('retail') || verticals.includes('both') || verticals.length === 0;
     }
     return verticals === 'retail' || verticals === 'both';
-  });
-  
-  // Reset selected variants when editing state changes
-  React.useEffect(() => {
-    if (isEditing) {
-      setSelectedVariants(catalogueItem?.variants || []);
-      setPurchaseUnit(catalogueItem?.purchase_unit || '');
-      setPurchaseWeightVariant(catalogueItem?.purchase_weight_variant || '');
-    }
-  }, [isEditing, catalogueItem]);
-
-  const toggleVariant = (variantId) => {
-    setSelectedVariants(prev => 
-      prev.includes(variantId) 
-        ? prev.filter(id => id !== variantId)
-        : [...prev, variantId]
-    );
-  };
+  }), [packagingVariants]);
 
   const isInCatalogue = !!catalogueItem;
-  const isVisible = catalogueItem?.show_on_portal !== false; // Default to true if not set
+  const isVisible = catalogueItem?.show_on_portal !== false;
+  
+  // Get current values (from editedData if editing, else from catalogueItem)
+  const currentData = editedData || {
+    purchase_unit: catalogueItem?.purchase_unit || '',
+    purchase_weights: catalogueItem?.purchase_weights || (catalogueItem?.purchase_weight_variant ? [catalogueItem.purchase_weight_variant] : []),
+    variants: catalogueItem?.variants || []
+  };
+  
+  // Handle purchase weight changes - auto-sync to Customer Display Variant
+  const handleWeightsChange = (newWeights) => {
+    onDataChange(product.id, {
+      ...currentData,
+      purchase_weights: newWeights,
+      variants: newWeights // Auto-sync: Customer Display Variant = Purchase Variant weights
+    });
+  };
+  
+  const handleUnitChange = (newUnit) => {
+    onDataChange(product.id, {
+      ...currentData,
+      purchase_unit: newUnit
+    });
+  };
 
   return (
-    <tr className={`border-b hover:bg-gray-50 ${isInCatalogue ? 'bg-teal-50/30' : ''}`}>
+    <tr className={`border-b hover:bg-gray-50 ${isInCatalogue ? 'bg-teal-50/30' : ''} ${editedData ? 'bg-yellow-50/50' : ''}`}>
       {/* S.No */}
       <td className="px-4 py-2 text-gray-500">{index + 1}</td>
       
@@ -80,38 +165,18 @@ const CatalogueProductRow = ({
       
       {/* Product Name */}
       <td className="px-4 py-2">
-        <div>
+        <div className="flex items-center gap-2">
           <span className="font-medium text-gray-800">{product.name}</span>
+          {editedData && <span className="text-[10px] px-1.5 py-0.5 bg-yellow-200 text-yellow-800 rounded">Modified</span>}
         </div>
       </td>
       
-      {/* Variants */}
+      {/* Customer Display Variant (auto-populated from Purchase Variant weights) */}
       <td className="px-4 py-2">
-        {isEditing ? (
-          <div className="flex flex-wrap gap-1.5 max-w-md">
-            {retailPackagingVariants
-              .map(variant => (
-                <button
-                  key={variant.id}
-                  type="button"
-                  onClick={() => toggleVariant(variant.id)}
-                  className={`px-2 py-1 text-xs rounded border transition-colors ${
-                    selectedVariants.includes(variant.id)
-                      ? 'bg-teal-500 text-white border-teal-500'
-                      : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
-                  }`}
-                >
-                  {variant.name}
-                  {selectedVariants.includes(variant.id) && (
-                    <Check size={10} className="inline ml-1" />
-                  )}
-                </button>
-              ))}
-          </div>
-        ) : isInCatalogue ? (
+        {isInCatalogue || editedData ? (
           <div className="flex flex-wrap gap-1">
-            {catalogueItem.variants?.length > 0 ? (
-              catalogueItem.variants.map(variantId => {
+            {(currentData.variants?.length > 0) ? (
+              currentData.variants.map(variantId => {
                 const variant = packagingVariants.find(v => v.id === variantId);
                 return variant ? (
                   <span key={variantId} className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded">
@@ -120,7 +185,7 @@ const CatalogueProductRow = ({
                 ) : null;
               })
             ) : (
-              <span className="text-xs text-orange-500">No variants selected</span>
+              <span className="text-xs text-gray-400 italic">Set Purchase Variant →</span>
             )}
           </div>
         ) : (
@@ -128,14 +193,14 @@ const CatalogueProductRow = ({
         )}
       </td>
       
-      {/* Purchase Variant - Unit + Weight */}
-      <td className="px-4 py-2">
-        {isEditing ? (
+      {/* Purchase Variant - Unit + Multiple Weights */}
+      <td className="px-4 py-2 min-w-[200px]">
+        {isEditMode && (isInCatalogue || editedData) ? (
           <div className="flex flex-col gap-1.5">
             {/* Unit Dropdown */}
             <select
-              value={purchaseUnit}
-              onChange={(e) => setPurchaseUnit(e.target.value)}
+              value={currentData.purchase_unit}
+              onChange={(e) => handleUnitChange(e.target.value)}
               className="w-full h-7 px-2 text-xs rounded border border-gray-300 focus:border-teal-400 focus:ring-1 focus:ring-teal-400"
             >
               <option value="">-- Select Unit --</option>
@@ -143,17 +208,12 @@ const CatalogueProductRow = ({
                 <option key={unit.id} value={unit.name}>{unit.name} ({unit.symbol})</option>
               ))}
             </select>
-            {/* Weight Dropdown from Retail Packaging */}
-            <select
-              value={purchaseWeightVariant}
-              onChange={(e) => setPurchaseWeightVariant(e.target.value)}
-              className="w-full h-7 px-2 text-xs rounded border border-gray-300 focus:border-teal-400 focus:ring-1 focus:ring-teal-400"
-            >
-              <option value="">-- Select Weight --</option>
-              {retailPackagingVariants.map(pkg => (
-                <option key={pkg.id} value={pkg.id}>{pkg.name} ({pkg.weight_gm}gm)</option>
-              ))}
-            </select>
+            {/* Searchable Multi-Select for Weights */}
+            <WeightMultiSelect
+              selectedWeights={currentData.purchase_weights}
+              onChange={handleWeightsChange}
+              packagingVariants={retailPackagingVariants}
+            />
           </div>
         ) : isInCatalogue ? (
           <div className="flex flex-col gap-0.5">
@@ -162,11 +222,16 @@ const CatalogueProductRow = ({
                 <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded inline-block">
                   {catalogueItem.purchase_unit}
                 </span>
-                {catalogueItem.purchase_weight_variant && (
-                  <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded inline-block">
-                    {packagingVariants.find(p => p.id === catalogueItem.purchase_weight_variant)?.name || '-'}
-                  </span>
-                )}
+                <div className="flex flex-wrap gap-0.5">
+                  {(catalogueItem.purchase_weights || (catalogueItem.purchase_weight_variant ? [catalogueItem.purchase_weight_variant] : [])).map(wid => {
+                    const pkg = packagingVariants.find(p => p.id === wid);
+                    return pkg ? (
+                      <span key={wid} className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded inline-block">
+                        {pkg.name}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
               </>
             ) : (
               <span className="text-xs text-gray-400">Not set</span>
@@ -179,7 +244,7 @@ const CatalogueProductRow = ({
       
       {/* Show on Retailer Portal */}
       <td className="px-4 py-2 text-center">
-        {isInCatalogue ? (
+        {isInCatalogue || editedData ? (
           <label className="flex items-center justify-center cursor-pointer">
             <input
               type="checkbox"
@@ -195,59 +260,22 @@ const CatalogueProductRow = ({
       
       {/* Actions */}
       <td className="px-4 py-2 text-center">
-        {isEditing ? (
-          <div className="flex justify-center gap-1">
-            <Button
-              size="sm"
-              className="h-7 px-2 bg-teal-600 hover:bg-teal-700"
-              onClick={() => onSave(selectedVariants, purchaseUnit, purchaseWeightVariant)}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <span className="animate-spin">⏳</span>
-              ) : (
-                <>
-                  <Save size={12} className="mr-1" /> Save
-                </>
-              )}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2"
-              onClick={onCancel}
-              disabled={isSaving}
-            >
-              Cancel
-            </Button>
-          </div>
-        ) : isInCatalogue ? (
-          <div className="flex justify-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
-              onClick={onEdit}
-              title="Edit variants"
-            >
-              <Edit size={14} />
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-              onClick={onRemove}
-              title="Remove from catalogue"
-            >
-              <Trash size={14} />
-            </Button>
-          </div>
+        {isInCatalogue ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+            onClick={onRemove}
+            title="Remove from catalogue"
+          >
+            <Trash size={14} />
+          </Button>
         ) : (
           <Button
             size="sm"
             variant="outline"
             className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50"
-            onClick={onEdit}
+            onClick={() => onDataChange(product.id, { purchase_unit: '', purchase_weights: [], variants: [] })}
           >
             <Plus size={12} className="mr-1" /> Add
           </Button>
@@ -309,8 +337,9 @@ export default function Products() {
   const [catalogueItems, setCatalogueItems] = useState([]);
   const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({});
-  const [editingCatalogueItem, setEditingCatalogueItem] = useState(null);
-  const [catalogueSaving, setCatalogueSaving] = useState({});
+  const [catalogueEditMode, setCatalogueEditMode] = useState(false);
+  const [editedCatalogueData, setEditedCatalogueData] = useState({}); // productId -> { purchase_unit, purchase_weights, variants }
+  const [catalogueSaving, setCatalogueSaving] = useState(false);
   const [autoTranslating, setAutoTranslating] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -626,30 +655,72 @@ export default function Products() {
     }));
   };
 
-  // Save catalogue item (add or update)
-  const saveCatalogueItem = async (product, selectedVariants, purchaseUnit = '', purchaseWeightVariant = '') => {
-    setCatalogueSaving(prev => ({ ...prev, [product.id]: true }));
-    try {
-      await api.post('/api/retailer-catalogue', {
-        product_id: product.id,
-        product_name: product.name,
-        product_name_hi: product.name_hi || '',
-        product_name_mr: product.name_mr || '',
-        category: product.category || '',
-        image_url: product.image_url || '',
-        variants: selectedVariants,
-        purchase_unit: purchaseUnit,
-        purchase_weight_variant: purchaseWeightVariant,
-        is_active: true
-      });
-      toast.success(`${product.name} saved to catalogue`);
-      loadCatalogue();
-      setEditingCatalogueItem(null);
-    } catch (error) {
-      toast.error('Failed to save catalogue item');
-    } finally {
-      setCatalogueSaving(prev => ({ ...prev, [product.id]: false }));
+  // Handle catalogue data changes (for bulk edit mode)
+  const handleCatalogueDataChange = (productId, data) => {
+    setEditedCatalogueData(prev => ({
+      ...prev,
+      [productId]: data
+    }));
+  };
+
+  // Save all edited catalogue items at once
+  const saveAllCatalogueChanges = async () => {
+    const editedProductIds = Object.keys(editedCatalogueData);
+    if (editedProductIds.length === 0) {
+      toast.info('No changes to save');
+      return;
     }
+    
+    setCatalogueSaving(true);
+    let successCount = 0;
+    let errorCount = 0;
+    
+    try {
+      for (const productId of editedProductIds) {
+        const product = products.find(p => p.id === productId);
+        if (!product) continue;
+        
+        const data = editedCatalogueData[productId];
+        try {
+          await api.post('/api/retailer-catalogue', {
+            product_id: product.id,
+            product_name: product.name,
+            product_name_hi: product.name_hi || '',
+            product_name_mr: product.name_mr || '',
+            category: product.category || '',
+            image_url: product.image_url || '',
+            variants: data.variants || [],
+            purchase_unit: data.purchase_unit || '',
+            purchase_weights: data.purchase_weights || [],
+            is_active: true
+          });
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          console.error(`Failed to save ${product.name}:`, err);
+        }
+      }
+      
+      if (successCount > 0) {
+        toast.success(`Saved ${successCount} catalogue item(s)`);
+        loadCatalogue();
+        setEditedCatalogueData({});
+        setCatalogueEditMode(false);
+      }
+      if (errorCount > 0) {
+        toast.error(`Failed to save ${errorCount} item(s)`);
+      }
+    } catch (error) {
+      toast.error('Failed to save catalogue changes');
+    } finally {
+      setCatalogueSaving(false);
+    }
+  };
+
+  // Cancel all edits
+  const cancelCatalogueEdits = () => {
+    setEditedCatalogueData({});
+    setCatalogueEditMode(false);
   };
 
   // Remove product from catalogue
@@ -659,6 +730,12 @@ export default function Products() {
       await api.delete(`/api/retailer-catalogue/${productId}`);
       toast.success(`${productName} removed from catalogue`);
       loadCatalogue();
+      // Also remove from edited data if present
+      setEditedCatalogueData(prev => {
+        const newData = { ...prev };
+        delete newData[productId];
+        return newData;
+      });
     } catch (error) {
       toast.error('Failed to remove from catalogue');
     }
@@ -2137,7 +2214,7 @@ export default function Products() {
       {/* ==================== RETAILER CATALOGUE TAB ==================== */}
       {activeSubTab === 'catalogue' && (
         <div className="space-y-4">
-          {/* Header */}
+          {/* Header with Edit Mode Toggle and Save All */}
           <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-800">Retailer Catalogue</h2>
@@ -2145,12 +2222,49 @@ export default function Products() {
                 Configure which products and variants are available for retailer ordering
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {catalogueEditMode ? (
+                <>
+                  {Object.keys(editedCatalogueData).length > 0 && (
+                    <span className="text-xs text-yellow-600 bg-yellow-100 px-2 py-1 rounded">
+                      {Object.keys(editedCatalogueData).length} item(s) modified
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    className="bg-teal-600 hover:bg-teal-700"
+                    onClick={saveAllCatalogueChanges}
+                    disabled={catalogueSaving || Object.keys(editedCatalogueData).length === 0}
+                  >
+                    {catalogueSaving ? (
+                      <span className="animate-spin mr-1">⏳</span>
+                    ) : (
+                      <Save size={14} className="mr-1" />
+                    )}
+                    Save All Changes
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={cancelCatalogueEdits}
+                    disabled={catalogueSaving}
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700"
+                  onClick={() => setCatalogueEditMode(true)}
+                >
+                  <Edit size={14} className="mr-1" /> Edit Catalogue
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  // Expand all categories
                   const allExpanded = {};
                   Object.keys(catalogueProductsByCategory).forEach(cat => {
                     allExpanded[cat] = true;
@@ -2170,6 +2284,14 @@ export default function Products() {
             </div>
           </div>
 
+          {/* Edit Mode Hint */}
+          {catalogueEditMode && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              <strong>Edit Mode Active:</strong> Select Purchase Variant (Unit + Weights) for each product. 
+              Customer Display Variant will auto-populate from selected weights. Click "Save All Changes" when done.
+            </div>
+          )}
+
           {/* Categories and Products */}
           {catalogueLoading ? (
             <div className="text-center py-8 text-gray-500">Loading catalogue...</div>
@@ -2181,7 +2303,7 @@ export default function Products() {
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([category, categoryProducts]) => {
                   const isExpanded = expandedCatalogueCategories[category];
-                  const catalogueCount = categoryProducts.filter(p => getCatalogueItem(p.id)).length;
+                  const catalogueCount = categoryProducts.filter(p => getCatalogueItem(p.id) || editedCatalogueData[p.id]).length;
                   
                   return (
                     <div key={category} className="border rounded-lg bg-white shadow-sm overflow-hidden">
@@ -2226,17 +2348,15 @@ export default function Products() {
                                 <th className="text-left px-4 py-2 font-medium text-gray-600 w-12">#</th>
                                 <th className="text-left px-4 py-2 font-medium text-gray-600 w-16">Image</th>
                                 <th className="text-left px-4 py-2 font-medium text-gray-600">Product Name</th>
-                                <th className="text-left px-4 py-2 font-medium text-gray-600">Variants</th>
-                                <th className="text-left px-4 py-2 font-medium text-gray-600 w-36">Purchase Variant</th>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600">Customer Display Variant</th>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600 w-52">Purchase Variant</th>
                                 <th className="text-center px-4 py-2 font-medium text-gray-600 w-28">Show on Portal?</th>
-                                <th className="text-center px-4 py-2 font-medium text-gray-600 w-28">Actions</th>
+                                <th className="text-center px-4 py-2 font-medium text-gray-600 w-20">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
                               {categoryProducts.map((product, idx) => {
                                 const catalogueItem = getCatalogueItem(product.id);
-                                const isEditing = editingCatalogueItem === product.id;
-                                const isSaving = catalogueSaving[product.id];
                                 
                                 return (
                                   <CatalogueProductRow
@@ -2244,14 +2364,11 @@ export default function Products() {
                                     product={product}
                                     index={idx}
                                     catalogueItem={catalogueItem}
-                                    isEditing={isEditing}
-                                    isSaving={isSaving}
+                                    isEditMode={catalogueEditMode}
                                     packagingVariants={packagingVariants}
                                     units={units}
-                                    getVariantNames={getVariantNames}
-                                    onEdit={() => setEditingCatalogueItem(product.id)}
-                                    onSave={(variants, purchaseUnit, purchaseWeightVariant) => saveCatalogueItem(product, variants, purchaseUnit, purchaseWeightVariant)}
-                                    onCancel={() => setEditingCatalogueItem(null)}
+                                    editedData={editedCatalogueData[product.id]}
+                                    onDataChange={handleCatalogueDataChange}
                                     onRemove={() => removeCatalogueItem(product.id, product.name)}
                                     onToggleVisibility={toggleCatalogueVisibility}
                                   />
@@ -2265,7 +2382,7 @@ export default function Products() {
                   );
                 })}
             </div>
-          )}
+          )}}
 
           {/* Summary Footer */}
           <div className="bg-gray-50 border rounded-lg p-4 mt-4">

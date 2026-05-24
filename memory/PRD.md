@@ -2,6 +2,15 @@
 
 ## Changelog (May 2025)
 
+### May 24, 2025 (Session 3)
+- **FEATURE**: Retailer Catalogue Bulk Edit System ✅
+  - **"Edit Catalogue"** mode with **"Save All Changes"** button for bulk editing
+  - **Searchable Weight Multi-Select** - Type to search & select multiple weights
+  - **Column renamed**: "Variants" → "Customer Display Variant"
+  - **Multiple Weights support** - Unit is single, weights can be multiple
+  - **Auto-sync logic**: Customer Display Variant auto-populates from Purchase Variant weights
+  - Files: `/app/frontend/src/pages/admin/Products.js`, `/app/backend/server.py`
+
 ### May 24, 2025 (Session 2)
 - **VALIDATED**: High/Low Selling Logic with 5% Threshold ✅
   - Threshold now calculated against **total overall supplied** (not just rejected products)

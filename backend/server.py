@@ -15289,9 +15289,10 @@ async def add_catalogue_item(
         "product_name_mr": input.get("product_name_mr", ""),
         "category": input.get("category", ""),
         "image_url": input.get("image_url", ""),
-        "variants": input.get("variants", []),  # List of variant IDs
+        "variants": input.get("variants", []),  # List of variant IDs (Customer Display Variant)
         "purchase_unit": input.get("purchase_unit", ""),  # Unit for purchasing (e.g., Pieces, Box)
-        "purchase_weight_variant": input.get("purchase_weight_variant", ""),  # Packaging variant ID for weight
+        "purchase_weights": input.get("purchase_weights", []),  # Multiple weight variant IDs
+        "purchase_weight_variant": input.get("purchase_weight_variant", ""),  # Legacy: single weight (deprecated)
         "is_active": input.get("is_active", True),
         "show_on_portal": input.get("show_on_portal", True),  # Visibility on retailer portal
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -15351,6 +15352,8 @@ async def update_catalogue_item(
         update_data["image_url"] = input["image_url"]
     if "purchase_unit" in input:
         update_data["purchase_unit"] = input["purchase_unit"]
+    if "purchase_weights" in input:
+        update_data["purchase_weights"] = input["purchase_weights"]
     if "purchase_weight_variant" in input:
         update_data["purchase_weight_variant"] = input["purchase_weight_variant"]
     

@@ -212,6 +212,7 @@ export default function RetailerOrders() {
     return d.toISOString().split('T')[0];
   });
   const [rejectionLossDateTo, setRejectionLossDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [showRejectionAnalyticsModal, setShowRejectionAnalyticsModal] = useState(false);
   
   // Closing Inventory Management (Admin)
   const [closingInventoryData, setClosingInventoryData] = useState([]);
@@ -990,6 +991,121 @@ export default function RetailerOrders() {
       pendingAmount: totalInvoiced - totalPaymentsReceived  // Pending = Invoiced - Paid
     });
   }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo]);
+
+  // Compute rejection analytics for the modal
+  const rejectionAnalytics = useMemo(() => {
+    // Filter rejections by date range
+    const filtered = rejections.filter(r => {
+      const rejDate = r.rejection_date?.split('T')[0];
+      return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
+    });
+    
+    if (filtered.length === 0) {
+      return {
+        totalValue: 0,
+        totalQty: 0,
+        count: filtered.length,
+        byProduct: [],
+        byRetailer: [],
+        byDate: [],
+        byDay: [],
+        byReason: [],
+        avgPerDay: 0,
+        maxSingleRejection: null,
+        topProductByQty: null,
+        topRetailerByValue: null
+      };
+    }
+    
+    // Aggregate by product
+    const productMap = {};
+    filtered.forEach(r => {
+      const key = r.product_name || 'Unknown';
+      if (!productMap[key]) {
+        productMap[key] = { name: key, qty: 0, value: 0, count: 0 };
+      }
+      productMap[key].qty += (r.quantity || 0);
+      productMap[key].value += (r.rejection_value || 0);
+      productMap[key].count += 1;
+    });
+    const byProduct = Object.values(productMap).sort((a, b) => b.value - a.value);
+    
+    // Aggregate by retailer
+    const retailerMap = {};
+    filtered.forEach(r => {
+      const key = r.retailer_name || 'Unknown';
+      if (!retailerMap[key]) {
+        retailerMap[key] = { name: key, qty: 0, value: 0, count: 0 };
+      }
+      retailerMap[key].qty += (r.quantity || 0);
+      retailerMap[key].value += (r.rejection_value || 0);
+      retailerMap[key].count += 1;
+    });
+    const byRetailer = Object.values(retailerMap).sort((a, b) => b.value - a.value);
+    
+    // Aggregate by date
+    const dateMap = {};
+    filtered.forEach(r => {
+      const key = r.rejection_date?.split('T')[0] || 'Unknown';
+      if (!dateMap[key]) {
+        dateMap[key] = { date: key, qty: 0, value: 0, count: 0 };
+      }
+      dateMap[key].qty += (r.quantity || 0);
+      dateMap[key].value += (r.rejection_value || 0);
+      dateMap[key].count += 1;
+    });
+    const byDate = Object.values(dateMap).sort((a, b) => b.date.localeCompare(a.date));
+    
+    // Aggregate by day of week
+    const dayMap = { 'Sunday': 0, 'Monday': 0, 'Tuesday': 0, 'Wednesday': 0, 'Thursday': 0, 'Friday': 0, 'Saturday': 0 };
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    filtered.forEach(r => {
+      const date = r.rejection_date?.split('T')[0];
+      if (date) {
+        const dayIndex = new Date(date).getDay();
+        dayMap[dayNames[dayIndex]] += (r.rejection_value || 0);
+      }
+    });
+    const byDay = dayNames.map(d => ({ day: d, value: dayMap[d] }));
+    
+    // Aggregate by reason
+    const reasonMap = {};
+    filtered.forEach(r => {
+      const key = r.reason || 'No reason specified';
+      if (!reasonMap[key]) {
+        reasonMap[key] = { reason: key, qty: 0, value: 0, count: 0 };
+      }
+      reasonMap[key].qty += (r.quantity || 0);
+      reasonMap[key].value += (r.rejection_value || 0);
+      reasonMap[key].count += 1;
+    });
+    const byReason = Object.values(reasonMap).sort((a, b) => b.value - a.value);
+    
+    const totalValue = filtered.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    const totalQty = filtered.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    const uniqueDates = new Set(filtered.map(r => r.rejection_date?.split('T')[0])).size;
+    const avgPerDay = uniqueDates > 0 ? totalValue / uniqueDates : 0;
+    
+    // Find max single rejection
+    const maxSingleRejection = filtered.reduce((max, r) => 
+      (r.rejection_value || 0) > (max?.rejection_value || 0) ? r : max, null);
+    
+    return {
+      totalValue,
+      totalQty,
+      count: filtered.length,
+      byProduct,
+      byRetailer,
+      byDate,
+      byDay,
+      byReason,
+      avgPerDay,
+      uniqueDates,
+      maxSingleRejection,
+      topProductByQty: byProduct[0] || null,
+      topRetailerByValue: byRetailer[0] || null
+    };
+  }, [rejections, rejectionLossDateFrom, rejectionLossDateTo]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -4372,47 +4488,62 @@ export default function RetailerOrders() {
         </div>
         
         {/* Rejection Loss Block */}
-        <div className="bg-red-50 rounded-lg border border-red-200 p-3 mb-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="bg-red-50 rounded-lg border border-red-200 p-4 mb-4">
+          {/* Header Row */}
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <AlertTriangle size={16} className="text-red-600" />
-              <span className="text-sm font-medium text-red-800">Rejection Loss</span>
+              <div className="p-2 bg-red-100 rounded-lg">
+                <AlertTriangle size={18} className="text-red-600" />
+              </div>
+              <span className="text-sm font-semibold text-red-800">Rejection Loss</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Input
-                type="date"
-                value={rejectionLossDateFrom}
-                onChange={(e) => setRejectionLossDateFrom(e.target.value)}
-                className="h-7 w-32 text-xs"
-              />
-              <span className="text-xs text-gray-500">to</span>
-              <Input
-                type="date"
-                value={rejectionLossDateTo}
-                onChange={(e) => setRejectionLossDateTo(e.target.value)}
-                className="h-7 w-32 text-xs"
-              />
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowRejectionAnalyticsModal(true)}
+              className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-100"
+              data-testid="view-rejection-details-btn"
+            >
+              <Eye size={14} className="mr-1" />
+              View Details
+            </Button>
           </div>
-          <div className="mt-2">
-            <p className="text-2xl font-bold text-red-600">
-              {formatCurrency(
-                rejections
-                  .filter(r => {
-                    const rejDate = r.rejection_date?.split('T')[0];
-                    return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
-                  })
-                  .reduce((sum, r) => sum + (r.rejection_value || 0), 0)
-              )}
-            </p>
-            <p className="text-xs text-red-500">
-              {rejections
-                .filter(r => {
-                  const rejDate = r.rejection_date?.split('T')[0];
-                  return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
-                })
-                .length} rejection(s) in period
-            </p>
+          
+          {/* Date Filters Row */}
+          <div className="flex flex-wrap items-center gap-2 mb-3 bg-white/60 p-2 rounded-lg border border-red-100">
+            <span className="text-xs text-red-600 font-medium">Period:</span>
+            <Input
+              type="date"
+              value={rejectionLossDateFrom}
+              onChange={(e) => setRejectionLossDateFrom(e.target.value)}
+              className="h-7 w-32 text-xs border-red-200 focus:border-red-400"
+            />
+            <span className="text-xs text-gray-500">to</span>
+            <Input
+              type="date"
+              value={rejectionLossDateTo}
+              onChange={(e) => setRejectionLossDateTo(e.target.value)}
+              className="h-7 w-32 text-xs border-red-200 focus:border-red-400"
+            />
+          </div>
+          
+          {/* Stats Row */}
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-3xl font-bold text-red-600">
+                {formatCurrency(rejectionAnalytics.totalValue)}
+              </p>
+              <p className="text-xs text-red-500 mt-1">
+                {rejectionAnalytics.count} rejection(s) • {rejectionAnalytics.totalQty} items
+              </p>
+            </div>
+            {rejectionAnalytics.topProductByQty && (
+              <div className="text-right">
+                <p className="text-[10px] text-red-400 uppercase">Top Rejected Product</p>
+                <p className="text-xs font-medium text-red-700">{rejectionAnalytics.topProductByQty.name}</p>
+                <p className="text-[10px] text-red-500">{formatCurrency(rejectionAnalytics.topProductByQty.value)}</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -7350,6 +7481,227 @@ export default function RetailerOrders() {
                 >
                   <RefreshCw size={14} className={`mr-1 ${paymentAuditLoading ? 'animate-spin' : ''}`} /> Refresh
                 </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== REJECTION ANALYTICS MODAL ==================== */}
+        {showRejectionAnalyticsModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowRejectionAnalyticsModal(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <AlertTriangle size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold">Rejection Analytics</h3>
+                      <p className="text-xs text-red-100">
+                        {formatDate(rejectionLossDateFrom)} - {formatDate(rejectionLossDateTo)}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowRejectionAnalyticsModal(false)} className="p-2 hover:bg-white/20 rounded-lg transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Modal Body */}
+              <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 80px)' }}>
+                {rejectionAnalytics.count === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertTriangle size={48} className="mx-auto text-gray-300 mb-4" />
+                    <p className="text-gray-500">No rejections found in this period</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                      <div className="bg-red-50 rounded-lg p-3 border border-red-200">
+                        <p className="text-xs text-red-500 uppercase font-medium">Total Loss</p>
+                        <p className="text-xl font-bold text-red-700">{formatCurrency(rejectionAnalytics.totalValue)}</p>
+                      </div>
+                      <div className="bg-orange-50 rounded-lg p-3 border border-orange-200">
+                        <p className="text-xs text-orange-500 uppercase font-medium">Total Qty</p>
+                        <p className="text-xl font-bold text-orange-700">{rejectionAnalytics.totalQty.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                        <p className="text-xs text-amber-500 uppercase font-medium">Rejections</p>
+                        <p className="text-xl font-bold text-amber-700">{rejectionAnalytics.count}</p>
+                      </div>
+                      <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
+                        <p className="text-xs text-yellow-600 uppercase font-medium">Avg/Day</p>
+                        <p className="text-xl font-bold text-yellow-700">{formatCurrency(rejectionAnalytics.avgPerDay)}</p>
+                      </div>
+                    </div>
+                    
+                    {/* Max Single Rejection Highlight */}
+                    {rejectionAnalytics.maxSingleRejection && (
+                      <div className="bg-gradient-to-r from-red-100 to-orange-100 rounded-lg p-3 mb-6 border border-red-200">
+                        <p className="text-xs text-red-600 font-semibold uppercase mb-1">⚠️ Highest Single Rejection</p>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-red-800">{rejectionAnalytics.maxSingleRejection.product_name}</p>
+                            <p className="text-xs text-red-600">
+                              {rejectionAnalytics.maxSingleRejection.retailer_name} • {formatDate(rejectionAnalytics.maxSingleRejection.rejection_date)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-red-700">{formatCurrency(rejectionAnalytics.maxSingleRejection.rejection_value)}</p>
+                            <p className="text-xs text-red-500">{rejectionAnalytics.maxSingleRejection.quantity} items</p>
+                          </div>
+                        </div>
+                        {rejectionAnalytics.maxSingleRejection.reason && (
+                          <p className="text-xs text-red-600 mt-1 italic">Reason: {rejectionAnalytics.maxSingleRejection.reason}</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Analytics Sections */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* By Product */}
+                      <div className="bg-gray-50 rounded-lg p-3 border">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                          <Package size={14} className="text-red-500" />
+                          By Product (Max to Min)
+                        </h4>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {rejectionAnalytics.byProduct.slice(0, 10).map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="font-medium text-gray-800 truncate max-w-[120px]">{item.name}</span>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-red-600">{formatCurrency(item.value)}</p>
+                                <p className="text-xs text-gray-500">{item.qty} qty</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* By Retailer */}
+                      <div className="bg-gray-50 rounded-lg p-3 border">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                          <ShoppingCart size={14} className="text-red-500" />
+                          By Retailer (Max to Min)
+                        </h4>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {rejectionAnalytics.byRetailer.slice(0, 10).map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="font-medium text-gray-800 truncate max-w-[120px]">{item.name}</span>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-red-600">{formatCurrency(item.value)}</p>
+                                <p className="text-xs text-gray-500">{item.count} rejections</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* By Reason */}
+                      <div className="bg-gray-50 rounded-lg p-3 border">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                          <FileText size={14} className="text-red-500" />
+                          By Reason
+                        </h4>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {rejectionAnalytics.byReason.slice(0, 10).map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                              <span className="font-medium text-gray-700 truncate max-w-[150px]">{item.reason}</span>
+                              <div className="text-right">
+                                <p className="font-semibold text-red-600">{formatCurrency(item.value)}</p>
+                                <p className="text-xs text-gray-500">{item.count} times</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* By Day of Week */}
+                      <div className="bg-gray-50 rounded-lg p-3 border">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                          <Clock size={14} className="text-red-500" />
+                          By Day of Week
+                        </h4>
+                        <div className="space-y-1">
+                          {rejectionAnalytics.byDay.map((item, idx) => {
+                            const maxDayValue = Math.max(...rejectionAnalytics.byDay.map(d => d.value));
+                            const pct = maxDayValue > 0 ? (item.value / maxDayValue * 100) : 0;
+                            return (
+                              <div key={idx} className="flex items-center gap-2 text-sm">
+                                <span className="w-16 text-gray-600 text-xs">{item.day.slice(0, 3)}</span>
+                                <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-gradient-to-r from-red-400 to-red-600 rounded-full transition-all"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-medium text-red-600 w-20 text-right">{formatCurrency(item.value)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* By Date (Latest First) */}
+                    <div className="mt-4 bg-gray-50 rounded-lg p-3 border">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <TrendingUp size={14} className="text-red-500" />
+                        Date-wise Breakdown (Latest First)
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-red-100 text-red-800">
+                              <th className="p-2 text-left font-semibold">Date</th>
+                              <th className="p-2 text-left font-semibold">Day</th>
+                              <th className="p-2 text-right font-semibold">Count</th>
+                              <th className="p-2 text-right font-semibold">Qty</th>
+                              <th className="p-2 text-right font-semibold">Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rejectionAnalytics.byDate.slice(0, 15).map((item, idx) => {
+                              const dayName = new Date(item.date).toLocaleDateString('en-IN', { weekday: 'short' });
+                              return (
+                                <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                  <td className="p-2 font-medium">{formatDate(item.date)}</td>
+                                  <td className="p-2 text-gray-600">{dayName}</td>
+                                  <td className="p-2 text-right">{item.count}</td>
+                                  <td className="p-2 text-right">{item.qty}</td>
+                                  <td className="p-2 text-right font-semibold text-red-600">{formatCurrency(item.value)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          {rejectionAnalytics.byDate.length > 15 && (
+                            <tfoot>
+                              <tr className="bg-gray-100">
+                                <td colSpan={5} className="p-2 text-center text-xs text-gray-500">
+                                  Showing 15 of {rejectionAnalytics.byDate.length} dates
+                                </td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

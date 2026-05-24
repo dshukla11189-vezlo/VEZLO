@@ -2,6 +2,40 @@
 
 ## Changelog (May 2025)
 
+### May 24, 2025
+- **FEATURE**: Rejection Analytics Modal with Advanced Insights ✅
+  - **Improved Rejection Loss Block Layout**:
+    - Fixed date picker alignment with dedicated "Period:" row
+    - Added "View Details" button in header
+    - Shows top rejected product in bottom-right corner
+    - Better visual hierarchy with icon, stats, and metadata
+  - **New Rejection Analytics Modal** (triggered by View Details button):
+    - **Summary Cards**: Total Loss, Total Qty, Rejections count, Avg/Day
+    - **Highest Single Rejection Highlight**: Product, Retailer, Date, Value, Reason
+    - **By Product (Max to Min)**: Ranked list with qty and value
+    - **By Retailer (Max to Min)**: Ranked list with rejection count
+    - **By Reason**: Aggregated by rejection reason (Damaged, Rotten, Quality Issue, etc.)
+    - **By Day of Week**: Visual bar chart showing which days have most rejections
+    - **Date-wise Breakdown**: Table with Date, Day, Count, Qty, Value (latest first)
+  - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **FIX**: Hamburger Menu Auto-Open on Mobile ✅
+  - Fixed race condition where sidebar could auto-open on mobile due to incorrect state initialization
+  - Changed `isMobile` initial state to calculate immediately from `window.innerWidth`
+  - Modified useEffect to explicitly close sidebar on mobile, open on desktop
+  - Files modified: `/app/frontend/src/components/Layout.js`
+
+- **FIX**: "Failed to Load Data" Error with Retry Logic ✅
+  - Added `fetchWithRetry` helper with 3 retry attempts and exponential backoff
+  - Changed from `Promise.all` to `Promise.allSettled` so partial failures don't break entire load
+  - Increased API timeout from 30s to 45s for cold starts
+  - Added automatic retry after 3 seconds if all data sources fail
+  - Files modified: `/app/frontend/src/hooks/useQCData.js`, `/app/frontend/src/utils/api.js`
+
+- **REVERTED**: AI Demand Forecasting removed per user request
+  - Removed backend API `/api/reports/demand-forecast`
+  - Removed frontend states and fetch logic from Dashboard.js
+
 ### May 23, 2025
 - **FIX**: Customer Detail Modal - Correct P&L Calculations & Column Order ✅
   - **Gross P/L formula corrected**: Sales - COGS - Wastage - Rejection (per day)

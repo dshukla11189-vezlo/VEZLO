@@ -7693,23 +7693,43 @@ export default function RetailerOrders() {
                   </div>
                 ) : (
                   <>
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    {/* Summary Cards - Row 1: Supplied Totals */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                        <p className="text-xs text-blue-500 uppercase font-medium">Total Supplied Qty</p>
+                        <p className="text-xl font-bold text-blue-700">{(rejectionAnalytics.totalSuppliedQty || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                        <p className="text-xs text-green-500 uppercase font-medium">Total Supplied Value</p>
+                        <p className="text-xl font-bold text-green-700">{formatCurrency(rejectionAnalytics.totalSuppliedValue || 0)}</p>
+                      </div>
                       <div className="bg-red-50 rounded-lg p-3 border border-red-200">
-                        <p className="text-xs text-red-500 uppercase font-medium">Total Loss</p>
+                        <p className="text-xs text-red-500 uppercase font-medium">Rejection Loss</p>
                         <p className="text-xl font-bold text-red-700">{formatCurrency(rejectionAnalytics.totalValue)}</p>
+                        <p className="text-[10px] text-red-400">{rejectionAnalytics.overallRejValuePct?.toFixed(1) || 0}% of supplied value</p>
                       </div>
                       <div className="bg-orange-50 rounded-lg p-3 border border-orange-200">
-                        <p className="text-xs text-orange-500 uppercase font-medium">Total Qty</p>
+                        <p className="text-xs text-orange-500 uppercase font-medium">Rejected Qty</p>
                         <p className="text-xl font-bold text-orange-700">{rejectionAnalytics.totalQty.toLocaleString()}</p>
+                        <p className="text-[10px] text-orange-400">{rejectionAnalytics.overallRejPct?.toFixed(1) || 0}% of supplied qty</p>
                       </div>
+                    </div>
+                    
+                    {/* Summary Cards - Row 2: Rejection Stats */}
+                    <div className="grid grid-cols-3 gap-3 mb-6">
                       <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
-                        <p className="text-xs text-amber-500 uppercase font-medium">Rejections</p>
+                        <p className="text-xs text-amber-500 uppercase font-medium">Rejections Count</p>
                         <p className="text-xl font-bold text-amber-700">{rejectionAnalytics.count}</p>
                       </div>
                       <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
-                        <p className="text-xs text-yellow-600 uppercase font-medium">Avg/Day</p>
+                        <p className="text-xs text-yellow-600 uppercase font-medium">Avg Loss/Day</p>
                         <p className="text-xl font-bold text-yellow-700">{formatCurrency(rejectionAnalytics.avgPerDay)}</p>
+                      </div>
+                      <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                        <p className="text-xs text-purple-500 uppercase font-medium">5% Threshold</p>
+                        <p className="text-sm font-bold text-purple-700">
+                          Qty: {Math.ceil((rejectionAnalytics.totalSuppliedQty || 0) * 0.05)} | Val: {formatCurrency((rejectionAnalytics.totalSuppliedValue || 0) * 0.05)}
+                        </p>
                       </div>
                     </div>
                     

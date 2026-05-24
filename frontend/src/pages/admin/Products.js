@@ -124,22 +124,44 @@ const CatalogueProductRow = ({
   const currentData = editedData || {
     purchase_unit: catalogueItem?.purchase_unit || '',
     purchase_weights: catalogueItem?.purchase_weights || (catalogueItem?.purchase_weight_variant ? [catalogueItem.purchase_weight_variant] : []),
-    variants: catalogueItem?.variants || []
+    variants: catalogueItem?.variants || [],
+    display_unit: catalogueItem?.display_unit || '' // Unit shown as variant (Piece/Packet)
+  };
+  
+  // Units that should be displayed as variants on retailer portal
+  const DISPLAY_UNITS = ['Piece', 'Packet'];
+  
+  // Helper to build variants array including unit if applicable
+  const buildVariantsWithUnit = (weights, unit) => {
+    const variants = [...weights];
+    // If unit is Piece or Packet, add it as a special variant identifier
+    if (DISPLAY_UNITS.includes(unit)) {
+      // We'll use a special prefix to identify unit-based variants
+      const unitVariantId = `unit_${unit.toLowerCase()}`;
+      if (!variants.includes(unitVariantId)) {
+        variants.unshift(unitVariantId); // Add at the beginning
+      }
+    }
+    return variants;
   };
   
   // Handle purchase weight changes - auto-sync to Customer Display Variant
   const handleWeightsChange = (newWeights) => {
+    const variants = buildVariantsWithUnit(newWeights, currentData.purchase_unit);
     onDataChange(product.id, {
       ...currentData,
       purchase_weights: newWeights,
-      variants: newWeights // Auto-sync: Customer Display Variant = Purchase Variant weights
+      variants: variants
     });
   };
   
   const handleUnitChange = (newUnit) => {
+    const variants = buildVariantsWithUnit(currentData.purchase_weights, newUnit);
     onDataChange(product.id, {
       ...currentData,
-      purchase_unit: newUnit
+      purchase_unit: newUnit,
+      variants: variants,
+      display_unit: DISPLAY_UNITS.includes(newUnit) ? newUnit : ''
     });
   };
 
@@ -171,12 +193,30 @@ const CatalogueProductRow = ({
         </div>
       </td>
       
-      {/* Customer Display Variant (auto-populated from Purchase Variant weights) */}
+      {/* Customer Display Variant (auto-populated from Purchase Variant weights + Unit if Piece/Packet) */}
       <td className="px-4 py-2">
         {isInCatalogue || editedData ? (
           <div className="flex flex-wrap gap-1">
+            {/* Show unit badge if Piece/Packet (even for legacy data without unit_* in variants) */}
+            {DISPLAY_UNITS.includes(currentData.purchase_unit) && 
+             !currentData.variants?.some(v => v.startsWith('unit_')) && (
+              <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded font-medium">
+                {currentData.purchase_unit}
+              </span>
+            )}
             {(currentData.variants?.length > 0) ? (
               currentData.variants.map(variantId => {
+                // Check if it's a unit-based variant (Piece/Packet)
+                if (variantId.startsWith('unit_')) {
+                  const unitName = variantId.replace('unit_', '');
+                  const displayName = unitName.charAt(0).toUpperCase() + unitName.slice(1);
+                  return (
+                    <span key={variantId} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded font-medium">
+                      {displayName}
+                    </span>
+                  );
+                }
+                // Regular packaging variant
                 const variant = packagingVariants.find(v => v.id === variantId);
                 return variant ? (
                   <span key={variantId} className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded">
@@ -184,9 +224,9 @@ const CatalogueProductRow = ({
                   </span>
                 ) : null;
               })
-            ) : (
+            ) : !DISPLAY_UNITS.includes(currentData.purchase_unit) ? (
               <span className="text-xs text-gray-400 italic">Set Purchase Variant →</span>
-            )}
+            ) : null}
           </div>
         ) : (
           <span className="text-xs text-gray-400 italic">Not in catalogue</span>
@@ -692,6 +732,7 @@ export default function Products() {
             variants: data.variants || [],
             purchase_unit: data.purchase_unit || '',
             purchase_weights: data.purchase_weights || [],
+            display_unit: data.display_unit || '',
             is_active: true
           });
           successCount++;

@@ -447,6 +447,12 @@ export default function RetailerDashboard() {
 
   // Get variant name from ID
   const getVariantName = (variantId) => {
+    // Handle unit-based variants (Piece/Packet)
+    if (variantId && variantId.startsWith('unit_')) {
+      const unitName = variantId.replace('unit_', '');
+      return unitName.charAt(0).toUpperCase() + unitName.slice(1);
+    }
+    // Regular packaging variant
     const variant = packagings.find(v => v.id === variantId);
     return variant ? variant.name : variantId;
   };
@@ -2663,36 +2669,72 @@ export default function RetailerDashboard() {
                                   
                                   {/* Variants as buttons */}
                                   <div className="flex flex-wrap gap-2 mt-2">
+                                    {/* Show unit as variant if Piece/Packet (for legacy data) */}
+                                    {['Piece', 'Packet'].includes(item.purchase_unit) && 
+                                     !(item.variants || []).some(v => v.startsWith('unit_')) && (
+                                      <div className="flex items-center gap-2">
+                                        {getCartItem(item.product_id, `unit_${item.purchase_unit.toLowerCase()}`) ? (
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex items-center bg-blue-100 rounded-full">
+                                              <button
+                                                onClick={() => updateCartQuantity(`${item.product_id}_unit_${item.purchase_unit.toLowerCase()}`, -1)}
+                                                className="w-7 h-7 rounded-full bg-white border border-blue-300 flex items-center justify-center text-blue-600 hover:bg-blue-50"
+                                              >
+                                                <Minus size={14} />
+                                              </button>
+                                              <span className="px-3 font-semibold text-blue-800 min-w-[32px] text-center">
+                                                {getCartItem(item.product_id, `unit_${item.purchase_unit.toLowerCase()}`).quantity}
+                                              </span>
+                                              <button
+                                                onClick={() => updateCartQuantity(`${item.product_id}_unit_${item.purchase_unit.toLowerCase()}`, 1)}
+                                                className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white hover:bg-blue-700"
+                                              >
+                                                <Plus size={14} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            onClick={() => addToCart(item, `unit_${item.purchase_unit.toLowerCase()}`, item.purchase_unit)}
+                                            className="flex items-center gap-1 px-3 py-1.5 text-sm border border-blue-300 bg-blue-50 rounded-full hover:border-blue-500 hover:bg-blue-100 transition-colors"
+                                          >
+                                            <span className="text-blue-700 font-medium">{item.purchase_unit}</span>
+                                            <Plus size={14} className="text-blue-600" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
                                     {(item.variants || []).map(variantId => {
                                       const variantName = getVariantName(variantId);
                                       const cartItem = getCartItem(item.product_id, variantId);
                                       const mrp = getMrp(item.product_id, variantId);
                                       const totalValue = cartItem ? mrp * cartItem.quantity : 0;
+                                      const isUnitVariant = variantId.startsWith('unit_');
                                       
                                       return (
                                         <div key={variantId} className="flex items-center gap-2">
                                           {cartItem ? (
                                             // Quantity controls with MRP
                                             <div className="flex items-center gap-2">
-                                              <div className="flex items-center bg-green-100 rounded-full">
+                                              <div className={`flex items-center ${isUnitVariant ? 'bg-blue-100' : 'bg-green-100'} rounded-full`}>
                                                 <button
                                                   onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, -1)}
-                                                  className="w-7 h-7 rounded-full bg-white border border-green-300 flex items-center justify-center text-green-600 hover:bg-green-50"
+                                                  className={`w-7 h-7 rounded-full bg-white border ${isUnitVariant ? 'border-blue-300 text-blue-600 hover:bg-blue-50' : 'border-green-300 text-green-600 hover:bg-green-50'} flex items-center justify-center`}
                                                 >
                                                   <Minus size={14} />
                                                 </button>
-                                                <span className="px-3 font-semibold text-green-800 min-w-[32px] text-center">
+                                                <span className={`px-3 font-semibold ${isUnitVariant ? 'text-blue-800' : 'text-green-800'} min-w-[32px] text-center`}>
                                                   {cartItem.quantity}
                                                 </span>
                                                 <button
                                                   onClick={() => updateCartQuantity(`${item.product_id}_${variantId}`, 1)}
-                                                  className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white hover:bg-green-700"
+                                                  className={`w-7 h-7 rounded-full ${isUnitVariant ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} flex items-center justify-center text-white`}
                                                 >
                                                   <Plus size={14} />
                                                 </button>
                                               </div>
                                               {mrp > 0 && (
-                                                <span className="text-sm font-bold text-green-700">
+                                                <span className={`text-sm font-bold ${isUnitVariant ? 'text-blue-700' : 'text-green-700'}`}>
                                                   ₹{totalValue.toFixed(0)}
                                                 </span>
                                               )}
@@ -2702,10 +2744,14 @@ export default function RetailerDashboard() {
                                             <div className="flex items-center gap-2">
                                               <button
                                                 onClick={() => addToCart(item, variantId, variantName)}
-                                                className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-full hover:border-green-500 hover:bg-green-50 transition-colors"
+                                                className={`flex items-center gap-1 px-3 py-1.5 text-sm border rounded-full transition-colors ${
+                                                  isUnitVariant 
+                                                    ? 'border-blue-300 bg-blue-50 hover:border-blue-500 hover:bg-blue-100' 
+                                                    : 'border-gray-300 hover:border-green-500 hover:bg-green-50'
+                                                }`}
                                               >
-                                                <span className="text-gray-700">{variantName}</span>
-                                                <Plus size={14} className="text-green-600" />
+                                                <span className={isUnitVariant ? 'text-blue-700 font-medium' : 'text-gray-700'}>{variantName}</span>
+                                                <Plus size={14} className={isUnitVariant ? 'text-blue-600' : 'text-green-600'} />
                                               </button>
                                               {mrp > 0 && (
                                                 <span className="text-sm font-bold text-[#14532D]">₹{mrp}</span>

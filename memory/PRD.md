@@ -9,7 +9,12 @@
   - **Column renamed**: "Variants" → "Customer Display Variant"
   - **Multiple Weights support** - Unit is single, weights can be multiple
   - **Auto-sync logic**: Customer Display Variant auto-populates from Purchase Variant weights
-  - Files: `/app/frontend/src/pages/admin/Products.js`, `/app/backend/server.py`
+  
+- **FEATURE**: Unit-Based Variant Display ✅
+  - When Purchase Variant unit is **"Piece"** or **"Packet"**, it displays as a variant on retailer portal
+  - Blue-styled buttons for unit variants, green for weight variants
+  - Backward compatible with legacy data (shows unit even if not in variants array)
+  - Files: `/app/frontend/src/pages/admin/Products.js`, `/app/frontend/src/pages/retailer/Dashboard.js`, `/app/backend/server.py`
 
 ### May 24, 2025 (Session 2)
 - **VALIDATED**: High/Low Selling Logic with 5% Threshold ✅

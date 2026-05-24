@@ -15289,9 +15289,10 @@ async def add_catalogue_item(
         "product_name_mr": input.get("product_name_mr", ""),
         "category": input.get("category", ""),
         "image_url": input.get("image_url", ""),
-        "variants": input.get("variants", []),  # List of variant IDs (Customer Display Variant)
+        "variants": input.get("variants", []),  # List of variant IDs (Customer Display Variant) - can include unit_piece, unit_packet
         "purchase_unit": input.get("purchase_unit", ""),  # Unit for purchasing (e.g., Pieces, Box)
         "purchase_weights": input.get("purchase_weights", []),  # Multiple weight variant IDs
+        "display_unit": input.get("display_unit", ""),  # Unit shown as variant on portal (Piece/Packet)
         "purchase_weight_variant": input.get("purchase_weight_variant", ""),  # Legacy: single weight (deprecated)
         "is_active": input.get("is_active", True),
         "show_on_portal": input.get("show_on_portal", True),  # Visibility on retailer portal

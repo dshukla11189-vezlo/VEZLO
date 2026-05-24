@@ -3462,8 +3462,37 @@ export default function RetailerOrders() {
       items: itemsToDispatch.map(item => {
         // Look up variant_id from variant_name if not set
         let variantId = item.variant_id;
-        if (!variantId && item.variant_name) {
-          const matchingVariant = packagings.find(p => p.name === item.variant_name);
+        let variantName = item.variant_name || '';
+        
+        // Check if this is a unit-based variant (Pieces/Packets) that needs weight lookup
+        const isUnitVariant = variantId === 'unit_piece' || variantId === 'unit_packet' || 
+                              variantName.toLowerCase() === 'pieces' || variantName.toLowerCase() === 'packets';
+        
+        // If variant is unit-based, look up the actual weight variant from catalogue
+        if (isUnitVariant) {
+          const catalogueEntry = retailerCatalogue.find(c => 
+            c.product_id === item.product_id || 
+            (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
+          );
+          
+          if (catalogueEntry) {
+            // Get the weight variant from catalogue
+            const purchaseWeights = catalogueEntry.purchase_weights || [];
+            const purchaseWeightVariant = catalogueEntry.purchase_weight_variant;
+            
+            if (purchaseWeights.length > 0) {
+              variantId = purchaseWeights[0];
+              const weightInfo = packagings.find(p => p.id === variantId);
+              if (weightInfo) variantName = weightInfo.name;
+            } else if (purchaseWeightVariant) {
+              variantId = purchaseWeightVariant;
+              const weightInfo = packagings.find(p => p.id === variantId);
+              if (weightInfo) variantName = weightInfo.name;
+            }
+          }
+        } else if (!variantId && variantName) {
+          // Normal variant name lookup
+          const matchingVariant = packagings.find(p => p.name === variantName);
           if (matchingVariant) {
             variantId = matchingVariant.id;
           }
@@ -3477,7 +3506,7 @@ export default function RetailerOrders() {
           product_id: item.product_id,
           product_name: item.product_name,
           variant_id: variantId || '',
-          variant_name: item.variant_name || '',
+          variant_name: variantName,
           indent_qty: item.quantity || item.remaining_qty,
           supplied_qty: '',  // Empty by default - user fills only what they dispatch
           mrp: mrpValue,

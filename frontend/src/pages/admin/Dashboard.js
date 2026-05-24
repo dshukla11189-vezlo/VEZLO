@@ -1960,6 +1960,7 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Quick Commerce Card */}
               <Card 
+                data-testid="qc-card"
                 className={`cursor-pointer transition-all hover:shadow-lg border-2 ${
                   selectedVertical === 'qc' ? 'border-orange-500 bg-orange-50' : 'border-transparent hover:border-orange-200'
                 }`}
@@ -2027,6 +2028,7 @@ export default function AdminDashboard() {
 
               {/* Retail Card */}
               <Card 
+                data-testid="retail-card"
                 className={`cursor-pointer transition-all hover:shadow-lg border-2 ${
                   selectedVertical === 'retail' ? 'border-green-500 bg-green-50' : 'border-transparent hover:border-green-200'
                 }`}

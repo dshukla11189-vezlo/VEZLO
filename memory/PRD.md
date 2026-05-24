@@ -2,14 +2,28 @@
 
 ## Changelog (May 2025)
 
-### May 24, 2025
+### May 24, 2025 (Session 2)
+- **VALIDATED**: High/Low Selling Logic with 5% Threshold ✅
+  - Threshold now calculated against **total overall supplied** (not just rejected products)
+  - Example: If total supplied qty = 3,256 → 5% threshold = 163 units
+  - Summary cards show: Total Supplied Qty, Total Supplied Value, 5% Threshold values
+  - High Selling (4 products) and Low Selling (54 products) correctly segmented
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **VALIDATED**: Customer Details Modal Working ✅
+  - Flow: Dashboard → Customers tab → Retail "View Details" → Customer row "Details"
+  - Shows date-wise P&L breakdown with all metrics
+  - Added data-testid to QC/Retail cards for better testability
+  - Files: `/app/frontend/src/pages/admin/Dashboard.js`
+
+### May 24, 2025 (Session 1)
 - **FEATURE**: High/Low Selling Product Tabs & Alphabetical Dropdown ✅
   - **Product Deep Dive Dropdown**:
     - Now sorted alphabetically (A-Z) for easier searching
     - Shows product name only (no percentage)
   - **High Selling / Low Selling Tabs** (Both Count % and Value % blocks):
-    - **High Selling**: Products with ≥10% of total units sold
-    - **Low Selling**: Products with <10% of total units sold
+    - **High Selling**: Products with ≥5% of total units supplied
+    - **Low Selling**: Products with <5% of total units supplied
     - Shows count of products in each category (e.g., "High Selling (1)" / "Low Selling (57)")
     - Each product row shows: Name, Sales % contribution, Rejection %, qty details
     - Sorted by highest rejection % within each category

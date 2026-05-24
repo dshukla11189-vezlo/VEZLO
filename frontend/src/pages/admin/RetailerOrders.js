@@ -2940,10 +2940,17 @@ export default function RetailerOrders() {
       calculatedFrom: 'Calculated from indents',
       serial: '#',
       productName: 'Product Name',
+      qtyUnits: 'Qty (Units)',
+      purchaseReq: 'Purchase Req',
       quantity: 'Quantity (Kg)',
       remarks: 'Remarks',
       total: 'TOTAL',
       generatedOn: 'Generated on',
+      pieces: 'Pcs',
+      packets: 'Pkts',
+      bunches: 'Bunches',
+      of: 'of',
+      kg: 'Kg',
     },
     hi: {
       title: 'दैनिक खरीद आवश्यकता',
@@ -2953,10 +2960,17 @@ export default function RetailerOrders() {
       calculatedFrom: 'इंडेंट से गणना',
       serial: 'क्र.',
       productName: 'उत्पाद का नाम',
+      qtyUnits: 'मात्रा (इकाई)',
+      purchaseReq: 'खरीद आवश्यकता',
       quantity: 'मात्रा (किलो)',
       remarks: 'टिप्पणी',
       total: 'कुल',
       generatedOn: 'जनरेट किया गया',
+      pieces: 'पीस',
+      packets: 'पैकेट',
+      bunches: 'गुच्छे',
+      of: 'का',
+      kg: 'किलो',
     },
     mr: {
       title: 'दैनिक खरेदी आवश्यकता',
@@ -2966,10 +2980,17 @@ export default function RetailerOrders() {
       calculatedFrom: 'इंडेंटवरून गणना',
       serial: 'क्र.',
       productName: 'उत्पादाचे नाव',
+      qtyUnits: 'प्रमाण (युनिट)',
+      purchaseReq: 'खरेदी आवश्यकता',
       quantity: 'प्रमाण (किलो)',
       remarks: 'टीप',
       total: 'एकूण',
       generatedOn: 'तयार केले',
+      pieces: 'नग',
+      packets: 'पॅकेट',
+      bunches: 'जुडे',
+      of: 'चे',
+      kg: 'किलो',
     }
   };
 
@@ -3019,6 +3040,25 @@ export default function RetailerOrders() {
       return item.productName;
     };
     
+    // Get purchase requirement display text based on purchase unit
+    const getPurchaseReqDisplay = (item) => {
+      const unitQty = Math.round(item.qtyUnits) || 0;
+      const kgQty = (item.requirementKg || 0).toFixed(1);
+      
+      if (item.purchaseUnit === 'Piece') {
+        const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
+        return `${unitQty} ${labels.pieces}${weightInfo}`;
+      } else if (item.purchaseUnit === 'Packet') {
+        const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
+        return `${unitQty} ${labels.packets}${weightInfo}`;
+      } else if (item.purchaseUnit === 'Bunch') {
+        const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
+        return `${unitQty} ${labels.bunches}${weightInfo}`;
+      } else {
+        return `${kgQty} ${labels.kg}`;
+      }
+    };
+    
     // Count missing translations - using fresh product data
     const missingTranslations = dailyReqData.filter(item => {
       let freshTranslation = productTranslationMap[item.productId];
@@ -3055,6 +3095,7 @@ export default function RetailerOrders() {
             th { background-color: #f0f0f0; font-weight: bold; }
             .text-right { text-align: right; }
             .text-center { text-align: center; }
+            .purchase-req { font-weight: bold; color: #1a56db; }
             .footer { margin-top: 30px; text-align: right; font-size: 12px; color: #666; }
             @media print { 
               body { padding: 0; }
@@ -3073,10 +3114,11 @@ export default function RetailerOrders() {
           <table>
             <thead>
               <tr>
-                <th style="width:8%">${labels.serial}</th>
-                <th style="width:42%">${labels.productName}</th>
-                <th style="width:25%" class="text-right">${labels.quantity}</th>
-                <th style="width:25%">${labels.remarks}</th>
+                <th style="width:6%">${labels.serial}</th>
+                <th style="width:32%">${labels.productName}</th>
+                <th style="width:12%" class="text-center">${labels.qtyUnits}</th>
+                <th style="width:28%" class="text-center">${labels.purchaseReq}</th>
+                <th style="width:22%">${labels.remarks}</th>
               </tr>
             </thead>
             <tbody>
@@ -3084,13 +3126,15 @@ export default function RetailerOrders() {
                 <tr>
                   <td class="text-center">${idx + 1}</td>
                   <td>${getDisplayName(item)}</td>
-                  <td class="text-right" style="font-weight:bold;">${(item.requirementKg || 0).toFixed(2)}</td>
+                  <td class="text-center">${item.qtyUnits || 0}</td>
+                  <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
                   <td>${item.remarks || '-'}</td>
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
                 <td colspan="2">${labels.total}</td>
-                <td class="text-right">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} Kg</td>
+                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0)}</td>
+                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}</td>
                 <td></td>
               </tr>
             </tbody>
@@ -3148,12 +3192,32 @@ export default function RetailerOrders() {
       return item.productName;
     };
     
-    // Prepare CSV content - Only Serial#, Product Name, Quantity (Kg), Remarks
-    const headers = [labels.serial, labels.productName, labels.quantity, labels.remarks];
+    // Get purchase requirement display text based on purchase unit
+    const getPurchaseReqDisplay = (item) => {
+      const unitQty = Math.round(item.qtyUnits) || 0;
+      const kgQty = (item.requirementKg || 0).toFixed(1);
+      
+      if (item.purchaseUnit === 'Piece') {
+        const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
+        return `${unitQty} ${labels.pieces}${weightInfo}`;
+      } else if (item.purchaseUnit === 'Packet') {
+        const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
+        return `${unitQty} ${labels.packets}${weightInfo}`;
+      } else if (item.purchaseUnit === 'Bunch') {
+        const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
+        return `${unitQty} ${labels.bunches}${weightInfo}`;
+      } else {
+        return `${kgQty} ${labels.kg}`;
+      }
+    };
+    
+    // Prepare CSV content - Serial#, Product Name, Qty (Units), Purchase Req, Remarks
+    const headers = [labels.serial, labels.productName, labels.qtyUnits, labels.purchaseReq, labels.remarks];
     const rows = dailyReqData.map((item, idx) => [
       idx + 1,
       getDisplayName(item),
-      (item.requirementKg || 0).toFixed(2),
+      item.qtyUnits || 0,
+      getPurchaseReqDisplay(item),
       item.remarks || ''
     ]);
     
@@ -3161,7 +3225,8 @@ export default function RetailerOrders() {
     rows.push([
       '',
       labels.total,
-      dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2),
+      dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0),
+      `${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}`,
       ''
     ]);
     

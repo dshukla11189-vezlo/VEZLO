@@ -1104,7 +1104,7 @@ export default function RetailerOrders() {
       };
     }
     
-    // Aggregate by product
+    // Aggregate by product (only products with rejections)
     const productMap = {};
     filtered.forEach(r => {
       const key = r.product_name || 'Unknown';
@@ -1116,6 +1116,10 @@ export default function RetailerOrders() {
       productMap[key].count += 1;
     });
     
+    // Calculate TOTAL supplied qty and value from ALL products in dispatches (not just rejected ones)
+    const totalSuppliedQtyAll = Object.values(productDispatchMap).reduce((sum, p) => sum + (p.qty || 0), 0);
+    const totalSuppliedValueAll = Object.values(productDispatchMap).reduce((sum, p) => sum + (p.value || 0), 0);
+    
     // Calculate rejection % by count (qty) - sorted descending
     const byProductAll = Object.values(productMap).map(p => {
       const suppliedQty = productDispatchMap[p.name]?.qty || 0;
@@ -1123,51 +1127,42 @@ export default function RetailerOrders() {
       // If no supplied data, assume 100% rejection for items that have rejections
       const rejPctByCount = suppliedQty > 0 ? (p.qty / suppliedQty * 100) : (p.qty > 0 ? 100 : 0);
       const rejPctByValue = suppliedValue > 0 ? (p.value / suppliedValue * 100) : (p.value > 0 ? 100 : 0);
-      return { ...p, suppliedQty, suppliedValue, rejPctByCount, rejPctByValue };
-    });
-    
-    // Calculate totals for high/low selling classification
-    const totalSuppliedQtyAll = byProductAll.reduce((sum, p) => sum + p.suppliedQty, 0);
-    const totalSuppliedValueAll = byProductAll.reduce((sum, p) => sum + p.suppliedValue, 0);
-    
-    // Classify by quantity: high selling (>= 5% of total quantity sold)
-    // Classify by value: high selling (>= 5% of total value sold)
-    const byProductWithCategory = byProductAll.map(p => {
-      const salesPctByQty = totalSuppliedQtyAll > 0 ? (p.suppliedQty / totalSuppliedQtyAll * 100) : 0;
-      const salesPctByValue = totalSuppliedValueAll > 0 ? (p.suppliedValue / totalSuppliedValueAll * 100) : 0;
+      // Calculate sales percentage based on TOTAL supplied (all products), not just rejected ones
+      const salesPctByQty = totalSuppliedQtyAll > 0 ? (suppliedQty / totalSuppliedQtyAll * 100) : 0;
+      const salesPctByValue = totalSuppliedValueAll > 0 ? (suppliedValue / totalSuppliedValueAll * 100) : 0;
       const isHighSellingByQty = salesPctByQty >= 5;
       const isHighSellingByValue = salesPctByValue >= 5;
-      return { ...p, salesPctByQty, salesPctByValue, isHighSellingByQty, isHighSellingByValue };
+      return { ...p, suppliedQty, suppliedValue, rejPctByCount, rejPctByValue, salesPctByQty, salesPctByValue, isHighSellingByQty, isHighSellingByValue };
     });
     
     // High selling products by QUANTITY sorted by rejection % (highest first)
-    const highSellingProducts = byProductWithCategory
+    const highSellingProducts = byProductAll
       .filter(p => p.isHighSellingByQty)
       .sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
     // Low selling products by QUANTITY sorted by rejection % (highest first)
-    const lowSellingProducts = byProductWithCategory
+    const lowSellingProducts = byProductAll
       .filter(p => !p.isHighSellingByQty)
       .sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
     // For backwards compatibility - all products sorted by rejection %
-    const byProductCount = byProductWithCategory.sort((a, b) => b.rejPctByCount - a.rejPctByCount);
+    const byProductCount = [...byProductAll].sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
     // High selling products by VALUE sorted by value rejection %
-    const highSellingByValue = byProductWithCategory
+    const highSellingByValue = byProductAll
       .filter(p => p.isHighSellingByValue)
       .sort((a, b) => b.rejPctByValue - a.rejPctByValue);
     
     // Low selling products by VALUE sorted by value rejection %
-    const lowSellingByValue = byProductWithCategory
+    const lowSellingByValue = byProductAll
       .filter(p => !p.isHighSellingByValue)
       .sort((a, b) => b.rejPctByValue - a.rejPctByValue);
     
     // All products sorted by value rejection %
-    const byProductValue = [...byProductWithCategory].sort((a, b) => b.rejPctByValue - a.rejPctByValue);
+    const byProductValue = [...byProductAll].sort((a, b) => b.rejPctByValue - a.rejPctByValue);
     
     // Alphabetically sorted for dropdown
-    const byProductAlphabetical = [...byProductWithCategory].sort((a, b) => a.name.localeCompare(b.name));
+    const byProductAlphabetical = [...byProductAll].sort((a, b) => a.name.localeCompare(b.name));
     
     // Aggregate by retailer
     const retailerMap = {};

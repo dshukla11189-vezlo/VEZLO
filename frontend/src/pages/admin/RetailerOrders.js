@@ -1126,36 +1126,41 @@ export default function RetailerOrders() {
       return { ...p, suppliedQty, suppliedValue, rejPctByCount, rejPctByValue };
     });
     
-    // Calculate total supplied qty for high/low selling classification
+    // Calculate totals for high/low selling classification
     const totalSuppliedQtyAll = byProductAll.reduce((sum, p) => sum + p.suppliedQty, 0);
+    const totalSuppliedValueAll = byProductAll.reduce((sum, p) => sum + p.suppliedValue, 0);
     
-    // Classify as high selling (>= 10% of total units sold) or low selling
+    // Classify by quantity: high selling (>= 5% of total quantity sold)
+    // Classify by value: high selling (>= 5% of total value sold)
     const byProductWithCategory = byProductAll.map(p => {
-      const salesPct = totalSuppliedQtyAll > 0 ? (p.suppliedQty / totalSuppliedQtyAll * 100) : 0;
-      const isHighSelling = salesPct >= 10;
-      return { ...p, salesPct, isHighSelling };
+      const salesPctByQty = totalSuppliedQtyAll > 0 ? (p.suppliedQty / totalSuppliedQtyAll * 100) : 0;
+      const salesPctByValue = totalSuppliedValueAll > 0 ? (p.suppliedValue / totalSuppliedValueAll * 100) : 0;
+      const isHighSellingByQty = salesPctByQty >= 5;
+      const isHighSellingByValue = salesPctByValue >= 5;
+      return { ...p, salesPctByQty, salesPctByValue, isHighSellingByQty, isHighSellingByValue };
     });
     
-    // High selling products sorted by rejection % (highest first)
+    // High selling products by QUANTITY sorted by rejection % (highest first)
     const highSellingProducts = byProductWithCategory
-      .filter(p => p.isHighSelling)
+      .filter(p => p.isHighSellingByQty)
       .sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
-    // Low selling products sorted by rejection % (highest first)
+    // Low selling products by QUANTITY sorted by rejection % (highest first)
     const lowSellingProducts = byProductWithCategory
-      .filter(p => !p.isHighSelling)
+      .filter(p => !p.isHighSellingByQty)
       .sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
     // For backwards compatibility - all products sorted by rejection %
     const byProductCount = byProductWithCategory.sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
-    // By value - high/low selling sorted by value rejection %
+    // High selling products by VALUE sorted by value rejection %
     const highSellingByValue = byProductWithCategory
-      .filter(p => p.isHighSelling)
+      .filter(p => p.isHighSellingByValue)
       .sort((a, b) => b.rejPctByValue - a.rejPctByValue);
     
+    // Low selling products by VALUE sorted by value rejection %
     const lowSellingByValue = byProductWithCategory
-      .filter(p => !p.isHighSelling)
+      .filter(p => !p.isHighSellingByValue)
       .sort((a, b) => b.rejPctByValue - a.rejPctByValue);
     
     // All products sorted by value rejection %
@@ -7886,7 +7891,7 @@ export default function RetailerOrders() {
                           </button>
                         </div>
                         <p className="text-[9px] text-gray-400 mb-2">
-                          {productCountTab === 'high' ? 'Products with ≥10% of total units sold' : 'Products with <10% of total units sold'}
+                          {productCountTab === 'high' ? 'Products with ≥5% of total qty sold' : 'Products with <5% of total qty sold'}
                         </p>
                         <div className="space-y-2 max-h-52 overflow-y-auto">
                           {(productCountTab === 'high' ? rejectionAnalytics.highSellingProducts : rejectionAnalytics.lowSellingProducts)?.map((item, idx) => (
@@ -7897,7 +7902,7 @@ export default function RetailerOrders() {
                                 </span>
                                 <div>
                                   <span className="font-medium text-gray-800 truncate max-w-[80px] block" title={item.name}>{item.name}</span>
-                                  <span className="text-[9px] text-gray-400">{item.salesPct?.toFixed(1)}% of sales</span>
+                                  <span className="text-[9px] text-gray-400">{item.salesPctByQty?.toFixed(1)}% of qty</span>
                                 </div>
                               </div>
                               <div className="text-right">
@@ -7934,7 +7939,7 @@ export default function RetailerOrders() {
                           </button>
                         </div>
                         <p className="text-[9px] text-gray-400 mb-2">
-                          {productValueTab === 'high' ? 'Products with ≥10% of total units sold' : 'Products with <10% of total units sold'}
+                          {productValueTab === 'high' ? 'Products with ≥5% of total value sold' : 'Products with <5% of total value sold'}
                         </p>
                         <div className="space-y-2 max-h-52 overflow-y-auto">
                           {(productValueTab === 'high' ? rejectionAnalytics.highSellingByValue : rejectionAnalytics.lowSellingByValue)?.map((item, idx) => (
@@ -7945,7 +7950,7 @@ export default function RetailerOrders() {
                                 </span>
                                 <div>
                                   <span className="font-medium text-gray-800 truncate max-w-[80px] block" title={item.name}>{item.name}</span>
-                                  <span className="text-[9px] text-gray-400">{item.salesPct?.toFixed(1)}% of sales</span>
+                                  <span className="text-[9px] text-gray-400">{item.salesPctByValue?.toFixed(1)}% of value</span>
                                 </div>
                               </div>
                               <div className="text-right">

@@ -3,6 +3,19 @@
 ## Changelog (May 2025)
 
 ### May 24, 2025
+- **FEATURE**: High/Low Selling Product Tabs & Alphabetical Dropdown ✅
+  - **Product Deep Dive Dropdown**:
+    - Now sorted alphabetically (A-Z) for easier searching
+    - Shows product name only (no percentage)
+  - **High Selling / Low Selling Tabs** (Both Count % and Value % blocks):
+    - **High Selling**: Products with ≥10% of total units sold
+    - **Low Selling**: Products with <10% of total units sold
+    - Shows count of products in each category (e.g., "High Selling (1)" / "Low Selling (57)")
+    - Each product row shows: Name, Sales % contribution, Rejection %, qty details
+    - Sorted by highest rejection % within each category
+    - Scrollable list to see all products in each category
+  - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 - **FEATURE**: Product-Level Rejection Analysis Deep Dive ✅
   - **Split "Highest Single Rejection" Block**:
     - Left side: Shows highest single rejection (product, shop, date, value, reason)

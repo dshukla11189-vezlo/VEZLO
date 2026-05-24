@@ -218,6 +218,8 @@ export default function RetailerOrders() {
   const [loadingRejectionDispatches, setLoadingRejectionDispatches] = useState(false);
   const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState(''); // Selected product for drilldown
   const [rejectionProductDrilldown, setRejectionProductDrilldown] = useState(null); // Product drilldown modal data
+  const [productCountTab, setProductCountTab] = useState('high'); // 'high' or 'low' selling tab for count block
+  const [productValueTab, setProductValueTab] = useState('high'); // 'high' or 'low' selling tab for value block
   
   // Closing Inventory Management (Admin)
   const [closingInventoryData, setClosingInventoryData] = useState([]);
@@ -1115,17 +1117,52 @@ export default function RetailerOrders() {
     });
     
     // Calculate rejection % by count (qty) - sorted descending
-    const byProductCount = Object.values(productMap).map(p => {
+    const byProductAll = Object.values(productMap).map(p => {
       const suppliedQty = productDispatchMap[p.name]?.qty || 0;
       const suppliedValue = productDispatchMap[p.name]?.value || 0;
       // If no supplied data, assume 100% rejection for items that have rejections
       const rejPctByCount = suppliedQty > 0 ? (p.qty / suppliedQty * 100) : (p.qty > 0 ? 100 : 0);
       const rejPctByValue = suppliedValue > 0 ? (p.value / suppliedValue * 100) : (p.value > 0 ? 100 : 0);
       return { ...p, suppliedQty, suppliedValue, rejPctByCount, rejPctByValue };
-    }).sort((a, b) => b.rejPctByCount - a.rejPctByCount);
+    });
     
-    // By value sorted descending
-    const byProductValue = [...byProductCount].sort((a, b) => b.rejPctByValue - a.rejPctByValue);
+    // Calculate total supplied qty for high/low selling classification
+    const totalSuppliedQtyAll = byProductAll.reduce((sum, p) => sum + p.suppliedQty, 0);
+    
+    // Classify as high selling (>= 10% of total units sold) or low selling
+    const byProductWithCategory = byProductAll.map(p => {
+      const salesPct = totalSuppliedQtyAll > 0 ? (p.suppliedQty / totalSuppliedQtyAll * 100) : 0;
+      const isHighSelling = salesPct >= 10;
+      return { ...p, salesPct, isHighSelling };
+    });
+    
+    // High selling products sorted by rejection % (highest first)
+    const highSellingProducts = byProductWithCategory
+      .filter(p => p.isHighSelling)
+      .sort((a, b) => b.rejPctByCount - a.rejPctByCount);
+    
+    // Low selling products sorted by rejection % (highest first)
+    const lowSellingProducts = byProductWithCategory
+      .filter(p => !p.isHighSelling)
+      .sort((a, b) => b.rejPctByCount - a.rejPctByCount);
+    
+    // For backwards compatibility - all products sorted by rejection %
+    const byProductCount = byProductWithCategory.sort((a, b) => b.rejPctByCount - a.rejPctByCount);
+    
+    // By value - high/low selling sorted by value rejection %
+    const highSellingByValue = byProductWithCategory
+      .filter(p => p.isHighSelling)
+      .sort((a, b) => b.rejPctByValue - a.rejPctByValue);
+    
+    const lowSellingByValue = byProductWithCategory
+      .filter(p => !p.isHighSelling)
+      .sort((a, b) => b.rejPctByValue - a.rejPctByValue);
+    
+    // All products sorted by value rejection %
+    const byProductValue = [...byProductWithCategory].sort((a, b) => b.rejPctByValue - a.rejPctByValue);
+    
+    // Alphabetically sorted for dropdown
+    const byProductAlphabetical = [...byProductWithCategory].sort((a, b) => a.name.localeCompare(b.name));
     
     // Aggregate by retailer
     const retailerMap = {};
@@ -1217,6 +1254,11 @@ export default function RetailerOrders() {
       count: filtered.length,
       byProductCount,
       byProductValue,
+      byProductAlphabetical,
+      highSellingProducts,
+      lowSellingProducts,
+      highSellingByValue,
+      lowSellingByValue,
       byRetailer,
       byDate,
       byDay,
@@ -7706,8 +7748,8 @@ export default function RetailerOrders() {
                             className="flex-1 h-9 text-sm border border-blue-200 rounded-lg px-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
                           >
                             <option value="">-- Select Product --</option>
-                            {rejectionAnalytics.byProductCount.map((p, idx) => (
-                              <option key={idx} value={p.name}>{p.name} ({p.rejPctByCount.toFixed(1)}%)</option>
+                            {(rejectionAnalytics.byProductAlphabetical || []).map((p, idx) => (
+                              <option key={idx} value={p.name}>{p.name}</option>
                             ))}
                           </select>
                           <Button
@@ -7822,21 +7864,41 @@ export default function RetailerOrders() {
                     
                     {/* Analytics Sections */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* By Product - Sorted by Rejection % (Count) */}
+                      {/* By Product - Sorted by Rejection % (Count) with High/Low Selling Tabs */}
                       <div className="bg-gray-50 rounded-lg p-3 border">
                         <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                           <Package size={14} className="text-red-500" />
                           By Product (Count %)
-                          <span className="text-[10px] text-gray-400 ml-auto">Rejected / Supplied</span>
                         </h4>
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {rejectionAnalytics.byProductCount.slice(0, 10).map((item, idx) => (
+                        {/* Tabs */}
+                        <div className="flex gap-1 mb-2">
+                          <button
+                            onClick={() => setProductCountTab('high')}
+                            className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-colors ${productCountTab === 'high' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                          >
+                            High Selling ({rejectionAnalytics.highSellingProducts?.length || 0})
+                          </button>
+                          <button
+                            onClick={() => setProductCountTab('low')}
+                            className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-colors ${productCountTab === 'low' ? 'bg-amber-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                          >
+                            Low Selling ({rejectionAnalytics.lowSellingProducts?.length || 0})
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-gray-400 mb-2">
+                          {productCountTab === 'high' ? 'Products with ≥10% of total units sold' : 'Products with <10% of total units sold'}
+                        </p>
+                        <div className="space-y-2 max-h-52 overflow-y-auto">
+                          {(productCountTab === 'high' ? rejectionAnalytics.highSellingProducts : rejectionAnalytics.lowSellingProducts)?.map((item, idx) => (
                             <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
                               <div className="flex items-center gap-2">
                                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
                                   {idx + 1}
                                 </span>
-                                <span className="font-medium text-gray-800 truncate max-w-[90px]" title={item.name}>{item.name}</span>
+                                <div>
+                                  <span className="font-medium text-gray-800 truncate max-w-[80px] block" title={item.name}>{item.name}</span>
+                                  <span className="text-[9px] text-gray-400">{item.salesPct?.toFixed(1)}% of sales</span>
+                                </div>
                               </div>
                               <div className="text-right">
                                 <p className="font-bold text-red-600">{item.rejPctByCount.toFixed(1)}%</p>
@@ -7844,24 +7906,47 @@ export default function RetailerOrders() {
                               </div>
                             </div>
                           ))}
+                          {(productCountTab === 'high' ? rejectionAnalytics.highSellingProducts : rejectionAnalytics.lowSellingProducts)?.length === 0 && (
+                            <p className="text-xs text-gray-500 text-center py-2">No products in this category</p>
+                          )}
                         </div>
                       </div>
                       
-                      {/* By Product - Sorted by Rejection % (Value) */}
+                      {/* By Product - Sorted by Rejection % (Value) with High/Low Selling Tabs */}
                       <div className="bg-gray-50 rounded-lg p-3 border">
                         <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                           <TrendingUp size={14} className="text-red-500" />
                           By Product (Value %)
-                          <span className="text-[10px] text-gray-400 ml-auto">Rej Value / Supplied Value</span>
                         </h4>
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {rejectionAnalytics.byProductValue.slice(0, 10).map((item, idx) => (
+                        {/* Tabs */}
+                        <div className="flex gap-1 mb-2">
+                          <button
+                            onClick={() => setProductValueTab('high')}
+                            className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-colors ${productValueTab === 'high' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                          >
+                            High Selling ({rejectionAnalytics.highSellingByValue?.length || 0})
+                          </button>
+                          <button
+                            onClick={() => setProductValueTab('low')}
+                            className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-colors ${productValueTab === 'low' ? 'bg-amber-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                          >
+                            Low Selling ({rejectionAnalytics.lowSellingByValue?.length || 0})
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-gray-400 mb-2">
+                          {productValueTab === 'high' ? 'Products with ≥10% of total units sold' : 'Products with <10% of total units sold'}
+                        </p>
+                        <div className="space-y-2 max-h-52 overflow-y-auto">
+                          {(productValueTab === 'high' ? rejectionAnalytics.highSellingByValue : rejectionAnalytics.lowSellingByValue)?.map((item, idx) => (
                             <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
                               <div className="flex items-center gap-2">
                                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
                                   {idx + 1}
                                 </span>
-                                <span className="font-medium text-gray-800 truncate max-w-[90px]" title={item.name}>{item.name}</span>
+                                <div>
+                                  <span className="font-medium text-gray-800 truncate max-w-[80px] block" title={item.name}>{item.name}</span>
+                                  <span className="text-[9px] text-gray-400">{item.salesPct?.toFixed(1)}% of sales</span>
+                                </div>
                               </div>
                               <div className="text-right">
                                 <p className="font-bold text-red-600">{item.rejPctByValue.toFixed(1)}%</p>
@@ -7869,6 +7954,9 @@ export default function RetailerOrders() {
                               </div>
                             </div>
                           ))}
+                          {(productValueTab === 'high' ? rejectionAnalytics.highSellingByValue : rejectionAnalytics.lowSellingByValue)?.length === 0 && (
+                            <p className="text-xs text-gray-500 text-center py-2">No products in this category</p>
+                          )}
                         </div>
                       </div>
                       

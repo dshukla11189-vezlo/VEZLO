@@ -236,11 +236,6 @@ export default function AdminDashboard() {
   const [productPnlData, setProductPnlData] = useState([]);
   const [loadingProductPnl, setLoadingProductPnl] = useState(false);
   
-  // AI Demand Forecasting state
-  const [forecastData, setForecastData] = useState(null);
-  const [loadingForecast, setLoadingForecast] = useState(false);
-  const [expandedForecastRetailer, setExpandedForecastRetailer] = useState(null);
-  
   // Persist product date filters
   useEffect(() => {
     localStorage.setItem('dashboard_productDateFrom', productDateFrom);
@@ -645,27 +640,6 @@ export default function AdminDashboard() {
       setLoadingProductDetail(false);
     }
   }, [productDateFrom, productDateTo]);
-
-  // Load AI Demand Forecast
-  const loadForecast = useCallback(async () => {
-    setLoadingForecast(true);
-    try {
-      const response = await api.get('/api/reports/demand-forecast');
-      setForecastData(response.data);
-    } catch (error) {
-      console.error('Failed to load forecast:', error);
-      toast.error('Failed to load demand forecast');
-    } finally {
-      setLoadingForecast(false);
-    }
-  }, []);
-
-  // Load forecast when customers tab is active
-  useEffect(() => {
-    if (activeTab === 'customers' && !forecastData && !loadingForecast) {
-      loadForecast();
-    }
-  }, [activeTab, forecastData, loadingForecast, loadForecast]);
 
   const loadPnlData = useCallback(async () => {
     setLoading(true);

@@ -910,44 +910,12 @@ export default function RetailerOrders() {
   }, [productMap]);
 
   // Helper to get enhanced variant display for indent items
-  // Shows full description like "Piece of 500+ gm" for products with purchase units
+  // Shows Customer Display Variant (weight) instead of Purchase Variant
   const getIndentVariantDisplay = useCallback((item) => {
     if (!item) return '-';
-    
-    const productId = item.product_id || item.productId;
-    const variantName = item.variant_name || '-';
-    
-    // Find the product in retailer catalogue to get purchase unit info
-    const catalogueEntry = retailerCatalogue.find(c => 
-      c.product_id === productId || 
-      (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
-    );
-    
-    if (catalogueEntry && catalogueEntry.purchase_unit) {
-      const purchaseUnit = catalogueEntry.purchase_unit;
-      const purchaseWeights = catalogueEntry.purchase_weights || [];
-      
-      // Find the weight name from the catalogue weights
-      let weightName = '';
-      if (purchaseWeights.length > 0) {
-        // Try to find matching weight in packagings
-        const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
-        weightName = weightInfo?.name || '';
-      }
-      
-      // Build the display string based on unit type
-      if (purchaseUnit === 'Piece') {
-        return weightName ? `Piece of ${weightName}` : 'Piece';
-      } else if (purchaseUnit === 'Packet') {
-        return weightName ? `Packet of ${weightName}` : 'Packet';
-      } else if (purchaseUnit === 'Bunch') {
-        return weightName ? `Bunch of ${weightName}` : 'Bunch';
-      }
-    }
-    
-    // Fallback to original variant name
-    return variantName;
-  }, [retailerCatalogue, packagings]);
+    // Simply return the variant_name which is the Customer Display Variant
+    return item.variant_name || '-';
+  }, []);
 
   useEffect(() => {
     const loadAll = async () => {
@@ -1354,41 +1322,6 @@ export default function RetailerOrders() {
       return;
     }
 
-    // Helper to get enhanced variant name for an item
-    const getEnhancedVariant = (item) => {
-      const productId = item.product_id || item.productId;
-      const variantName = item.variant_name || 'Kg';
-      
-      // Find the product in retailer catalogue to get purchase unit info
-      const catalogueEntry = retailerCatalogue.find(c => 
-        c.product_id === productId || 
-        (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
-      );
-      
-      if (catalogueEntry && catalogueEntry.purchase_unit) {
-        const purchaseUnit = catalogueEntry.purchase_unit;
-        const purchaseWeights = catalogueEntry.purchase_weights || [];
-        
-        // Find the weight name from the catalogue weights
-        let weightName = '';
-        if (purchaseWeights.length > 0) {
-          const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
-          weightName = weightInfo?.name || '';
-        }
-        
-        // Build the display string based on unit type
-        if (purchaseUnit === 'Piece') {
-          return weightName ? `Piece of ${weightName}` : 'Piece';
-        } else if (purchaseUnit === 'Packet') {
-          return weightName ? `Packet of ${weightName}` : 'Packet';
-        } else if (purchaseUnit === 'Bunch') {
-          return weightName ? `Bunch of ${weightName}` : 'Bunch';
-        }
-      }
-      
-      return variantName;
-    };
-
     // Get unique retailers and products from filtered indents
     const retailerMap = new Map(); // retailer_id -> outlet_name
     const productVariantSet = new Set(); // "product_name|variant_name"
@@ -1400,8 +1333,8 @@ export default function RetailerOrders() {
       retailerMap.set(retailerId, retailerName);
 
       indent.items?.forEach(item => {
-        const enhancedVariant = getEnhancedVariant(item);
-        const productKey = `${item.product_name}|${enhancedVariant}`;
+        // Use Customer Display Variant (variant_name) directly
+        const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
         productVariantSet.add(productKey);
         
         const qtyKey = `${productKey}|${retailerId}`;
@@ -1517,41 +1450,6 @@ export default function RetailerOrders() {
       return;
     }
 
-    // Helper to get enhanced variant name for an item
-    const getEnhancedVariant = (item) => {
-      const productId = item.product_id || item.productId;
-      const variantName = item.variant_name || 'Kg';
-      
-      // Find the product in retailer catalogue to get purchase unit info
-      const catalogueEntry = retailerCatalogue.find(c => 
-        c.product_id === productId || 
-        (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
-      );
-      
-      if (catalogueEntry && catalogueEntry.purchase_unit) {
-        const purchaseUnit = catalogueEntry.purchase_unit;
-        const purchaseWeights = catalogueEntry.purchase_weights || [];
-        
-        // Find the weight name from the catalogue weights
-        let weightName = '';
-        if (purchaseWeights.length > 0) {
-          const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
-          weightName = weightInfo?.name || '';
-        }
-        
-        // Build the display string based on unit type
-        if (purchaseUnit === 'Piece') {
-          return weightName ? `Piece of ${weightName}` : 'Piece';
-        } else if (purchaseUnit === 'Packet') {
-          return weightName ? `Packet of ${weightName}` : 'Packet';
-        } else if (purchaseUnit === 'Bunch') {
-          return weightName ? `Bunch of ${weightName}` : 'Bunch';
-        }
-      }
-      
-      return variantName;
-    };
-
     // Get unique retailers and products from filtered indents
     const retailerMap = new Map();
     const productVariantSet = new Set();
@@ -1563,8 +1461,8 @@ export default function RetailerOrders() {
       retailerMap.set(retailerId, retailerName);
 
       indent.items?.forEach(item => {
-        const enhancedVariant = getEnhancedVariant(item);
-        const productKey = `${item.product_name}|${enhancedVariant}`;
+        // Use Customer Display Variant (variant_name) directly
+        const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
         productVariantSet.add(productKey);
         
         const qtyKey = `${productKey}|${retailerId}`;

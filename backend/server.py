@@ -15290,6 +15290,8 @@ async def add_catalogue_item(
         "category": input.get("category", ""),
         "image_url": input.get("image_url", ""),
         "variants": input.get("variants", []),  # List of variant IDs
+        "purchase_unit": input.get("purchase_unit", ""),  # Unit for purchasing (e.g., Pieces, Box)
+        "purchase_weight_variant": input.get("purchase_weight_variant", ""),  # Packaging variant ID for weight
         "is_active": input.get("is_active", True),
         "show_on_portal": input.get("show_on_portal", True),  # Visibility on retailer portal
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -15347,6 +15349,10 @@ async def update_catalogue_item(
         update_data["category"] = input["category"]
     if "image_url" in input:
         update_data["image_url"] = input["image_url"]
+    if "purchase_unit" in input:
+        update_data["purchase_unit"] = input["purchase_unit"]
+    if "purchase_weight_variant" in input:
+        update_data["purchase_weight_variant"] = input["purchase_weight_variant"]
     
     await db.retailer_catalogue.update_one(
         {"product_id": product_id},

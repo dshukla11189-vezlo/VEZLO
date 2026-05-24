@@ -15,7 +15,8 @@ const CatalogueProductRow = ({
   catalogueItem, 
   isEditing, 
   isSaving,
-  packagingVariants, 
+  packagingVariants,
+  units, 
   getVariantNames,
   onEdit, 
   onSave, 
@@ -24,11 +25,25 @@ const CatalogueProductRow = ({
   onToggleVisibility
 }) => {
   const [selectedVariants, setSelectedVariants] = useState(catalogueItem?.variants || []);
+  const [purchaseUnit, setPurchaseUnit] = useState(catalogueItem?.purchase_unit || '');
+  const [purchaseWeightVariant, setPurchaseWeightVariant] = useState(catalogueItem?.purchase_weight_variant || '');
+  
+  // Get retail-only packaging variants for weight dropdown
+  const retailPackagingVariants = packagingVariants.filter(v => {
+    const verticals = v.verticals;
+    if (!verticals) return true;
+    if (Array.isArray(verticals)) {
+      return verticals.includes('retail') || verticals.includes('both') || verticals.length === 0;
+    }
+    return verticals === 'retail' || verticals === 'both';
+  });
   
   // Reset selected variants when editing state changes
   React.useEffect(() => {
     if (isEditing) {
       setSelectedVariants(catalogueItem?.variants || []);
+      setPurchaseUnit(catalogueItem?.purchase_unit || '');
+      setPurchaseWeightVariant(catalogueItem?.purchase_weight_variant || '');
     }
   }, [isEditing, catalogueItem]);
 
@@ -74,16 +89,7 @@ const CatalogueProductRow = ({
       <td className="px-4 py-2">
         {isEditing ? (
           <div className="flex flex-wrap gap-1.5 max-w-md">
-            {packagingVariants
-              .filter(v => {
-                const verticals = v.verticals;
-                // Show if retail, both, or null/undefined (available for all)
-                if (!verticals) return true;
-                if (Array.isArray(verticals)) {
-                  return verticals.includes('retail') || verticals.includes('both') || verticals.length === 0;
-                }
-                return verticals === 'retail' || verticals === 'both';
-              })
+            {retailPackagingVariants
               .map(variant => (
                 <button
                   key={variant.id}
@@ -122,6 +128,55 @@ const CatalogueProductRow = ({
         )}
       </td>
       
+      {/* Purchase Variant - Unit + Weight */}
+      <td className="px-4 py-2">
+        {isEditing ? (
+          <div className="flex flex-col gap-1.5">
+            {/* Unit Dropdown */}
+            <select
+              value={purchaseUnit}
+              onChange={(e) => setPurchaseUnit(e.target.value)}
+              className="w-full h-7 px-2 text-xs rounded border border-gray-300 focus:border-teal-400 focus:ring-1 focus:ring-teal-400"
+            >
+              <option value="">-- Select Unit --</option>
+              {units.map(unit => (
+                <option key={unit.id} value={unit.name}>{unit.name} ({unit.symbol})</option>
+              ))}
+            </select>
+            {/* Weight Dropdown from Retail Packaging */}
+            <select
+              value={purchaseWeightVariant}
+              onChange={(e) => setPurchaseWeightVariant(e.target.value)}
+              className="w-full h-7 px-2 text-xs rounded border border-gray-300 focus:border-teal-400 focus:ring-1 focus:ring-teal-400"
+            >
+              <option value="">-- Select Weight --</option>
+              {retailPackagingVariants.map(pkg => (
+                <option key={pkg.id} value={pkg.id}>{pkg.name} ({pkg.weight_gm}gm)</option>
+              ))}
+            </select>
+          </div>
+        ) : isInCatalogue ? (
+          <div className="flex flex-col gap-0.5">
+            {catalogueItem.purchase_unit ? (
+              <>
+                <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded inline-block">
+                  {catalogueItem.purchase_unit}
+                </span>
+                {catalogueItem.purchase_weight_variant && (
+                  <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded inline-block">
+                    {packagingVariants.find(p => p.id === catalogueItem.purchase_weight_variant)?.name || '-'}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="text-xs text-gray-400">Not set</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400 italic">-</span>
+        )}
+      </td>
+      
       {/* Show on Retailer Portal */}
       <td className="px-4 py-2 text-center">
         {isInCatalogue ? (
@@ -145,7 +200,7 @@ const CatalogueProductRow = ({
             <Button
               size="sm"
               className="h-7 px-2 bg-teal-600 hover:bg-teal-700"
-              onClick={() => onSave(selectedVariants)}
+              onClick={() => onSave(selectedVariants, purchaseUnit, purchaseWeightVariant)}
               disabled={isSaving}
             >
               {isSaving ? (
@@ -572,7 +627,7 @@ export default function Products() {
   };
 
   // Save catalogue item (add or update)
-  const saveCatalogueItem = async (product, selectedVariants) => {
+  const saveCatalogueItem = async (product, selectedVariants, purchaseUnit = '', purchaseWeightVariant = '') => {
     setCatalogueSaving(prev => ({ ...prev, [product.id]: true }));
     try {
       await api.post('/api/retailer-catalogue', {
@@ -583,6 +638,8 @@ export default function Products() {
         category: product.category || '',
         image_url: product.image_url || '',
         variants: selectedVariants,
+        purchase_unit: purchaseUnit,
+        purchase_weight_variant: purchaseWeightVariant,
         is_active: true
       });
       toast.success(`${product.name} saved to catalogue`);
@@ -2170,6 +2227,7 @@ export default function Products() {
                                 <th className="text-left px-4 py-2 font-medium text-gray-600 w-16">Image</th>
                                 <th className="text-left px-4 py-2 font-medium text-gray-600">Product Name</th>
                                 <th className="text-left px-4 py-2 font-medium text-gray-600">Variants</th>
+                                <th className="text-left px-4 py-2 font-medium text-gray-600 w-36">Purchase Variant</th>
                                 <th className="text-center px-4 py-2 font-medium text-gray-600 w-28">Show on Portal?</th>
                                 <th className="text-center px-4 py-2 font-medium text-gray-600 w-28">Actions</th>
                               </tr>
@@ -2189,9 +2247,10 @@ export default function Products() {
                                     isEditing={isEditing}
                                     isSaving={isSaving}
                                     packagingVariants={packagingVariants}
+                                    units={units}
                                     getVariantNames={getVariantNames}
                                     onEdit={() => setEditingCatalogueItem(product.id)}
-                                    onSave={(variants) => saveCatalogueItem(product, variants)}
+                                    onSave={(variants, purchaseUnit, purchaseWeightVariant) => saveCatalogueItem(product, variants, purchaseUnit, purchaseWeightVariant)}
                                     onCancel={() => setEditingCatalogueItem(null)}
                                     onRemove={() => removeCatalogueItem(product.id, product.name)}
                                     onToggleVisibility={toggleCatalogueVisibility}

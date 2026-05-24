@@ -3,6 +3,29 @@
 ## Changelog (May 2025)
 
 ### May 24, 2025
+- **FEATURE**: Enhanced Rejection Analytics Modal with % Sorting and Shop Drill-down ✅
+  - **Fixed Date Picker Visibility**:
+    - Changed from shadcn Input component to native HTML date input
+    - Calendar icon now properly visible
+    - Clean white background with border styling
+  - **Shop Names Instead of Owner Names**:
+    - All retailer displays now use `company_name` (shop name) instead of `retailer_name` (owner)
+    - Updated: Highest Single Rejection highlight, By Shop list, Drill-down modal
+  - **Sorting by Rejection %**:
+    - Products sorted by rejection % = (rejected qty / dispatched qty) * 100
+    - Shops sorted by rejection % = (rejected qty / dispatched qty) * 100
+    - Shows "X / Y qty" format (rejected / dispatched)
+  - **Clickable Shop Rows with Drill-down**:
+    - Added "Click for details" hint and chevron arrows
+    - **New Retailer Drill-down Modal** shows:
+      - Summary: Rejection %, Rejected Qty, Total Loss
+      - **Products with Highest Rejection at this shop**: Ranked by % contribution
+        - Product name, rejection %, qty, value, times rejected
+        - Main rejection reason shown
+        - Date badges showing when rejections occurred
+      - **Rejection by Date table**: Date, Day, Count, Qty, Value (latest first)
+  - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 - **FEATURE**: Rejection Analytics Modal with Advanced Insights ✅
   - **Improved Rejection Loss Block Layout**:
     - Fixed date picker alignment with dedicated "Period:" row

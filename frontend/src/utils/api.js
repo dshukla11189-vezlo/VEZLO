@@ -42,7 +42,7 @@ if (typeof window !== 'undefined') {
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 30000,  // 30 second timeout
+  timeout: 45000,  // 45 second timeout (increased for cold starts)
   headers: {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache, no-store, must-revalidate',

@@ -2,9 +2,30 @@
  * useQCData - Custom hook for Quick Commerce data management
  * Centralizes all QC-related data fetching and state management
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import api from '../../utils/api';
 import { toast } from 'sonner';
+
+// Helper function to fetch with retry
+const fetchWithRetry = async (url, maxRetries = 3, delay = 1000) => {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await api.get(url);
+      return response;
+    } catch (error) {
+      lastError = error;
+      // Only retry on network errors or 5xx errors
+      if (error.response && error.response.status < 500) {
+        throw error; // Don't retry 4xx errors
+      }
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+      }
+    }
+  }
+  throw lastError;
+};
 
 export function useQCData() {
   const [indents, setIndents] = useState([]);
@@ -15,6 +36,7 @@ export function useQCData() {
   const [packagingVariants, setPackagingVariants] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const loadAttemptRef = useRef(0);
 
   // Build product lookup map
   const productMap = useMemo(() => {
@@ -26,30 +48,57 @@ export function useQCData() {
     return map;
   }, [products]);
 
-  // Load all data
+  // Load all data with retry logic
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [indentRes, dispatchRes, grnRes, customerRes, productRes, packagingRes, invoiceRes] = await Promise.all([
-        api.get('/api/qc-indents'),
-        api.get('/api/qc-dispatches'),
-        api.get('/api/qc-grns'),
-        api.get('/api/qc-customers'),
-        api.get('/api/products?include_images=false'),
-        api.get('/api/qc-packaging'),
-        api.get('/api/qc-invoices')
+      loadAttemptRef.current += 1;
+      const currentAttempt = loadAttemptRef.current;
+      
+      // Fetch all data with individual retry logic
+      // Use Promise.allSettled to handle partial failures
+      const results = await Promise.allSettled([
+        fetchWithRetry('/api/qc-indents'),
+        fetchWithRetry('/api/qc-dispatches'),
+        fetchWithRetry('/api/qc-grns'),
+        fetchWithRetry('/api/qc-customers'),
+        fetchWithRetry('/api/products?include_images=false'),
+        fetchWithRetry('/api/qc-packaging'),
+        fetchWithRetry('/api/qc-invoices')
       ]);
       
-      setIndents(indentRes.data || []);
-      setDispatches(dispatchRes.data || []);
-      setGrns(grnRes.data || []);
-      setCustomers(customerRes.data || []);
-      setProducts(productRes.data || []);
-      setPackagingVariants(packagingRes.data || []);
-      setInvoices(invoiceRes.data || []);
+      // Check if this is still the latest load attempt
+      if (currentAttempt !== loadAttemptRef.current) {
+        return; // Abort if a newer load was triggered
+      }
+      
+      // Process results - set data for successful fetches, keep existing for failed
+      const [indentRes, dispatchRes, grnRes, customerRes, productRes, packagingRes, invoiceRes] = results;
+      
+      if (indentRes.status === 'fulfilled') setIndents(indentRes.value.data || []);
+      if (dispatchRes.status === 'fulfilled') setDispatches(dispatchRes.value.data || []);
+      if (grnRes.status === 'fulfilled') setGrns(grnRes.value.data || []);
+      if (customerRes.status === 'fulfilled') setCustomers(customerRes.value.data || []);
+      if (productRes.status === 'fulfilled') setProducts(productRes.value.data || []);
+      if (packagingRes.status === 'fulfilled') setPackagingVariants(packagingRes.value.data || []);
+      if (invoiceRes.status === 'fulfilled') setInvoices(invoiceRes.value.data || []);
+      
+      // Check if any failed completely
+      const failedCount = results.filter(r => r.status === 'rejected').length;
+      if (failedCount > 0 && failedCount < results.length) {
+        console.warn(`${failedCount} of ${results.length} data sources failed to load`);
+      } else if (failedCount === results.length) {
+        throw new Error('All data sources failed to load');
+      }
     } catch (err) {
       console.error('Error loading QC data:', err);
-      toast.error('Failed to load data');
+      toast.error('Failed to load data. Retrying...');
+      // Auto-retry after 3 seconds if complete failure
+      setTimeout(() => {
+        if (loadAttemptRef.current === loadAttemptRef.current) {
+          loadData();
+        }
+      }, 3000);
     } finally {
       setLoading(false);
     }

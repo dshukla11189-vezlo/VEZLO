@@ -7,18 +7,23 @@ import { Menu } from 'lucide-react';
 export default function Layout({ children, title, hideTitle, hideSidebar, statusComponent }) {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-      // Always open sidebar on desktop (unless hidden)
-      if (window.innerWidth >= 768 && !hideSidebar) {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      
+      // On mobile: always close sidebar
+      // On desktop: always open sidebar (unless hidden)
+      if (mobile) {
+        setSidebarOpen(false);
+      } else if (!hideSidebar) {
         setSidebarOpen(true);
       }
     };
     
-    checkMobile();
+    // Don't run on mount - use initial state values instead
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, [hideSidebar]);

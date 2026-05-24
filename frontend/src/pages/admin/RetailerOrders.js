@@ -926,11 +926,26 @@ export default function RetailerOrders() {
         (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
       );
       
-      if (catalogueEntry && catalogueEntry.purchase_weights && catalogueEntry.purchase_weights.length > 0) {
-        // Find the weight name from packagings
-        const weightInfo = packagings.find(p => catalogueEntry.purchase_weights.includes(p.id));
-        if (weightInfo?.name) {
-          return `${variantName} (${weightInfo.name})`;
+      if (catalogueEntry) {
+        // Check both field names: purchase_weights (array) or purchase_weight_variant (single)
+        const purchaseWeights = catalogueEntry.purchase_weights || [];
+        const purchaseWeightVariant = catalogueEntry.purchase_weight_variant;
+        
+        let weightName = '';
+        
+        // First try purchase_weights array
+        if (purchaseWeights.length > 0) {
+          const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
+          weightName = weightInfo?.name || '';
+        }
+        // Then try purchase_weight_variant (single)
+        else if (purchaseWeightVariant) {
+          const weightInfo = packagings.find(p => p.id === purchaseWeightVariant);
+          weightName = weightInfo?.name || '';
+        }
+        
+        if (weightName) {
+          return `${variantName} (${weightName})`;
         }
       }
     }

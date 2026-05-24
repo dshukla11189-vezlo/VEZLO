@@ -3393,12 +3393,12 @@ export default function RetailerOrders() {
     // Get all dispatches for this indent
     const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
     
-    // Calculate total dispatched per product+variant combination
+    // Calculate total dispatched per product (using product_id only, matching backend logic)
     const totalDispatched = {};
     for (const dispatch of indentDispatches) {
       for (const item of (dispatch.items || [])) {
-        // Use product_id + variant_id as key for uniqueness
-        const key = `${item.product_id}|${item.variant_id || ''}`;
+        // Use product_id only for matching (consistent with backend)
+        const key = item.product_id;
         totalDispatched[key] = (totalDispatched[key] || 0) + (item.supplied_qty || 0);
       }
     }
@@ -3406,7 +3406,7 @@ export default function RetailerOrders() {
     // Calculate remaining for each indent item
     const remainingItems = [];
     for (const item of (indent.items || [])) {
-      const key = `${item.product_id}|${item.variant_id || ''}`;
+      const key = item.product_id;
       const dispatched = totalDispatched[key] || 0;
       const remaining = (item.quantity || 0) - dispatched;
       
@@ -3507,6 +3507,7 @@ export default function RetailerOrders() {
           product_name: item.product_name,
           variant_id: variantId || '',
           variant_name: variantName,
+          indent_variant_id: item.variant_id || '',  // Store original indent variant_id for matching
           indent_qty: item.quantity || item.remaining_qty,
           supplied_qty: '',  // Empty by default - user fills only what they dispatch
           mrp: mrpValue,
@@ -6188,7 +6189,8 @@ export default function RetailerOrders() {
                                 const dispatchedQtys = {};
                                 for (const dispatch of indentDispatches) {
                                   for (const item of (dispatch.items || [])) {
-                                    const key = `${item.product_id}|${item.variant_id || ''}`;
+                                    // Use product_id only for matching (consistent with backend)
+                                    const key = item.product_id;
                                     dispatchedQtys[key] = (dispatchedQtys[key] || 0) + (item.supplied_qty || 0);
                                   }
                                 }
@@ -6212,7 +6214,7 @@ export default function RetailerOrders() {
                                     </thead>
                                     <tbody>
                                       {indent.items?.map((item, idx) => {
-                                        const key = `${item.product_id}|${item.variant_id || ''}`;
+                                        const key = item.product_id;
                                         const dispatched = dispatchedQtys[key] || 0;
                                         const remaining = (item.quantity || 0) - dispatched;
                                         return (
@@ -9096,7 +9098,8 @@ export default function RetailerOrders() {
                             items: prev.items.map(item => ({
                               ...item,
                               supplied_qty: item.indent_qty,  // Fill with indent qty
-                              total_value: (item.indent_qty || 0) * (item.mrp || 0)  // Recalculate total
+                              total_value: (item.indent_qty || 0) * (item.mrp || 0),  // Recalculate total
+                              marked_done: true  // Auto-check done when filling all quantities
                             }))
                           }));
                         }}

@@ -3,30 +3,30 @@
 ## Changelog (May 2025)
 
 ### May 24, 2025
-- **FEATURE**: Enhanced Rejection Analytics Modal with % Sorting and Shop Drill-down ✅
-  - **Fixed Date Picker Visibility**:
-    - Changed from shadcn Input component to native HTML date input
-    - Calendar icon now properly visible
-    - Clean white background with border styling
-  - **Shop Names Instead of Owner Names**:
-    - All retailer displays now use `company_name` (shop name) instead of `retailer_name` (owner)
-    - Updated: Highest Single Rejection highlight, By Shop list, Drill-down modal
-  - **Sorting by Rejection %**:
-    - Products sorted by rejection % = (rejected qty / dispatched qty) * 100
-    - Shops sorted by rejection % = (rejected qty / dispatched qty) * 100
-    - Shows "X / Y qty" format (rejected / dispatched)
+- **FEATURE**: Enhanced Rejection Analytics with Proper % Calculations and Expandable Dates ✅
+  - **Fixed Rejection % Calculation**:
+    - Now properly loads ALL dispatches within the rejection date range (not just single-day filter)
+    - Rejection % = (Rejected Qty / Supplied Qty) × 100
+    - Value % = (Rejection Value / Supplied Value) × 100
+    - Shows actual numbers: "7 / 10 qty" format
+  - **Two Product Ranking Sections**:
+    - **By Product (Count %)**: Sorted by rejected qty / supplied qty, descending
+    - **By Product (Value %)**: Sorted by rejection value / supplied value, descending
+  - **Shop Names Throughout**:
+    - All displays use `company_name` (shop name) instead of owner name
   - **Clickable Shop Rows with Drill-down**:
-    - Added "Click for details" hint and chevron arrows
-    - **New Retailer Drill-down Modal** shows:
-      - Summary: Rejection %, Rejected Qty, Total Loss
-      - **Products with Highest Rejection at this shop**: Ranked by % contribution
-        - Product name, rejection %, qty, value, times rejected
-        - Main rejection reason shown
-        - Date badges showing when rejections occurred
-      - **Rejection by Date table**: Date, Day, Count, Qty, Value (latest first)
+    - Shows Rejection %, Rejected, Supplied, Total Loss summary cards
+    - Products ranked by % contribution at that shop
+    - Date-wise rejection table for that shop
+  - **Expandable Date Rows**:
+    - Each date row shows: Date, Day, Count, Qty, Value
+    - Click to expand and see detailed table:
+      - Product, Shop, Qty, Reason, Value columns
+      - All individual rejection entries for that day
+  - **Visual Day-of-Week Chart**: Bar chart showing rejection values per day
   - Files modified: `/app/frontend/src/pages/admin/RetailerOrders.js`
 
-- **FEATURE**: Rejection Analytics Modal with Advanced Insights ✅
+- **FEATURE**: Enhanced Rejection Analytics Modal with Advanced Insights ✅
   - **Improved Rejection Loss Block Layout**:
     - Fixed date picker alignment with dedicated "Period:" row
     - Added "View Details" button in header

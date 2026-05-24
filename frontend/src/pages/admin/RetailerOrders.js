@@ -18,7 +18,7 @@ import {
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -214,6 +214,8 @@ export default function RetailerOrders() {
   const [rejectionLossDateTo, setRejectionLossDateTo] = useState(new Date().toISOString().split('T')[0]);
   const [showRejectionAnalyticsModal, setShowRejectionAnalyticsModal] = useState(false);
   const [rejectionRetailerDrilldown, setRejectionRetailerDrilldown] = useState(null); // For retailer-specific drill-down
+  const [allDispatchesForRejection, setAllDispatchesForRejection] = useState([]); // All dispatches for rejection % calc
+  const [loadingRejectionDispatches, setLoadingRejectionDispatches] = useState(false);
   
   // Closing Inventory Management (Admin)
   const [closingInventoryData, setClosingInventoryData] = useState([]);
@@ -376,6 +378,30 @@ export default function RetailerOrders() {
       console.error('Failed to load rejections:', error);
     }
   }, [selectedRetailer]);
+
+  // Load all dispatches for rejection analytics date range
+  const loadDispatchesForRejection = useCallback(async () => {
+    try {
+      setLoadingRejectionDispatches(true);
+      const params = new URLSearchParams();
+      params.append('start_date', rejectionLossDateFrom);
+      params.append('end_date', rejectionLossDateTo);
+      params.append('limit', '1000'); // Get more dispatches for full analysis
+      const response = await api.get(`/api/retailer-dispatches?${params.toString()}`);
+      setAllDispatchesForRejection(response.data || []);
+    } catch (error) {
+      console.error('Failed to load dispatches for rejection analysis:', error);
+    } finally {
+      setLoadingRejectionDispatches(false);
+    }
+  }, [rejectionLossDateFrom, rejectionLossDateTo]);
+
+  // Load dispatches when rejection modal opens or date range changes
+  useEffect(() => {
+    if (showRejectionAnalyticsModal) {
+      loadDispatchesForRejection();
+    }
+  }, [showRejectionAnalyticsModal, loadDispatchesForRejection]);
 
   // Sync rejection amounts to invoices
   const [syncingRejections, setSyncingRejections] = useState(false);
@@ -1001,25 +1027,32 @@ export default function RetailerOrders() {
       return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
     });
     
-    // Filter dispatches by the same date range to calculate dispatch totals
-    const filteredDispatches = dispatches.filter(d => {
-      const dispDate = d.dispatch_date?.split('T')[0];
-      return dispDate >= rejectionLossDateFrom && dispDate <= rejectionLossDateTo;
-    });
-    
     // Build retailer id -> company_name map
     const retailerCompanyMap = {};
     retailers.forEach(r => {
       retailerCompanyMap[r.id] = r.company_name || r.name || 'Unknown';
     });
     
-    // Calculate total dispatched qty and value per product
+    // Get unique dispatch_ids from rejections to find matching dispatches
+    const rejectionDispatchIds = new Set(filtered.map(r => r.dispatch_id).filter(Boolean));
+    
+    // Build dispatch data using allDispatchesForRejection (loaded for the full date range)
     const productDispatchMap = {};
     const retailerDispatchMap = {};
     
-    filteredDispatches.forEach(d => {
+    // Use allDispatchesForRejection instead of dispatches
+    const dispatchesForAnalysis = allDispatchesForRejection.length > 0 ? allDispatchesForRejection : dispatches;
+    
+    dispatchesForAnalysis.forEach(d => {
+      const dispDate = d.dispatch_date?.split('T')[0];
       const retailerId = d.retailer_id;
       const shopName = retailerCompanyMap[retailerId] || d.retailer_name || 'Unknown';
+      
+      // Consider dispatches in rejection date range OR with matching dispatch_id
+      const inDateRange = dispDate >= rejectionLossDateFrom && dispDate <= rejectionLossDateTo;
+      const hasMatchingId = rejectionDispatchIds.has(d.id);
+      
+      if (!inDateRange && !hasMatchingId) return;
       
       if (!retailerDispatchMap[shopName]) {
         retailerDispatchMap[shopName] = { qty: 0, value: 0, retailer_id: retailerId };
@@ -1027,7 +1060,7 @@ export default function RetailerOrders() {
       
       (d.items || []).forEach(item => {
         const productName = item.product_name || 'Unknown';
-        const qty = item.supplied_qty || item.dispatched_qty || item.quantity || 0;
+        const qty = item.supplied_qty || item.dispatched_qty || item.quantity || item.indent_qty || 0;
         const value = qty * (item.mrp || 0);
         
         if (!productDispatchMap[productName]) {
@@ -1045,8 +1078,13 @@ export default function RetailerOrders() {
       return {
         totalValue: 0,
         totalQty: 0,
-        count: filtered.length,
-        byProduct: [],
+        totalSuppliedQty: 0,
+        totalSuppliedValue: 0,
+        overallRejPct: 0,
+        overallRejValuePct: 0,
+        count: 0,
+        byProductCount: [],
+        byProductValue: [],
         byRetailer: [],
         byDate: [],
         byDay: [],
@@ -1055,11 +1093,14 @@ export default function RetailerOrders() {
         maxSingleRejection: null,
         topProductByQty: null,
         topRetailerByValue: null,
-        filteredRejections: []
+        filteredRejections: [],
+        retailerCompanyMap,
+        productDispatchMap,
+        retailerDispatchMap
       };
     }
     
-    // Aggregate by product with rejection %
+    // Aggregate by product
     const productMap = {};
     filtered.forEach(r => {
       const key = r.product_name || 'Unknown';
@@ -1071,17 +1112,22 @@ export default function RetailerOrders() {
       productMap[key].count += 1;
     });
     
-    // Calculate rejection % and sort by it
-    const byProduct = Object.values(productMap).map(p => {
-      const dispatched = productDispatchMap[p.name]?.qty || 0;
-      const rejPct = dispatched > 0 ? (p.qty / dispatched * 100) : 0;
-      return { ...p, dispatched, rejPct };
-    }).sort((a, b) => b.rejPct - a.rejPct);
+    // Calculate rejection % by count (qty) - sorted descending
+    const byProductCount = Object.values(productMap).map(p => {
+      const suppliedQty = productDispatchMap[p.name]?.qty || 0;
+      const suppliedValue = productDispatchMap[p.name]?.value || 0;
+      // If no supplied data, assume 100% rejection for items that have rejections
+      const rejPctByCount = suppliedQty > 0 ? (p.qty / suppliedQty * 100) : (p.qty > 0 ? 100 : 0);
+      const rejPctByValue = suppliedValue > 0 ? (p.value / suppliedValue * 100) : (p.value > 0 ? 100 : 0);
+      return { ...p, suppliedQty, suppliedValue, rejPctByCount, rejPctByValue };
+    }).sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
-    // Aggregate by retailer (use shop name/company_name)
+    // By value sorted descending
+    const byProductValue = [...byProductCount].sort((a, b) => b.rejPctByValue - a.rejPctByValue);
+    
+    // Aggregate by retailer
     const retailerMap = {};
     filtered.forEach(r => {
-      // Use company_name from retailers array if available
       const shopName = retailerCompanyMap[r.retailer_id] || r.retailer_name || 'Unknown';
       if (!retailerMap[shopName]) {
         retailerMap[shopName] = { name: shopName, retailer_id: r.retailer_id, qty: 0, value: 0, count: 0, rejections: [] };
@@ -1092,23 +1138,26 @@ export default function RetailerOrders() {
       retailerMap[shopName].rejections.push(r);
     });
     
-    // Calculate rejection % for retailers and sort by it
+    // Calculate rejection % for retailers - sorted descending
     const byRetailer = Object.values(retailerMap).map(r => {
-      const dispatched = retailerDispatchMap[r.name]?.qty || 0;
-      const rejPct = dispatched > 0 ? (r.qty / dispatched * 100) : 0;
-      return { ...r, dispatched, rejPct };
-    }).sort((a, b) => b.rejPct - a.rejPct);
+      const suppliedQty = retailerDispatchMap[r.name]?.qty || 0;
+      const suppliedValue = retailerDispatchMap[r.name]?.value || 0;
+      const rejPctByCount = suppliedQty > 0 ? (r.qty / suppliedQty * 100) : (r.qty > 0 ? 100 : 0);
+      const rejPctByValue = suppliedValue > 0 ? (r.value / suppliedValue * 100) : (r.value > 0 ? 100 : 0);
+      return { ...r, suppliedQty, suppliedValue, rejPctByCount, rejPctByValue };
+    }).sort((a, b) => b.rejPctByCount - a.rejPctByCount);
     
-    // Aggregate by date
+    // Aggregate by date with expandable details
     const dateMap = {};
     filtered.forEach(r => {
       const key = r.rejection_date?.split('T')[0] || 'Unknown';
       if (!dateMap[key]) {
-        dateMap[key] = { date: key, qty: 0, value: 0, count: 0 };
+        dateMap[key] = { date: key, qty: 0, value: 0, count: 0, rejections: [] };
       }
       dateMap[key].qty += (r.quantity || 0);
       dateMap[key].value += (r.rejection_value || 0);
       dateMap[key].count += 1;
+      dateMap[key].rejections.push(r);
     });
     const byDate = Object.values(dateMap).sort((a, b) => b.date.localeCompare(a.date));
     
@@ -1139,6 +1188,10 @@ export default function RetailerOrders() {
     
     const totalValue = filtered.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
     const totalQty = filtered.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    const totalSuppliedQty = Object.values(retailerDispatchMap).reduce((sum, r) => sum + r.qty, 0);
+    const totalSuppliedValue = Object.values(retailerDispatchMap).reduce((sum, r) => sum + r.value, 0);
+    const overallRejPct = totalSuppliedQty > 0 ? (totalQty / totalSuppliedQty * 100) : 0;
+    const overallRejValuePct = totalSuppliedValue > 0 ? (totalValue / totalSuppliedValue * 100) : 0;
     const uniqueDates = new Set(filtered.map(r => r.rejection_date?.split('T')[0])).size;
     const avgPerDay = uniqueDates > 0 ? totalValue / uniqueDates : 0;
     
@@ -1155,8 +1208,13 @@ export default function RetailerOrders() {
     return {
       totalValue,
       totalQty,
+      totalSuppliedQty,
+      totalSuppliedValue,
+      overallRejPct,
+      overallRejValuePct,
       count: filtered.length,
-      byProduct,
+      byProductCount,
+      byProductValue,
       byRetailer,
       byDate,
       byDay,
@@ -1164,12 +1222,14 @@ export default function RetailerOrders() {
       avgPerDay,
       uniqueDates,
       maxSingleRejection,
-      topProductByQty: byProduct[0] || null,
+      topProductByQty: byProductCount[0] || null,
       topRetailerByValue: byRetailer[0] || null,
       filteredRejections: filtered,
-      retailerCompanyMap
+      retailerCompanyMap,
+      productDispatchMap,
+      retailerDispatchMap
     };
-  }, [rejections, dispatches, retailers, rejectionLossDateFrom, rejectionLossDateTo]);
+  }, [rejections, dispatches, allDispatchesForRejection, retailers, rejectionLossDateFrom, rejectionLossDateTo]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -7633,35 +7693,61 @@ export default function RetailerOrders() {
                     
                     {/* Analytics Sections */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* By Product (Sorted by Rejection %) */}
+                      {/* By Product - Sorted by Rejection % (Count) */}
                       <div className="bg-gray-50 rounded-lg p-3 border">
                         <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                           <Package size={14} className="text-red-500" />
-                          By Product (Highest Rejection %)
+                          By Product (Count %)
+                          <span className="text-[10px] text-gray-400 ml-auto">Rejected / Supplied</span>
                         </h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {rejectionAnalytics.byProduct.slice(0, 10).map((item, idx) => (
+                          {rejectionAnalytics.byProductCount.slice(0, 10).map((item, idx) => (
                             <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
                               <div className="flex items-center gap-2">
                                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
                                   {idx + 1}
                                 </span>
-                                <span className="font-medium text-gray-800 truncate max-w-[100px]" title={item.name}>{item.name}</span>
+                                <span className="font-medium text-gray-800 truncate max-w-[90px]" title={item.name}>{item.name}</span>
                               </div>
                               <div className="text-right">
-                                <p className="font-bold text-red-600">{item.rejPct.toFixed(1)}%</p>
-                                <p className="text-[10px] text-gray-500">{item.qty} / {item.dispatched} qty</p>
+                                <p className="font-bold text-red-600">{item.rejPctByCount.toFixed(1)}%</p>
+                                <p className="text-[10px] text-gray-500">{item.qty} / {item.suppliedQty} qty</p>
                               </div>
                             </div>
                           ))}
                         </div>
                       </div>
                       
-                      {/* By Retailer (Sorted by Rejection %) - Clickable */}
+                      {/* By Product - Sorted by Rejection % (Value) */}
+                      <div className="bg-gray-50 rounded-lg p-3 border">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                          <TrendingUp size={14} className="text-red-500" />
+                          By Product (Value %)
+                          <span className="text-[10px] text-gray-400 ml-auto">Rej Value / Supplied Value</span>
+                        </h4>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {rejectionAnalytics.byProductValue.slice(0, 10).map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="font-medium text-gray-800 truncate max-w-[90px]" title={item.name}>{item.name}</span>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-bold text-red-600">{item.rejPctByValue.toFixed(1)}%</p>
+                                <p className="text-[10px] text-gray-500">{formatCurrency(item.value)} / {formatCurrency(item.suppliedValue)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* By Shop (Sorted by Rejection %) - Clickable */}
                       <div className="bg-gray-50 rounded-lg p-3 border">
                         <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                           <ShoppingCart size={14} className="text-red-500" />
-                          By Shop (Highest Rejection %)
+                          By Shop (Rejection %)
                           <span className="text-[10px] text-gray-400 ml-auto">Click for details</span>
                         </h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -7675,12 +7761,12 @@ export default function RetailerOrders() {
                                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
                                   {idx + 1}
                                 </span>
-                                <span className="font-medium text-gray-800 truncate max-w-[100px]" title={item.name}>{item.name}</span>
+                                <span className="font-medium text-gray-800 truncate max-w-[90px]" title={item.name}>{item.name}</span>
                               </div>
                               <div className="text-right flex items-center gap-2">
                                 <div>
-                                  <p className="font-bold text-red-600">{item.rejPct.toFixed(1)}%</p>
-                                  <p className="text-[10px] text-gray-500">{item.qty} / {item.dispatched} qty</p>
+                                  <p className="font-bold text-red-600">{item.rejPctByCount.toFixed(1)}%</p>
+                                  <p className="text-[10px] text-gray-500">{item.qty} / {item.suppliedQty} qty</p>
                                 </div>
                                 <ChevronRight size={14} className="text-gray-400" />
                               </div>
@@ -7709,25 +7795,25 @@ export default function RetailerOrders() {
                       </div>
                       
                       {/* By Day of Week */}
-                      <div className="bg-gray-50 rounded-lg p-3 border">
+                      <div className="bg-gray-50 rounded-lg p-3 border md:col-span-2">
                         <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                           <Clock size={14} className="text-red-500" />
                           By Day of Week
                         </h4>
-                        <div className="space-y-1">
+                        <div className="grid grid-cols-7 gap-2">
                           {rejectionAnalytics.byDay.map((item, idx) => {
                             const maxDayValue = Math.max(...rejectionAnalytics.byDay.map(d => d.value));
                             const pct = maxDayValue > 0 ? (item.value / maxDayValue * 100) : 0;
                             return (
-                              <div key={idx} className="flex items-center gap-2 text-sm">
-                                <span className="w-16 text-gray-600 text-xs">{item.day.slice(0, 3)}</span>
-                                <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden">
+                              <div key={idx} className="text-center">
+                                <div className="text-[10px] text-gray-500 mb-1">{item.day.slice(0, 3)}</div>
+                                <div className="h-20 bg-gray-200 rounded relative flex items-end justify-center">
                                   <div 
-                                    className="h-full bg-gradient-to-r from-red-400 to-red-600 rounded-full transition-all"
-                                    style={{ width: `${pct}%` }}
+                                    className="w-full bg-gradient-to-t from-red-500 to-red-300 rounded transition-all absolute bottom-0"
+                                    style={{ height: `${Math.max(pct, 5)}%` }}
                                   />
                                 </div>
-                                <span className="text-xs font-medium text-red-600 w-20 text-right">{formatCurrency(item.value)}</span>
+                                <div className="text-[9px] font-medium text-red-600 mt-1">{formatCurrency(item.value)}</div>
                               </div>
                             );
                           })}
@@ -7735,47 +7821,75 @@ export default function RetailerOrders() {
                       </div>
                     </div>
                     
-                    {/* By Date (Latest First) */}
+                    {/* By Date (Latest First) - Expandable */}
                     <div className="mt-4 bg-gray-50 rounded-lg p-3 border">
                       <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                        <TrendingUp size={14} className="text-red-500" />
-                        Date-wise Breakdown (Latest First)
+                        <Calendar size={14} className="text-red-500" />
+                        Date-wise Breakdown (Click to expand)
                       </h4>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-red-100 text-red-800">
-                              <th className="p-2 text-left font-semibold">Date</th>
-                              <th className="p-2 text-left font-semibold">Day</th>
-                              <th className="p-2 text-right font-semibold">Count</th>
-                              <th className="p-2 text-right font-semibold">Qty</th>
-                              <th className="p-2 text-right font-semibold">Value</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rejectionAnalytics.byDate.slice(0, 15).map((item, idx) => {
-                              const dayName = new Date(item.date).toLocaleDateString('en-IN', { weekday: 'short' });
-                              return (
-                                <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                  <td className="p-2 font-medium">{formatDate(item.date)}</td>
-                                  <td className="p-2 text-gray-600">{dayName}</td>
-                                  <td className="p-2 text-right">{item.count}</td>
-                                  <td className="p-2 text-right">{item.qty}</td>
-                                  <td className="p-2 text-right font-semibold text-red-600">{formatCurrency(item.value)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          {rejectionAnalytics.byDate.length > 15 && (
-                            <tfoot>
-                              <tr className="bg-gray-100">
-                                <td colSpan={5} className="p-2 text-center text-xs text-gray-500">
-                                  Showing 15 of {rejectionAnalytics.byDate.length} dates
-                                </td>
-                              </tr>
-                            </tfoot>
-                          )}
-                        </table>
+                      <div className="space-y-1 max-h-80 overflow-y-auto">
+                        {rejectionAnalytics.byDate.slice(0, 20).map((item, idx) => {
+                          const dayName = new Date(item.date).toLocaleDateString('en-IN', { weekday: 'short' });
+                          const isExpanded = expandedRejectionDates[item.date];
+                          return (
+                            <div key={idx} className="bg-white rounded border">
+                              {/* Date Row Header */}
+                              <div 
+                                className="flex items-center justify-between p-2 cursor-pointer hover:bg-red-50 transition-colors"
+                                onClick={() => setExpandedRejectionDates(prev => ({
+                                  ...prev,
+                                  [item.date]: !prev[item.date]
+                                }))}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <ChevronRight size={14} className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                  <span className="font-medium text-gray-800">{formatDate(item.date)}</span>
+                                  <span className="text-xs text-gray-500">{dayName}</span>
+                                </div>
+                                <div className="flex items-center gap-4 text-sm">
+                                  <span className="text-gray-500">{item.count} items</span>
+                                  <span className="text-gray-500">{item.qty} qty</span>
+                                  <span className="font-semibold text-red-600">{formatCurrency(item.value)}</span>
+                                </div>
+                              </div>
+                              
+                              {/* Expanded Details */}
+                              {isExpanded && item.rejections && (
+                                <div className="border-t bg-red-50/50 p-2">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-gray-600">
+                                        <th className="p-1 text-left">Product</th>
+                                        <th className="p-1 text-left">Shop</th>
+                                        <th className="p-1 text-center">Qty</th>
+                                        <th className="p-1 text-left">Reason</th>
+                                        <th className="p-1 text-right">Value</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {item.rejections.map((rej, rejIdx) => (
+                                        <tr key={rejIdx} className={`${rejIdx % 2 === 0 ? 'bg-white/50' : ''}`}>
+                                          <td className="p-1 font-medium truncate max-w-[100px]" title={rej.product_name}>{rej.product_name}</td>
+                                          <td className="p-1 text-gray-600 truncate max-w-[80px]" title={rejectionAnalytics.retailerCompanyMap?.[rej.retailer_id] || rej.retailer_name}>
+                                            {rejectionAnalytics.retailerCompanyMap?.[rej.retailer_id] || rej.retailer_name}
+                                          </td>
+                                          <td className="p-1 text-center">{rej.quantity}</td>
+                                          <td className="p-1 text-gray-500">{rej.reason || '-'}</td>
+                                          <td className="p-1 text-right font-medium text-red-600">{formatCurrency(rej.rejection_value)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {rejectionAnalytics.byDate.length > 20 && (
+                          <div className="text-center text-xs text-gray-500 py-2">
+                            Showing 20 of {rejectionAnalytics.byDate.length} dates
+                          </div>
+                        )}
                       </div>
                     </div>
                   </>
@@ -7802,7 +7916,7 @@ export default function RetailerOrders() {
                     <div>
                       <h3 className="text-lg font-bold">{rejectionRetailerDrilldown.name}</h3>
                       <p className="text-xs text-orange-100">
-                        {rejectionRetailerDrilldown.count} rejections • {rejectionRetailerDrilldown.rejPct.toFixed(1)}% rejection rate
+                        {rejectionRetailerDrilldown.count} rejections • {rejectionRetailerDrilldown.rejPctByCount.toFixed(1)}% rejection rate
                       </p>
                     </div>
                   </div>
@@ -7815,14 +7929,18 @@ export default function RetailerOrders() {
               {/* Body */}
               <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 80px)' }}>
                 {/* Summary */}
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-4 gap-3 mb-4">
                   <div className="bg-red-50 rounded-lg p-3 border border-red-200 text-center">
                     <p className="text-xs text-red-500 uppercase">Rejection %</p>
-                    <p className="text-xl font-bold text-red-700">{rejectionRetailerDrilldown.rejPct.toFixed(1)}%</p>
+                    <p className="text-xl font-bold text-red-700">{rejectionRetailerDrilldown.rejPctByCount.toFixed(1)}%</p>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-3 border border-orange-200 text-center">
-                    <p className="text-xs text-orange-500 uppercase">Rejected Qty</p>
+                    <p className="text-xs text-orange-500 uppercase">Rejected</p>
                     <p className="text-xl font-bold text-orange-700">{rejectionRetailerDrilldown.qty}</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 text-center">
+                    <p className="text-xs text-blue-500 uppercase">Supplied</p>
+                    <p className="text-xl font-bold text-blue-700">{rejectionRetailerDrilldown.suppliedQty}</p>
                   </div>
                   <div className="bg-amber-50 rounded-lg p-3 border border-amber-200 text-center">
                     <p className="text-xs text-amber-500 uppercase">Total Loss</p>

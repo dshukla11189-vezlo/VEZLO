@@ -2,6 +2,18 @@
 
 ## Changelog (May 2025)
 
+### May 24, 2025 (Session 4)
+- **VALIDATED**: PDF & Excel Export for Daily Purchase Requirement ✅
+  - Both `printDailyRequirement` (PDF) and `exportDailyReqToExcel` (CSV) now display smart variant strings
+  - Columns: Serial, Product Name, Qty (Units), **Purchase Req**, Remarks
+  - Purchase Req format based on unit type:
+    - **Piece**: "X Pcs of [weight]"
+    - **Packet**: "X Pkts of [weight]"
+    - **Bunch**: "X Bunches of [weight]"
+    - **Default (Kg)**: "X.X Kg"
+  - Trilingual support: English, Hindi (पीस, पैकेट, गुच्छे), Marathi (नग, पॅकेट, जुडे)
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js` (lines 2998-3252)
+
 ### May 24, 2025 (Session 3)
 - **FEATURE**: Retailer Catalogue Bulk Edit System ✅
   - **"Edit Catalogue"** mode with **"Save All Changes"** button for bulk editing

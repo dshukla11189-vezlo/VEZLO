@@ -128,15 +128,22 @@ const CatalogueProductRow = ({
     display_unit: catalogueItem?.display_unit || '' // Unit shown as variant (Piece/Packet)
   };
   
-  // Units that should be displayed as variants on retailer portal
+  // Units that should be displayed as variants on retailer portal (auto-sync)
   const DISPLAY_UNITS = ['Piece', 'Packet'];
+  
+  // Units where user can manually select Customer Display Variants (no auto-sync)
+  const MANUAL_VARIANT_UNITS = ['Bunch'];
   
   // Helper to build variants array including unit if applicable
   const buildVariantsWithUnit = (weights, unit) => {
+    // For Bunch, don't auto-build variants from weights
+    if (MANUAL_VARIANT_UNITS.includes(unit)) {
+      return currentData.variants; // Keep existing variants
+    }
+    
     const variants = [...weights];
     // If unit is Piece or Packet, add it as a special variant identifier
     if (DISPLAY_UNITS.includes(unit)) {
-      // We'll use a special prefix to identify unit-based variants
       const unitVariantId = `unit_${unit.toLowerCase()}`;
       if (!variants.includes(unitVariantId)) {
         variants.unshift(unitVariantId); // Add at the beginning
@@ -145,23 +152,56 @@ const CatalogueProductRow = ({
     return variants;
   };
   
-  // Handle purchase weight changes - auto-sync to Customer Display Variant
+  // Handle purchase weight changes
   const handleWeightsChange = (newWeights) => {
-    const variants = buildVariantsWithUnit(newWeights, currentData.purchase_unit);
-    onDataChange(product.id, {
-      ...currentData,
-      purchase_weights: newWeights,
-      variants: variants
-    });
+    // For Bunch unit, weights don't auto-sync to variants
+    if (MANUAL_VARIANT_UNITS.includes(currentData.purchase_unit)) {
+      onDataChange(product.id, {
+        ...currentData,
+        purchase_weights: newWeights
+        // variants stay unchanged
+      });
+    } else {
+      // For Piece/Packet, auto-sync to variants
+      const variants = buildVariantsWithUnit(newWeights, currentData.purchase_unit);
+      onDataChange(product.id, {
+        ...currentData,
+        purchase_weights: newWeights,
+        variants: variants
+      });
+    }
   };
   
+  // Handle unit change
   const handleUnitChange = (newUnit) => {
-    const variants = buildVariantsWithUnit(currentData.purchase_weights, newUnit);
+    if (MANUAL_VARIANT_UNITS.includes(newUnit)) {
+      // For Bunch, keep existing variants, allow manual selection
+      onDataChange(product.id, {
+        ...currentData,
+        purchase_unit: newUnit,
+        display_unit: ''
+        // variants stay unchanged - user will select manually
+      });
+    } else {
+      // For Piece/Packet, auto-sync variants from weights
+      const variants = buildVariantsWithUnit(currentData.purchase_weights, newUnit);
+      onDataChange(product.id, {
+        ...currentData,
+        purchase_unit: newUnit,
+        variants: variants,
+        display_unit: DISPLAY_UNITS.includes(newUnit) ? newUnit : ''
+      });
+    }
+  };
+  
+  // Handle manual variant selection (for Bunch unit)
+  const handleVariantToggle = (variantId) => {
+    const newVariants = currentData.variants.includes(variantId)
+      ? currentData.variants.filter(v => v !== variantId)
+      : [...currentData.variants, variantId];
     onDataChange(product.id, {
       ...currentData,
-      purchase_unit: newUnit,
-      variants: variants,
-      display_unit: DISPLAY_UNITS.includes(newUnit) ? newUnit : ''
+      variants: newVariants
     });
   };
 
@@ -193,40 +233,67 @@ const CatalogueProductRow = ({
         </div>
       </td>
       
-      {/* Customer Display Variant (auto-populated from Purchase Variant weights + Unit if Piece/Packet) */}
+      {/* Customer Display Variant */}
       <td className="px-4 py-2">
         {isInCatalogue || editedData ? (
           <div className="flex flex-wrap gap-1">
-            {/* Show unit badge if Piece/Packet (even for legacy data without unit_* in variants) */}
-            {DISPLAY_UNITS.includes(currentData.purchase_unit) && 
-             !currentData.variants?.some(v => v.startsWith('unit_')) && (
-              <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded font-medium">
-                {currentData.purchase_unit}
-              </span>
-            )}
-            {(currentData.variants?.length > 0) ? (
-              currentData.variants.map(variantId => {
-                // Check if it's a unit-based variant (Piece/Packet)
-                if (variantId.startsWith('unit_')) {
-                  const unitName = variantId.replace('unit_', '');
-                  const displayName = unitName.charAt(0).toUpperCase() + unitName.slice(1);
-                  return (
-                    <span key={variantId} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded font-medium">
-                      {displayName}
-                    </span>
-                  );
-                }
-                // Regular packaging variant
-                const variant = packagingVariants.find(v => v.id === variantId);
-                return variant ? (
-                  <span key={variantId} className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded">
+            {/* For Bunch unit in edit mode - show selectable variant buttons */}
+            {isEditMode && MANUAL_VARIANT_UNITS.includes(currentData.purchase_unit) ? (
+              <div className="flex flex-wrap gap-1.5 max-w-xs">
+                {retailPackagingVariants.map(variant => (
+                  <button
+                    key={variant.id}
+                    type="button"
+                    onClick={() => handleVariantToggle(variant.id)}
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${
+                      currentData.variants?.includes(variant.id)
+                        ? 'bg-teal-500 text-white border-teal-500'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
+                    }`}
+                  >
                     {variant.name}
+                    {currentData.variants?.includes(variant.id) && (
+                      <Check size={10} className="inline ml-1" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                {/* Show unit badge if Piece/Packet (even for legacy data without unit_* in variants) */}
+                {DISPLAY_UNITS.includes(currentData.purchase_unit) && 
+                 !currentData.variants?.some(v => v.startsWith('unit_')) && (
+                  <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded font-medium">
+                    {currentData.purchase_unit}
                   </span>
-                ) : null;
-              })
-            ) : !DISPLAY_UNITS.includes(currentData.purchase_unit) ? (
-              <span className="text-xs text-gray-400 italic">Set Purchase Variant →</span>
-            ) : null}
+                )}
+                {(currentData.variants?.length > 0) ? (
+                  currentData.variants.map(variantId => {
+                    // Check if it's a unit-based variant (Piece/Packet)
+                    if (variantId.startsWith('unit_')) {
+                      const unitName = variantId.replace('unit_', '');
+                      const displayName = unitName.charAt(0).toUpperCase() + unitName.slice(1);
+                      return (
+                        <span key={variantId} className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded font-medium">
+                          {displayName}
+                        </span>
+                      );
+                    }
+                    // Regular packaging variant
+                    const variant = packagingVariants.find(v => v.id === variantId);
+                    return variant ? (
+                      <span key={variantId} className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded">
+                        {variant.name}
+                      </span>
+                    ) : null;
+                  })
+                ) : !DISPLAY_UNITS.includes(currentData.purchase_unit) && !MANUAL_VARIANT_UNITS.includes(currentData.purchase_unit) ? (
+                  <span className="text-xs text-gray-400 italic">Set Purchase Variant →</span>
+                ) : MANUAL_VARIANT_UNITS.includes(currentData.purchase_unit) ? (
+                  <span className="text-xs text-orange-500 italic">Select variants above</span>
+                ) : null}
+              </>
+            )}
           </div>
         ) : (
           <span className="text-xs text-gray-400 italic">Not in catalogue</span>

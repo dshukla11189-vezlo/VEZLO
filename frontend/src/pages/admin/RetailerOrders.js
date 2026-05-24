@@ -910,12 +910,34 @@ export default function RetailerOrders() {
   }, [productMap]);
 
   // Helper to get enhanced variant display for indent items
-  // Shows Customer Display Variant (weight) instead of Purchase Variant
+  // Shows Customer Display Variant, with weight appended for Pieces/Packets
   const getIndentVariantDisplay = useCallback((item) => {
     if (!item) return '-';
-    // Simply return the variant_name which is the Customer Display Variant
-    return item.variant_name || '-';
-  }, []);
+    
+    const variantName = item.variant_name || '-';
+    
+    // If variant is "Pieces" or "Packets", look up catalogue to get weight info
+    if (variantName.toLowerCase() === 'pieces' || variantName.toLowerCase() === 'packets') {
+      const productId = item.product_id || item.productId;
+      
+      // Find the product in retailer catalogue to get purchase weights
+      const catalogueEntry = retailerCatalogue.find(c => 
+        c.product_id === productId || 
+        (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
+      );
+      
+      if (catalogueEntry && catalogueEntry.purchase_weights && catalogueEntry.purchase_weights.length > 0) {
+        // Find the weight name from packagings
+        const weightInfo = packagings.find(p => catalogueEntry.purchase_weights.includes(p.id));
+        if (weightInfo?.name) {
+          return `${variantName} (${weightInfo.name})`;
+        }
+      }
+    }
+    
+    // Return original variant name for other cases
+    return variantName;
+  }, [retailerCatalogue, packagings]);
 
   useEffect(() => {
     const loadAll = async () => {

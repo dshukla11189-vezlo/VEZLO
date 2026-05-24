@@ -16540,13 +16540,24 @@ async def calculate_daily_purchase_requirement(
                 "variants": p.get("variants", [])
             }
         
-        # Build variant to weight mapping (variant_id -> weight_in_kg)
-        # Get variants from qc_packaging collection (not products.variants)
+        # Get catalogue items for purchase variant info
+        all_catalogue = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
+        catalogue_map = {}
+        for cat in all_catalogue:
+            catalogue_map[cat.get("product_id")] = {
+                "purchase_unit": cat.get("purchase_unit", ""),
+                "purchase_weights": cat.get("purchase_weights", []),
+                "purchase_weight_variant": cat.get("purchase_weight_variant", "")
+            }
+        
+        # Build variant to weight mapping (variant_id -> weight_in_kg) and name mapping
         variant_weight_map = {}
+        variant_name_map = {}  # variant_id -> name
         all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(500)
         for pkg in all_packagings:
             variant_id = pkg.get("id")
             variant_name = pkg.get("name", "").lower()
+            variant_name_map[variant_id] = pkg.get("name", "")
             # Parse weight from variant name (e.g., "500 gm", "1 kg", "240-260 gm")
             weight_kg = parse_variant_weight(variant_name)
             if variant_id:
@@ -16654,6 +16665,13 @@ async def calculate_daily_purchase_requirement(
             else:
                 requirement_kg = total_kg
             
+            # Get purchase variant info from catalogue
+            cat_info = catalogue_map.get(product_id, {})
+            purchase_unit = cat_info.get("purchase_unit", "")
+            purchase_weights = cat_info.get("purchase_weights", [])
+            purchase_weight_id = purchase_weights[0] if purchase_weights else cat_info.get("purchase_weight_variant", "")
+            purchase_weight_name = variant_name_map.get(purchase_weight_id, "") if purchase_weight_id else ""
+            
             result_items.append({
                 "product_id": product_id,
                 "product_name": data["product_name"],
@@ -16663,7 +16681,9 @@ async def calculate_daily_purchase_requirement(
                 "qty_units": round(data["total_units"], 2),
                 "qty_kg": round(total_kg, 2),
                 "wastage_pct": wastage_pct,
-                "requirement_kg": round(requirement_kg, 2)
+                "requirement_kg": round(requirement_kg, 2),
+                "purchase_unit": purchase_unit,
+                "purchase_weight_name": purchase_weight_name
             })
         
         # Sort by category then product name

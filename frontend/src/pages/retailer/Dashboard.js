@@ -544,6 +544,17 @@ export default function RetailerDashboard() {
   // Add item to cart
   const addToCart = (catalogueItem, variantId, variantName) => {
     const key = `${catalogueItem.product_id}_${variantId}`;
+    
+    // Get the purchase weight name for display (for Pieces/Packets)
+    let purchaseWeightName = '';
+    if (['Piece', 'Packet'].includes(catalogueItem.purchase_unit)) {
+      const weightId = catalogueItem.purchase_weights?.[0] || catalogueItem.purchase_weight_variant;
+      if (weightId) {
+        const pkg = packagings.find(p => p.id === weightId);
+        purchaseWeightName = pkg ? pkg.name : '';
+      }
+    }
+    
     setCart(prev => ({
       ...prev,
       [key]: {
@@ -555,6 +566,8 @@ export default function RetailerDashboard() {
         image_url: catalogueItem.image_url,
         variant_id: variantId,
         variant_name: variantName,
+        purchase_unit: catalogueItem.purchase_unit || '',
+        purchase_weight_name: purchaseWeightName,
         quantity: 1
       }
     }));
@@ -2945,8 +2958,13 @@ export default function RetailerDashboard() {
                               ? item.product_name_mr 
                               : item.product_name}
                         </p>
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs text-gray-500">{item.variant_name}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs text-gray-500">
+                            {/* For Pieces/Packets, show with weight info */}
+                            {item.variant_id?.startsWith('unit_') && item.purchase_weight_name 
+                              ? `${item.variant_name} of ${item.purchase_weight_name}`
+                              : item.variant_name}
+                          </p>
                           {mrp > 0 && (
                             <span className="text-xs text-green-600 font-medium">₹{mrp}/unit</span>
                           )}

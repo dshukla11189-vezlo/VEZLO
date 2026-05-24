@@ -1954,6 +1954,8 @@ export default function RetailerOrders() {
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
         requirementKg: roundUpRequirement(item.qty_kg), // Round up, min 1 kg
+        purchaseUnit: item.purchase_unit || '',
+        purchaseWeightName: item.purchase_weight_name || '',
         remarks: ''
       }));
       
@@ -1997,6 +1999,8 @@ export default function RetailerOrders() {
             qtyUnits: item.qty_units,
             qtyKg: item.qty_kg,
             requirementKg: item.requirement_kg,
+            purchaseUnit: item.purchase_unit || '',
+            purchaseWeightName: item.purchase_weight_name || '',
             remarks: item.remarks || ''
           }));
           setSavedReqData(savedData);
@@ -5135,7 +5139,7 @@ export default function RetailerOrders() {
                                         <th className="p-2 text-left w-10">#</th>
                                         <th className="p-2 text-left">Product Name</th>
                                         <th className="p-2 text-center w-20">Qty (Units)</th>
-                                        <th className="p-2 text-center w-28">Purchase Req (Kg)</th>
+                                        <th className="p-2 text-center w-40">Purchase Req</th>
                                         <th className="p-2 text-left w-48">Remarks</th>
                                         <th className="p-2 text-center w-10">X</th>
                                       </tr>
@@ -5154,21 +5158,71 @@ export default function RetailerOrders() {
                                             <td className="p-2 font-medium">{displayName}</td>
                                             <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
                                             <td className="p-2">
-                                              <Input
-                                                type="number"
-                                                step="0.1"
-                                                min="0"
-                                                placeholder="Kg"
-                                                value={item.requirementKg}
-                                                onChange={(e) => {
-                                                  const newData = [...dailyReqData];
-                                                  newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
-                                                  setDailyReqData(newData);
-                                                  setDailyReqSaved(false);
-                                                }}
-                                                className="h-7 w-20 text-center text-xs font-bold text-blue-700"
-                                                disabled={dailyReqViewMode === 'original'}
-                                              />
+                                              {/* Smart Purchase Req display based on purchase unit */}
+                                              {['Piece', 'Packet'].includes(item.purchaseUnit) ? (
+                                                // For Pieces/Packets: show "5 Pieces of 500+ gm"
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    type="number"
+                                                    step="1"
+                                                    min="0"
+                                                    value={Math.round(item.qtyUnits) || 0}
+                                                    onChange={(e) => {
+                                                      const newData = [...dailyReqData];
+                                                      newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                      setDailyReqData(newData);
+                                                      setDailyReqSaved(false);
+                                                    }}
+                                                    className="h-7 w-14 text-center text-xs font-bold text-blue-700"
+                                                    disabled={dailyReqViewMode === 'original'}
+                                                  />
+                                                  <span className="text-xs text-gray-600">
+                                                    {item.purchaseUnit === 'Piece' ? 'Pcs' : 'Pkts'}
+                                                    {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
+                                                  </span>
+                                                </div>
+                                              ) : item.purchaseUnit === 'Bunch' ? (
+                                                // For Bunches: show "10 Bunches of 350+ gm"
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    type="number"
+                                                    step="1"
+                                                    min="0"
+                                                    value={Math.round(item.qtyUnits) || 0}
+                                                    onChange={(e) => {
+                                                      const newData = [...dailyReqData];
+                                                      newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                      setDailyReqData(newData);
+                                                      setDailyReqSaved(false);
+                                                    }}
+                                                    className="h-7 w-14 text-center text-xs font-bold text-blue-700"
+                                                    disabled={dailyReqViewMode === 'original'}
+                                                  />
+                                                  <span className="text-xs text-gray-600">
+                                                    Bunches
+                                                    {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
+                                                  </span>
+                                                </div>
+                                              ) : (
+                                                // Default: show in Kg
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    type="number"
+                                                    step="0.1"
+                                                    min="0"
+                                                    value={item.requirementKg}
+                                                    onChange={(e) => {
+                                                      const newData = [...dailyReqData];
+                                                      newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
+                                                      setDailyReqData(newData);
+                                                      setDailyReqSaved(false);
+                                                    }}
+                                                    className="h-7 w-16 text-center text-xs font-bold text-blue-700"
+                                                    disabled={dailyReqViewMode === 'original'}
+                                                  />
+                                                  <span className="text-xs text-gray-600">Kg</span>
+                                                </div>
+                                              )}
                                             </td>
                                             <td className="p-2">
                                               <textarea
@@ -5236,23 +5290,64 @@ export default function RetailerOrders() {
                                             <span className="text-gray-500">Qty:</span>
                                             <span className="font-semibold">{item.qtyUnits}</span>
                                           </div>
-                                          <div className="flex items-center gap-1">
-                                            <span className="text-xs text-gray-500">Kg:</span>
-                                            <Input
-                                              type="number"
-                                              step="0.1"
-                                              min="0"
-                                              value={item.requirementKg}
-                                              onChange={(e) => {
-                                                const newData = [...dailyReqData];
-                                                newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
-                                                setDailyReqData(newData);
-                                                setDailyReqSaved(false);
-                                              }}
-                                              className="h-7 w-14 text-center text-xs font-bold text-blue-700"
-                                              disabled={dailyReqViewMode === 'original'}
-                                            />
-                                          </div>
+                                          {/* Smart Purchase Req for Mobile */}
+                                          {['Piece', 'Packet'].includes(item.purchaseUnit) ? (
+                                            <div className="flex items-center gap-1">
+                                              <Input
+                                                type="number"
+                                                step="1"
+                                                min="0"
+                                                value={Math.round(item.qtyUnits) || 0}
+                                                onChange={(e) => {
+                                                  const newData = [...dailyReqData];
+                                                  newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                  setDailyReqData(newData);
+                                                  setDailyReqSaved(false);
+                                                }}
+                                                className="h-7 w-12 text-center text-xs font-bold text-blue-700"
+                                                disabled={dailyReqViewMode === 'original'}
+                                              />
+                                              <span className="text-[10px] text-gray-600">
+                                                {item.purchaseUnit === 'Piece' ? 'Pcs' : 'Pkts'}
+                                              </span>
+                                            </div>
+                                          ) : item.purchaseUnit === 'Bunch' ? (
+                                            <div className="flex items-center gap-1">
+                                              <Input
+                                                type="number"
+                                                step="1"
+                                                min="0"
+                                                value={Math.round(item.qtyUnits) || 0}
+                                                onChange={(e) => {
+                                                  const newData = [...dailyReqData];
+                                                  newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                  setDailyReqData(newData);
+                                                  setDailyReqSaved(false);
+                                                }}
+                                                className="h-7 w-12 text-center text-xs font-bold text-blue-700"
+                                                disabled={dailyReqViewMode === 'original'}
+                                              />
+                                              <span className="text-[10px] text-gray-600">Bunch</span>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-1">
+                                              <Input
+                                                type="number"
+                                                step="0.1"
+                                                min="0"
+                                                value={item.requirementKg}
+                                                onChange={(e) => {
+                                                  const newData = [...dailyReqData];
+                                                  newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
+                                                  setDailyReqData(newData);
+                                                  setDailyReqSaved(false);
+                                                }}
+                                                className="h-7 w-14 text-center text-xs font-bold text-blue-700"
+                                                disabled={dailyReqViewMode === 'original'}
+                                              />
+                                              <span className="text-[10px] text-gray-600">Kg</span>
+                                            </div>
+                                          )}
                                           <Button
                                             variant="ghost"
                                             size="sm"
@@ -5269,6 +5364,12 @@ export default function RetailerOrders() {
                                             <X size={14} />
                                           </Button>
                                         </div>
+                                        {/* Weight info for Pieces/Packets/Bunches */}
+                                        {(item.purchaseUnit && item.purchaseWeightName) && (
+                                          <div className="text-[10px] text-blue-600 pl-6">
+                                            {item.purchaseUnit === 'Piece' ? 'Each piece' : item.purchaseUnit === 'Packet' ? 'Each packet' : 'Each bunch'} of {item.purchaseWeightName}
+                                          </div>
+                                        )}
                                         
                                         {/* Row 2: Remarks - Full width below */}
                                         <textarea

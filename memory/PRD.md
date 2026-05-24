@@ -3,16 +3,24 @@
 ## Changelog (May 2025)
 
 ### May 24, 2025 (Session 4)
-- **VALIDATED**: PDF & Excel Export for Daily Purchase Requirement ✅
-  - Both `printDailyRequirement` (PDF) and `exportDailyReqToExcel` (CSV) now display smart variant strings
-  - Columns: Serial, Product Name, Qty (Units), **Purchase Req**, Remarks
+- **UPDATED**: PDF & Excel Export for Daily Purchase Requirement ✅
+  - **Removed "Qty (Units)" column** as per user request
+  - PDF/Excel now shows: Serial, Product Name, **Purchase Req**, Remarks
   - Purchase Req format based on unit type:
     - **Piece**: "X Pcs of [weight]"
     - **Packet**: "X Pkts of [weight]"
     - **Bunch**: "X Bunches of [weight]"
     - **Default (Kg)**: "X.X Kg"
   - Trilingual support: English, Hindi (पीस, पैकेट, गुच्छे), Marathi (नग, पॅकेट, जुडे)
-  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js` (lines 2998-3252)
+
+- **UPDATED**: Indent Variant Display Enhancement ✅
+  - Indent tables now show enhanced variant descriptions:
+    - "Piece of 500+ gm" instead of just "Pieces"
+    - "Packet of 200+ gm" instead of just "Packets"
+    - "Bunch of 350+ gm" instead of just "Bunches"
+  - Works for products with `purchase_weights` configured in Retailer Catalogue
+  - Applied to: Indent table, Dispatch table, Invoice table, Print/Export functions
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
 
 ### May 24, 2025 (Session 3)
 - **FEATURE**: Retailer Catalogue Bulk Edit System ✅

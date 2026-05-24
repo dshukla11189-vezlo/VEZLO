@@ -54,6 +54,7 @@ export default function RetailerOrders() {
   const [retailers, setRetailers] = useState([]);
   const [products, setProducts] = useState([]);
   const [packagings, setPackagings] = useState([]);
+  const [retailerCatalogue, setRetailerCatalogue] = useState([]);
   const [selectedRetailer, setSelectedRetailer] = useState('');
   
   // Date filters - default to today
@@ -318,14 +319,16 @@ export default function RetailerOrders() {
   // Load base data
   const loadBaseData = useCallback(async () => {
     try {
-      const [retailersRes, productsRes, packagingsRes] = await Promise.all([
+      const [retailersRes, productsRes, packagingsRes, catalogueRes] = await Promise.all([
         api.get('/api/retailers'),
         api.get('/api/products?include_images=false'),  // Skip heavy Base64 images for faster loading
-        api.get('/api/qc-packaging')
+        api.get('/api/qc-packaging'),
+        api.get('/api/retailer-catalogue')
       ]);
       setRetailers(retailersRes.data);
       setProducts(productsRes.data);
       setPackagings(packagingsRes.data);
+      setRetailerCatalogue(catalogueRes.data || []);
     } catch (error) {
       console.error('Failed to load base data:', error);
     }
@@ -906,6 +909,46 @@ export default function RetailerOrders() {
     return item.product_name || item.productName || item.name || '';
   }, [productMap]);
 
+  // Helper to get enhanced variant display for indent items
+  // Shows full description like "Piece of 500+ gm" for products with purchase units
+  const getIndentVariantDisplay = useCallback((item) => {
+    if (!item) return '-';
+    
+    const productId = item.product_id || item.productId;
+    const variantName = item.variant_name || '-';
+    
+    // Find the product in retailer catalogue to get purchase unit info
+    const catalogueEntry = retailerCatalogue.find(c => 
+      c.product_id === productId || 
+      (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
+    );
+    
+    if (catalogueEntry && catalogueEntry.purchase_unit) {
+      const purchaseUnit = catalogueEntry.purchase_unit;
+      const purchaseWeights = catalogueEntry.purchase_weights || [];
+      
+      // Find the weight name from the catalogue weights
+      let weightName = '';
+      if (purchaseWeights.length > 0) {
+        // Try to find matching weight in packagings
+        const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
+        weightName = weightInfo?.name || '';
+      }
+      
+      // Build the display string based on unit type
+      if (purchaseUnit === 'Piece') {
+        return weightName ? `Piece of ${weightName}` : 'Piece';
+      } else if (purchaseUnit === 'Packet') {
+        return weightName ? `Packet of ${weightName}` : 'Packet';
+      } else if (purchaseUnit === 'Bunch') {
+        return weightName ? `Bunch of ${weightName}` : 'Bunch';
+      }
+    }
+    
+    // Fallback to original variant name
+    return variantName;
+  }, [retailerCatalogue, packagings]);
+
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true);
@@ -1311,6 +1354,41 @@ export default function RetailerOrders() {
       return;
     }
 
+    // Helper to get enhanced variant name for an item
+    const getEnhancedVariant = (item) => {
+      const productId = item.product_id || item.productId;
+      const variantName = item.variant_name || 'Kg';
+      
+      // Find the product in retailer catalogue to get purchase unit info
+      const catalogueEntry = retailerCatalogue.find(c => 
+        c.product_id === productId || 
+        (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
+      );
+      
+      if (catalogueEntry && catalogueEntry.purchase_unit) {
+        const purchaseUnit = catalogueEntry.purchase_unit;
+        const purchaseWeights = catalogueEntry.purchase_weights || [];
+        
+        // Find the weight name from the catalogue weights
+        let weightName = '';
+        if (purchaseWeights.length > 0) {
+          const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
+          weightName = weightInfo?.name || '';
+        }
+        
+        // Build the display string based on unit type
+        if (purchaseUnit === 'Piece') {
+          return weightName ? `Piece of ${weightName}` : 'Piece';
+        } else if (purchaseUnit === 'Packet') {
+          return weightName ? `Packet of ${weightName}` : 'Packet';
+        } else if (purchaseUnit === 'Bunch') {
+          return weightName ? `Bunch of ${weightName}` : 'Bunch';
+        }
+      }
+      
+      return variantName;
+    };
+
     // Get unique retailers and products from filtered indents
     const retailerMap = new Map(); // retailer_id -> outlet_name
     const productVariantSet = new Set(); // "product_name|variant_name"
@@ -1322,7 +1400,8 @@ export default function RetailerOrders() {
       retailerMap.set(retailerId, retailerName);
 
       indent.items?.forEach(item => {
-        const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
+        const enhancedVariant = getEnhancedVariant(item);
+        const productKey = `${item.product_name}|${enhancedVariant}`;
         productVariantSet.add(productKey);
         
         const qtyKey = `${productKey}|${retailerId}`;
@@ -1438,6 +1517,41 @@ export default function RetailerOrders() {
       return;
     }
 
+    // Helper to get enhanced variant name for an item
+    const getEnhancedVariant = (item) => {
+      const productId = item.product_id || item.productId;
+      const variantName = item.variant_name || 'Kg';
+      
+      // Find the product in retailer catalogue to get purchase unit info
+      const catalogueEntry = retailerCatalogue.find(c => 
+        c.product_id === productId || 
+        (c.product_name && item.product_name && c.product_name.toLowerCase() === item.product_name.toLowerCase())
+      );
+      
+      if (catalogueEntry && catalogueEntry.purchase_unit) {
+        const purchaseUnit = catalogueEntry.purchase_unit;
+        const purchaseWeights = catalogueEntry.purchase_weights || [];
+        
+        // Find the weight name from the catalogue weights
+        let weightName = '';
+        if (purchaseWeights.length > 0) {
+          const weightInfo = packagings.find(p => purchaseWeights.includes(p.id));
+          weightName = weightInfo?.name || '';
+        }
+        
+        // Build the display string based on unit type
+        if (purchaseUnit === 'Piece') {
+          return weightName ? `Piece of ${weightName}` : 'Piece';
+        } else if (purchaseUnit === 'Packet') {
+          return weightName ? `Packet of ${weightName}` : 'Packet';
+        } else if (purchaseUnit === 'Bunch') {
+          return weightName ? `Bunch of ${weightName}` : 'Bunch';
+        }
+      }
+      
+      return variantName;
+    };
+
     // Get unique retailers and products from filtered indents
     const retailerMap = new Map();
     const productVariantSet = new Set();
@@ -1449,7 +1563,8 @@ export default function RetailerOrders() {
       retailerMap.set(retailerId, retailerName);
 
       indent.items?.forEach(item => {
-        const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
+        const enhancedVariant = getEnhancedVariant(item);
+        const productKey = `${item.product_name}|${enhancedVariant}`;
         productVariantSet.add(productKey);
         
         const qtyKey = `${productKey}|${retailerId}`;
@@ -3115,10 +3230,9 @@ export default function RetailerOrders() {
             <thead>
               <tr>
                 <th style="width:6%">${labels.serial}</th>
-                <th style="width:32%">${labels.productName}</th>
-                <th style="width:12%" class="text-center">${labels.qtyUnits}</th>
+                <th style="width:40%">${labels.productName}</th>
                 <th style="width:28%" class="text-center">${labels.purchaseReq}</th>
-                <th style="width:22%">${labels.remarks}</th>
+                <th style="width:26%">${labels.remarks}</th>
               </tr>
             </thead>
             <tbody>
@@ -3126,14 +3240,12 @@ export default function RetailerOrders() {
                 <tr>
                   <td class="text-center">${idx + 1}</td>
                   <td>${getDisplayName(item)}</td>
-                  <td class="text-center">${item.qtyUnits || 0}</td>
                   <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
                   <td>${item.remarks || '-'}</td>
                 </tr>
               `).join('')}
               <tr style="font-weight:bold; background-color:#f9f9f9;">
                 <td colspan="2">${labels.total}</td>
-                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0)}</td>
                 <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}</td>
                 <td></td>
               </tr>
@@ -3211,12 +3323,11 @@ export default function RetailerOrders() {
       }
     };
     
-    // Prepare CSV content - Serial#, Product Name, Qty (Units), Purchase Req, Remarks
-    const headers = [labels.serial, labels.productName, labels.qtyUnits, labels.purchaseReq, labels.remarks];
+    // Prepare CSV content - Serial#, Product Name, Purchase Req, Remarks (removed Qty Units column)
+    const headers = [labels.serial, labels.productName, labels.purchaseReq, labels.remarks];
     const rows = dailyReqData.map((item, idx) => [
       idx + 1,
       getDisplayName(item),
-      item.qtyUnits || 0,
       getPurchaseReqDisplay(item),
       item.remarks || ''
     ]);
@@ -3225,7 +3336,6 @@ export default function RetailerOrders() {
     rows.push([
       '',
       labels.total,
-      dailyReqData.reduce((sum, item) => sum + (item.qtyUnits || 0), 0),
       `${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}`,
       ''
     ]);
@@ -6145,7 +6255,7 @@ export default function RetailerOrders() {
                                           <tr key={idx} className={remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}>
                                             <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                             <td className="p-2">{getProductNameInLang(item, indentLanguage)}</td>
-                                            <td className="p-2">{item.variant_name || '-'}</td>
+                                            <td className="p-2">{getIndentVariantDisplay(item)}</td>
                                             <td className="p-2 text-right">{item.quantity}</td>
                                             {showDispatchColumns && (
                                               <>
@@ -6321,7 +6431,7 @@ export default function RetailerOrders() {
                                       <tr key={idx} className="border-t">
                                         <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                         <td className="p-2 font-medium">{getProductNameInLang(item, dispatchLanguage)}</td>
-                                        <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
+                                        <td className="p-2 text-gray-600">{getIndentVariantDisplay(item)}</td>
                                         <td className="p-2 text-center">{item.indent_qty || '-'}</td>
                                         <td className="p-2 text-center font-semibold">{item.supplied_qty}</td>
                                         <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
@@ -6645,7 +6755,7 @@ export default function RetailerOrders() {
                                       return (
                                         <tr key={idx}>
                                           <td className="p-2">{getProductName(item)}</td>
-                                          <td className="p-2">{item.variant_name || '-'}</td>
+                                          <td className="p-2">{getIndentVariantDisplay(item)}</td>
                                           <td className="p-2 text-center">{suppliedQty}</td>
                                           <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>
                                           <td className="p-2 text-center text-green-700 font-semibold">{billableQty}</td>

@@ -13052,6 +13052,223 @@ async def sync_from_production_direct(
         )
 
 
+class FullSyncRequest(BaseModel):
+    production_url: str
+    admin_email: str
+    admin_password: str
+    include_images: bool = True
+    sync_mode: str = "merge"  # "merge" or "replace"
+
+@api_router.post("/sync-from-production-full")
+async def sync_from_production_full(
+    request: FullSyncRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Full sync from production including images.
+    Supports both merge (update existing, add new) and replace (clear and import fresh) modes.
+    """
+    import httpx
+    
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can sync from production")
+    
+    try:
+        production_url = request.production_url.rstrip('/')
+        
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            # Step 1: Login to production
+            login_response = await client.post(
+                f"{production_url}/api/auth/login",
+                json={
+                    "identifier": request.admin_email,
+                    "password": request.admin_password
+                }
+            )
+            
+            if login_response.status_code != 200:
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Failed to login to production: {login_response.text}"
+                )
+            
+            token = login_response.json().get("token")
+            if not token:
+                raise HTTPException(status_code=401, detail="No token received from production login")
+            
+            headers = {"Authorization": f"Bearer {token}"}
+            
+            # Define all API endpoints - WITH images for products
+            api_endpoints = {
+                'qc_packaging': '/api/qc-packaging',
+                'products': '/api/products?include_images=true' if request.include_images else '/api/products?include_images=false',
+                'product_types': '/api/product-types',
+                'product_categories': '/api/product-categories',
+                'units': '/api/units',
+                'farmers': '/api/farmers',
+                'labours': '/api/labours',
+                'qc_customers': '/api/qc-customers',
+                'retailers': '/api/retailers',
+                'retailer_catalogue': '/api/retailer-catalogue',
+                'retailer_indents': '/api/retailer-indents',
+                'retailer_dispatches': '/api/retailer-dispatches',
+                'retailer_invoices': '/api/retailer-invoices',
+                'retailer_rejections': '/api/retailer-rejections',
+                'retailer_payments': '/api/retailer-payments',
+                'qc_indents': '/api/qc-indents',
+                'qc_dispatches': '/api/qc-dispatches',
+                'qc_grns': '/api/qc-grns',
+                'qc_invoices': '/api/qc-invoices',
+                'procurements': '/api/procurement',
+                'farmer_payments': '/api/farmer-payments',
+                'customer_product_settings': '/api/customer-product-settings',
+                'daily_mrp': '/api/daily-mrp',
+                'daily_stock_status': '/api/stock-status',
+                'users': '/api/users',
+            }
+            
+            # Date range endpoints
+            from_date = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
+            to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            date_range_endpoints = {
+                'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
+                'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
+                'labour_costs': f'/api/labour-costs?from_date={from_date}&to_date={to_date}',
+            }
+            
+            sync_results = {}
+            total_synced = 0
+            images_synced = 0
+            
+            # Sync main collections
+            for collection_name, endpoint in {**api_endpoints, **date_range_endpoints}.items():
+                try:
+                    response = await client.get(
+                        f"{production_url}{endpoint}",
+                        headers=headers,
+                        timeout=120.0
+                    )
+                    
+                    if response.status_code != 200:
+                        sync_results[collection_name] = {
+                            "status": "error",
+                            "error": f"API returned {response.status_code}",
+                            "count": 0
+                        }
+                        continue
+                    
+                    data = response.json()
+                    
+                    # Handle different response formats
+                    if isinstance(data, list):
+                        records = data
+                    elif isinstance(data, dict) and 'items' in data:
+                        records = data['items']
+                    elif isinstance(data, dict) and 'records' in data:
+                        records = data['records']
+                    elif isinstance(data, dict) and collection_name in data:
+                        records = data[collection_name]
+                    else:
+                        records = [data] if data else []
+                    
+                    if not records:
+                        sync_results[collection_name] = {
+                            "status": "empty",
+                            "count": 0
+                        }
+                        continue
+                    
+                    # Clean records (remove any _id fields)
+                    cleaned_records = []
+                    for record in records:
+                        if isinstance(record, dict):
+                            clean_record = {k: v for k, v in record.items() if k != '_id'}
+                            cleaned_records.append(clean_record)
+                            # Count images
+                            if collection_name == 'products' and clean_record.get('image'):
+                                images_synced += 1
+                    
+                    if request.sync_mode == "replace":
+                        # Clear existing and insert new
+                        await db[collection_name].delete_many({})
+                        if cleaned_records:
+                            await db[collection_name].insert_many(cleaned_records)
+                    else:
+                        # Merge mode: update existing, insert new
+                        for record in cleaned_records:
+                            record_id = record.get('id')
+                            if record_id:
+                                await db[collection_name].update_one(
+                                    {"id": record_id},
+                                    {"$set": record},
+                                    upsert=True
+                                )
+                            else:
+                                # No id field - insert as new
+                                await db[collection_name].insert_one(record)
+                    
+                    sync_results[collection_name] = {
+                        "status": "synced",
+                        "count": len(cleaned_records),
+                        "mode": request.sync_mode
+                    }
+                    total_synced += len(cleaned_records)
+                    
+                except Exception as e:
+                    sync_results[collection_name] = {
+                        "status": "error",
+                        "error": str(e),
+                        "count": 0
+                    }
+            
+            # Also sync retailer catalogue images separately if include_images is true
+            if request.include_images:
+                try:
+                    # Fetch retailer catalogue with images
+                    cat_response = await client.get(
+                        f"{production_url}/api/retailer-catalogue",
+                        headers=headers,
+                        timeout=120.0
+                    )
+                    
+                    if cat_response.status_code == 200:
+                        catalogue_data = cat_response.json()
+                        if isinstance(catalogue_data, list):
+                            for item in catalogue_data:
+                                if item.get('image_url'):
+                                    images_synced += 1
+                                    # Update catalogue entry with image
+                                    await db.retailer_catalogue.update_one(
+                                        {"id": item.get('id')},
+                                        {"$set": {"image_url": item.get('image_url')}},
+                                        upsert=False
+                                    )
+                except Exception as e:
+                    sync_results['retailer_catalogue_images'] = {
+                        "status": "error",
+                        "error": str(e)
+                    }
+            
+            return {
+                "message": f"Full sync completed. {total_synced} records synced. {images_synced} images included.",
+                "method": "full_sync",
+                "sync_mode": request.sync_mode,
+                "include_images": request.include_images,
+                "production_url": production_url,
+                "images_synced": images_synced,
+                "collections": sync_results
+            }
+        
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Connection to production timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Full sync failed: {str(e)}"
+        )
 
 
 @api_router.get("/sync-status")

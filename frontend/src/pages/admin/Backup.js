@@ -26,6 +26,12 @@ export default function BackupPage() {
   const [prodPassword, setProdPassword] = useState('admin123');
   const [syncStatus, setSyncStatus] = useState(null);
   
+  // Full sync state
+  const [fullSyncLoading, setFullSyncLoading] = useState(false);
+  const [includeImages, setIncludeImages] = useState(true);
+  const [syncMode, setSyncMode] = useState('merge'); // 'merge' or 'replace'
+  const [fullSyncResults, setFullSyncResults] = useState(null);
+  
   // Error Logs state
   const [errorLogsLoading, setErrorLogsLoading] = useState(false);
   const [errorLogs, setErrorLogs] = useState(null);
@@ -118,6 +124,38 @@ export default function BackupPage() {
       toast.error(error.response?.data?.detail || 'Failed to direct sync');
     } finally {
       setDirectSyncLoading(false);
+    }
+  };
+
+  // Full sync from production with images
+  const fullSyncFromProduction = async () => {
+    if (!prodUrl) {
+      toast.error('Please enter the production URL');
+      return;
+    }
+    
+    setFullSyncLoading(true);
+    setFullSyncResults(null);
+    
+    try {
+      const response = await api.post('/api/sync-from-production-full', {
+        production_url: prodUrl,
+        admin_email: prodEmail,
+        admin_password: prodPassword,
+        include_images: includeImages,
+        sync_mode: syncMode
+      });
+      
+      if (response.data.message) {
+        toast.success(response.data.message);
+        setFullSyncResults(response.data);
+        loadSyncStatus();
+      }
+    } catch (error) {
+      console.error('Failed to full sync from production:', error);
+      toast.error(error.response?.data?.detail || 'Failed to sync from production');
+    } finally {
+      setFullSyncLoading(false);
     }
   };
 
@@ -601,6 +639,103 @@ export default function BackupPage() {
                 Use this if some collections (like Packaging, Units, Labours) are not syncing properly. 
                 This pulls data directly from production API endpoints instead of the Excel backup.
               </p>
+            </div>
+            
+            {/* Full Sync with Images Section */}
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 p-4 rounded-lg">
+              <p className="font-medium text-green-800 flex items-center gap-2 mb-3">
+                <Database className="h-5 w-5" />
+                Full Sync with Images (Recommended)
+              </p>
+              <p className="text-green-700 text-sm mb-4">
+                Complete data import from production including all product images. 
+                Choose between Merge (update existing, add new) or Replace (fresh import) modes.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="space-y-2">
+                  <Label className="text-green-800">Sync Mode</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="syncMode"
+                        value="merge"
+                        checked={syncMode === 'merge'}
+                        onChange={(e) => setSyncMode(e.target.value)}
+                        className="text-green-600"
+                      />
+                      <span className="text-sm text-green-700">Merge/Update</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="syncMode"
+                        value="replace"
+                        checked={syncMode === 'replace'}
+                        onChange={(e) => setSyncMode(e.target.value)}
+                        className="text-green-600"
+                      />
+                      <span className="text-sm text-green-700">Replace All</span>
+                    </label>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label className="text-green-800">Include Images</Label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeImages}
+                      onChange={(e) => setIncludeImages(e.target.checked)}
+                      className="text-green-600 rounded"
+                    />
+                    <span className="text-sm text-green-700">Sync product images (slower but complete)</span>
+                  </label>
+                </div>
+              </div>
+              
+              <Button 
+                onClick={fullSyncFromProduction}
+                disabled={fullSyncLoading || !prodUrl}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {fullSyncLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Database className="h-4 w-4 mr-2" />
+                )}
+                {fullSyncLoading ? 'Syncing Everything...' : 'Full Sync (with Images)'}
+              </Button>
+              
+              {/* Full Sync Results */}
+              {fullSyncResults && (
+                <div className="mt-4 p-3 bg-white rounded-lg border border-green-200">
+                  <p className="font-medium text-green-800 mb-2">
+                    ✓ {fullSyncResults.message}
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                    <div className="bg-green-100 p-2 rounded">
+                      <span className="text-green-700">Mode: </span>
+                      <span className="font-medium">{fullSyncResults.sync_mode}</span>
+                    </div>
+                    <div className="bg-green-100 p-2 rounded">
+                      <span className="text-green-700">Images: </span>
+                      <span className="font-medium">{fullSyncResults.images_synced}</span>
+                    </div>
+                    <div className="bg-green-100 p-2 rounded">
+                      <span className="text-green-700">Collections: </span>
+                      <span className="font-medium">{Object.keys(fullSyncResults.collections || {}).length}</span>
+                    </div>
+                    <div className="bg-green-100 p-2 rounded">
+                      <span className="text-green-700">Synced: </span>
+                      <span className="font-medium">
+                        {Object.values(fullSyncResults.collections || {}).filter(c => c.status === 'synced').length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             {syncStatus && (

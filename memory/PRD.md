@@ -2,6 +2,24 @@
 
 ## Changelog (May 2025)
 
+### May 25, 2025 (Session 5)
+- **FEATURE**: Full Production Sync with Images ✅
+  - New "Full Sync with Images" feature under Data Backup page
+  - **Sync Modes**: Merge/Update (keep existing, update/add new) OR Replace All (fresh import)
+  - **Include Images**: Option to sync all product images from production
+  - Syncs ALL collections: products, retailers, indents, dispatches, invoices, catalogue, etc.
+  - API: `POST /api/sync-from-production-full`
+  - Files: `/app/backend/server.py`, `/app/frontend/src/pages/admin/Backup.js`
+
+- **FIXED**: Dispatch Issues ✅
+  - "Done" checkbox auto-checks when "Fill All Quantities" is clicked
+  - Dispatch items now match correctly by `product_id` only (consistent with backend)
+  - Fixed issue where unit-based variants (Pieces/Packets) weren't matching dispatches
+
+- **FIXED**: Indent Variant Display for Pieces/Packets ✅
+  - Now shows weight info: "Pieces (500+ gm)" instead of just "Pieces"
+  - Dispatch modal auto-loads weight variants from catalogue for Pieces/Packets
+
 ### May 24, 2025 (Session 4)
 - **UPDATED**: PDF & Excel Export for Daily Purchase Requirement ✅
   - **Removed "Qty (Units)" column** as per user request

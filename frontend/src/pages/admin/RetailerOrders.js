@@ -982,6 +982,40 @@ export default function RetailerOrders() {
     }
   }, [indents, indentDateFilter]);
 
+  // Load dispatches for all visible indents (for showing dispatch status in indent table)
+  const loadDispatchesForIndents = useCallback(async () => {
+    if (filteredIndents.length === 0) return;
+    
+    try {
+      // Get all indent IDs from filtered indents
+      const indentIds = filteredIndents.map(i => i.id).filter(Boolean);
+      if (indentIds.length === 0) return;
+      
+      // Load dispatches for these indents (no date filter)
+      const response = await api.get('/api/retailer-dispatches');
+      const allDispatches = response.data || [];
+      
+      // Filter to only dispatches for our indents
+      const relevantDispatches = allDispatches.filter(d => indentIds.includes(d.indent_id));
+      
+      // Merge with existing dispatches (avoid duplicates)
+      setDispatches(prev => {
+        const existingIds = new Set(prev.map(d => d.id));
+        const newDispatches = relevantDispatches.filter(d => !existingIds.has(d.id));
+        return [...prev, ...newDispatches];
+      });
+    } catch (error) {
+      console.error('Failed to load dispatches for indents:', error);
+    }
+  }, [filteredIndents]);
+
+  // Load dispatches for indents when filtered indents change
+  useEffect(() => {
+    if (activeTab === 'indents' && filteredIndents.length > 0) {
+      loadDispatchesForIndents();
+    }
+  }, [activeTab, filteredIndents, loadDispatchesForIndents]);
+
   // Reload indents when date filter changes
   useEffect(() => {
     if (indentDateFilter) {
@@ -1480,7 +1514,7 @@ export default function RetailerOrders() {
     toast.success(`Exported ${productVariants.length} products × ${retailers.length} retailers`);
   };
 
-  // Print Indents - Opens print dialog with formatted table
+  // Print Indents - Opens print dialog with formatted table categorized by product type
   const printIndents = () => {
     if (!filteredIndents || filteredIndents.length === 0) {
       toast.error('No indents to print');
@@ -1491,6 +1525,7 @@ export default function RetailerOrders() {
     const retailerMap = new Map();
     const productVariantSet = new Set();
     const quantityMap = new Map();
+    const productCategoryMap = new Map(); // Map product name to category
 
     filteredIndents.forEach(indent => {
       const retailerId = indent.retailer_id;
@@ -1502,6 +1537,14 @@ export default function RetailerOrders() {
         const productKey = `${item.product_name}|${item.variant_name || 'Kg'}`;
         productVariantSet.add(productKey);
         
+        // Get category from products array
+        const productInfo = products.find(p => 
+          p.name?.toLowerCase() === item.product_name?.toLowerCase() ||
+          p.product_name?.toLowerCase() === item.product_name?.toLowerCase()
+        );
+        const category = productInfo?.category || productInfo?.type || item.category || 'Others';
+        productCategoryMap.set(item.product_name, category);
+        
         const qtyKey = `${productKey}|${retailerId}`;
         const existingQty = quantityMap.get(qtyKey) || 0;
         quantityMap.set(qtyKey, existingQty + item.quantity);
@@ -1510,6 +1553,28 @@ export default function RetailerOrders() {
 
     const retailers = Array.from(retailerMap.entries());
     const productVariants = Array.from(productVariantSet).sort();
+    
+    // Group products by category
+    const categoryGroups = {};
+    productVariants.forEach(productKey => {
+      const [productName] = productKey.split('|');
+      const category = productCategoryMap.get(productName) || 'Others';
+      if (!categoryGroups[category]) {
+        categoryGroups[category] = [];
+      }
+      categoryGroups[category].push(productKey);
+    });
+    
+    // Sort categories in preferred order
+    const categoryOrder = ['Vegetables', 'Fruits', 'Exotic', 'Sprouts', 'Others'];
+    const sortedCategories = Object.keys(categoryGroups).sort((a, b) => {
+      const indexA = categoryOrder.indexOf(a);
+      const indexB = categoryOrder.indexOf(b);
+      if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
 
     const formattedDate = filteredIndents[0]?.indent_date 
       ? formatDate(filteredIndents[0].indent_date)
@@ -1542,9 +1607,21 @@ export default function RetailerOrders() {
             margin-bottom: 8px;
             color: #666;
           }
+          .category-header {
+            background-color: #1e40af;
+            color: white;
+            font-weight: bold;
+            font-size: 13px;
+            padding: 6px 10px;
+            margin-top: 12px;
+            margin-bottom: 4px;
+            border-radius: 4px;
+          }
           table { 
             border-collapse: collapse; 
             font-size: 13px;
+            width: 100%;
+            margin-bottom: 8px;
           }
           th, td { 
             border: 1px solid #999; 
@@ -1581,72 +1658,105 @@ export default function RetailerOrders() {
             color: white;
             font-weight: bold;
           }
+          .category-vegetables .category-header { background-color: #166534; }
+          .category-fruits .category-header { background-color: #c2410c; }
+          .category-exotic .category-header { background-color: #7c3aed; }
+          .category-sprouts .category-header { background-color: #0891b2; }
         </style>
       </head>
       <body>
         <h1>Retailer Indents - ${formattedDate}</h1>
         <div class="summary">Total Products: ${productVariants.length} | Total Retailers: ${retailers.length}</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Sr</th>
-              <th>Product</th>
-              <th>Variant</th>
-              ${retailers.map(([_, name]) => `<th>${name}</th>`).join('')}
-              <th class="total-col">Total</th>
-            </tr>
-          </thead>
-          <tbody>
     `;
 
-    // Data rows
-    productVariants.forEach((productKey, index) => {
-      const [productName, variantName] = productKey.split('|');
-      // Get translated product name based on selected language
-      const translatedName = indentLanguage !== 'en' 
-        ? getProductNameInLang({ product_name: productName }, indentLanguage) 
-        : productName;
-      let rowTotal = 0;
+    let globalIndex = 0;
+    let grandTotal = 0;
+
+    // Render each category
+    sortedCategories.forEach(category => {
+      const categoryProducts = categoryGroups[category];
+      const categoryClass = `category-${category.toLowerCase().replace(/\s+/g, '-')}`;
       
-      htmlContent += `<tr>`;
-      htmlContent += `<td>${index + 1}</td>`;
-      htmlContent += `<td class="product-name">${translatedName}</td>`;
-      htmlContent += `<td class="variant">${variantName}</td>`;
+      htmlContent += `
+        <div class="${categoryClass}">
+          <div class="category-header">${category} (${categoryProducts.length} items)</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Sr</th>
+                <th>Product</th>
+                <th>Variant</th>
+                ${retailers.map(([_, name]) => `<th>${name}</th>`).join('')}
+                <th class="total-col">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+      
+      let categoryTotal = 0;
+      
+      // Data rows for this category
+      categoryProducts.forEach((productKey) => {
+        globalIndex++;
+        const [productName, variantName] = productKey.split('|');
+        // Get translated product name based on selected language
+        const translatedName = indentLanguage !== 'en' 
+          ? getProductNameInLang({ product_name: productName }, indentLanguage) 
+          : productName;
+        let rowTotal = 0;
+        
+        htmlContent += `<tr>`;
+        htmlContent += `<td>${globalIndex}</td>`;
+        htmlContent += `<td class="product-name">${translatedName}</td>`;
+        htmlContent += `<td class="variant">${variantName}</td>`;
+        
+        retailers.forEach(([retailerId, _]) => {
+          const qtyKey = `${productKey}|${retailerId}`;
+          const qty = quantityMap.get(qtyKey) || 0;
+          rowTotal += qty;
+          htmlContent += `<td>${qty || ''}</td>`;
+        });
+        
+        categoryTotal += rowTotal;
+        htmlContent += `<td class="total-col">${rowTotal}</td>`;
+        htmlContent += `</tr>`;
+      });
+      
+      grandTotal += categoryTotal;
+      
+      // Category subtotal row
+      htmlContent += `<tr class="total-row">`;
+      htmlContent += `<td></td>`;
+      htmlContent += `<td>${category} Total</td>`;
+      htmlContent += `<td></td>`;
       
       retailers.forEach(([retailerId, _]) => {
-        const qtyKey = `${productKey}|${retailerId}`;
-        const qty = quantityMap.get(qtyKey) || 0;
-        rowTotal += qty;
-        htmlContent += `<td>${qty || ''}</td>`;
+        let totalQty = 0;
+        categoryProducts.forEach(productKey => {
+          const qtyKey = `${productKey}|${retailerId}`;
+          totalQty += quantityMap.get(qtyKey) || 0;
+        });
+        htmlContent += `<td>${totalQty}</td>`;
       });
       
-      htmlContent += `<td class="total-col">${rowTotal}</td>`;
+      htmlContent += `<td class="total-col" style="background-color: #0d3320 !important;">${categoryTotal}</td>`;
       htmlContent += `</tr>`;
+      
+      htmlContent += `
+            </tbody>
+          </table>
+        </div>
+      `;
     });
 
-    // Totals row
-    let grandTotal = 0;
-    htmlContent += `<tr class="total-row">`;
-    htmlContent += `<td></td>`;
-    htmlContent += `<td>TOTAL</td>`;
-    htmlContent += `<td></td>`;
-    
-    retailers.forEach(([retailerId, _]) => {
-      let totalQty = 0;
-      productVariants.forEach(productKey => {
-        const qtyKey = `${productKey}|${retailerId}`;
-        totalQty += quantityMap.get(qtyKey) || 0;
-      });
-      grandTotal += totalQty;
-      htmlContent += `<td>${totalQty}</td>`;
-    });
-    
-    htmlContent += `<td class="total-col" style="background-color: #0d3320 !important;">${grandTotal}</td>`;
-    htmlContent += `</tr>`;
+    // Grand total section
+    htmlContent += `
+      <div style="margin-top: 16px; padding: 10px; background-color: #14532D; color: white; border-radius: 4px; text-align: center;">
+        <strong>GRAND TOTAL: ${grandTotal} units</strong>
+      </div>
+    `;
 
     htmlContent += `
-          </tbody>
-        </table>
       </body>
       </html>
     `;
@@ -3548,12 +3658,15 @@ export default function RetailerOrders() {
       items[index] = { ...items[index], [field]: value };
       items[index].total_value = items[index].supplied_qty * items[index].mrp;
       
-      // Auto-check "Done" if supplied qty equals indent qty
+      // Auto-check/uncheck "Done" based on supplied qty vs indent qty
       if (field === 'supplied_qty') {
         const suppliedQty = parseFloat(value) || 0;
         const indentQty = parseFloat(items[index].indent_qty) || 0;
         if (suppliedQty >= indentQty && suppliedQty > 0) {
           items[index].marked_done = true;
+        } else {
+          // Auto-uncheck if quantity is reduced below indent qty
+          items[index].marked_done = false;
         }
       }
       

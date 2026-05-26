@@ -2302,10 +2302,10 @@ export default function Procurement() {
 
               {/* Single-row table matching Yesterday's Purchases layout */}
               <div className="bg-white rounded border overflow-x-auto">
-                <table className="w-full text-sm" style={{ minWidth: '850px' }}>
+                <table className="w-full text-sm" style={{ minWidth: '900px' }}>
                     <thead className="bg-gray-100">
                       <tr>
-                        <th className="p-2 text-left font-medium text-gray-600" style={{ width: '140px' }}>{t('procurement.farmer')}</th>
+                        <th className="p-2 text-left font-medium text-gray-600" style={{ width: '180px' }}>{t('procurement.farmer')}</th>
                         <th className="p-2 text-left font-medium text-gray-600" style={{ width: '150px' }}>{t('procurement.productName')}</th>
                         <th className="p-2 text-center font-medium text-gray-600" style={{ width: '60px' }}>{t('common.qty')}</th>
                         <th className="p-2 text-center font-medium text-gray-600" style={{ width: '70px' }}>Unit</th>

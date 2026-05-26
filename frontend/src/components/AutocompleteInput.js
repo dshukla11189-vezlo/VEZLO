@@ -186,7 +186,7 @@ export default function AutocompleteInput({
       />
       
       {showSuggestions && displayItems.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+        <div className="absolute z-50 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto" style={{ minWidth: '280px', width: 'max-content' }}>
           {searchTerm.length === 0 && recentItems.length > 0 && (
             <>
               <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 border-b flex items-center gap-2">
@@ -243,7 +243,7 @@ export default function AutocompleteInput({
       )}
       
       {showSuggestions && searchTerm && filteredItems.length === 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-sm text-gray-500 text-center">
+        <div className="absolute z-50 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-sm text-gray-500 text-center" style={{ minWidth: '200px' }}>
           No results found
         </div>
       )}

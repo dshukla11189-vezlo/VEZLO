@@ -11344,23 +11344,54 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     
     if input.selected_items and len(input.selected_items) > 0:
         # Use the item-level selection with rejection data
+        # First, combine items with same product_id + variant_name
+        combined_items = {}
+        
         for item in input.selected_items:
+            # Create a key for combining (product_id + variant_name)
+            combine_key = f"{item.product_id}|{item.variant_name or ''}"
+            
+            if combine_key in combined_items:
+                # Combine with existing item
+                existing = combined_items[combine_key]
+                existing['net_qty'] += item.net_qty
+                existing['supplied_qty'] += item.supplied_qty
+                existing['rejected_qty'] += item.rejected_qty if item.rejected_qty else 0
+                existing['total_value'] += item.total_value
+                existing['dispatch_ids'].append(item.dispatch_id)
+            else:
+                # Create new entry
+                combined_items[combine_key] = {
+                    'dispatch_id': item.dispatch_id,
+                    'dispatch_ids': [item.dispatch_id],
+                    'product_id': item.product_id,
+                    'product_name': item.product_name,
+                    'variant_name': item.variant_name,
+                    'net_qty': item.net_qty,
+                    'supplied_qty': item.supplied_qty,
+                    'rejected_qty': item.rejected_qty if item.rejected_qty else 0,
+                    'mrp': item.mrp,
+                    'total_value': item.total_value
+                }
+        
+        # Create invoice items from combined data
+        for item_data in combined_items.values():
             all_items.append(RetailerInvoiceItem(
-                dispatch_id=item.dispatch_id,
-                product_id=item.product_id,
-                product_name=item.product_name,
-                variant_name=item.variant_name,
-                quantity=item.net_qty,  # Use net_qty (after rejection deduction)
-                supplied_qty=item.supplied_qty,
-                rejected_qty=item.rejected_qty,
-                mrp=item.mrp,
-                total_value=item.total_value  # This is net_value from frontend
+                dispatch_id=item_data['dispatch_ids'][0],  # Use first dispatch_id for reference
+                product_id=item_data['product_id'],
+                product_name=item_data['product_name'],
+                variant_name=item_data['variant_name'],
+                quantity=item_data['net_qty'],  # Use net_qty (after rejection deduction)
+                supplied_qty=item_data['supplied_qty'],
+                rejected_qty=item_data['rejected_qty'],
+                mrp=item_data['mrp'],
+                total_value=item_data['total_value']  # This is net_value from frontend
             ))
             # Calculate gross (supplied_qty * mrp)
-            item_gross = item.supplied_qty * item.mrp
+            item_gross = item_data['supplied_qty'] * item_data['mrp']
             gross_value += item_gross
             # Calculate rejection value (rejected_qty * mrp)
-            item_rejection = item.rejected_qty * item.mrp if item.rejected_qty else 0
+            item_rejection = item_data['rejected_qty'] * item_data['mrp'] if item_data['rejected_qty'] else 0
             rejection_amount += item_rejection
     else:
         # Fallback: aggregate items from all dispatches (legacy behavior)

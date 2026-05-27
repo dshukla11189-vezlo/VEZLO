@@ -953,6 +953,8 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["address"] = input.address
     if input.commission_percentage is not None:
         update_data["commission_percentage"] = input.commission_percentage
+    if input.upfront_collection_percentage is not None:
+        update_data["upfront_collection_percentage"] = input.upfront_collection_percentage
     
     if update_data:
         await db.users.update_one({"id": user_id}, {"$set": update_data})
@@ -11137,6 +11139,242 @@ async def get_retailer_payments_detailed(retailer_id: str, current_user: dict = 
     }
 
 
+# ------------ RETAILER CREDIT NOTES ------------
+
+@api_router.get("/retailer-credit-notes")
+async def get_retailer_credit_notes(
+    retailer_id: str = None,
+    status: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all credit notes, optionally filtered by retailer or status"""
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    if status:
+        query["status"] = status
+    
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return credit_notes
+
+@api_router.get("/retailer-credit-notes/pending/{retailer_id}")
+async def get_pending_credit_notes(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get pending and partial credit notes for a retailer (for payment collection)"""
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(100)
+    
+    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in credit_notes)
+    
+    return {
+        "credit_notes": credit_notes,
+        "total_pending_credit": round(total_pending, 2),
+        "count": len(credit_notes)
+    }
+
+@api_router.post("/retailer-credit-notes")
+async def create_retailer_credit_note(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a credit note from a rejection"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create credit notes")
+    
+    # Get the original invoice
+    original_invoice = await db.retailer_invoices.find_one({"id": input.get("original_invoice_id")})
+    if not original_invoice:
+        raise HTTPException(status_code=404, detail="Original invoice not found")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.get("retailer_id")})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Generate credit note number
+    count = await db.retailer_credit_notes.count_documents({})
+    credit_note_number = f"CN-{str(count + 1).zfill(4)}"
+    
+    # Create credit note
+    credit_note = {
+        "id": str(uuid.uuid4()),
+        "credit_note_number": credit_note_number,
+        "retailer_id": input.get("retailer_id"),
+        "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
+        "original_invoice_id": input.get("original_invoice_id"),
+        "original_invoice_number": original_invoice.get("invoice_number", ""),
+        "rejection_id": input.get("rejection_id"),
+        "rejection_date": datetime.now(timezone.utc),
+        "amount": input.get("amount", 0),
+        "rejection_details": input.get("rejection_details", []),
+        "status": "pending",
+        "adjusted_amount": 0,
+        "pending_amount": input.get("amount", 0),
+        "adjusted_against_invoices": [],
+        "remarks": input.get("remarks"),
+        "created_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.retailer_credit_notes.insert_one(credit_note)
+    
+    # Update the original invoice to mark it has a credit note
+    await db.retailer_invoices.update_one(
+        {"id": input.get("original_invoice_id")},
+        {
+            "$set": {
+                "has_credit_note": True,
+                "credit_note_amount": input.get("amount", 0),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {
+        "message": "Credit note created successfully",
+        "credit_note": {k: v for k, v in credit_note.items() if k != "_id"}
+    }
+
+@api_router.post("/retailer-credit-notes/adjust")
+async def adjust_credit_note(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Adjust credit note(s) against an invoice during payment collection"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can adjust credit notes")
+    
+    invoice_id = input.get("invoice_id")
+    adjustments = input.get("adjustments", [])  # [{credit_note_id, amount}]
+    
+    # Get the invoice
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    total_adjusted = 0
+    adjustment_records = []
+    
+    for adj in adjustments:
+        cn_id = adj.get("credit_note_id")
+        adj_amount = adj.get("amount", 0)
+        
+        credit_note = await db.retailer_credit_notes.find_one({"id": cn_id})
+        if not credit_note:
+            continue
+        
+        pending = credit_note.get("pending_amount", credit_note.get("amount", 0))
+        actual_adj = min(adj_amount, pending)
+        
+        if actual_adj <= 0:
+            continue
+        
+        # Update credit note
+        new_adjusted = credit_note.get("adjusted_amount", 0) + actual_adj
+        new_pending = credit_note.get("amount", 0) - new_adjusted
+        new_status = "adjusted" if new_pending <= 0 else "partial"
+        
+        adjustment_record = {
+            "invoice_id": invoice_id,
+            "invoice_number": invoice.get("invoice_number", ""),
+            "amount": actual_adj,
+            "date": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.retailer_credit_notes.update_one(
+            {"id": cn_id},
+            {
+                "$set": {
+                    "adjusted_amount": round(new_adjusted, 2),
+                    "pending_amount": round(max(0, new_pending), 2),
+                    "status": new_status,
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$push": {
+                    "adjusted_against_invoices": adjustment_record
+                }
+            }
+        )
+        
+        total_adjusted += actual_adj
+        adjustment_records.append({
+            "credit_note_id": cn_id,
+            "credit_note_number": credit_note.get("credit_note_number"),
+            "amount_adjusted": actual_adj
+        })
+    
+    # Update invoice with credit adjustment info
+    if total_adjusted > 0:
+        await db.retailer_invoices.update_one(
+            {"id": invoice_id},
+            {
+                "$set": {
+                    "credit_adjusted": True,
+                    "credit_adjustment_amount": total_adjusted,
+                    "credit_adjustments": adjustment_records,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+    
+    return {
+        "message": f"Credit adjustment of ₹{total_adjusted} applied successfully",
+        "total_adjusted": round(total_adjusted, 2),
+        "adjustments": adjustment_records
+    }
+
+@api_router.delete("/retailer-credit-notes/{credit_note_id}")
+async def delete_credit_note(credit_note_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a credit note (only if not adjusted)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete credit notes")
+    
+    credit_note = await db.retailer_credit_notes.find_one({"id": credit_note_id})
+    if not credit_note:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    
+    if credit_note.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Cannot delete adjusted credit notes")
+    
+    # Remove credit note
+    await db.retailer_credit_notes.delete_one({"id": credit_note_id})
+    
+    # Update original invoice
+    await db.retailer_invoices.update_one(
+        {"id": credit_note.get("original_invoice_id")},
+        {
+            "$set": {
+                "has_credit_note": False,
+                "credit_note_amount": 0,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {"message": "Credit note deleted successfully"}
+
+@api_router.get("/retailer-credit-notes/summary/{retailer_id}")
+async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get credit note summary for a retailer"""
+    all_cns = await db.retailer_credit_notes.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(500)
+    
+    total_credit_issued = sum(cn.get("amount", 0) for cn in all_cns)
+    total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in all_cns)
+    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in all_cns if cn.get("status") in ["pending", "partial"])
+    
+    return {
+        "total_credit_issued": round(total_credit_issued, 2),
+        "total_adjusted": round(total_adjusted, 2),
+        "total_pending": round(total_pending, 2),
+        "pending_count": len([cn for cn in all_cns if cn.get("status") in ["pending", "partial"]]),
+        "adjusted_count": len([cn for cn in all_cns if cn.get("status") == "adjusted"])
+    }
+
+
 # ------------ RETAILER INVOICES ------------
 @api_router.get("/retailer-invoices")
 async def get_retailer_invoices(
@@ -15798,6 +16036,26 @@ async def startup_event():
         
         # Auto-seed default categories and types if collections are empty
         await seed_default_categories_types_on_startup()
+        
+        # Migrate existing retailers to have upfront_collection_percentage = 50
+        try:
+            result = await db.users.update_many(
+                {"role": "retailer", "upfront_collection_percentage": {"$exists": False}},
+                {"$set": {"upfront_collection_percentage": 50}}
+            )
+            if result.modified_count > 0:
+                logger.info(f"Migrated {result.modified_count} retailers to 50% upfront collection")
+        except Exception as e:
+            logger.warning(f"Retailer migration warning: {e}")
+        
+        # Create index for credit notes
+        try:
+            await db.retailer_credit_notes.create_index("retailer_id")
+            await db.retailer_credit_notes.create_index("status")
+            await db.retailer_credit_notes.create_index("original_invoice_id")
+            await db.retailer_credit_notes.create_index([("created_at", -1)])
+        except Exception as e:
+            logger.warning(f"Credit notes index creation warning: {e}")
         
         backup_scheduler = setup_backup_scheduler(db)
         logger.info("Backup scheduler initialized successfully")

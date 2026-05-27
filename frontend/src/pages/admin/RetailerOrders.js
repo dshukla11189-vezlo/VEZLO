@@ -125,6 +125,12 @@ export default function RetailerOrders() {
   });
   const [rejectionDispatchItems, setRejectionDispatchItems] = useState([]); // Dispatch items for selected date
   
+  // Credit Notes state
+  const [creditNotes, setCreditNotes] = useState([]);
+  const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
+  const [selectedRejectionForCN, setSelectedRejectionForCN] = useState(null);
+  const [creditNoteFilter, setCreditNoteFilter] = useState({ retailer: '', status: '' });
+  
   // Error dialog state for rejection validation
   const [rejectionErrorDialog, setRejectionErrorDialog] = useState({
     open: false,
@@ -386,6 +392,19 @@ export default function RetailerOrders() {
     }
   }, [selectedRetailer]);
 
+  // Load credit notes
+  const loadCreditNotes = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
+      if (creditNoteFilter.status) params.append('status', creditNoteFilter.status);
+      const response = await api.get(`/api/retailer-credit-notes?${params.toString()}`);
+      setCreditNotes(response.data || []);
+    } catch (error) {
+      console.error('Failed to load credit notes:', error);
+    }
+  }, [selectedRetailer, creditNoteFilter.status]);
+
   // Load all dispatches for rejection analytics date range
   const loadDispatchesForRejection = useCallback(async () => {
     try {
@@ -426,6 +445,48 @@ export default function RetailerOrders() {
       toast.error('Failed to sync rejections to invoices');
     } finally {
       setSyncingRejections(false);
+    }
+  };
+
+  // Create Credit Note from rejection
+  const createCreditNoteFromRejection = async (rejection, invoice) => {
+    try {
+      const response = await api.post('/api/retailer-credit-notes', {
+        retailer_id: rejection.retailer_id,
+        original_invoice_id: invoice.id,
+        rejection_id: rejection.id,
+        amount: rejection.total_rejection_value || rejection.rejection_value || 0,
+        rejection_details: rejection.items || [{
+          product_name: rejection.product_name,
+          quantity: rejection.quantity,
+          mrp: rejection.mrp,
+          value: rejection.rejection_value
+        }],
+        remarks: `Credit Note for rejection dated ${formatDate(rejection.rejection_date)}`
+      });
+      
+      toast.success(`Credit Note ${response.data.credit_note.credit_note_number} created successfully`);
+      loadCreditNotes();
+      loadRejections();
+      setShowCreditNoteModal(false);
+      setSelectedRejectionForCN(null);
+    } catch (error) {
+      console.error('Failed to create credit note:', error);
+      toast.error(error.response?.data?.detail || 'Failed to create credit note');
+    }
+  };
+
+  // Delete credit note
+  const deleteCreditNote = async (creditNoteId) => {
+    if (!window.confirm('Are you sure you want to delete this credit note?')) return;
+    
+    try {
+      await api.delete(`/api/retailer-credit-notes/${creditNoteId}`);
+      toast.success('Credit note deleted');
+      loadCreditNotes();
+    } catch (error) {
+      console.error('Failed to delete credit note:', error);
+      toast.error(error.response?.data?.detail || 'Failed to delete credit note');
     }
   };
 
@@ -965,9 +1026,10 @@ export default function RetailerOrders() {
       loadInvoices();
       loadRejections();
       loadPayments();
+      loadCreditNotes();
     };
     loadAll();
-  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable]);
+  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable, loadCreditNotes]);
 
   // Filter indents by date
   useEffect(() => {
@@ -4840,6 +4902,7 @@ export default function RetailerOrders() {
     { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
     { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
     { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
+    { id: 'creditNotes', label: 'Credit Notes', icon: CreditCard, count: creditNotes.length },
     { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
     { id: 'closingInventory', label: 'Closing Inventory', icon: ClipboardList, count: null }
   ];
@@ -7038,6 +7101,19 @@ export default function RetailerOrders() {
                                 <td className="p-2 text-gray-500">{rejection.reason}</td>
                                 <td className="p-2 text-center">
                                   <div className="flex items-center justify-center gap-1">
+                                    <Button 
+                                      size="sm" 
+                                      variant="ghost" 
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setSelectedRejectionForCN(rejection);
+                                        setShowCreditNoteModal(true);
+                                      }}
+                                      title="Create Credit Note"
+                                      className="text-purple-600 hover:text-purple-800"
+                                    >
+                                      <CreditCard size={14} />
+                                    </Button>
                                     <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); handleEditRejection(rejection); }}>
                                       <Edit size={14} className="text-amber-600" />
                                     </Button>
@@ -7064,6 +7140,134 @@ export default function RetailerOrders() {
                       </tr>
                     </tfoot>
                   )}
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== CREDIT NOTES TAB ==================== */}
+        {activeTab === 'creditNotes' && (
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <CreditCard size={18} className="text-purple-600" />
+                    Credit Notes
+                  </CardTitle>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Track credit notes from rejections and their adjustments against invoices
+                  </p>
+                </div>
+                <div className="flex gap-2 items-center">
+                  {/* Status Filter */}
+                  <select
+                    value={creditNoteFilter.status}
+                    onChange={(e) => setCreditNoteFilter(prev => ({ ...prev, status: e.target.value }))}
+                    className="text-xs border rounded px-2 py-1"
+                  >
+                    <option value="">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="partial">Partial</option>
+                    <option value="adjusted">Adjusted</option>
+                  </select>
+                  <Button size="sm" variant="outline" onClick={loadCreditNotes}>
+                    <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-3">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="bg-purple-50 rounded-lg p-3 border border-purple-100">
+                  <div className="text-xs text-purple-600">Total Credit Issued</div>
+                  <div className="text-lg font-bold text-purple-700">
+                    ₹{creditNotes.reduce((sum, cn) => sum + (cn.amount || 0), 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+                  <div className="text-xs text-amber-600">Pending Credit</div>
+                  <div className="text-lg font-bold text-amber-700">
+                    ₹{creditNotes.filter(cn => cn.status !== 'adjusted').reduce((sum, cn) => sum + (cn.pending_amount || 0), 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="bg-green-50 rounded-lg p-3 border border-green-100">
+                  <div className="text-xs text-green-600">Adjusted</div>
+                  <div className="text-lg font-bold text-green-700">
+                    ₹{creditNotes.reduce((sum, cn) => sum + (cn.adjusted_amount || 0), 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                  <div className="text-xs text-gray-600">Total Notes</div>
+                  <div className="text-lg font-bold text-gray-700">{creditNotes.length}</div>
+                </div>
+              </div>
+
+              {/* Credit Notes Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="p-2 text-left">CN #</th>
+                      <th className="p-2 text-left">Retailer</th>
+                      <th className="p-2 text-left">Original Invoice</th>
+                      <th className="p-2 text-right">Amount</th>
+                      <th className="p-2 text-right">Adjusted</th>
+                      <th className="p-2 text-right">Pending</th>
+                      <th className="p-2 text-center">Status</th>
+                      <th className="p-2 text-left">Created</th>
+                      <th className="p-2 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditNotes.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="p-4 text-center text-gray-500">
+                          No credit notes found. Create credit notes from the Rejections tab.
+                        </td>
+                      </tr>
+                    ) : (
+                      creditNotes.map(cn => (
+                        <tr key={cn.id} className="border-t hover:bg-gray-50">
+                          <td className="p-2 font-medium text-purple-700">{cn.credit_note_number}</td>
+                          <td className="p-2">{cn.retailer_name}</td>
+                          <td className="p-2 text-blue-600">{cn.original_invoice_number}</td>
+                          <td className="p-2 text-right font-medium">₹{cn.amount?.toLocaleString()}</td>
+                          <td className="p-2 text-right text-green-600">₹{(cn.adjusted_amount || 0).toLocaleString()}</td>
+                          <td className="p-2 text-right text-amber-600">₹{(cn.pending_amount || 0).toLocaleString()}</td>
+                          <td className="p-2 text-center">
+                            <span className={`px-2 py-0.5 rounded text-xs ${
+                              cn.status === 'adjusted' ? 'bg-green-100 text-green-700' :
+                              cn.status === 'partial' ? 'bg-amber-100 text-amber-700' :
+                              'bg-purple-100 text-purple-700'
+                            }`}>
+                              {cn.status}
+                            </span>
+                          </td>
+                          <td className="p-2">{formatDate(cn.created_at)}</td>
+                          <td className="p-2 text-center">
+                            {cn.status === 'pending' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                                onClick={() => deleteCreditNote(cn.id)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
+                            {cn.adjusted_against_invoices?.length > 0 && (
+                              <span className="text-xs text-gray-500" title={cn.adjusted_against_invoices.map(a => a.invoice_number).join(', ')}>
+                                ({cn.adjusted_against_invoices.length} adj)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
                 </table>
               </div>
             </CardContent>

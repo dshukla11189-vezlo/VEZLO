@@ -31,6 +31,7 @@ class User(BaseModel):
     contact: Optional[str] = None
     address: Optional[str] = None
     commission_percentage: Optional[float] = 0  # For retailers: their commission %
+    upfront_collection_percentage: Optional[float] = 50  # For retailers: 50%, 100%, etc.
     referral_code: Optional[str] = None  # Auto-generated for retailers
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -43,6 +44,7 @@ class RegisterRequest(BaseModel):
     contact: Optional[str] = None
     address: Optional[str] = None
     commission_percentage: Optional[float] = 0
+    upfront_collection_percentage: Optional[float] = 50
 
 class LoginRequest(BaseModel):
     identifier: str  # Can be email or mobile number
@@ -72,6 +74,7 @@ class UserUpdate(BaseModel):
     contact: Optional[str] = None
     address: Optional[str] = None
     commission_percentage: Optional[float] = None
+    upfront_collection_percentage: Optional[float] = None
 
 # Product Models
 class Product(BaseModel):
@@ -794,6 +797,48 @@ class RetailerInvoiceCreate(BaseModel):
     selected_items: Optional[List[RetailerInvoiceSelectedItem]] = None
     remarks: Optional[str] = None
 
+
+# ==================== RETAILER CREDIT NOTES ====================
+class RetailerCreditNote(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    credit_note_number: str  # CN-001, CN-002, etc.
+    retailer_id: str
+    retailer_name: str
+    # Source: The old invoice/rejection this credit is from
+    original_invoice_id: str
+    original_invoice_number: str
+    rejection_id: Optional[str] = None  # Link to rejection record
+    rejection_date: Optional[datetime] = None
+    # Credit details
+    amount: float
+    rejection_details: Optional[List[dict]] = []  # Product-wise breakdown
+    # Adjustment tracking
+    status: Literal["pending", "partial", "adjusted"] = "pending"
+    adjusted_amount: float = 0  # How much has been adjusted so far
+    pending_amount: float = 0  # Remaining to be adjusted
+    # When adjusted against future invoice
+    adjusted_against_invoices: List[dict] = []  # [{invoice_id, invoice_number, amount, date}]
+    # Metadata
+    remarks: Optional[str] = None
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+
+class RetailerCreditNoteCreate(BaseModel):
+    retailer_id: str
+    original_invoice_id: str
+    rejection_id: Optional[str] = None
+    amount: float
+    rejection_details: Optional[List[dict]] = []
+    remarks: Optional[str] = None
+
+class CreditAdjustment(BaseModel):
+    """Tracks credit note adjustments against an invoice"""
+    credit_note_id: str
+    credit_note_number: str
+    amount_adjusted: float
+    adjustment_date: datetime
 
 
 # ==================== RETAILER INVENTORY ====================

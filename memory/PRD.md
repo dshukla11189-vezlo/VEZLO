@@ -2,6 +2,32 @@
 
 ## Changelog (May 2025)
 
+### May 27, 2025 (Session 6)
+- **FEATURE**: Retailer Payment & Invoicing Upgrade - Credit Notes System ✅
+  - **Credit Note Creation**: Generate credit notes from rejections against old invoices
+  - **Models Added**: `RetailerCreditNote` with fields: credit_note_number, retailer_id, original_invoice_id, rejection_id, amount, status (pending/partial/adjusted), adjusted_amount, pending_amount, adjusted_against_invoices
+  - **API Endpoints**:
+    - `GET /api/retailer-credit-notes` - List all credit notes with filters
+    - `GET /api/retailer-credit-notes/pending/{retailer_id}` - Get pending credits for payment
+    - `POST /api/retailer-credit-notes` - Create credit note from rejection
+    - `POST /api/retailer-credit-notes/adjust` - Adjust credits against invoice
+    - `DELETE /api/retailer-credit-notes/{id}` - Delete pending credit note
+  - **Payment with Credit Adjustment**: 
+    - `POST /api/retailer-invoices/{invoice_id}/payment` now accepts `credit_adjustments` array
+    - Automatically updates credit note status and links to adjusted invoice
+    - Payment record tracks: cash amount, credit applied, total settled, credit adjustments
+  - **UI Components**:
+    - **Credit Notes Tab** in Retailer Orders: Summary cards (Total Issued, Pending, Adjusted, Count) + table with all credit notes
+    - **Payment Modal Enhancement**: "Available Credit Notes" section with checkboxes to select credits, amount input, "Total Credit Applied" summary
+    - **Create Credit Note Button** in Rejections tab (CreditCard icon)
+    - **Credit Note Creation Modal**: Shows rejection details, associated invoice, and creates credit note
+  - Files: `/app/backend/server.py`, `/app/backend/models.py`, `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **FEATURE**: Upfront Collection Percentage ✅
+  - Added `upfront_collection_percentage` field to User model (default 50% for retailers)
+  - DB migration script on startup patches existing retailers with 50% default
+  - Supports 100% upfront collection workflow where rejections generate credit notes
+
 ### May 25, 2025 (Session 5)
 - **FEATURE**: Full Production Sync with Images ✅
   - New "Full Sync with Images" feature under Data Backup page

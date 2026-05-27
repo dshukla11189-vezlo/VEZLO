@@ -10603,7 +10603,63 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
     await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
     
-    return {"id": rejection.id, "message": "Rejection recorded successfully"}
+    # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
+    auto_credit_note = None
+    upfront_pct = retailer.get("upfront_collection_percentage", 50)
+    if upfront_pct == 100 and rejection_value > 0:
+        # Find the invoice for this date to link the credit note
+        invoice = await db.retailer_invoices.find_one({
+            "retailer_id": input.retailer_id,
+            "invoice_date": {"$regex": f"^{rejection_date_str}"}
+        }, {"_id": 0})
+        
+        if invoice:
+            # Generate credit note number
+            cn_count = await db.retailer_credit_notes.count_documents({})
+            credit_note_number = f"CN-{str(cn_count + 1).zfill(4)}"
+            
+            credit_note = {
+                "id": str(uuid.uuid4()),
+                "credit_note_number": credit_note_number,
+                "retailer_id": input.retailer_id,
+                "retailer_name": retailer.get("company_name", retailer.get("name", "")),
+                "original_invoice_id": invoice.get("id"),
+                "original_invoice_number": invoice.get("invoice_number"),
+                "rejection_id": rejection.id,
+                "rejection_date": doc["rejection_date"],
+                "amount": round(rejection_value, 2),
+                "rejection_details": [{
+                    "product_name": input.product_name,
+                    "variant_name": input.variant_name,
+                    "quantity": input.quantity,
+                    "mrp": input.mrp,
+                    "value": round(rejection_value, 2),
+                    "reason": input.reason
+                }],
+                "status": "pending",
+                "adjusted_amount": 0,
+                "pending_amount": round(rejection_value, 2),
+                "adjusted_against_invoices": [],
+                "remarks": f"Auto-generated from rejection on {rejection_date_str}",
+                "created_by": current_user["user_id"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "auto_generated": True
+            }
+            
+            await db.retailer_credit_notes.insert_one(credit_note)
+            auto_credit_note = {
+                "id": credit_note["id"],
+                "credit_note_number": credit_note_number,
+                "amount": credit_note["amount"]
+            }
+            logger.info(f"Auto-created credit note {credit_note_number} for 100% upfront retailer {retailer.get('company_name', retailer.get('name'))}")
+    
+    response = {"id": rejection.id, "message": "Rejection recorded successfully"}
+    if auto_credit_note:
+        response["auto_credit_note"] = auto_credit_note
+        response["message"] = f"Rejection recorded and Credit Note {auto_credit_note['credit_note_number']} auto-generated"
+    
+    return response
 
 async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
     """
@@ -11356,6 +11412,73 @@ async def delete_credit_note(credit_note_id: str, current_user: dict = Depends(g
     )
     
     return {"message": "Credit note deleted successfully"}
+
+@api_router.put("/retailer-credit-notes/{credit_note_id}")
+async def update_credit_note(credit_note_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update a credit note (only if pending or partial - not fully adjusted)"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update credit notes")
+    
+    credit_note = await db.retailer_credit_notes.find_one({"id": credit_note_id}, {"_id": 0})
+    if not credit_note:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    
+    # Don't allow editing fully adjusted credit notes
+    if credit_note.get("status") == "adjusted":
+        raise HTTPException(status_code=400, detail="Cannot edit fully adjusted credit notes")
+    
+    update_data = {}
+    
+    # Updatable fields
+    if "amount" in input:
+        new_amount = float(input["amount"])
+        adjusted_amount = credit_note.get("adjusted_amount", 0)
+        
+        # New amount must be >= already adjusted amount
+        if new_amount < adjusted_amount:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"New amount (₹{new_amount}) cannot be less than already adjusted amount (₹{adjusted_amount})"
+            )
+        
+        update_data["amount"] = round(new_amount, 2)
+        update_data["pending_amount"] = round(new_amount - adjusted_amount, 2)
+        
+        # Update status if needed
+        if update_data["pending_amount"] <= 0.01:
+            update_data["status"] = "adjusted"
+        elif adjusted_amount > 0:
+            update_data["status"] = "partial"
+        else:
+            update_data["status"] = "pending"
+    
+    if "remarks" in input:
+        update_data["remarks"] = input["remarks"]
+    
+    if "rejection_details" in input:
+        update_data["rejection_details"] = input["rejection_details"]
+    
+    if not update_data:
+        return {"message": "No changes to update", "credit_note": credit_note}
+    
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.retailer_credit_notes.update_one(
+        {"id": credit_note_id},
+        {"$set": update_data}
+    )
+    
+    # Update invoice credit_note_amount if amount changed
+    if "amount" in input:
+        await db.retailer_invoices.update_one(
+            {"id": credit_note.get("original_invoice_id")},
+            {"$set": {"credit_note_amount": update_data["amount"]}}
+        )
+    
+    # Fetch updated credit note
+    updated_cn = await db.retailer_credit_notes.find_one({"id": credit_note_id}, {"_id": 0})
+    
+    return {"message": "Credit note updated successfully", "credit_note": updated_cn}
 
 @api_router.get("/retailer-credit-notes/summary/{retailer_id}")
 async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Depends(get_current_user)):

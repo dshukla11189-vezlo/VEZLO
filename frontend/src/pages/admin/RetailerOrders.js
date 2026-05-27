@@ -18,7 +18,7 @@ import {
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -130,6 +130,11 @@ export default function RetailerOrders() {
   const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
   const [selectedRejectionForCN, setSelectedRejectionForCN] = useState(null);
   const [creditNoteFilter, setCreditNoteFilter] = useState({ retailer: '', status: '' });
+  
+  // Credit Note Edit state
+  const [showEditCreditNoteModal, setShowEditCreditNoteModal] = useState(false);
+  const [editingCreditNote, setEditingCreditNote] = useState(null);
+  const [editCreditNoteForm, setEditCreditNoteForm] = useState({ amount: '', remarks: '' });
   
   // Credit Note Adjustment state (for payment modal)
   const [pendingCreditNotesForPayment, setPendingCreditNotesForPayment] = useState([]);
@@ -492,6 +497,36 @@ export default function RetailerOrders() {
     } catch (error) {
       console.error('Failed to delete credit note:', error);
       toast.error(error.response?.data?.detail || 'Failed to delete credit note');
+    }
+  };
+
+  // Open edit credit note modal
+  const openEditCreditNoteModal = (creditNote) => {
+    setEditingCreditNote(creditNote);
+    setEditCreditNoteForm({
+      amount: creditNote.amount || '',
+      remarks: creditNote.remarks || ''
+    });
+    setShowEditCreditNoteModal(true);
+  };
+
+  // Update credit note
+  const updateCreditNote = async (e) => {
+    e.preventDefault();
+    if (!editingCreditNote) return;
+    
+    try {
+      await api.put(`/api/retailer-credit-notes/${editingCreditNote.id}`, {
+        amount: parseFloat(editCreditNoteForm.amount),
+        remarks: editCreditNoteForm.remarks
+      });
+      toast.success('Credit note updated successfully');
+      setShowEditCreditNoteModal(false);
+      setEditingCreditNote(null);
+      loadCreditNotes();
+    } catch (error) {
+      console.error('Failed to update credit note:', error);
+      toast.error(error.response?.data?.detail || 'Failed to update credit note');
     }
   };
 
@@ -4450,6 +4485,7 @@ export default function RetailerOrders() {
     try {
       let createdCount = 0;
       let updatedCount = 0;
+      const autoCreditNotes = []; // Track auto-generated credit notes
       
       // Process each selected item - update if has rejection_id, create if new
       for (const item of selectedItems) {
@@ -4472,8 +4508,12 @@ export default function RetailerOrders() {
           updatedCount++;
         } else {
           // Create new rejection
-          await api.post('/api/retailer-rejections', rejectionData);
+          const response = await api.post('/api/retailer-rejections', rejectionData);
           createdCount++;
+          // Check if auto-credit note was generated (for 100% upfront retailers)
+          if (response.data?.auto_credit_note) {
+            autoCreditNotes.push(response.data.auto_credit_note);
+          }
         }
       }
       
@@ -4492,10 +4532,23 @@ export default function RetailerOrders() {
         }
       }
       
+      // Build success message
       const messages = [];
       if (createdCount > 0) messages.push(`${createdCount} created`);
       if (updatedCount > 0) messages.push(`${updatedCount} updated`);
-      toast.success(`Rejections: ${messages.join(', ')}`);
+      
+      if (autoCreditNotes.length > 0) {
+        const cnNumbers = autoCreditNotes.map(cn => cn.credit_note_number).join(', ');
+        const totalCreditAmount = autoCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+        toast.success(
+          `Rejections: ${messages.join(', ')}. Auto-generated Credit Note(s): ${cnNumbers} (₹${totalCreditAmount.toLocaleString()})`,
+          { duration: 6000 }
+        );
+        // Refresh credit notes
+        loadCreditNotes();
+      } else {
+        toast.success(`Rejections: ${messages.join(', ')}`);
+      }
       
       setShowRejectionModal(false);
       resetRejectionForm();
@@ -7291,15 +7344,29 @@ export default function RetailerOrders() {
                           </td>
                           <td className="p-2">{formatDate(cn.created_at)}</td>
                           <td className="p-2 text-center">
-                            {cn.status === 'pending' && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                                onClick={() => deleteCreditNote(cn.id)}
-                              >
-                                <Trash2 size={14} />
-                              </Button>
+                            {cn.status !== 'adjusted' && (
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-blue-500 hover:text-blue-700"
+                                  onClick={() => openEditCreditNoteModal(cn)}
+                                  title="Edit Credit Note"
+                                >
+                                  <Edit2 size={14} />
+                                </Button>
+                                {cn.status === 'pending' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                                    onClick={() => deleteCreditNote(cn.id)}
+                                    title="Delete Credit Note"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                )}
+                              </div>
                             )}
                             {cn.adjusted_against_invoices?.length > 0 && (
                               <span className="text-xs text-gray-500" title={cn.adjusted_against_invoices.map(a => a.invoice_number).join(', ')}>
@@ -11126,6 +11193,122 @@ export default function RetailerOrders() {
                 );
               })()}
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* ==================== EDIT CREDIT NOTE MODAL ==================== */}
+      {showEditCreditNoteModal && editingCreditNote && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => { if (e.target === e.currentTarget) { setShowEditCreditNoteModal(false); setEditingCreditNote(null); }}}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-4 border-b bg-blue-50">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Edit2 size={20} className="text-blue-600" />
+                Edit Credit Note
+              </h3>
+              <button onClick={() => { setShowEditCreditNoteModal(false); setEditingCreditNote(null); }} className="p-1 hover:bg-gray-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={updateCreditNote} className="p-4 space-y-4">
+              {/* Credit Note Info */}
+              <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Credit Note #:</span>
+                  <span className="font-semibold text-blue-700">{editingCreditNote.credit_note_number}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Retailer:</span>
+                  <span className="font-medium">{editingCreditNote.retailer_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Original Invoice:</span>
+                  <span className="font-medium">{editingCreditNote.original_invoice_number}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Status:</span>
+                  <span className={`px-2 py-0.5 rounded text-xs ${
+                    editingCreditNote.status === 'adjusted' ? 'bg-green-100 text-green-700' :
+                    editingCreditNote.status === 'partial' ? 'bg-amber-100 text-amber-700' :
+                    'bg-purple-100 text-purple-700'
+                  }`}>
+                    {editingCreditNote.status}
+                  </span>
+                </div>
+                {editingCreditNote.adjusted_amount > 0 && (
+                  <div className="flex justify-between text-amber-600">
+                    <span>Already Adjusted:</span>
+                    <span className="font-medium">₹{editingCreditNote.adjusted_amount.toLocaleString()}</span>
+                  </div>
+                )}
+                {editingCreditNote.auto_generated && (
+                  <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                    <Info size={12} /> Auto-generated from rejection
+                  </div>
+                )}
+              </div>
+              
+              {/* Editable Fields */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Credit Amount (₹)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={editingCreditNote.adjusted_amount || 0}
+                    value={editCreditNoteForm.amount}
+                    onChange={(e) => setEditCreditNoteForm(prev => ({ ...prev, amount: e.target.value }))}
+                    className="w-full"
+                    required
+                  />
+                  {editingCreditNote.adjusted_amount > 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Minimum: ₹{editingCreditNote.adjusted_amount} (already adjusted)
+                    </p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                  <textarea
+                    value={editCreditNoteForm.remarks}
+                    onChange={(e) => setEditCreditNoteForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    className="w-full rounded-md border border-gray-300 p-2 text-sm"
+                    rows={2}
+                    placeholder="Optional remarks"
+                  />
+                </div>
+              </div>
+              
+              {/* Rejection Details */}
+              {editingCreditNote.rejection_details?.length > 0 && (
+                <div className="bg-red-50 border border-red-100 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-red-800 mb-2">Rejection Details</h4>
+                  {editingCreditNote.rejection_details.map((det, idx) => (
+                    <div key={idx} className="text-xs text-red-700">
+                      {det.product_name} {det.variant_name && `(${det.variant_name})`} - {det.quantity} units × ₹{det.mrp} = ₹{det.value}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => { setShowEditCreditNoteModal(false); setEditingCreditNote(null); }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                >
+                  <Save size={14} className="mr-1" /> Save Changes
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

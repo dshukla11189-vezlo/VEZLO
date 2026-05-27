@@ -10,17 +10,25 @@
     - `GET /api/retailer-credit-notes` - List all credit notes with filters
     - `GET /api/retailer-credit-notes/pending/{retailer_id}` - Get pending credits for payment
     - `POST /api/retailer-credit-notes` - Create credit note from rejection
+    - `PUT /api/retailer-credit-notes/{id}` - **Edit credit note** (amount, remarks)
     - `POST /api/retailer-credit-notes/adjust` - Adjust credits against invoice
     - `DELETE /api/retailer-credit-notes/{id}` - Delete pending credit note
   - **Payment with Credit Adjustment**: 
     - `POST /api/retailer-invoices/{invoice_id}/payment` now accepts `credit_adjustments` array
     - Automatically updates credit note status and links to adjusted invoice
     - Payment record tracks: cash amount, credit applied, total settled, credit adjustments
+  - **Auto Credit Note Generation** (NEW):
+    - For **100% upfront retailers**, rejections automatically generate credit notes
+    - Credit note is linked to the rejection's invoice
+    - Toast notification shows auto-generated CN number and amount
+    - Credit notes marked with `auto_generated: true` flag
   - **UI Components**:
     - **Credit Notes Tab** in Retailer Orders: Summary cards (Total Issued, Pending, Adjusted, Count) + table with all credit notes
     - **Payment Modal Enhancement**: "Available Credit Notes" section with checkboxes to select credits, amount input, "Total Credit Applied" summary
     - **Create Credit Note Button** in Rejections tab (CreditCard icon)
     - **Credit Note Creation Modal**: Shows rejection details, associated invoice, and creates credit note
+    - **Edit Credit Note Modal** (NEW): Edit amount and remarks, shows rejection details, auto-generated indicator
+    - **Edit/Delete buttons** in Credit Notes table (Edit visible for pending/partial, Delete only for pending)
   - Files: `/app/backend/server.py`, `/app/backend/models.py`, `/app/frontend/src/pages/admin/RetailerOrders.js`
 
 - **FEATURE**: Upfront Collection Percentage ✅

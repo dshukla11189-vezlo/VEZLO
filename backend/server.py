@@ -10644,6 +10644,12 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
             cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": input.retailer_id})
             credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
             
+            # Calculate credit amount after deducting commission
+            # Credit = Rejection Value × (1 - Commission%)
+            # Because retailer was paying (100% - commission%) of MRP
+            commission_pct = retailer.get("commission_percentage", 0) or 0
+            credit_amount = rejection_value * (1 - commission_pct / 100)
+            
             credit_note = {
                 "id": str(uuid.uuid4()),
                 "credit_note_number": credit_note_number,
@@ -10653,7 +10659,10 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 "original_invoice_number": invoice.get("invoice_number"),
                 "rejection_id": rejection.id,
                 "rejection_date": doc["rejection_date"],
-                "amount": round(rejection_value, 2),
+                "rejection_value": round(rejection_value, 2),  # Original MRP value
+                "commission_percentage": commission_pct,
+                "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+                "amount": round(credit_amount, 2),  # Net credit after commission
                 "rejection_details": [{
                     "product_name": input.product_name,
                     "variant_name": input.variant_name,
@@ -10664,7 +10673,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 }],
                 "status": "pending",
                 "adjusted_amount": 0,
-                "pending_amount": round(rejection_value, 2),
+                "pending_amount": round(credit_amount, 2),
                 "adjusted_against_invoices": [],
                 "remarks": f"Auto-generated from rejection on {rejection_date_str}",
                 "created_by": current_user["user_id"],
@@ -11283,6 +11292,12 @@ async def create_retailer_credit_note(
     count = await db.retailer_credit_notes.count_documents({"retailer_id": input.get("retailer_id")})
     credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
     
+    # Calculate credit amount after deducting commission
+    # Credit = Rejection Value × (1 - Commission%)
+    rejection_value = input.get("amount", 0)
+    commission_pct = retailer.get("commission_percentage", 0) or 0
+    credit_amount = rejection_value * (1 - commission_pct / 100)
+    
     # Create credit note
     credit_note = {
         "id": str(uuid.uuid4()),
@@ -11293,11 +11308,14 @@ async def create_retailer_credit_note(
         "original_invoice_number": original_invoice.get("invoice_number", ""),
         "rejection_id": input.get("rejection_id"),
         "rejection_date": datetime.now(timezone.utc),
-        "amount": input.get("amount", 0),
+        "rejection_value": round(rejection_value, 2),  # Original MRP value
+        "commission_percentage": commission_pct,
+        "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+        "amount": round(credit_amount, 2),  # Net credit after commission
         "rejection_details": input.get("rejection_details", []),
         "status": "pending",
         "adjusted_amount": 0,
-        "pending_amount": input.get("amount", 0),
+        "pending_amount": round(credit_amount, 2),
         "adjusted_against_invoices": [],
         "remarks": input.get("remarks"),
         "created_by": current_user["user_id"],
@@ -11312,7 +11330,7 @@ async def create_retailer_credit_note(
         {
             "$set": {
                 "has_credit_note": True,
-                "credit_note_amount": input.get("amount", 0),
+                "credit_note_amount": round(credit_amount, 2),
                 "updated_at": datetime.now(timezone.utc)
             }
         }

@@ -7330,7 +7330,14 @@ export default function RetailerOrders() {
                           <td className="p-2 font-medium text-purple-700">{cn.credit_note_number}</td>
                           <td className="p-2">{cn.retailer_name}</td>
                           <td className="p-2 text-blue-600">{cn.original_invoice_number}</td>
-                          <td className="p-2 text-right font-medium">₹{cn.amount?.toLocaleString()}</td>
+                          <td className="p-2 text-right">
+                            <div className="font-medium">₹{cn.amount?.toLocaleString()}</div>
+                            {cn.commission_deducted > 0 && (
+                              <div className="text-[10px] text-gray-500">
+                                (MRP ₹{cn.rejection_value?.toLocaleString()} - {cn.commission_percentage}% comm)
+                              </div>
+                            )}
+                          </td>
                           <td className="p-2 text-right text-green-600">₹{(cn.adjusted_amount || 0).toLocaleString()}</td>
                           <td className="p-2 text-right text-amber-600">₹{(cn.pending_amount || 0).toLocaleString()}</td>
                           <td className="p-2 text-center">
@@ -11160,17 +11167,41 @@ export default function RetailerOrders() {
                       </div>
                     </div>
                     
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-purple-800 font-medium">Credit Note Amount:</span>
-                        <span className="text-2xl font-bold text-purple-700">
-                          {formatCurrency(selectedRejectionForCN.rejection_value)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-purple-600 mt-2">
-                        This credit note will be available to deduct from future invoices for this retailer.
-                      </p>
-                    </div>
+                    {/* Credit Note Calculation with Commission */}
+                    {(() => {
+                      const retailerData = retailers.find(r => r.id === selectedRejectionForCN.retailer_id);
+                      const commissionPct = retailerData?.commission_percentage || 0;
+                      const rejectionValue = selectedRejectionForCN.rejection_value || 0;
+                      const commissionDeducted = rejectionValue * commissionPct / 100;
+                      const creditAmount = rejectionValue - commissionDeducted;
+                      
+                      return (
+                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Rejection Value (MRP):</span>
+                            <span className="font-medium">{formatCurrency(rejectionValue)}</span>
+                          </div>
+                          {commissionPct > 0 && (
+                            <div className="flex justify-between text-sm text-amber-700">
+                              <span>Less: Commission ({commissionPct}%):</span>
+                              <span className="font-medium">- {formatCurrency(commissionDeducted)}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between pt-2 border-t border-purple-200">
+                            <span className="text-purple-800 font-medium">Credit Note Amount:</span>
+                            <span className="text-2xl font-bold text-purple-700">
+                              {formatCurrency(creditAmount)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-purple-600 mt-1">
+                            {commissionPct > 0 
+                              ? `Retailer pays ${100 - commissionPct}% of MRP, so credit is adjusted accordingly.`
+                              : 'This credit note will be available to deduct from future invoices.'
+                            }
+                          </p>
+                        </div>
+                      );
+                    })()}
                     
                     <div className="flex gap-3 pt-2">
                       <Button 

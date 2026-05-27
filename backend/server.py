@@ -11763,7 +11763,7 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
 # Record payment against an invoice
 @api_router.post("/retailer-invoices/{invoice_id}/payment")
 async def record_invoice_payment(invoice_id: str, input: dict, current_user: dict = Depends(get_current_user)):
-    """Record payment against a retailer invoice"""
+    """Record payment against a retailer invoice with optional credit note adjustments"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can record payments")
     
@@ -11778,10 +11778,68 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
     reference_number = input.get("reference_number", "")
     remarks = input.get("remarks", "")
     payment_date = input.get("payment_date", datetime.now(timezone.utc).isoformat())
+    credit_adjustments = input.get("credit_adjustments", [])  # [{credit_note_id, credit_note_number, amount}]
     
-    # Calculate new paid amount and status
+    # Process credit note adjustments first
+    total_credit_applied = 0
+    credit_adjustment_records = []
+    
+    for adj in credit_adjustments:
+        cn_id = adj.get("credit_note_id")
+        adj_amount = float(adj.get("amount", 0))
+        
+        if adj_amount <= 0:
+            continue
+            
+        credit_note = await db.retailer_credit_notes.find_one({"id": cn_id}, {"_id": 0})
+        if not credit_note:
+            continue
+            
+        # Calculate actual adjustment (can't exceed pending amount)
+        pending = credit_note.get("pending_amount", credit_note.get("amount", 0))
+        actual_adj = min(adj_amount, pending)
+        
+        if actual_adj <= 0:
+            continue
+            
+        # Update credit note
+        new_adjusted = credit_note.get("adjusted_amount", 0) + actual_adj
+        new_pending = credit_note.get("amount", 0) - new_adjusted
+        new_status = "adjusted" if new_pending <= 0.01 else "partial"
+        
+        # Add adjustment record to credit note
+        adjustment_record = {
+            "invoice_id": invoice_id,
+            "invoice_number": invoice.get("invoice_number"),
+            "amount": actual_adj,
+            "date": payment_date
+        }
+        
+        await db.retailer_credit_notes.update_one(
+            {"id": cn_id},
+            {
+                "$set": {
+                    "adjusted_amount": round(new_adjusted, 2),
+                    "pending_amount": round(new_pending, 2),
+                    "status": new_status,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                },
+                "$push": {
+                    "adjusted_against_invoices": adjustment_record
+                }
+            }
+        )
+        
+        total_credit_applied += actual_adj
+        credit_adjustment_records.append({
+            "credit_note_id": cn_id,
+            "credit_note_number": adj.get("credit_note_number") or credit_note.get("credit_note_number"),
+            "amount_adjusted": actual_adj
+        })
+    
+    # Calculate new paid amount (cash + credit adjustments)
     current_paid = invoice.get("paid_amount", 0)
-    new_paid = current_paid + amount
+    new_paid = current_paid + amount + total_credit_applied
     net_payable = invoice.get("net_payable", 0)
     
     # Determine payment status (use tolerance for floating point comparison)
@@ -11802,7 +11860,10 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
         "invoice_id": invoice_id,
         "invoice_number": invoice.get("invoice_number"),
         "payment_date": payment_date,
-        "amount": amount,
+        "amount": amount,  # Cash amount
+        "credit_applied": total_credit_applied,  # Credit note amount
+        "total_settled": amount + total_credit_applied,  # Total amount settled
+        "credit_adjustments": credit_adjustment_records,  # Details of credit notes used
         "payment_mode": payment_mode,
         "received_by": received_by,
         "received_by_name": received_by_name,
@@ -11814,20 +11875,31 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
     await db.retailer_payments.insert_one(payment_doc)
     
     # Update the invoice with new paid amount, status, and payment_date
+    invoice_update = {
+        "paid_amount": round(new_paid, 2),
+        "status": new_status,
+        "payment_date": payment_date  # Track when payment was received
+    }
+    
+    # If credit notes were applied, track them on the invoice too
+    if total_credit_applied > 0:
+        invoice_update["credit_adjusted"] = True
+        invoice_update["credit_adjustment_amount"] = total_credit_applied
+        invoice_update["credit_adjustments"] = credit_adjustment_records
+    
     await db.retailer_invoices.update_one(
         {"id": invoice_id},
-        {"$set": {
-            "paid_amount": round(new_paid, 2),
-            "status": new_status,
-            "payment_date": payment_date  # Track when payment was received
-        }}
+        {"$set": invoice_update}
     )
     
     return {
         "id": payment_id,
         "invoice_id": invoice_id,
+        "cash_amount": round(amount, 2),
+        "credit_applied": round(total_credit_applied, 2),
         "paid_amount": round(new_paid, 2),
         "status": new_status,
+        "credit_adjustments": credit_adjustment_records,
         "message": "Payment recorded successfully"
     }
 

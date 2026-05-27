@@ -131,6 +131,11 @@ export default function RetailerOrders() {
   const [selectedRejectionForCN, setSelectedRejectionForCN] = useState(null);
   const [creditNoteFilter, setCreditNoteFilter] = useState({ retailer: '', status: '' });
   
+  // Credit Note Adjustment state (for payment modal)
+  const [pendingCreditNotesForPayment, setPendingCreditNotesForPayment] = useState([]);
+  const [selectedCreditAdjustments, setSelectedCreditAdjustments] = useState([]); // [{credit_note_id, amount}]
+  const [loadingPendingCredits, setLoadingPendingCredits] = useState(false);
+  
   // Error dialog state for rejection validation
   const [rejectionErrorDialog, setRejectionErrorDialog] = useState({
     open: false,
@@ -487,6 +492,24 @@ export default function RetailerOrders() {
     } catch (error) {
       console.error('Failed to delete credit note:', error);
       toast.error(error.response?.data?.detail || 'Failed to delete credit note');
+    }
+  };
+
+  // Load pending credit notes for a retailer (used in payment modal)
+  const loadPendingCreditNotesForPayment = async (retailerId) => {
+    if (!retailerId) {
+      setPendingCreditNotesForPayment([]);
+      return;
+    }
+    setLoadingPendingCredits(true);
+    try {
+      const response = await api.get(`/api/retailer-credit-notes/pending/${retailerId}`);
+      setPendingCreditNotesForPayment(response.data.credit_notes || []);
+    } catch (error) {
+      console.error('Failed to load pending credit notes:', error);
+      setPendingCreditNotesForPayment([]);
+    } finally {
+      setLoadingPendingCredits(false);
     }
   };
 
@@ -4703,6 +4726,12 @@ export default function RetailerOrders() {
     });
     setShowInvoicePaymentModal(true);
     
+    // Reset credit note adjustments
+    setSelectedCreditAdjustments([]);
+    
+    // Load pending credit notes for this retailer
+    loadPendingCreditNotesForPayment(invoice.retailer_id);
+    
     // Load existing payments if invoice has partial payments
     if (invoice.paid_amount > 0) {
       setLoadingExistingPayments(true);
@@ -4821,6 +4850,9 @@ export default function RetailerOrders() {
     }
     
     try {
+      // Prepare credit note adjustments if any
+      const creditAdjustments = selectedCreditAdjustments.filter(adj => adj.amount > 0);
+      
       await api.post(`/api/retailer-invoices/${selectedInvoiceForPayment.id}/payment`, {
         amount: parseFloat(invoicePaymentForm.amount),
         payment_mode: invoicePaymentForm.payment_mode,
@@ -4828,13 +4860,24 @@ export default function RetailerOrders() {
         received_by_name: invoicePaymentForm.received_by_name,
         reference_number: invoicePaymentForm.reference_number,
         remarks: invoicePaymentForm.remarks,
-        payment_date: invoicePaymentForm.payment_date
+        payment_date: invoicePaymentForm.payment_date,
+        credit_adjustments: creditAdjustments.length > 0 ? creditAdjustments : undefined
       });
-      toast.success('Payment recorded successfully');
+      
+      const totalCreditApplied = creditAdjustments.reduce((sum, adj) => sum + adj.amount, 0);
+      if (totalCreditApplied > 0) {
+        toast.success(`Payment recorded with ₹${totalCreditApplied.toLocaleString()} credit adjustment`);
+      } else {
+        toast.success('Payment recorded successfully');
+      }
+      
       setShowInvoicePaymentModal(false);
       setSelectedInvoiceForPayment(null);
+      setPendingCreditNotesForPayment([]);
+      setSelectedCreditAdjustments([]);
       loadInvoices();
       loadPayments();
+      loadCreditNotes(); // Refresh credit notes as well
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record payment');
     }
@@ -10408,6 +10451,110 @@ export default function RetailerOrders() {
                   </div>
                 )}
                 
+                {/* Pending Credit Notes Section */}
+                {loadingPendingCredits ? (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <p className="text-xs text-gray-500">Loading credit notes...</p>
+                  </div>
+                ) : pendingCreditNotesForPayment.length > 0 && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <h4 className="text-sm font-semibold text-purple-800 mb-2 flex items-center gap-2">
+                      <CreditCard size={14} /> Available Credit Notes
+                    </h4>
+                    <p className="text-xs text-purple-600 mb-2">
+                      Select credit notes to apply against this payment
+                    </p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {pendingCreditNotesForPayment.map((cn) => {
+                        const existingAdj = selectedCreditAdjustments.find(adj => adj.credit_note_id === cn.id);
+                        const adjAmount = existingAdj ? existingAdj.amount : 0;
+                        const isSelected = adjAmount > 0;
+                        
+                        return (
+                          <div 
+                            key={cn.id} 
+                            className={`bg-white border rounded p-2 text-xs ${isSelected ? 'border-purple-400 bg-purple-50' : 'border-purple-100'}`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        // Auto-apply full pending amount
+                                        setSelectedCreditAdjustments(prev => [
+                                          ...prev.filter(adj => adj.credit_note_id !== cn.id),
+                                          { 
+                                            credit_note_id: cn.id, 
+                                            credit_note_number: cn.credit_note_number,
+                                            amount: cn.pending_amount || cn.amount 
+                                          }
+                                        ]);
+                                      } else {
+                                        setSelectedCreditAdjustments(prev => 
+                                          prev.filter(adj => adj.credit_note_id !== cn.id)
+                                        );
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                                  />
+                                  <span className="font-semibold text-purple-700">{cn.credit_note_number}</span>
+                                </div>
+                                <div className="text-gray-500 mt-1 pl-6">
+                                  From: {cn.original_invoice_number}
+                                  <span className="ml-2">({formatDate(cn.created_at)})</span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-semibold text-purple-700">₹{(cn.pending_amount || cn.amount).toLocaleString()}</div>
+                                {cn.adjusted_amount > 0 && (
+                                  <div className="text-[10px] text-gray-500">
+                                    (₹{cn.adjusted_amount} already used)
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <div className="mt-2 pl-6 flex items-center gap-2">
+                                <label className="text-gray-600">Apply:</label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max={cn.pending_amount || cn.amount}
+                                  value={adjAmount}
+                                  onChange={(e) => {
+                                    const val = Math.min(parseFloat(e.target.value) || 0, cn.pending_amount || cn.amount);
+                                    setSelectedCreditAdjustments(prev => 
+                                      prev.map(adj => 
+                                        adj.credit_note_id === cn.id 
+                                          ? { ...adj, amount: val }
+                                          : adj
+                                      )
+                                    );
+                                  }}
+                                  className="w-24 h-7 text-xs"
+                                />
+                                <span className="text-gray-500">of ₹{(cn.pending_amount || cn.amount).toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {selectedCreditAdjustments.length > 0 && (
+                      <div className="mt-3 pt-2 border-t border-purple-200 flex justify-between items-center">
+                        <span className="text-sm font-medium text-purple-800">Total Credit Applied:</span>
+                        <span className="text-lg font-bold text-purple-700">
+                          ₹{selectedCreditAdjustments.reduce((sum, adj) => sum + (adj.amount || 0), 0).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date *</label>
                   <Input
@@ -10848,6 +10995,140 @@ export default function RetailerOrders() {
           </div>
         )}
       </div>
+      
+      {/* ==================== CREDIT NOTE CREATION MODAL ==================== */}
+      {showCreditNoteModal && selectedRejectionForCN && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => { if (e.target === e.currentTarget) { setShowCreditNoteModal(false); setSelectedRejectionForCN(null); }}}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b bg-purple-50">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <CreditCard size={20} className="text-purple-600" />
+                Create Credit Note
+              </h3>
+              <button onClick={() => { setShowCreditNoteModal(false); setSelectedRejectionForCN(null); }} className="p-1 hover:bg-gray-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* Rejection Details */}
+              <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                <h4 className="font-medium text-gray-700 border-b pb-2 mb-2">Rejection Details</h4>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Retailer:</span>
+                  <span className="font-medium">{selectedRejectionForCN.retailer_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Rejection Date:</span>
+                  <span className="font-medium">{formatDate(selectedRejectionForCN.rejection_date)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Product:</span>
+                  <span className="font-medium">{selectedRejectionForCN.product_name}</span>
+                </div>
+                {selectedRejectionForCN.variant_name && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Variant:</span>
+                    <span className="font-medium">{selectedRejectionForCN.variant_name}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Quantity:</span>
+                  <span className="font-medium text-red-600">{selectedRejectionForCN.quantity} units</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">MRP:</span>
+                  <span className="font-medium">{formatCurrency(selectedRejectionForCN.mrp)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Reason:</span>
+                  <span className="font-medium">{selectedRejectionForCN.reason}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2 mt-2">
+                  <span className="text-gray-700 font-medium">Rejection Value:</span>
+                  <span className="text-lg font-bold text-red-600">{formatCurrency(selectedRejectionForCN.rejection_value)}</span>
+                </div>
+              </div>
+              
+              {/* Find Associated Invoice */}
+              {(() => {
+                // Find the invoice this rejection is associated with
+                const rejectionDate = new Date(selectedRejectionForCN.rejection_date).toISOString().split('T')[0];
+                const associatedInvoice = invoices.find(inv => 
+                  inv.retailer_id === selectedRejectionForCN.retailer_id &&
+                  inv.items?.some(item => 
+                    item.product_id === selectedRejectionForCN.product_id &&
+                    (item.variant_name === selectedRejectionForCN.variant_name || !selectedRejectionForCN.variant_name)
+                  )
+                );
+                
+                if (!associatedInvoice) {
+                  return (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                      <p className="text-amber-700 font-medium flex items-center gap-2">
+                        <AlertTriangle size={16} />
+                        No matching invoice found
+                      </p>
+                      <p className="text-amber-600 text-xs mt-1">
+                        Create an invoice for this retailer first to link the credit note.
+                      </p>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2 text-sm">
+                      <h4 className="font-medium text-blue-800">Associated Invoice</h4>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Invoice #:</span>
+                        <span className="font-semibold text-blue-700">{associatedInvoice.invoice_number}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Invoice Date:</span>
+                        <span className="font-medium">{formatDate(associatedInvoice.invoice_date)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Invoice Total:</span>
+                        <span className="font-medium">{formatCurrency(associatedInvoice.net_payable)}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-purple-800 font-medium">Credit Note Amount:</span>
+                        <span className="text-2xl font-bold text-purple-700">
+                          {formatCurrency(selectedRejectionForCN.rejection_value)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-purple-600 mt-2">
+                        This credit note will be available to deduct from future invoices for this retailer.
+                      </p>
+                    </div>
+                    
+                    <div className="flex gap-3 pt-2">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        className="flex-1" 
+                        onClick={() => { setShowCreditNoteModal(false); setSelectedRejectionForCN(null); }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="button" 
+                        className="flex-1 bg-purple-600 hover:bg-purple-700"
+                        onClick={() => createCreditNoteFromRejection(selectedRejectionForCN, associatedInvoice)}
+                      >
+                        <CreditCard size={14} className="mr-1" /> Create Credit Note
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Rejection Error Dialog - Centered popup for validation errors */}
       <AlertDialog open={rejectionErrorDialog.open} onOpenChange={(open) => setRejectionErrorDialog(prev => ({ ...prev, open }))}>

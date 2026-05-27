@@ -10614,9 +10614,11 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
         }, {"_id": 0})
         
         if invoice:
-            # Generate credit note number
-            cn_count = await db.retailer_credit_notes.count_documents({})
-            credit_note_number = f"CN-{str(cn_count + 1).zfill(4)}"
+            # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
+            retailer_name = retailer.get("company_name", retailer.get("name", ""))
+            retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+            cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": input.retailer_id})
+            credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
             
             credit_note = {
                 "id": str(uuid.uuid4()),
@@ -11251,9 +11253,11 @@ async def create_retailer_credit_note(
     if not retailer:
         raise HTTPException(status_code=404, detail="Retailer not found")
     
-    # Generate credit note number
-    count = await db.retailer_credit_notes.count_documents({})
-    credit_note_number = f"CN-{str(count + 1).zfill(4)}"
+    # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
+    retailer_name = retailer.get("company_name", retailer.get("name", ""))
+    retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+    count = await db.retailer_credit_notes.count_documents({"retailer_id": input.get("retailer_id")})
+    credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
     
     # Create credit note
     credit_note = {

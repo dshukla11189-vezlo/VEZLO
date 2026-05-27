@@ -5138,21 +5138,153 @@ export default function RetailerOrders() {
         </div>
 
         {/* Immediately Payable Block (5-Day Credit) */}
-        {immediatelyPayable && immediatelyPayable.grand_totals && immediatelyPayable.grand_totals.total > 0 && (
-          <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border border-red-200 p-4 mb-4">
+        {immediatelyPayable && immediatelyPayable.grand_totals && immediatelyPayable.grand_totals.total > 0 && (() => {
+          // Get selected retailer's upfront percentage
+          const selectedRetailerData = retailers.find(r => r.id === selectedRetailer);
+          const upfrontPct = selectedRetailerData?.upfront_collection_percentage || 50;
+          const isFullUpfront = upfrontPct === 100;
+          
+          // Get pending credit notes for this retailer
+          const retailerCreditNotes = creditNotes.filter(cn => 
+            cn.retailer_id === selectedRetailer && 
+            (cn.status === 'pending' || cn.status === 'partial')
+          );
+          const totalPendingCredit = retailerCreditNotes.reduce((sum, cn) => sum + (cn.pending_amount || 0), 0);
+          
+          return (
+          <div className={`rounded-lg border p-4 mb-4 ${isFullUpfront ? 'bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200' : 'bg-gradient-to-r from-red-50 to-orange-50 border-red-200'}`}>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
-                <AlertTriangle size={18} className="text-red-600" />
-                <span className="text-sm font-semibold text-red-800">Payment Details</span>
+                {isFullUpfront ? (
+                  <CreditCard size={18} className="text-purple-600" />
+                ) : (
+                  <AlertTriangle size={18} className="text-red-600" />
+                )}
+                <span className={`text-sm font-semibold ${isFullUpfront ? 'text-purple-800' : 'text-red-800'}`}>
+                  Payment Details {isFullUpfront && <span className="text-xs font-normal text-purple-600 ml-1">(100% Upfront)</span>}
+                </span>
               </div>
-              <p className="text-2xl font-bold text-red-700">
+              <p className={`text-2xl font-bold ${isFullUpfront ? 'text-purple-700' : 'text-red-700'}`}>
                 {formatCurrency(immediatelyPayable.grand_totals.total)}
               </p>
             </div>
             
-            {/* 2 Summary Cards - 50% Upfront and Final Payment */}
+            {/* 100% UPFRONT RETAILER LAYOUT */}
+            {isFullUpfront ? (
+              <>
+                {/* 2 Cards - Payable Amount and Credit Notes */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                  {/* Payable Amount Card */}
+                  <div 
+                    className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
+                      expandedPayableSection === 'payable' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-100'
+                    }`}
+                    onClick={() => setExpandedPayableSection(expandedPayableSection === 'payable' ? null : 'payable')}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-xs text-gray-500">Total Payable</p>
+                        <p className="text-lg font-bold text-purple-600">
+                          {formatCurrency(immediatelyPayable.grand_totals.total - totalPendingCredit)}
+                        </p>
+                        {totalPendingCredit > 0 && (
+                          <p className="text-[10px] text-gray-500">
+                            After ₹{totalPendingCredit.toLocaleString()} credit applied
+                          </p>
+                        )}
+                      </div>
+                      <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'payable' ? 'rotate-180' : ''}`} />
+                    </div>
+                  </div>
+                  
+                  {/* Credit Notes Card */}
+                  <div 
+                    className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
+                      expandedPayableSection === 'credits' ? 'border-green-500 ring-2 ring-green-200' : 'border-green-100'
+                    }`}
+                    onClick={() => setExpandedPayableSection(expandedPayableSection === 'credits' ? null : 'credits')}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-xs text-gray-500">Credit Notes</p>
+                        <p className={`text-lg font-bold ${retailerCreditNotes.length > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                          {retailerCreditNotes.length > 0 ? formatCurrency(totalPendingCredit) : '₹0'}
+                        </p>
+                        {retailerCreditNotes.length > 0 && (
+                          <p className="text-[10px] text-green-600">
+                            {retailerCreditNotes.length} credit note(s) available
+                          </p>
+                        )}
+                      </div>
+                      <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'credits' ? 'rotate-180' : ''}`} />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Expandable Details */}
+                {expandedPayableSection === 'payable' && immediatelyPayable.detailed_entries && (
+                  <div className="bg-white rounded-lg border p-3 mb-3 max-h-64 overflow-y-auto">
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Date-wise Breakdown</p>
+                    <div className="space-y-1">
+                      {[...(immediatelyPayable.detailed_entries.upfront || []), ...(immediatelyPayable.detailed_entries.credit_due || []), ...(immediatelyPayable.detailed_entries.overdue || [])].map((entry, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-gray-50">
+                          <div className="flex items-center gap-2">
+                            {entry.overdue_days ? (
+                              <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">
+                                +{entry.overdue_days}d overdue
+                              </span>
+                            ) : entry.type === 'today' ? (
+                              <span className="px-1.5 py-0.5 rounded bg-purple-500 text-white text-[10px]">Today</span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-orange-400 text-white text-[10px]">
+                                {entry.days_since}d ago
+                              </span>
+                            )}
+                            <span className="text-gray-700 font-medium">{entry.retailer_name}</span>
+                            <span className="text-gray-400">({new Date(entry.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})})</span>
+                          </div>
+                          <span className={`font-bold ${entry.overdue_days ? 'text-red-600' : 'text-purple-600'}`}>{formatCurrency(entry.amount)}</span>
+                        </div>
+                      ))}
+                      {(!immediatelyPayable.detailed_entries.upfront?.length && !immediatelyPayable.detailed_entries.credit_due?.length && !immediatelyPayable.detailed_entries.overdue?.length) && (
+                        <p className="text-xs text-gray-400 text-center py-2">No entries</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {expandedPayableSection === 'credits' && (
+                  <div className="bg-white rounded-lg border p-3 mb-3 max-h-64 overflow-y-auto">
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Available Credit Notes</p>
+                    {retailerCreditNotes.length > 0 ? (
+                      <div className="space-y-2">
+                        {retailerCreditNotes.map((cn, idx) => (
+                          <div key={cn.id || idx} className="flex justify-between items-center text-xs py-2 px-2 bg-green-50 rounded border border-green-100">
+                            <div>
+                              <span className="font-semibold text-green-700">{cn.credit_note_number}</span>
+                              <span className="text-gray-500 ml-2">from {cn.original_invoice_number}</span>
+                              {cn.commission_deducted > 0 && (
+                                <div className="text-[10px] text-gray-400">
+                                  (MRP ₹{cn.rejection_value?.toLocaleString()} - {cn.commission_percentage}% comm)
+                                </div>
+                              )}
+                            </div>
+                            <span className="font-bold text-green-600">₹{(cn.pending_amount || 0).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 text-center py-2">No pending credit notes</p>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              /* NON-100% UPFRONT RETAILER LAYOUT (Original) */
+              <>
+            {/* 2 Summary Cards - X% Upfront and Final Payment */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-              {/* 50% Upfront Card */}
+              {/* X% Upfront Card */}
               <div 
                 className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
                   expandedPayableSection === 'upfront' ? 'border-green-500 ring-2 ring-green-200' : 'border-green-100'
@@ -5161,7 +5293,7 @@ export default function RetailerOrders() {
               >
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs text-gray-500">50% Upfront</p>
+                    <p className="text-xs text-gray-500">{upfrontPct}% Upfront</p>
                     <p className="text-lg font-bold text-green-600">
                       {formatCurrency(immediatelyPayable.grand_totals.upfront_50_total || ((immediatelyPayable.grand_totals.today_50_percent || 0) + (immediatelyPayable.grand_totals.pending_50_recent || 0)))}
                     </p>
@@ -5193,7 +5325,7 @@ export default function RetailerOrders() {
             {expandedPayableSection && immediatelyPayable.detailed_entries && (
               <div className="bg-white rounded-lg border p-3 mb-3 max-h-64 overflow-y-auto">
                 <p className="text-xs font-semibold text-gray-600 mb-2">
-                  {expandedPayableSection === 'upfront' && '50% Upfront Breakdown'}
+                  {expandedPayableSection === 'upfront' && `${upfrontPct}% Upfront Breakdown`}
                   {expandedPayableSection === 'final' && 'Final Payment Breakdown'}
                 </p>
                 <div className="space-y-1">
@@ -5234,9 +5366,11 @@ export default function RetailerOrders() {
                 </div>
               </div>
             )}
+              </>
+            )}
             
-            {/* Retailer-wise breakdown (collapsed summary) */}
-            {!expandedPayableSection && immediatelyPayable.retailers && immediatelyPayable.retailers.length > 0 && (
+            {/* Retailer-wise breakdown (collapsed summary) - only for non-100% upfront */}
+            {!isFullUpfront && !expandedPayableSection && immediatelyPayable.retailers && immediatelyPayable.retailers.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-gray-600">By Outlet:</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-32 overflow-y-auto">
@@ -5250,7 +5384,8 @@ export default function RetailerOrders() {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Tabs */}
         <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 mb-4 border-b pb-2">

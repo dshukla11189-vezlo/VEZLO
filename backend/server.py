@@ -7001,6 +7001,30 @@ async def export_pnl_excel(
 
 # ============================================================================
 
+@api_router.get("/stock-status")
+async def get_all_stock_status(
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all stock status records for sync purposes"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    
+    # Default to last 6 months if no dates provided
+    if not from_date:
+        from_date = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%d')
+    if not to_date:
+        to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    query["date"] = {"$gte": from_date, "$lte": to_date}
+    
+    stock_status = await db.daily_stock_status.find(query, {"_id": 0}).to_list(10000)
+    
+    return stock_status
+
 @api_router.get("/stock-status/today")
 async def get_today_stock_status(current_user: dict = Depends(get_current_user)):
     """Get today's stock status for all products with opening qty, purchases, dispatches"""

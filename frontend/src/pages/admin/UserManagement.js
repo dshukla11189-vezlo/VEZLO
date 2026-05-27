@@ -34,7 +34,8 @@ export default function UserManagement() {
     contact: '',
     company_name: '',
     address: '',
-    commission_percentage: 0
+    commission_percentage: 0,
+    upfront_collection_percentage: 50
   });
 
   const loadUsers = useCallback(async () => {
@@ -101,7 +102,8 @@ export default function UserManagement() {
       contact: user.contact || '',
       company_name: user.company_name || '',
       address: user.address || '',
-      commission_percentage: user.commission_percentage || 0
+      commission_percentage: user.commission_percentage || 0,
+      upfront_collection_percentage: user.upfront_collection_percentage ?? 50
     });
     setShowModal(true);
   };
@@ -129,7 +131,8 @@ export default function UserManagement() {
       contact: '',
       company_name: '',
       address: '',
-      commission_percentage: 0
+      commission_percentage: 0,
+      upfront_collection_percentage: 50
     });
     setShowPassword(false);
   };
@@ -220,6 +223,7 @@ export default function UserManagement() {
                     <th className="p-3 text-left font-medium text-gray-500">CONTACT</th>
                     <th className="p-3 text-left font-medium text-gray-500">COMPANY</th>
                     <th className="p-3 text-center font-medium text-gray-500">COMMISSION</th>
+                    <th className="p-3 text-center font-medium text-gray-500">UPFRONT %</th>
                     <th className="p-3 text-center font-medium text-gray-500">REFERRAL</th>
                     <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                   </tr>
@@ -227,13 +231,13 @@ export default function UserManagement() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-gray-400">
+                      <td colSpan={9} className="p-8 text-center text-gray-400">
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-gray-400">
+                      <td colSpan={9} className="p-8 text-center text-gray-400">
                         No users found
                       </td>
                     </tr>
@@ -265,6 +269,17 @@ export default function UserManagement() {
                             {user.role === 'retailer' ? (
                               <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium">
                                 {user.commission_percentage || 0}%
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="p-3 text-center">
+                            {user.role === 'retailer' ? (
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                user.upfront_collection_percentage === 100 
+                                  ? 'bg-purple-100 text-purple-700' 
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {user.upfront_collection_percentage ?? 50}%
                               </span>
                             ) : '-'}
                           </td>
@@ -446,25 +461,49 @@ export default function UserManagement() {
 
                 {/* Commission Percentage (show for retailer) */}
                 {formData.role === 'retailer' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Commission %</label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.5"
-                        value={formData.commission_percentage}
-                        onChange={(e) => setFormData(prev => ({ ...prev, commission_percentage: parseFloat(e.target.value) || 0 }))}
-                        placeholder="e.g., 20"
-                        data-testid="user-commission-input"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Commission %</label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.5"
+                          value={formData.commission_percentage}
+                          onChange={(e) => setFormData(prev => ({ ...prev, commission_percentage: parseFloat(e.target.value) || 0 }))}
+                          placeholder="e.g., 20"
+                          data-testid="user-commission-input"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        Retailer pays {100 - (formData.commission_percentage || 0)}% of MRP
+                      </p>
                     </div>
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      Retailer pays {100 - (formData.commission_percentage || 0)}% of MRP
-                    </p>
-                  </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Upfront Collection %</label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="10"
+                          value={formData.upfront_collection_percentage}
+                          onChange={(e) => setFormData(prev => ({ ...prev, upfront_collection_percentage: parseFloat(e.target.value) || 50 }))}
+                          placeholder="e.g., 50"
+                          data-testid="user-upfront-input"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        {formData.upfront_collection_percentage === 100 
+                          ? '100% upfront = Auto Credit Notes on rejections' 
+                          : `Collect ${formData.upfront_collection_percentage}% upfront, ${100 - (formData.upfront_collection_percentage || 50)}% on delivery`}
+                      </p>
+                    </div>
+                  </>
                 )}
 
                 {/* Actions */}

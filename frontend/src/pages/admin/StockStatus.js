@@ -103,7 +103,7 @@ export default function StockStatus() {
       // Check if viewing historical data or today
       if (targetDate === today) {
         setIsHistoricalView(false);
-        const response = await api.get('/api/stock-status/today');
+        const response = await api.get('/api/stock-status/today', { timeout: 30000 });
         setStockStatus(sortByClosingQty(response.data));
         
         // Initialize closing data for products that should be closable
@@ -117,12 +117,13 @@ export default function StockStatus() {
         setClosingData(initialClosingData);
       } else {
         setIsHistoricalView(true);
-        const response = await api.get(`/api/stock-status/history?from_date=${targetDate}&to_date=${targetDate}`);
+        const response = await api.get(`/api/stock-status/history?from_date=${targetDate}&to_date=${targetDate}`, { timeout: 30000 });
         setStockStatus(sortByClosingQty(response.data));
       }
     } catch (error) {
       console.error('Load stock status error:', error);
-      toast.error('Failed to load stock status');
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
+      toast.error(`Failed to load stock status: ${errorMsg}`);
     } finally {
       setLoading(false);
     }

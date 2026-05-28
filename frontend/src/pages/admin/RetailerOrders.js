@@ -215,7 +215,9 @@ export default function RetailerOrders() {
   const [dashboardStats, setDashboardStats] = useState({
     totalIndents: 0,
     pendingIndents: 0,
+    totalIndentQty: 0,
     totalDispatches: 0,
+    totalDispatchQty: 0,
     totalMrpValue: 0,
     totalNetReceivable: 0,
     totalInvoiced: 0,
@@ -1214,18 +1216,62 @@ export default function RetailerOrders() {
     
     // Net Receivable = Total invoiced amount (this is what retailer owes us)
     // Pending = Invoiced - Payments received
+    
+    // Calculate quantities for indents and dispatches
+    // Filter by selected retailer if one is selected
+    const filteredIndentsForStats = selectedRetailer 
+      ? indents.filter(i => i.retailer_id === selectedRetailer)
+      : indents;
+    const filteredDispatchesForStats = selectedRetailer 
+      ? dispatches.filter(d => d.retailer_id === selectedRetailer)
+      : dispatches;
+    
+    // Calculate total indent quantity
+    const totalIndentQty = filteredIndentsForStats.reduce((sum, indent) => {
+      const itemsQty = (indent.items || []).reduce((itemSum, item) => 
+        itemSum + (item.quantity || item.indent_qty || 0), 0);
+      return sum + itemsQty;
+    }, 0);
+    
+    // Calculate total dispatch quantity and value
+    const dispatchStats = filteredDispatchesForStats.reduce((acc, dispatch) => {
+      const items = dispatch.items || [];
+      items.forEach(item => {
+        const qty = item.supplied_qty || item.dispatched_qty || item.quantity || 0;
+        const value = qty * (item.mrp || 0);
+        acc.qty += qty;
+        acc.value += value;
+      });
+      return acc;
+    }, { qty: 0, value: 0 });
+    
+    // Use filtered invoices/payments if retailer selected
+    const filteredInvoicesForStats = selectedRetailer 
+      ? invoices.filter(i => i.retailer_id === selectedRetailer)
+      : invoices;
+    const filteredPaymentsForStats = selectedRetailer
+      ? filteredPayments.filter(p => p.retailer_id === selectedRetailer)
+      : filteredPayments;
+    
+    const filteredTotalInvoiced = filteredInvoicesForStats.reduce((sum, inv) => 
+      sum + (inv.net_payable || inv.total_amount || 0), 0);
+    const filteredTotalPayments = filteredPaymentsForStats.reduce((sum, p) => 
+      sum + (p.amount || 0), 0);
+    
     setDashboardStats({
-      totalIndents: indents.length,
-      pendingIndents: indents.filter(i => i.status === 'pending').length,
-      totalDispatches: dispatches.length,
-      totalMrpValue,
-      totalNetReceivable: totalInvoiced,  // Use invoice net_payable, not dispatch net_payable
-      totalInvoiced,
-      totalPayments: totalPaymentsReceived,
+      totalIndents: filteredIndentsForStats.length,
+      pendingIndents: filteredIndentsForStats.filter(i => i.status === 'pending').length,
+      totalIndentQty,
+      totalDispatches: filteredDispatchesForStats.length,
+      totalDispatchQty: dispatchStats.qty,
+      totalMrpValue: dispatchStats.value,
+      totalNetReceivable: filteredTotalInvoiced,
+      totalInvoiced: filteredTotalInvoiced,
+      totalPayments: filteredTotalPayments,
       totalRejections,
-      pendingAmount: totalInvoiced - totalPaymentsReceived  // Pending = Invoiced - Paid
+      pendingAmount: filteredTotalInvoiced - filteredTotalPayments
     });
-  }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo]);
+  }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer]);
 
   // Compute rejection analytics for the modal
   const rejectionAnalytics = useMemo(() => {
@@ -5077,7 +5123,10 @@ export default function RetailerOrders() {
               <span>Indents</span>
             </div>
             <p className="text-lg font-bold">{dashboardStats.totalIndents}</p>
-            <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} pending</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} pending</p>
+              <p className="text-xs font-semibold text-blue-600">{dashboardStats.totalIndentQty} units</p>
+            </div>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
@@ -5085,7 +5134,10 @@ export default function RetailerOrders() {
               <span>Dispatches</span>
             </div>
             <p className="text-lg font-bold">{dashboardStats.totalDispatches}</p>
-            <p className="text-xs text-gray-500">Total: {formatCurrency(dashboardStats.totalMrpValue)}</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-blue-600">{dashboardStats.totalDispatchQty} units</p>
+              <p className="text-sm font-bold text-green-700">{formatCurrency(dashboardStats.totalMrpValue)}</p>
+            </div>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">

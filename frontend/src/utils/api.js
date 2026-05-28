@@ -40,6 +40,30 @@ if (typeof window !== 'undefined') {
   };
 }
 
+// Retry configuration
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  retryDelay: 1000, // Start with 1 second
+  retryableStatuses: [408, 429, 500, 502, 503, 504], // Timeout, Rate limit, Server errors
+  retryableMethods: ['get', 'head', 'options', 'put', 'delete'], // Safe to retry
+};
+
+// Sleep function for retry delay
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Check if request should be retried
+const shouldRetry = (error, retryCount) => {
+  if (retryCount >= RETRY_CONFIG.maxRetries) return false;
+  
+  // Retry on network errors (no response)
+  if (!error.response) return true;
+  
+  // Retry on specific status codes
+  if (RETRY_CONFIG.retryableStatuses.includes(error.response.status)) return true;
+  
+  return false;
+};
+
 const api = axios.create({
   baseURL: API_URL,
   timeout: 45000,  // 45 second timeout (increased for cold starts)
@@ -63,14 +87,33 @@ api.interceptors.request.use((config) => {
       _t: Date.now()
     };
   }
+  // Initialize retry count
+  config.__retryCount = config.__retryCount || 0;
   return config;
 });
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    // Log all errors
-    logError(error, error.config);
+  async (error) => {
+    const config = error.config;
+    
+    // Check if we should retry
+    if (config && shouldRetry(error, config.__retryCount)) {
+      config.__retryCount += 1;
+      
+      // Calculate delay with exponential backoff
+      const delay = RETRY_CONFIG.retryDelay * Math.pow(2, config.__retryCount - 1);
+      
+      console.warn(`[API Retry] Attempt ${config.__retryCount}/${RETRY_CONFIG.maxRetries} for ${config.url} after ${delay}ms`);
+      
+      await sleep(delay);
+      
+      // Retry the request
+      return api(config);
+    }
+    
+    // Log all final errors
+    logError(error, config);
     
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
@@ -80,7 +123,9 @@ api.interceptors.response.use(
     
     // Enhance error message for debugging
     if (!error.response) {
-      error.message = `Network error: ${error.message}. Check your internet connection.`;
+      error.message = `Network error: ${error.message}. The server may be busy, please try again.`;
+    } else if (error.response.status >= 500) {
+      error.message = `Server error (${error.response.status}): ${error.response.data?.detail || 'Please try again in a moment.'}`;
     }
     
     return Promise.reject(error);

@@ -13626,6 +13626,7 @@ async def sync_from_production_full(
                 'retailer_invoices': '/api/retailer-invoices',
                 'retailer_rejections': '/api/retailer-rejections',
                 'retailer_payments': '/api/retailer-payments',
+                'retailer_credit_notes': '/api/retailer-credit-notes',
                 'qc_indents': '/api/qc-indents',
                 'qc_dispatches': '/api/qc-dispatches',
                 'qc_grns': '/api/qc-grns',
@@ -13636,6 +13637,7 @@ async def sync_from_production_full(
                 'daily_mrp': '/api/daily-mrp',
                 'daily_stock_status': '/api/stock-status',
                 'users': '/api/users',
+                'blinkit_prices': '/api/blinkit-prices',
             }
             
             # Date range endpoints

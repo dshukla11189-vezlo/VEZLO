@@ -2,6 +2,34 @@
 
 ## Changelog (May 2025)
 
+### May 28, 2025 (Session 7)
+- **FIXED**: 100% Upfront Retailers Payment Calculation ✅
+  - Backend APIs (`get_retailer_immediately_payable`, `get_all_retailers_immediately_payable`) now respect `upfront_collection_percentage`
+  - For 100% upfront retailers: Full pending amount is due immediately on delivery (no 5-day credit split)
+  - For standard retailers: Original 50% upfront + 5-day credit period logic preserved
+  - Files: `/app/backend/server.py`
+
+- **FEATURE**: Daily Purchase PDF - Category Segregation ✅
+  - PDF now groups items by category: **Vegetables, Fruits, Exotic, Sprouts**
+  - Each category shows:
+    - Category header with item count
+    - Items table with Serial #, Product Name, Purchase Req, Remarks
+    - Category subtotal
+  - Grand total shown at bottom
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **FEATURE**: Combined "Stickers & MRP" Tab ✅
+  - Merged separate Stickers and MRP tabs into single "Stickers & MRP" tab
+  - Table columns: **S No, Product, Variant, Sticker Quantity, MRP (₹), Blinkit (₹), Actions**
+  - Sticker Qty shown in blue, pulled from indent data
+  - Retained all MRP functionality: Copy from Previous Date, Fetch Blinkit Prices, Save MRP
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **IMPROVED**: Stock Status Error Handling ✅
+  - Added detailed error messages showing actual failure reason
+  - Added 30-second timeout for API calls
+  - Files: `/app/frontend/src/pages/admin/StockStatus.js`
+
 ### May 27, 2025 (Session 6)
 - **FEATURE**: Retailer Payment & Invoicing Upgrade - Credit Notes System ✅
   - **Credit Note Creation**: Generate credit notes from rejections against old invoices

@@ -295,7 +295,7 @@ export default function RetailerOrders() {
   const [retailWastageAverages, setRetailWastageAverages] = useState([]);
   
   // Daily Requirement sub-tabs state
-  const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase', 'stickers', or 'mrp'
+  const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase' or 'stickersMrp'
   
   // Category collapse state for Purchase and Stickers tabs
   const [expandedPurchaseCategories, setExpandedPurchaseCategories] = useState({});
@@ -2583,7 +2583,7 @@ export default function RetailerOrders() {
 
   // Recalculate stickers when date changes and we're on stickers tab
   useEffect(() => {
-    if (dailyReqSubTab === 'stickers' && dailyReqDate) {
+    if (dailyReqSubTab === 'stickersMrp' && dailyReqDate) {
       calculateStickersData();
     }
   }, [dailyReqDate, dailyReqSubTab, calculateStickersData]);
@@ -2713,7 +2713,7 @@ export default function RetailerOrders() {
 
   // Auto-load MRP data and indent products when MRP tab is selected - uses dailyReqDate (shared date picker)
   useEffect(() => {
-    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'mrp' && dailyReqDate) {
+    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'stickersMrp' && dailyReqDate) {
       loadMrpData(dailyReqDate);
       loadMrpIndentProducts(dailyReqDate);
     }
@@ -2850,7 +2850,7 @@ export default function RetailerOrders() {
 
   // Load Blinkit prices when MRP tab is selected
   useEffect(() => {
-    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'mrp') {
+    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'stickersMrp') {
       loadBlinkitPrices();
       // Also ensure products and packagings are loaded
       if (products.length === 0 || packagings.length === 0) {
@@ -3391,31 +3391,62 @@ export default function RetailerOrders() {
             : `<p style="text-align:center;">${labels.allRetailers}</p>`}
           <p class="info">${labels.calculatedFrom}</p>
           ${missingTranslations > 0 ? `<p class="missing-note">* ${missingTranslations} product(s) missing ${lang === 'hi' ? 'Hindi' : 'Marathi'} translation</p>` : ''}
-          <table>
-            <thead>
-              <tr>
-                <th style="width:6%">${labels.serial}</th>
-                <th style="width:40%">${labels.productName}</th>
-                <th style="width:28%" class="text-center">${labels.purchaseReq}</th>
-                <th style="width:26%">${labels.remarks}</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${dailyReqData.map((item, idx) => `
-                <tr>
-                  <td class="text-center">${idx + 1}</td>
-                  <td>${getDisplayName(item)}</td>
-                  <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
-                  <td>${item.remarks || '-'}</td>
-                </tr>
-              `).join('')}
-              <tr style="font-weight:bold; background-color:#f9f9f9;">
-                <td colspan="2">${labels.total}</td>
-                <td class="text-center">${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
+          ${(() => {
+            // Group items by category
+            const categoryOrderLocal = { 'Vegetables': 1, 'Fruits': 2, 'Exotic': 3, 'Sprouts': 4, 'Other': 99 };
+            const groups = {};
+            dailyReqData.forEach(item => {
+              const cat = item.category || 'Other';
+              if (!groups[cat]) groups[cat] = [];
+              groups[cat].push(item);
+            });
+            const sortedCategories = Object.keys(groups).sort((a, b) => 
+              (categoryOrderLocal[a] || 99) - (categoryOrderLocal[b] || 99)
+            );
+            
+            let globalIdx = 0;
+            return sortedCategories.map(category => {
+              const items = groups[category];
+              const categoryTotal = items.reduce((sum, item) => sum + (item.requirementKg || 0), 0);
+              
+              return `
+                <h3 style="margin-top: 20px; margin-bottom: 5px; background-color: #e8f5e9; padding: 8px; border-radius: 4px; color: #1b5e20;">
+                  ${category} (${items.length} items)
+                </h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width:6%">${labels.serial}</th>
+                      <th style="width:40%">${labels.productName}</th>
+                      <th style="width:28%" class="text-center">${labels.purchaseReq}</th>
+                      <th style="width:26%">${labels.remarks}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${items.map((item) => {
+                      globalIdx++;
+                      return `
+                        <tr>
+                          <td class="text-center">${globalIdx}</td>
+                          <td>${getDisplayName(item)}</td>
+                          <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
+                          <td>${item.remarks || '-'}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                    <tr style="font-weight:bold; background-color:#f0f9f0;">
+                      <td colspan="2">${category} ${labels.total}</td>
+                      <td class="text-center">${categoryTotal.toFixed(2)} ${labels.kg}</td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              `;
+            }).join('');
+          })()}
+          <div style="margin-top: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; text-align: center;">
+            <strong>Grand ${labels.total}: ${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}</strong>
+          </div>
           <div class="footer">
             ${labels.generatedOn}: ${new Date().toLocaleString(dateLocale)} | Mr Organix
           </div>
@@ -5591,7 +5622,7 @@ export default function RetailerOrders() {
               )}
             </CardHeader>
             <CardContent className="p-4" id="daily-requirement-print">
-              {/* Sub-tabs: Purchase and Stickers */}
+              {/* Sub-tabs: Purchase and Stickers & MRP */}
               <div className="flex gap-2 mb-4 border-b pb-2">
                 <Button
                   variant={dailyReqSubTab === 'purchase' ? 'default' : 'ghost'}
@@ -5603,26 +5634,17 @@ export default function RetailerOrders() {
                   Purchase
                 </Button>
                 <Button
-                  variant={dailyReqSubTab === 'stickers' ? 'default' : 'ghost'}
+                  variant={dailyReqSubTab === 'stickersMrp' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => {
-                    setDailyReqSubTab('stickers');
-                    // Always recalculate when switching to stickers tab
+                    setDailyReqSubTab('stickersMrp');
+                    // Always recalculate stickers when switching to this tab
                     calculateStickersData();
                   }}
-                  className={dailyReqSubTab === 'stickers' ? 'bg-[#14532D]' : ''}
+                  className={dailyReqSubTab === 'stickersMrp' ? 'bg-[#14532D]' : ''}
                 >
                   <Tag size={14} className="mr-1" />
-                  Stickers
-                </Button>
-                <Button
-                  variant={dailyReqSubTab === 'mrp' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setDailyReqSubTab('mrp')}
-                  className={dailyReqSubTab === 'mrp' ? 'bg-[#14532D]' : ''}
-                >
-                  <IndianRupee size={14} className="mr-1" />
-                  MRP
+                  Stickers & MRP
                 </Button>
               </div>
 
@@ -5967,174 +5989,8 @@ export default function RetailerOrders() {
               )}
 
               {/* Stickers Sub-tab */}
-              {dailyReqSubTab === 'stickers' && (
-                <div>
-                  {/* Filters row */}
-                  <div className="flex flex-col md:flex-row gap-3 mb-4">
-                    <div className="flex-1">
-                      <Input
-                        type="text"
-                        placeholder="Search product or variant..."
-                        value={stickersSearch}
-                        onChange={(e) => setStickersSearch(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
-                    <select
-                      value={stickersCategoryFilter}
-                      onChange={(e) => setStickersCategoryFilter(e.target.value)}
-                      className="h-9 px-3 rounded-md border border-gray-200 text-sm min-w-[150px]"
-                    >
-                      <option value="all">All Categories</option>
-                      {stickersCategories.filter(c => c !== 'all').map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                    <Button 
-                      onClick={calculateStickersData}
-                      disabled={stickersLoading}
-                      variant="outline"
-                      className="h-9"
-                    >
-                      {stickersLoading ? (
-                        <span className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                          Loading...
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-2">
-                          <RefreshCw size={14} />
-                          Refresh
-                        </span>
-                      )}
-                    </Button>
-                  </div>
-
-                  {/* Stickers table */}
-                  {stickersLoading ? (
-                    <div className="text-center py-12">
-                      <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                      <p className="text-gray-500">Loading stickers data...</p>
-                    </div>
-                  ) : filteredStickersData.length === 0 ? (
-                    <div className="text-center py-12 text-gray-500">
-                      <Tag size={48} className="mx-auto mb-4 opacity-30" />
-                      <p>No sticker data found for {dailyReqDate}</p>
-                      <p className="text-xs mt-2">Make sure indents are created for this date</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-xs text-gray-500">
-                        Showing {filteredStickersData.length} of {stickersData.length} product-variant combinations for {dailyReqDate}
-                      </p>
-                      
-                      {/* Category-wise collapsible sections */}
-                      {groupedStickersData.sortedCategories.map((category) => {
-                        const items = groupedStickersData.groups[category];
-                        const isExpanded = expandedStickersCategories[category];
-                        const categoryTotalQty = items.reduce((sum, item) => sum + item.quantity, 0);
-                        
-                        return (
-                          <div key={category} className={`border rounded-lg overflow-hidden ${getCategoryColorClasses(category).split(' ')[2]}`}>
-                            {/* Category Header - Clickable */}
-                            <div 
-                              className={`flex items-center justify-between p-3 cursor-pointer ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')} hover:opacity-90`}
-                              onClick={() => toggleStickersCategory(category)}
-                            >
-                              <div className="flex items-center gap-3">
-                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                                <span className="font-semibold text-sm">{category}</span>
-                                <span className="text-xs opacity-75">({items.length} items)</span>
-                              </div>
-                              <div className="flex items-center gap-4 text-xs">
-                                <span>Total Qty: <strong className="text-blue-700">{categoryTotalQty}</strong></span>
-                              </div>
-                            </div>
-                            
-                            {/* Category Items - Collapsible */}
-                            {isExpanded && (
-                              <div className="bg-white">
-                                <table className="w-full text-sm">
-                                  <thead>
-                                    <tr className="border-b bg-gray-50 text-xs">
-                                      <th className="p-2 text-left w-10">#</th>
-                                      <th className="p-2 text-left">Product</th>
-                                      <th className="p-2 text-left">Variant</th>
-                                      <th className="p-2 text-center w-24">Quantity</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {items.map((item, localIdx) => {
-                                      const displayName = i18n.language === 'hi' && item.productNameHi 
-                                        ? item.productNameHi 
-                                        : i18n.language === 'mr' && item.productNameMr 
-                                          ? item.productNameMr 
-                                          : item.productName;
-                                      const itemKey = item.key || `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
-                                      const isItemExpanded = expandedStickerItem === itemKey;
-                                      const indentDetails = stickerIndentDetails[itemKey] || [];
-                                      
-                                      return (
-                                        <React.Fragment key={`${item.productId}-${item.variantName}-${localIdx}`}>
-                                          <tr 
-                                            className={`border-b hover:bg-blue-50 cursor-pointer ${isItemExpanded ? 'bg-blue-50' : ''}`}
-                                            onClick={() => setExpandedStickerItem(isItemExpanded ? null : itemKey)}
-                                          >
-                                            <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                            <td className="p-2 font-medium flex items-center gap-2">
-                                              {isItemExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
-                                              {displayName}
-                                            </td>
-                                            <td className="p-2 text-gray-600">{item.variantName}</td>
-                                            <td className="p-2 text-center font-bold text-blue-700">{item.quantity}</td>
-                                          </tr>
-                                          {/* Expanded row showing customer indent details */}
-                                          {isItemExpanded && indentDetails.length > 0 && (
-                                            <tr>
-                                              <td colSpan="4" className="p-0">
-                                                <div className="bg-blue-50 border-l-4 border-blue-400 p-3 mx-2 mb-2 rounded-r">
-                                                  <p className="text-xs font-semibold text-blue-700 mb-2">Customer Indent Details:</p>
-                                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                                    {indentDetails.sort((a, b) => b.quantity - a.quantity).map((detail, idx) => (
-                                                      <div key={idx} className="bg-white rounded px-2 py-1 text-xs flex justify-between items-center border border-blue-200">
-                                                        <span className="text-gray-700 truncate mr-2">{detail.retailerName}</span>
-                                                        <span className="font-bold text-blue-600">{detail.quantity}</span>
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          )}
-                                        </React.Fragment>
-                                      );
-                                    })}
-                                  </tbody>
-                                  <tfoot>
-                                    <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
-                                      <td className="p-2" colSpan="3">Category Total</td>
-                                      <td className="p-2 text-center text-blue-700">{categoryTotalQty}</td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      
-                      {/* Grand Total */}
-                      <div className="border-t-2 bg-gray-100 rounded-lg p-3 flex justify-between items-center font-semibold">
-                        <span>Grand Total ({filteredStickersData.length} items)</span>
-                        <span className="text-blue-700">Quantity: {filteredStickersData.reduce((sum, item) => sum + item.quantity, 0)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* MRP Sub-tab */}
-              {dailyReqSubTab === 'mrp' && (
+              {/* Stickers & MRP Combined Sub-tab */}
+              {dailyReqSubTab === 'stickersMrp' && (
                 <div>
                   {/* Header with Copy, Refresh, and Save Actions - Date is from main Daily Requirement selector */}
                   <div className="flex flex-col md:flex-row gap-3 mb-4">
@@ -6315,7 +6171,10 @@ export default function RetailerOrders() {
                                     <tr className="border-b bg-gray-50 text-xs">
                                       <th className="p-2 text-left w-10">#</th>
                                       <th className="p-2 text-left">Product</th>
-                                      <th className="p-2 text-left w-44">Variant</th>
+                                      <th className="p-2 text-left w-36">Variant</th>
+                                      <th className="p-2 text-center w-20">
+                                        <span className="text-blue-600">Sticker Qty</span>
+                                      </th>
                                       <th className="p-2 text-right w-24">MRP (₹)</th>
                                       <th className="p-2 text-right w-24">
                                         <span className="text-orange-600">Blinkit (₹)</span>
@@ -6334,6 +6193,13 @@ export default function RetailerOrders() {
                                         )
                                       );
                                       
+                                      // Find matching sticker data for this product+variant
+                                      const stickerItem = stickersData.find(s => 
+                                        s.productId === item.productId && 
+                                        (s.variantName || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                      );
+                                      const stickerQty = stickerItem?.quantity || 0;
+                                      
                                       const blinkitData = blinkitPrices[item.productId];
                                       // Get display name based on language
                                       const displayName = i18n.language === 'hi' && item.productNameHi 
@@ -6350,6 +6216,11 @@ export default function RetailerOrders() {
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
                                           <td className="p-2 font-medium">{displayName}</td>
                                           <td className="p-2 text-gray-600">{item.variantName}</td>
+                                          <td className="p-2 text-center">
+                                            <span className={`font-bold ${stickerQty > 0 ? 'text-blue-700' : 'text-gray-300'}`}>
+                                              {stickerQty > 0 ? stickerQty : '-'}
+                                            </span>
+                                          </td>
                                           <td className="p-2 text-right">
                                             {mrpEntry ? (
                                               <Input

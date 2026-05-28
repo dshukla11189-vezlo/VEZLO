@@ -6220,13 +6220,18 @@ export default function RetailerOrders() {
                                           <td className="p-2 font-medium">{displayName}</td>
                                           <td className="p-2">
                                             {mrpEntry && isEditable ? (
-                                              <Input
-                                                type="text"
-                                                value={mrpEntry.variant_name || ''}
-                                                onChange={(e) => updateMrpEntryLocal(mrpEntry.id, 'variant_name', e.target.value)}
-                                                className="h-8 w-full text-sm"
-                                                placeholder="Enter variant"
-                                              />
+                                              <select
+                                                value={mrpEntry.variant_id || ''}
+                                                onChange={(e) => updateMrpEntryLocal(mrpEntry.id, 'variant_id', e.target.value)}
+                                                className="h-8 w-full text-sm border border-gray-200 rounded-md px-2 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                              >
+                                                <option value="">Select variant</option>
+                                                {retailPackagings.map(pkg => (
+                                                  <option key={pkg.id} value={pkg.id}>
+                                                    {pkg.name}
+                                                  </option>
+                                                ))}
+                                              </select>
                                             ) : (
                                               <span className="text-gray-600">{mrpEntry?.variant_name || item.variantName}</span>
                                             )}

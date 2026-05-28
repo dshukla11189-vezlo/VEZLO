@@ -3014,6 +3014,9 @@ export default function RetailerOrders() {
       const variant = retailPackagings.find(p => p.id === value);
       updateData.variant_id = value;
       updateData.variant_name = variant?.name || '';
+    } else if (field === 'variant_name') {
+      // Direct variant name edit
+      updateData.variant_name = value;
     } else if (field === 'mrp') {
       updateData.mrp = parseFloat(value) || 0;
     }
@@ -6215,7 +6218,19 @@ export default function RetailerOrders() {
                                         >
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
                                           <td className="p-2 font-medium">{displayName}</td>
-                                          <td className="p-2 text-gray-600">{item.variantName}</td>
+                                          <td className="p-2">
+                                            {mrpEntry && isEditable ? (
+                                              <Input
+                                                type="text"
+                                                value={mrpEntry.variant_name || ''}
+                                                onChange={(e) => updateMrpEntryLocal(mrpEntry.id, 'variant_name', e.target.value)}
+                                                className="h-8 w-full text-sm"
+                                                placeholder="Enter variant"
+                                              />
+                                            ) : (
+                                              <span className="text-gray-600">{mrpEntry?.variant_name || item.variantName}</span>
+                                            )}
+                                          </td>
                                           <td className="p-2 text-center">
                                             <span className={`font-bold ${stickerQty > 0 ? 'text-blue-700' : 'text-gray-300'}`}>
                                               {stickerQty > 0 ? stickerQty : '-'}

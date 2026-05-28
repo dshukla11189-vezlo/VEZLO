@@ -15,10 +15,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../../components/ui/alert-dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../../components/ui/command';
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -6220,18 +6222,47 @@ export default function RetailerOrders() {
                                           <td className="p-2 font-medium">{displayName}</td>
                                           <td className="p-2">
                                             {mrpEntry && isEditable ? (
-                                              <select
-                                                value={mrpEntry.variant_id || ''}
-                                                onChange={(e) => updateMrpEntryLocal(mrpEntry.id, 'variant_id', e.target.value)}
-                                                className="h-8 w-full text-sm border border-gray-200 rounded-md px-2 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                                              >
-                                                <option value="">Select variant</option>
-                                                {retailPackagings.map(pkg => (
-                                                  <option key={pkg.id} value={pkg.id}>
-                                                    {pkg.name}
-                                                  </option>
-                                                ))}
-                                              </select>
+                                              <Popover>
+                                                <PopoverTrigger asChild>
+                                                  <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    className="h-8 w-full justify-between text-sm font-normal"
+                                                  >
+                                                    <span className="truncate">
+                                                      {mrpEntry.variant_name || "Select variant..."}
+                                                    </span>
+                                                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                                  </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[200px] p-0" align="start">
+                                                  <Command>
+                                                    <CommandInput placeholder="Search variant..." className="h-9" />
+                                                    <CommandList>
+                                                      <CommandEmpty>No variant found.</CommandEmpty>
+                                                      <CommandGroup>
+                                                        {retailPackagings.map((pkg) => (
+                                                          <CommandItem
+                                                            key={pkg.id}
+                                                            value={pkg.name}
+                                                            onSelect={() => {
+                                                              updateMrpEntryLocal(mrpEntry.id, 'variant_id', pkg.id);
+                                                            }}
+                                                            className="cursor-pointer"
+                                                          >
+                                                            <Check
+                                                              className={`mr-2 h-4 w-4 ${
+                                                                mrpEntry.variant_id === pkg.id ? "opacity-100" : "opacity-0"
+                                                              }`}
+                                                            />
+                                                            {pkg.name}
+                                                          </CommandItem>
+                                                        ))}
+                                                      </CommandGroup>
+                                                    </CommandList>
+                                                  </Command>
+                                                </PopoverContent>
+                                              </Popover>
                                             ) : (
                                               <span className="text-gray-600">{mrpEntry?.variant_name || item.variantName}</span>
                                             )}

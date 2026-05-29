@@ -2,6 +2,17 @@
 
 ## Changelog (May 2025)
 
+### May 29, 2025 (Session 8) - Part 5
+- **FEATURE**: Payment Ledger in Admin Panel ✅
+  - Added "Payment Ledger" button in Admin → Retailer Orders → Invoices tab (after Payment Summary)
+  - Requires retailer selection first
+  - Opens modal with same functionality as Retailer Portal:
+    - Date range filter
+    - Summary cards: Total Received, Credit Notes Applied, Total Transactions
+    - Date-wise payment list (grouped by reference number)
+    - Expandable dates showing invoice adjustments and credit notes
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 ### May 29, 2025 (Session 8) - Part 4
 - **FEATURE**: Payment Ledger Section in Retailer Portal ✅
   - Added "Payment Ledger" option in hamburger menu (between My Orders and Closing)

@@ -276,6 +276,14 @@ export default function RetailerOrders() {
   const [paymentAuditLoading, setPaymentAuditLoading] = useState(false);
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
   
+  // Payment Ledger state
+  const [showPaymentLedgerModal, setShowPaymentLedgerModal] = useState(false);
+  const [paymentLedgerData, setPaymentLedgerData] = useState(null);
+  const [paymentLedgerLoading, setPaymentLedgerLoading] = useState(false);
+  const [ledgerStartDate, setLedgerStartDate] = useState('');
+  const [ledgerEndDate, setLedgerEndDate] = useState('');
+  const [expandedLedgerDates, setExpandedLedgerDates] = useState({});
+
   const [loading, setLoading] = useState(true);
   const [expandedIndents, setExpandedIndents] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
@@ -628,6 +636,44 @@ export default function RetailerOrders() {
       console.error('Failed to get current user role:', e);
     }
     return 'staff';
+  };
+
+  // Load Payment Ledger Data
+  const loadPaymentLedger = async (retailerId, startDate, endDate) => {
+    if (!retailerId) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    setPaymentLedgerLoading(true);
+    try {
+      let url = `/api/retailer-payment-ledger?retailer_id=${retailerId}`;
+      if (startDate) url += `&start_date=${startDate}`;
+      if (endDate) url += `&end_date=${endDate}`;
+      const response = await api.get(url);
+      setPaymentLedgerData(response.data);
+    } catch (error) {
+      console.error('Failed to load payment ledger:', error);
+      toast.error('Failed to load payment ledger');
+    } finally {
+      setPaymentLedgerLoading(false);
+    }
+  };
+
+  // Open Payment Ledger Modal
+  const openPaymentLedgerModal = () => {
+    if (!selectedRetailer) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    // Set default date range to last 60 days
+    const today = new Date();
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(today.getDate() - 60);
+    setLedgerStartDate(sixtyDaysAgo.toISOString().split('T')[0]);
+    setLedgerEndDate(today.toISOString().split('T')[0]);
+    setExpandedLedgerDates({});
+    setShowPaymentLedgerModal(true);
+    loadPaymentLedger(selectedRetailer, sixtyDaysAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
   };
 
   // Check if user can edit MRP for a given date (only admin can edit past dates)
@@ -6883,6 +6929,22 @@ export default function RetailerOrders() {
                         toast.error('Please select a retailer first');
                         return;
                       }
+                      setSelectedRetailer(invoiceForm.retailer_id);
+                      openPaymentLedgerModal();
+                    }}
+                    className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                    disabled={paymentLedgerLoading}
+                  >
+                    <FileText size={14} className="mr-1" /> Payment Ledger
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      if (!invoiceForm.retailer_id) {
+                        toast.error('Please select a retailer first');
+                        return;
+                      }
                       setPaymentAuditRetailerId(invoiceForm.retailer_id);
                       loadPaymentAudit(invoiceForm.retailer_id);
                     }}
@@ -8465,6 +8527,230 @@ export default function RetailerOrders() {
                   className="text-blue-700"
                 >
                   <RefreshCw size={14} className={`mr-1 ${paymentAuditLoading ? 'animate-spin' : ''}`} /> Refresh
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT LEDGER MODAL ==================== */}
+        {showPaymentLedgerModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowPaymentLedgerModal(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <FileText size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold">Payment Ledger</h3>
+                      <p className="text-xs text-blue-100">
+                        {retailers.find(r => r.id === selectedRetailer)?.company_name || 'Selected Retailer'}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowPaymentLedgerModal(false)} className="p-2 hover:bg-white/20 rounded-lg transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Date Range Filter */}
+              <div className="p-4 border-b bg-gray-50">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Calendar size={16} className="text-gray-500" />
+                    <span className="text-sm font-medium text-gray-600">Date Range:</span>
+                  </div>
+                  <Input
+                    type="date"
+                    value={ledgerStartDate}
+                    onChange={(e) => setLedgerStartDate(e.target.value)}
+                    className="w-40 h-9 text-sm"
+                  />
+                  <span className="text-gray-400">to</span>
+                  <Input
+                    type="date"
+                    value={ledgerEndDate}
+                    onChange={(e) => setLedgerEndDate(e.target.value)}
+                    className="w-40 h-9 text-sm"
+                  />
+                  <Button 
+                    size="sm" 
+                    onClick={() => loadPaymentLedger(selectedRetailer, ledgerStartDate, ledgerEndDate)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={paymentLedgerLoading}
+                  >
+                    {paymentLedgerLoading ? <RefreshCw size={14} className="animate-spin mr-1" /> : null}
+                    Apply
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Modal Body */}
+              <div className="overflow-y-auto max-h-[60vh] p-4">
+                {paymentLedgerLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  </div>
+                ) : !paymentLedgerData ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileText size={48} className="mx-auto mb-4 text-gray-300" />
+                    <p>Select a date range and click Apply</p>
+                  </div>
+                ) : paymentLedgerData.dates?.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileText size={48} className="mx-auto mb-4 text-gray-300" />
+                    <p>No payments found in the selected date range</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="bg-blue-50 rounded-lg p-4 text-center">
+                        <p className="text-sm text-blue-600 font-medium">Total Received</p>
+                        <p className="text-2xl font-bold text-blue-700">{formatCurrency(paymentLedgerData.grand_total || 0)}</p>
+                      </div>
+                      <div className="bg-purple-50 rounded-lg p-4 text-center">
+                        <p className="text-sm text-purple-600 font-medium">Credit Notes Applied</p>
+                        <p className="text-2xl font-bold text-purple-700">{formatCurrency(paymentLedgerData.total_credit_notes_applied || 0)}</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-4 text-center">
+                        <p className="text-sm text-green-600 font-medium">Total Transactions</p>
+                        <p className="text-2xl font-bold text-green-700">{paymentLedgerData.total_transactions || 0}</p>
+                      </div>
+                    </div>
+                    
+                    {/* Payment Dates List */}
+                    <div className="space-y-3">
+                      {paymentLedgerData.dates?.map((dateData, idx) => (
+                        <div key={dateData.date} className="border rounded-lg overflow-hidden">
+                          {/* Date Header - Clickable */}
+                          <div 
+                            className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                            onClick={() => setExpandedLedgerDates(prev => ({ ...prev, [dateData.date]: !prev[dateData.date] }))}
+                          >
+                            <div className="flex items-center gap-3">
+                              {expandedLedgerDates[dateData.date] ? (
+                                <ChevronDown size={18} className="text-gray-500" />
+                              ) : (
+                                <ChevronRight size={18} className="text-gray-500" />
+                              )}
+                              <div>
+                                <p className="font-semibold text-gray-800">
+                                  {new Date(dateData.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {dateData.payment_count} payment(s)
+                                  {dateData.credit_notes?.length > 0 && ` + ${dateData.credit_notes.length} credit note(s)`}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-blue-600">{formatCurrency(dateData.total_amount)}</p>
+                              {dateData.credit_notes?.length > 0 && (
+                                <p className="text-xs text-purple-600">
+                                  +{formatCurrency(dateData.credit_notes.reduce((sum, cn) => sum + (cn.amount || 0), 0))} credit
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Expanded View - Payment Details */}
+                          {expandedLedgerDates[dateData.date] && (
+                            <div className="border-t bg-white p-3 space-y-3">
+                              {/* Payment Groups (grouped by reference number) */}
+                              {dateData.payment_groups?.map((group, gIdx) => (
+                                <div key={gIdx} className="border rounded-lg overflow-hidden">
+                                  <div className="bg-blue-50 px-3 py-2 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-medium text-gray-600 bg-white px-2 py-0.5 rounded">
+                                        {group.payment_mode?.toUpperCase() || 'PAYMENT'}
+                                      </span>
+                                      <span className="text-sm font-medium text-gray-700">
+                                        Ref: {group.reference_number}
+                                      </span>
+                                    </div>
+                                    <span className="text-base font-bold text-blue-700">{formatCurrency(group.total_amount)}</span>
+                                  </div>
+                                  
+                                  {/* Invoice Adjustments */}
+                                  {group.invoice_adjustments?.length > 0 && (
+                                    <div className="p-2">
+                                      <p className="text-xs font-semibold text-gray-600 mb-2 px-1">Adjusted Against:</p>
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-gray-100">
+                                          <tr>
+                                            <th className="px-2 py-1.5 text-left font-medium text-gray-600">Invoice #</th>
+                                            <th className="px-2 py-1.5 text-left font-medium text-gray-600">Invoice Date</th>
+                                            <th className="px-2 py-1.5 text-right font-medium text-gray-600">Invoice Amt</th>
+                                            <th className="px-2 py-1.5 text-right font-medium text-green-600">Adjusted</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {group.invoice_adjustments.map((adj, aIdx) => (
+                                            <tr key={aIdx} className="border-t border-gray-100">
+                                              <td className="px-2 py-1.5 font-medium text-blue-600">{adj.invoice_number}</td>
+                                              <td className="px-2 py-1.5 text-gray-600">{formatDate(adj.invoice_date)}</td>
+                                              <td className="px-2 py-1.5 text-right text-gray-600">{formatCurrency(adj.invoice_payable)}</td>
+                                              <td className="px-2 py-1.5 text-right font-medium text-green-600">{formatCurrency(adj.amount_adjusted)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                              
+                              {/* Credit Notes Applied on this date */}
+                              {dateData.credit_notes?.length > 0 && (
+                                <div className="border rounded-lg overflow-hidden">
+                                  <div className="bg-purple-50 px-3 py-2">
+                                    <span className="text-sm font-semibold text-purple-700 flex items-center gap-2">
+                                      <CreditCard size={14} />
+                                      Credit Notes Applied
+                                    </span>
+                                  </div>
+                                  <div className="p-2">
+                                    <table className="w-full text-xs">
+                                      <thead className="bg-gray-100">
+                                        <tr>
+                                          <th className="px-2 py-1.5 text-left font-medium text-gray-600">Credit Note #</th>
+                                          <th className="px-2 py-1.5 text-left font-medium text-gray-600">Original Invoice</th>
+                                          <th className="px-2 py-1.5 text-left font-medium text-gray-600">Adjusted Against</th>
+                                          <th className="px-2 py-1.5 text-right font-medium text-purple-600">Amount</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {dateData.credit_notes.map((cn, cnIdx) => (
+                                          <tr key={cnIdx} className="border-t border-gray-100">
+                                            <td className="px-2 py-1.5 font-medium text-purple-600">{cn.credit_note_number}</td>
+                                            <td className="px-2 py-1.5 text-gray-600">{cn.original_invoice}</td>
+                                            <td className="px-2 py-1.5 text-gray-600">{cn.adjusted_against_invoice_number || '-'}</td>
+                                            <td className="px-2 py-1.5 text-right font-medium text-purple-600">{formatCurrency(cn.amount)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {/* Modal Footer */}
+              <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowPaymentLedgerModal(false)}>
+                  Close
                 </Button>
               </div>
             </div>

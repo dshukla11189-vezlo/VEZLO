@@ -2,6 +2,29 @@
 
 ## Changelog (May 2025)
 
+### May 29, 2025 (Session 8)
+- **FEATURE**: Retailer Portal - 100% Upfront Payment Block ✅
+  - For retailers with `upfront_collection_percentage = 100`, the Payment Details block now shows:
+    - Purple/blue gradient theme (vs. green for standard retailers)
+    - "(100% Upfront)" label in header
+    - Two expandable cards: **Total Payable** and **Credit Notes**
+    - Total Payable shows net amount after credit notes applied
+    - Credit Notes shows pending credits with count
+    - Date-wise breakdown when "Total Payable" is expanded (clickable to view item details)
+    - Credit note details when "Credit Notes" is expanded
+  - Standard retailers (50% upfront) retain the original layout with "50% Upfront" and "Final Payment" columns
+  - Mobile-responsive design with optimized touch targets and text sizes
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js`
+
+- **BACKEND**: Updated APIs for 100% Upfront Support ✅
+  - `/api/retailer-dashboard` now returns `upfront_collection_percentage` in retailer info
+  - `/api/retailer-payment-details` now includes:
+    - `upfront_collection_percentage` and `is_full_upfront` flags
+    - `credit_notes` array for 100% upfront retailers
+    - `totals.total_pending_credit` and `totals.net_payable` for credit-adjusted amounts
+    - Correct upfront calculation: 100% upfront shows ALL pending as immediately due
+  - Files: `/app/backend/server.py`
+
 ### May 28, 2025 (Session 7)
 - **FIXED**: 100% Upfront Retailers Payment Calculation ✅
   - Backend APIs (`get_retailer_immediately_payable`, `get_all_retailers_immediately_payable`) now respect `upfront_collection_percentage`

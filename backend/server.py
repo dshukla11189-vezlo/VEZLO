@@ -12984,6 +12984,7 @@ async def get_retailer_dashboard(
             "address": retailer.get("address"),
             "company_name": retailer.get("company_name"),
             "commission_percentage": retailer.get("commission_percentage", 0),
+            "upfront_collection_percentage": retailer.get("upfront_collection_percentage", 50),
             "referral_code": retailer.get("referral_code")
         },
         "summary": {
@@ -15540,9 +15541,11 @@ async def get_retailer_payment_details(
     if not retailer_id:
         raise HTTPException(status_code=400, detail="Retailer ID not found")
     
-    # Get retailer info for commission percentage
-    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "commission_percentage": 1})
+    # Get retailer info for commission percentage and upfront collection percentage
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "commission_percentage": 1, "upfront_collection_percentage": 1})
     commission_percentage = retailer.get("commission_percentage", 0) if retailer else 0
+    upfront_pct = retailer.get("upfront_collection_percentage", 50) if retailer else 50
+    is_full_upfront = upfront_pct == 100
     
     # Get today's date in IST
     ist = timezone(timedelta(hours=5, minutes=30))
@@ -15617,6 +15620,14 @@ async def get_retailer_payment_details(
             "remarks": pmt.get("remarks", "")
         })
     
+    # For 100% upfront retailers, also fetch pending credit notes
+    credit_notes = []
+    if is_full_upfront:
+        credit_notes = await db.retailer_credit_notes.find(
+            {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(100)
+    
     # Group invoices by date and aggregate
     date_aggregates = {}  # date_str -> {invoices: [...], totals: {...}}
     
@@ -15648,23 +15659,28 @@ async def get_retailer_payment_details(
         
         # Calculate days since invoice
         days_since = (today - inv_date_obj).days
-        fifty_percent = final_payable / 2
+        upfront_portion = final_payable * (upfront_pct / 100)
         
-        # Determine 50% upfront due and final payment due
+        # Determine upfront due and final payment due
         upfront_due = 0
         final_due = 0
         
         if not is_all_clear:
-            if days_since == 0:
-                # Today's invoice: 50% upfront due
-                upfront_due = min(fifty_percent, pending_amount)
-            elif days_since >= 1 and days_since <= 4:
-                # 1-4 days ago: check if 50% was paid
-                if paid_amount < fifty_percent:
-                    upfront_due = max(0, fifty_percent - paid_amount)
-            elif days_since >= 5:
-                # 5+ days: all remaining is final payment due
-                final_due = pending_amount
+            if is_full_upfront:
+                # 100% upfront: ALL pending amount is due immediately (upfront)
+                upfront_due = pending_amount
+            else:
+                # Standard logic (50% upfront or dynamic percentage)
+                if days_since == 0:
+                    # Today's invoice: upfront portion due
+                    upfront_due = min(upfront_portion, pending_amount)
+                elif days_since >= 1 and days_since <= 4:
+                    # 1-4 days ago: check if upfront portion was paid
+                    if paid_amount < upfront_portion:
+                        upfront_due = max(0, upfront_portion - paid_amount)
+                elif days_since >= 5:
+                    # 5+ days: all remaining is final payment due
+                    final_due = pending_amount
         
         # Initialize date entry if not exists
         if date_str not in date_aggregates:
@@ -15766,15 +15782,23 @@ async def get_retailer_payment_details(
     grand_final = sum(d["final_payment_total"] for d in result_list)
     grand_pending = sum(d["total_pending"] for d in result_list)
     
+    # Calculate total pending credit from credit notes
+    total_pending_credit = sum(cn.get("pending_amount", 0) or 0 for cn in credit_notes)
+    
     return {
         "dates": result_list,
         "totals": {
             "upfront_50_total": round(grand_upfront, 2),
             "final_payment_total": round(grand_final, 2),
             "grand_total": round(grand_upfront + grand_final, 2),
-            "total_pending": round(grand_pending, 2)
+            "total_pending": round(grand_pending, 2),
+            "total_pending_credit": round(total_pending_credit, 2),
+            "net_payable": round(max(0, grand_upfront + grand_final - total_pending_credit), 2)
         },
-        "commission_percentage": commission_percentage
+        "commission_percentage": commission_percentage,
+        "upfront_collection_percentage": upfront_pct,
+        "is_full_upfront": is_full_upfront,
+        "credit_notes": credit_notes
     }
 
 

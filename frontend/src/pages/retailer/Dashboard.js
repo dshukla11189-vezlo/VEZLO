@@ -196,6 +196,7 @@ export default function RetailerDashboard() {
   const [paymentDetailsDateTo, setPaymentDetailsDateTo] = useState('');
   const [selectedPaymentDate, setSelectedPaymentDate] = useState(null); // For modal
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [expandedPayableSection, setExpandedPayableSection] = useState(null); // For 100% upfront retailers
   
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
@@ -2217,154 +2218,289 @@ export default function RetailerDashboard() {
               </CardContent>
             </Card>
 
-            {/* Payment Details - Redesigned Block */}
+            {/* Payment Details - Redesigned Block with 100% Upfront Support */}
             {paymentDetails && paymentDetails.dates && paymentDetails.dates.length > 0 && (
-              <Card data-testid="payment-details-card" className="mb-6 border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50 shadow-lg">
-                <CardContent className="p-4 md:p-6">
-                  <div className="flex flex-col gap-4">
+              <Card data-testid="payment-details-card" className={`mb-6 shadow-lg ${
+                paymentDetails.is_full_upfront 
+                  ? 'border-purple-300 bg-gradient-to-br from-purple-50 via-white to-blue-50' 
+                  : 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
+              }`}>
+                <CardContent className="p-3 sm:p-4 md:p-6">
+                  <div className="flex flex-col gap-3 sm:gap-4">
                     {/* Header with Total */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="p-3 md:p-4 bg-emerald-100 rounded-xl shrink-0">
-                          <CreditCard size={28} className="text-emerald-600 md:w-9 md:h-9" />
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className={`p-2 sm:p-3 md:p-4 rounded-xl shrink-0 ${
+                          paymentDetails.is_full_upfront ? 'bg-purple-100' : 'bg-emerald-100'
+                        }`}>
+                          <CreditCard size={24} className={`${
+                            paymentDetails.is_full_upfront ? 'text-purple-600' : 'text-emerald-600'
+                          } sm:w-7 sm:h-7 md:w-9 md:h-9`} />
                         </div>
                         <div>
-                          <p className="text-xs md:text-sm text-emerald-600 font-semibold uppercase tracking-wide">
+                          <p className={`text-xs sm:text-sm font-semibold uppercase tracking-wide ${
+                            paymentDetails.is_full_upfront ? 'text-purple-600' : 'text-emerald-600'
+                          }`}>
                             {t('Payment Details')}
+                            {paymentDetails.is_full_upfront && (
+                              <span className="text-[10px] sm:text-xs font-normal text-purple-500 ml-1 sm:ml-2">(100% Upfront)</span>
+                            )}
                           </p>
-                          <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-700">
+                          <p className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold ${
+                            paymentDetails.is_full_upfront ? 'text-purple-700' : 'text-emerald-700'
+                          }`}>
                             {formatCurrency(paymentDetails.totals?.grand_total || 0)}
                           </p>
-                          <p className="text-xs text-gray-500">Total Pending</p>
-                        </div>
-                      </div>
-                      
-                      {/* Summary boxes */}
-                      <div className="flex gap-2 sm:gap-3">
-                        <div className="bg-white rounded-lg border border-green-200 p-2 px-3 text-center">
-                          <p className="text-xs text-green-600 font-medium">50% Upfront</p>
-                          <p className="text-sm sm:text-base font-bold text-green-700">
-                            {formatCurrency(paymentDetails.totals?.upfront_50_total || 0)}
-                          </p>
-                        </div>
-                        <div className="bg-white rounded-lg border border-orange-200 p-2 px-3 text-center">
-                          <p className="text-xs text-orange-600 font-medium">Final Payment</p>
-                          <p className="text-sm sm:text-base font-bold text-orange-700">
-                            {formatCurrency(paymentDetails.totals?.final_payment_total || 0)}
-                          </p>
                         </div>
                       </div>
                     </div>
                     
-                    {/* Date Filters */}
-                    <div className="flex flex-wrap items-center gap-2 bg-white rounded-lg border border-gray-200 p-2 px-3">
-                      <div className="flex items-center gap-1 text-xs text-gray-500 font-medium">
-                        <Calendar size={14} className="text-gray-400" />
-                        <span>Filter:</span>
-                      </div>
-                      <div className="relative">
-                        <Input
-                          type="date"
-                          value={paymentDetailsDateFrom}
-                          onChange={(e) => setPaymentDetailsDateFrom(e.target.value)}
-                          className="w-36 h-8 text-xs border-gray-300 pr-2 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                        />
-                      </div>
-                      <span className="text-gray-400 text-xs">to</span>
-                      <div className="relative">
-                        <Input
-                          type="date"
-                          value={paymentDetailsDateTo}
-                          onChange={(e) => setPaymentDetailsDateTo(e.target.value)}
-                          className="w-36 h-8 text-xs border-gray-300 pr-2 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                        />
-                      </div>
-                      <Button 
-                        size="sm" 
-                        onClick={handleApplyPaymentFilters}
-                        className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-xs"
-                        data-testid="payment-apply-filter-btn"
-                      >
-                        Apply
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={handleResetPaymentFilters}
-                        className="h-8 px-3 text-xs"
-                        data-testid="payment-reset-filter-btn"
-                      >
-                        Reset
-                      </Button>
-                    </div>
-                    
-                    {/* Payment Table */}
-                    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                      {/* Table Header */}
-                      <div className="grid grid-cols-4 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600">
-                        <div className="p-2 px-3">{t('Date')}</div>
-                        <div className="p-2 px-3 text-right">50% Upfront</div>
-                        <div className="p-2 px-3 text-right">Final Payment</div>
-                        <div className="p-2 px-3 text-right">Total</div>
-                      </div>
-                      
-                      {/* Table Rows - Clickable */}
-                      <div className="max-h-64 overflow-y-auto">
-                        {paymentDetailsLoading ? (
-                          <div className="p-4 text-center text-gray-500 text-sm">Loading...</div>
-                        ) : paymentDetails.dates.length === 0 ? (
-                          <div className="p-4 text-center text-gray-500 text-sm">No pending payments</div>
-                        ) : (
-                          paymentDetails.dates.map((dateData, idx) => (
-                            <div 
-                              key={dateData.date}
-                              data-testid={`payment-row-${dateData.date}`}
-                              onClick={() => openPaymentModal(dateData)}
-                              className={`grid grid-cols-4 text-sm cursor-pointer hover:bg-emerald-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
-                            >
-                              <div className="p-2 px-3 font-medium text-gray-700">
-                                {new Date(dateData.date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: '2-digit'})}
+                    {/* 100% UPFRONT RETAILER LAYOUT */}
+                    {paymentDetails.is_full_upfront ? (
+                      <>
+                        {/* 2 Cards - Total Payable and Credit Notes */}
+                        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                          {/* Total Payable Card */}
+                          <div 
+                            className={`bg-white/80 rounded-lg p-2 sm:p-3 border cursor-pointer transition-all hover:shadow-md ${
+                              expandedPayableSection === 'payable' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-100'
+                            }`}
+                            onClick={() => setExpandedPayableSection(expandedPayableSection === 'payable' ? null : 'payable')}
+                            data-testid="total-payable-card"
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] sm:text-xs text-gray-500">Total Payable</p>
+                                <p className="text-base sm:text-lg font-bold text-purple-600 truncate">
+                                  {formatCurrency(paymentDetails.totals?.net_payable || (paymentDetails.totals?.grand_total - (paymentDetails.totals?.total_pending_credit || 0)))}
+                                </p>
+                                {paymentDetails.totals?.total_pending_credit > 0 && (
+                                  <p className="text-[9px] sm:text-[10px] text-gray-500 truncate">
+                                    After ₹{(paymentDetails.totals?.total_pending_credit || 0).toLocaleString()} credit
+                                  </p>
+                                )}
                               </div>
-                              {dateData.is_all_clear ? (
-                                <>
-                                  <div className="p-2 px-3 text-right text-gray-400">-</div>
-                                  <div className="p-2 px-3 text-right text-gray-400">-</div>
-                                  <div className="p-2 px-3 text-right">
-                                    <span className="text-xs text-green-600 font-medium flex items-center justify-end gap-1">
-                                      <Check size={12} /> All Clear
+                              <ChevronDown size={14} className={`text-gray-400 transition-transform shrink-0 ml-1 ${expandedPayableSection === 'payable' ? 'rotate-180' : ''}`} />
+                            </div>
+                          </div>
+                          
+                          {/* Credit Notes Card */}
+                          <div 
+                            className={`bg-white/80 rounded-lg p-2 sm:p-3 border cursor-pointer transition-all hover:shadow-md ${
+                              expandedPayableSection === 'credits' ? 'border-green-500 ring-2 ring-green-200' : 'border-green-100'
+                            }`}
+                            onClick={() => setExpandedPayableSection(expandedPayableSection === 'credits' ? null : 'credits')}
+                            data-testid="credit-notes-card"
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] sm:text-xs text-gray-500">Credit Notes</p>
+                                <p className={`text-base sm:text-lg font-bold truncate ${
+                                  (paymentDetails.credit_notes?.length || 0) > 0 ? 'text-green-600' : 'text-gray-400'
+                                }`}>
+                                  {(paymentDetails.credit_notes?.length || 0) > 0 
+                                    ? formatCurrency(paymentDetails.totals?.total_pending_credit || 0) 
+                                    : '₹0'}
+                                </p>
+                                {(paymentDetails.credit_notes?.length || 0) > 0 && (
+                                  <p className="text-[9px] sm:text-[10px] text-green-600 truncate">
+                                    {paymentDetails.credit_notes.length} note(s) available
+                                  </p>
+                                )}
+                              </div>
+                              <ChevronDown size={14} className={`text-gray-400 transition-transform shrink-0 ml-1 ${expandedPayableSection === 'credits' ? 'rotate-180' : ''}`} />
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Expandable Details - Payable Breakdown */}
+                        {expandedPayableSection === 'payable' && paymentDetails.dates && (
+                          <div className="bg-white rounded-lg border p-2 sm:p-3 max-h-48 sm:max-h-64 overflow-y-auto">
+                            <p className="text-[10px] sm:text-xs font-semibold text-gray-600 mb-2">Date-wise Breakdown</p>
+                            <div className="space-y-1">
+                              {paymentDetails.dates.filter(d => !d.is_all_clear).map((dateData, idx) => (
+                                <div 
+                                  key={dateData.date} 
+                                  className="flex justify-between items-center text-[10px] sm:text-xs py-1 sm:py-1.5 border-b border-gray-50 cursor-pointer hover:bg-purple-50"
+                                  onClick={() => openPaymentModal(dateData)}
+                                >
+                                  <div className="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
+                                    <span className="px-1 sm:px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] sm:text-[10px] whitespace-nowrap">
+                                      {new Date(dateData.date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})}
+                                    </span>
+                                    <span className="text-gray-400 text-[9px] truncate">
+                                      {dateData.invoice_count || 1} invoice(s)
                                     </span>
                                   </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="p-2 px-3 text-right">
-                                    {dateData.upfront_50_total > 0 ? (
-                                      <span className="text-green-600 font-medium">{formatCurrency(dateData.upfront_50_total)}</span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                  </div>
-                                  <div className="p-2 px-3 text-right">
-                                    {dateData.final_payment_total > 0 ? (
-                                      <span className="text-orange-600 font-medium">{formatCurrency(dateData.final_payment_total)}</span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                  </div>
-                                  <div className="p-2 px-3 text-right font-semibold text-emerald-700">
-                                    {formatCurrency((dateData.upfront_50_total || 0) + (dateData.final_payment_total || 0))}
-                                  </div>
-                                </>
+                                  <span className="font-bold text-purple-600 shrink-0 ml-2">
+                                    {formatCurrency(dateData.upfront_50_total || dateData.total_pending || 0)}
+                                  </span>
+                                </div>
+                              ))}
+                              {paymentDetails.dates.filter(d => !d.is_all_clear).length === 0 && (
+                                <p className="text-[10px] sm:text-xs text-gray-400 text-center py-2">No pending entries</p>
                               )}
                             </div>
-                          ))
+                          </div>
                         )}
-                      </div>
-                    </div>
-                    
-                    <p className="text-xs text-gray-500 text-center sm:text-right">
-                      Tap on a row to see item-level details
-                    </p>
+                        
+                        {/* Expandable Details - Credit Notes */}
+                        {expandedPayableSection === 'credits' && (
+                          <div className="bg-white rounded-lg border p-2 sm:p-3 max-h-48 sm:max-h-64 overflow-y-auto">
+                            <p className="text-[10px] sm:text-xs font-semibold text-gray-600 mb-2">Available Credit Notes</p>
+                            {(paymentDetails.credit_notes?.length || 0) > 0 ? (
+                              <div className="space-y-1.5 sm:space-y-2">
+                                {paymentDetails.credit_notes.map((cn, idx) => (
+                                  <div key={cn.id || idx} className="flex justify-between items-start text-[10px] sm:text-xs py-1.5 sm:py-2 px-1.5 sm:px-2 bg-green-50 rounded border border-green-100">
+                                    <div className="min-w-0 flex-1">
+                                      <span className="font-semibold text-green-700">{cn.credit_note_number}</span>
+                                      <div className="text-gray-500 truncate">from {cn.original_invoice_number}</div>
+                                      {cn.commission_deducted > 0 && (
+                                        <div className="text-[9px] text-gray-400 truncate">
+                                          (MRP ₹{cn.rejection_value?.toLocaleString()} - {cn.commission_percentage}% comm)
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span className="font-bold text-green-600 shrink-0 ml-2">₹{(cn.pending_amount || 0).toLocaleString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] sm:text-xs text-gray-400 text-center py-2">No pending credit notes</p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      /* STANDARD RETAILER LAYOUT (50% upfront) */
+                      <>
+                        {/* Summary boxes */}
+                        <div className="flex gap-2 sm:gap-3">
+                          <div className="bg-white rounded-lg border border-green-200 p-2 px-2 sm:px-3 text-center flex-1">
+                            <p className="text-[10px] sm:text-xs text-green-600 font-medium">50% Upfront</p>
+                            <p className="text-sm sm:text-base font-bold text-green-700">
+                              {formatCurrency(paymentDetails.totals?.upfront_50_total || 0)}
+                            </p>
+                          </div>
+                          <div className="bg-white rounded-lg border border-orange-200 p-2 px-2 sm:px-3 text-center flex-1">
+                            <p className="text-[10px] sm:text-xs text-orange-600 font-medium">Final Payment</p>
+                            <p className="text-sm sm:text-base font-bold text-orange-700">
+                              {formatCurrency(paymentDetails.totals?.final_payment_total || 0)}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Date Filters */}
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-white rounded-lg border border-gray-200 p-2 px-2 sm:px-3">
+                          <div className="flex items-center gap-1 text-[10px] sm:text-xs text-gray-500 font-medium">
+                            <Calendar size={12} className="text-gray-400 sm:w-[14px] sm:h-[14px]" />
+                            <span>Filter:</span>
+                          </div>
+                          <div className="relative">
+                            <Input
+                              type="date"
+                              value={paymentDetailsDateFrom}
+                              onChange={(e) => setPaymentDetailsDateFrom(e.target.value)}
+                              className="w-28 sm:w-36 h-7 sm:h-8 text-[10px] sm:text-xs border-gray-300 pr-1 sm:pr-2 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                            />
+                          </div>
+                          <span className="text-gray-400 text-[10px] sm:text-xs">to</span>
+                          <div className="relative">
+                            <Input
+                              type="date"
+                              value={paymentDetailsDateTo}
+                              onChange={(e) => setPaymentDetailsDateTo(e.target.value)}
+                              className="w-28 sm:w-36 h-7 sm:h-8 text-[10px] sm:text-xs border-gray-300 pr-1 sm:pr-2 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                            />
+                          </div>
+                          <Button 
+                            size="sm" 
+                            onClick={handleApplyPaymentFilters}
+                            className="h-7 sm:h-8 px-2 sm:px-3 bg-emerald-600 hover:bg-emerald-700 text-[10px] sm:text-xs"
+                            data-testid="payment-apply-filter-btn"
+                          >
+                            Apply
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={handleResetPaymentFilters}
+                            className="h-7 sm:h-8 px-2 sm:px-3 text-[10px] sm:text-xs"
+                            data-testid="payment-reset-filter-btn"
+                          >
+                            Reset
+                          </Button>
+                        </div>
+                        
+                        {/* Payment Table */}
+                        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                          {/* Table Header */}
+                          <div className="grid grid-cols-4 bg-gray-50 border-b border-gray-200 text-[10px] sm:text-xs font-semibold text-gray-600">
+                            <div className="p-1.5 sm:p-2 px-2 sm:px-3">{t('Date')}</div>
+                            <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right">50% Upfront</div>
+                            <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right">Final</div>
+                            <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right">Total</div>
+                          </div>
+                          
+                          {/* Table Rows - Clickable */}
+                          <div className="max-h-48 sm:max-h-64 overflow-y-auto">
+                            {paymentDetailsLoading ? (
+                              <div className="p-3 sm:p-4 text-center text-gray-500 text-xs sm:text-sm">Loading...</div>
+                            ) : paymentDetails.dates.length === 0 ? (
+                              <div className="p-3 sm:p-4 text-center text-gray-500 text-xs sm:text-sm">No pending payments</div>
+                            ) : (
+                              paymentDetails.dates.map((dateData, idx) => (
+                                <div 
+                                  key={dateData.date}
+                                  data-testid={`payment-row-${dateData.date}`}
+                                  onClick={() => openPaymentModal(dateData)}
+                                  className={`grid grid-cols-4 text-[10px] sm:text-sm cursor-pointer hover:bg-emerald-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                                >
+                                  <div className="p-1.5 sm:p-2 px-2 sm:px-3 font-medium text-gray-700">
+                                    {new Date(dateData.date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})}
+                                  </div>
+                                  {dateData.is_all_clear ? (
+                                    <>
+                                      <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right text-gray-400">-</div>
+                                      <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right text-gray-400">-</div>
+                                      <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right">
+                                        <span className="text-[9px] sm:text-xs text-green-600 font-medium flex items-center justify-end gap-0.5 sm:gap-1">
+                                          <Check size={10} className="sm:w-3 sm:h-3" /> Clear
+                                        </span>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right">
+                                        {dateData.upfront_50_total > 0 ? (
+                                          <span className="text-green-600 font-medium">{formatCurrency(dateData.upfront_50_total)}</span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )}
+                                      </div>
+                                      <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right">
+                                        {dateData.final_payment_total > 0 ? (
+                                          <span className="text-orange-600 font-medium">{formatCurrency(dateData.final_payment_total)}</span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )}
+                                      </div>
+                                      <div className="p-1.5 sm:p-2 px-2 sm:px-3 text-right font-semibold text-emerald-700">
+                                        {formatCurrency((dateData.upfront_50_total || 0) + (dateData.final_payment_total || 0))}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                        
+                        <p className="text-[9px] sm:text-xs text-gray-500 text-center sm:text-right">
+                          Tap on a row to see item-level details
+                        </p>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>

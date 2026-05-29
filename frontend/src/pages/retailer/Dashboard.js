@@ -3706,13 +3706,16 @@ export default function RetailerDashboard() {
                           const rejectionValue = invoice.items?.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0;
                           const netValue = grossValue - rejectionValue;
                           const commissionAmt = invoice.commission_amount || (netValue * (invoice.commission_percentage || 0) / 100);
-                          const payableAmt = netValue - commissionAmt;
-                          const isPaid = invoice.status === 'paid' || invoice.status === 'closed';
-                          const isPartial = invoice.status === 'partial';
+                          const payableAmt = invoice.net_payable || (netValue - commissionAmt);
+                          const isPaid = invoice.status === 'paid' || invoice.status === 'closed' || invoice.payment_status === 'paid';
+                          const isPartial = invoice.status === 'partial' || invoice.payment_status === 'partial';
                           
                           // Get paid amount from invoice or payments
                           const paidAmount = invoice.paid_amount || 0;
                           const remainingPayable = payableAmt - paidAmount;
+                          
+                          // Check for Excess Paid condition
+                          const isExcessPaid = paidAmount > payableAmt + 0.01;
                           
                           // Get payment details for this invoice
                           const invoicePayments = payments.filter(p => p.invoice_id === invoice.id);
@@ -3737,7 +3740,9 @@ export default function RetailerDashboard() {
                                   {paidAmount > 0 ? formatCurrency(paidAmount) : '-'}
                                 </td>
                                 <td className="p-3 text-right font-bold">
-                                  {isPaid ? (
+                                  {isExcessPaid ? (
+                                    <span className="text-purple-600">{formatCurrency(Math.abs(remainingPayable))} excess</span>
+                                  ) : isPaid ? (
                                     <span className="text-green-700">{formatCurrency(payableAmt)}</span>
                                   ) : (
                                     <span className={remainingPayable > 0 ? 'text-orange-600' : 'text-gray-800'}>
@@ -3757,7 +3762,11 @@ export default function RetailerDashboard() {
                                   )}
                                 </td>
                                 <td className="p-3 text-center">
-                                  {isPaid ? (
+                                  {isExcessPaid ? (
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200 animate-pulse">
+                                      <AlertTriangle size={12} className="mr-1" /> Excess Paid
+                                    </span>
+                                  ) : isPaid ? (
                                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
                                       <CheckCircle size={12} className="mr-1" /> {t('retailer.paymentCleared') || 'Payment Cleared'}
                                     </span>

@@ -2549,7 +2549,8 @@ Email: ${companyEmail}`;
         : '';
       toast.success(`Payment recorded for ${date}${diffMsg}`);
       setBulkGrnPaymentData(null);
-      await loadData();  // Wait for data to reload before clearing loading state
+      await loadData();  // Refresh main GRN data
+      await loadSavedGrns(savedGrnDateFilters.fromDate, savedGrnDateFilters.toDate);  // Refresh saved GRN tab
     } catch (error) {
       toast.error('Failed to record payment');
       console.error(error);

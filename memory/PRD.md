@@ -2,6 +2,23 @@
 
 ## Changelog (May 2025)
 
+### May 29, 2025 (Session 8) - Part 3
+- **FEATURE**: Complete Payment Details in Invoice PDF ✅
+  - Downloaded invoice PDF now shows detailed payment history table:
+    - Columns: #, Date, Mode, Reference, Amount
+    - Total Paid row at bottom
+  - Shows Credit Notes Applied section if any credits were used:
+    - Columns: Credit Note #, Original Invoice, Applied Date, Amount
+    - Total Credit Applied row at bottom
+  - Payment mode and reference numbers now visible in PDF
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (downloadInvoicePdf function)
+
+- **FEATURE**: Complete Payment Details in Expanded Invoice View ✅
+  - Expanded invoice view now shows detailed payment history table (same format as PDF)
+  - Credit Notes section fetches data dynamically when invoice is expanded
+  - Shows: Credit Note #, Original Invoice, Applied Date, Amount in table format
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (toggleInvoiceExpand function updated to async)
+
 ### May 29, 2025 (Session 8) - Part 2
 - **FEATURE**: "Excess Paid" Status Badge ✅
   - Invoices where `paid_amount > net_payable` now display:

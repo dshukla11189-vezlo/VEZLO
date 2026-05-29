@@ -100,6 +100,7 @@ export default function RetailerDashboard() {
   const [expandedInvoices, setExpandedInvoices] = useState({});
   const [expandedOrderDates, setExpandedOrderDates] = useState({});
   const [expandedRejectionDates, setExpandedRejectionDates] = useState({});
+  const [invoiceCreditNotes, setInvoiceCreditNotes] = useState({}); // Store credit notes per invoice ID
   
   // Helper function to get local date in YYYY-MM-DD format (avoids timezone issues with toISOString)
   const getLocalDateString = (date = new Date()) => {
@@ -1008,11 +1009,46 @@ export default function RetailerDashboard() {
     setExpandedDispatches(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const toggleInvoiceExpand = (id) => {
-    setExpandedInvoices(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleInvoiceExpand = async (id) => {
+    const isExpanding = !expandedInvoices[id];
+    setExpandedInvoices(prev => ({ ...prev, [id]: isExpanding }));
+    
+    // Fetch credit notes when expanding
+    if (isExpanding && !invoiceCreditNotes[id]) {
+      try {
+        const creditRes = await api.get(`/api/retailer-credit-notes?adjusted_against_invoice=${id}`);
+        const adjustedCredits = (creditRes.data || []).filter(cn => 
+          cn.adjusted_against_invoices?.some(adj => adj.invoice_id === id)
+        );
+        setInvoiceCreditNotes(prev => ({ ...prev, [id]: adjustedCredits }));
+      } catch (error) {
+        console.error('Failed to fetch credit notes for invoice:', error);
+      }
+    }
   };
 
-  const downloadInvoicePdf = (invoice) => {
+  const downloadInvoicePdf = async (invoice) => {
+    // Fetch payment history for this invoice
+    let paymentHistory = [];
+    let creditNotesApplied = [];
+    
+    try {
+      const paymentsRes = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
+      paymentHistory = paymentsRes.data || [];
+    } catch (error) {
+      console.error('Failed to fetch payment history:', error);
+    }
+    
+    // Fetch credit notes adjusted against this invoice
+    try {
+      const creditRes = await api.get(`/api/retailer-credit-notes?adjusted_against_invoice=${invoice.id}`);
+      creditNotesApplied = (creditRes.data || []).filter(cn => 
+        cn.adjusted_against_invoices?.some(adj => adj.invoice_id === invoice.id)
+      );
+    } catch (error) {
+      console.error('Failed to fetch credit notes:', error);
+    }
+    
     const printWindow = window.open('', '_blank');
     
     // Calculate totals with rejection breakdown
@@ -1144,9 +1180,38 @@ export default function RetailerDashboard() {
           </div>
         </div>
         
-        ${(invoice.paid_amount > 0 || invoice.payment_status === 'paid') ? `
+        ${(invoice.paid_amount > 0 || invoice.payment_status === 'paid' || paymentHistory.length > 0) ? `
         <div style="margin-top: 20px; padding: 15px; border: 2px solid #15803d; border-radius: 8px; background: #f0fdf4;">
-          <h3 style="color: #15803d; margin-bottom: 10px; font-size: 14px;">Payment Details</h3>
+          <h3 style="color: #15803d; margin-bottom: 10px; font-size: 14px; border-bottom: 1px solid #bbf7d0; padding-bottom: 8px;">💳 Payment Details</h3>
+          
+          ${paymentHistory.length > 0 ? `
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 11px;">
+            <thead>
+              <tr style="background: #dcfce7;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #bbf7d0;">#</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #bbf7d0;">Date</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #bbf7d0;">Mode</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #bbf7d0;">Reference</th>
+                <th style="padding: 6px; text-align: right; border: 1px solid #bbf7d0;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${paymentHistory.map((pmt, idx) => `
+              <tr>
+                <td style="padding: 6px; border: 1px solid #bbf7d0;">${idx + 1}</td>
+                <td style="padding: 6px; border: 1px solid #bbf7d0;">${pmt.payment_date ? new Date(pmt.payment_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}</td>
+                <td style="padding: 6px; border: 1px solid #bbf7d0; text-transform: uppercase;">${pmt.payment_mode || '-'}</td>
+                <td style="padding: 6px; border: 1px solid #bbf7d0;">${pmt.reference_number || pmt.remarks || '-'}</td>
+                <td style="padding: 6px; border: 1px solid #bbf7d0; text-align: right; font-weight: bold; color: #15803d;">₹${(pmt.amount || 0).toFixed(2)}</td>
+              </tr>
+              `).join('')}
+              <tr style="background: #dcfce7; font-weight: bold;">
+                <td colspan="4" style="padding: 6px; border: 1px solid #bbf7d0; text-align: right;">Total Paid:</td>
+                <td style="padding: 6px; border: 1px solid #bbf7d0; text-align: right; color: #15803d;">₹${paymentHistory.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+          ` : `
           <div style="display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid #ddd;">
             <span>Amount Paid:</span>
             <span style="color: #15803d; font-weight: bold;">₹${(invoice.paid_amount || 0).toFixed(2)}</span>
@@ -1159,6 +1224,8 @@ export default function RetailerDashboard() {
             <span>Payment Mode:</span>
             <span style="text-transform: uppercase;">${invoice.payment_mode}</span>
           </div>` : ''}
+          `}
+          
           <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; font-weight: bold; margin-top: 5px; ${(invoice.net_payable - (invoice.paid_amount || 0)) <= 0.01 ? 'color: #15803d;' : 'color: #dc2626;'}">
             <span>Balance:</span>
             <span>₹${Math.max(0, invoice.net_payable - (invoice.paid_amount || 0)).toFixed(2)} ${(invoice.net_payable - (invoice.paid_amount || 0)) <= 0.01 ? '✓ PAID' : ''}</span>
@@ -1172,6 +1239,42 @@ export default function RetailerDashboard() {
           </div>
         </div>
         `}
+        
+        ${creditNotesApplied.length > 0 ? `
+        <div style="margin-top: 15px; padding: 15px; border: 2px solid #a855f7; border-radius: 8px; background: #faf5ff;">
+          <h3 style="color: #7c3aed; margin-bottom: 10px; font-size: 14px; border-bottom: 1px solid #e9d5ff; padding-bottom: 8px;">🎫 Credit Notes Applied</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <thead>
+              <tr style="background: #f3e8ff;">
+                <th style="padding: 6px; text-align: left; border: 1px solid #e9d5ff;">Credit Note #</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #e9d5ff;">Original Invoice</th>
+                <th style="padding: 6px; text-align: left; border: 1px solid #e9d5ff;">Applied Date</th>
+                <th style="padding: 6px; text-align: right; border: 1px solid #e9d5ff;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${creditNotesApplied.map(cn => {
+                const adjustment = cn.adjusted_against_invoices?.find(adj => adj.invoice_id === invoice.id);
+                return `
+                <tr>
+                  <td style="padding: 6px; border: 1px solid #e9d5ff; font-weight: bold; color: #7c3aed;">${cn.credit_note_number}</td>
+                  <td style="padding: 6px; border: 1px solid #e9d5ff;">${cn.original_invoice_number || '-'}</td>
+                  <td style="padding: 6px; border: 1px solid #e9d5ff;">${adjustment?.adjusted_at ? new Date(adjustment.adjusted_at).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}</td>
+                  <td style="padding: 6px; border: 1px solid #e9d5ff; text-align: right; font-weight: bold; color: #7c3aed;">₹${(adjustment?.amount || cn.amount || 0).toFixed(2)}</td>
+                </tr>
+                `;
+              }).join('')}
+              <tr style="background: #f3e8ff; font-weight: bold;">
+                <td colspan="3" style="padding: 6px; border: 1px solid #e9d5ff; text-align: right;">Total Credit Applied:</td>
+                <td style="padding: 6px; border: 1px solid #e9d5ff; text-align: right; color: #7c3aed;">₹${creditNotesApplied.reduce((sum, cn) => {
+                  const adj = cn.adjusted_against_invoices?.find(a => a.invoice_id === invoice.id);
+                  return sum + (adj?.amount || cn.amount || 0);
+                }, 0).toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
         
         <br><br>
         <button onclick="window.print()">Print Invoice</button>
@@ -3902,52 +4005,95 @@ export default function RetailerDashboard() {
                                         <div className="border-t-2 border-green-200 bg-green-50 p-4">
                                           <div className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
                                             <CheckCircle size={16} className="text-green-600" />
-                                            Payment History
+                                            Payment History ({invoicePayments.length} payment{invoicePayments.length > 1 ? 's' : ''})
                                           </div>
-                                          <div className="space-y-2">
-                                            {invoicePayments.map((payment, pIdx) => (
-                                              <div key={pIdx} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-green-200 shadow-sm">
-                                                <div className="flex items-center gap-4">
-                                                  <span className="text-sm font-medium text-gray-600 bg-green-100 px-2 py-1 rounded">#{pIdx + 1}</span>
-                                                  <span className="text-lg font-bold text-green-700">{formatCurrency(payment.amount)}</span>
-                                                  {payment.payment_mode && (
-                                                    <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded uppercase">{payment.payment_mode}</span>
-                                                  )}
-                                                </div>
-                                                <div className="text-sm text-gray-600">
-                                                  {payment.payment_date ? (
-                                                    <span className="font-medium">Paid on {formatDate(payment.payment_date)}</span>
-                                                  ) : payment.created_at ? (
-                                                    <span className="font-medium">Recorded on {new Date(payment.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                                  ) : null}
-                                                </div>
-                                              </div>
-                                            ))}
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                              <thead className="bg-green-100">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left text-green-800 font-semibold">#</th>
+                                                  <th className="px-3 py-2 text-left text-green-800 font-semibold">Date</th>
+                                                  <th className="px-3 py-2 text-left text-green-800 font-semibold">Mode</th>
+                                                  <th className="px-3 py-2 text-left text-green-800 font-semibold">Reference</th>
+                                                  <th className="px-3 py-2 text-right text-green-800 font-semibold">Amount</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {invoicePayments.map((payment, pIdx) => (
+                                                  <tr key={pIdx} className="bg-white border-b border-green-100">
+                                                    <td className="px-3 py-2 text-gray-600">{pIdx + 1}</td>
+                                                    <td className="px-3 py-2">
+                                                      {payment.payment_date 
+                                                        ? new Date(payment.payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                        : payment.created_at 
+                                                          ? new Date(payment.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                          : '-'}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                      {payment.payment_mode && (
+                                                        <span className="px-2 py-0.5 bg-gray-100 rounded text-xs uppercase font-medium">{payment.payment_mode}</span>
+                                                      )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-gray-600">
+                                                      {payment.reference_number || payment.remarks || '-'}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-bold text-green-700">{formatCurrency(payment.amount)}</td>
+                                                  </tr>
+                                                ))}
+                                                <tr className="bg-green-100 font-bold">
+                                                  <td colSpan={4} className="px-3 py-2 text-right text-green-800">Total Paid:</td>
+                                                  <td className="px-3 py-2 text-right text-green-700">{formatCurrency(invoicePayments.reduce((sum, p) => sum + (p.amount || 0), 0))}</td>
+                                                </tr>
+                                              </tbody>
+                                            </table>
                                           </div>
                                         </div>
                                       )}
                                       
                                       {/* Credit Notes Section */}
-                                      {invoice.credit_notes_applied && invoice.credit_notes_applied.length > 0 && (
+                                      {(invoiceCreditNotes[invoice.id]?.length > 0 || (invoice.credit_notes_applied && invoice.credit_notes_applied.length > 0)) && (
                                         <div className="border-t-2 border-purple-200 bg-purple-50 p-4">
                                           <div className="text-sm font-semibold text-purple-800 mb-3 flex items-center gap-2">
                                             <CreditCard size={16} className="text-purple-600" />
-                                            Credit Notes Applied
+                                            Credit Notes Applied ({(invoiceCreditNotes[invoice.id] || invoice.credit_notes_applied || []).length})
                                           </div>
-                                          <div className="space-y-2">
-                                            {invoice.credit_notes_applied.map((cn, cnIdx) => (
-                                              <div key={cnIdx} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-purple-200 shadow-sm">
-                                                <div className="flex items-center gap-4">
-                                                  <span className="text-sm font-medium text-purple-600">{cn.credit_note_number || `CN #${cnIdx + 1}`}</span>
-                                                  <span className="text-lg font-bold text-purple-700">{formatCurrency(cn.amount || cn.adjusted_amount || 0)}</span>
-                                                </div>
-                                                {cn.adjusted_at && (
-                                                  <div className="text-sm text-gray-600">
-                                                    Applied on {new Date(cn.adjusted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            ))}
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                              <thead className="bg-purple-100">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left text-purple-800 font-semibold">Credit Note #</th>
+                                                  <th className="px-3 py-2 text-left text-purple-800 font-semibold">Original Invoice</th>
+                                                  <th className="px-3 py-2 text-left text-purple-800 font-semibold">Applied Date</th>
+                                                  <th className="px-3 py-2 text-right text-purple-800 font-semibold">Amount</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {(invoiceCreditNotes[invoice.id] || invoice.credit_notes_applied || []).map((cn, cnIdx) => {
+                                                  const adjustment = cn.adjusted_against_invoices?.find(adj => adj.invoice_id === invoice.id);
+                                                  return (
+                                                    <tr key={cnIdx} className="bg-white border-b border-purple-100">
+                                                      <td className="px-3 py-2 font-medium text-purple-700">{cn.credit_note_number || `CN #${cnIdx + 1}`}</td>
+                                                      <td className="px-3 py-2 text-gray-600">{cn.original_invoice_number || '-'}</td>
+                                                      <td className="px-3 py-2">
+                                                        {adjustment?.adjusted_at 
+                                                          ? new Date(adjustment.adjusted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                          : '-'}
+                                                      </td>
+                                                      <td className="px-3 py-2 text-right font-bold text-purple-700">{formatCurrency(adjustment?.amount || cn.amount || 0)}</td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                                <tr className="bg-purple-100 font-bold">
+                                                  <td colSpan={3} className="px-3 py-2 text-right text-purple-800">Total Credit Applied:</td>
+                                                  <td className="px-3 py-2 text-right text-purple-700">
+                                                    {formatCurrency((invoiceCreditNotes[invoice.id] || invoice.credit_notes_applied || []).reduce((sum, cn) => {
+                                                      const adj = cn.adjusted_against_invoices?.find(a => a.invoice_id === invoice.id);
+                                                      return sum + (adj?.amount || cn.amount || 0);
+                                                    }, 0))}
+                                                  </td>
+                                                </tr>
+                                              </tbody>
+                                            </table>
                                           </div>
                                         </div>
                                       )}

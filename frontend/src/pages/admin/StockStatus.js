@@ -131,8 +131,10 @@ export default function StockStatus() {
 
   useEffect(() => {
     loadProducts();
+    // Only load stock status once on mount, not when loadStockStatus changes
     loadStockStatus();
-  }, [loadProducts, loadStockStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-refresh for real-time updates (only for today's view, paused when closing dialog is open)
   useEffect(() => {
@@ -143,7 +145,8 @@ export default function StockStatus() {
       
       return () => clearInterval(interval);
     }
-  }, [isHistoricalView, showClosingDialog, showEditDialog, loadStockStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHistoricalView, showClosingDialog, showEditDialog]);
 
   const handleDateChange = (newDate) => {
     setFilterDate(newDate);

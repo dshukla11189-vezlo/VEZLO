@@ -5986,10 +5986,16 @@ async def get_pnl_report(
             fresh_purchases_by_date_product[proc_date_str][product_id]["value"] += total_value
     
     # ========== WASTAGE (from Daily Stock Status - recalculated with fresh procurement data) ==========
+    # Include both closed records AND open records that have wastage recorded
+    # This ensures wastage shows in P&L even before day-end closing
     stock_status = await db.daily_stock_status.find({
         "date": {"$gte": from_date, "$lte": to_date},
-        "status": "closed"
-    }, {"_id": 0}).to_list(1000)
+        "$or": [
+            {"status": "closed"},
+            {"wastage_qty": {"$gt": 0}},
+            {"wastage_value": {"$gt": 0}}
+        ]
+    }, {"_id": 0}).to_list(2000)
     
     total_wastage_qty = 0
     total_wastage_value = 0

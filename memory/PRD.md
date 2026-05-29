@@ -2,6 +2,43 @@
 
 ## Changelog (May 2025)
 
+### May 29, 2025 (Session 8) - Part 2
+- **FEATURE**: "Excess Paid" Status Badge ✅
+  - Invoices where `paid_amount > net_payable` now display:
+    - Purple animated "Excess Paid" badge in the STATUS column
+    - Pending column shows excess amount in purple (e.g., "₹288.25 excess")
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **FEATURE**: Credit Notes in Payment Details Modal ✅
+  - "View Payment" modal now shows **Credit Notes Applied** section
+  - Displays: Credit Note #, Original Invoice, Amount applied, Date applied
+  - Both Admin panel (Payment History Modal) and Edit Invoice Modal updated
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **FEATURE**: Delete Credit Note Adjustments ✅
+  - Edit Invoice modal now shows credit notes with delete option
+  - New backend API: `POST /api/retailer-credit-notes/{credit_note_id}/remove-adjustment`
+  - Removes credit adjustment and restores pending amount to credit note
+  - Updates invoice paid_amount and payment status accordingly
+  - Files: `/app/backend/server.py`, `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **FEATURE**: Invoice PDF with Payment Details ✅
+  - Retailer invoice PDF now includes Payment Details section when paid:
+    - Shows: Amount Paid, Payment Date, Payment Mode, Balance
+    - Paid invoices show green "PAID" badge
+    - Pending invoices show orange "PENDING" warning
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js`
+
+- **FEATURE**: Payment Summary Button on Retailer Portal ✅
+  - Added "Summary" button in Payment Details block header
+  - Opens modal with:
+    - Date range filter
+    - Summary stats: Total Invoices, Total Receivable, Total Paid, Balance
+    - Invoice table with status (Paid/Partial/Pending/Excess)
+  - New backend API: `GET /api/retailer-payment-summary`
+  - Matches Admin panel's Payment Summary functionality
+  - Files: `/app/backend/server.py`, `/app/frontend/src/pages/retailer/Dashboard.js`
+
 ### May 29, 2025 (Session 8)
 - **FEATURE**: Retailer Portal - 100% Upfront Payment Block ✅
   - For retailers with `upfront_collection_percentage = 100`, the Payment Details block now shows:

@@ -198,6 +198,13 @@ export default function RetailerDashboard() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [expandedPayableSection, setExpandedPayableSection] = useState(null); // For 100% upfront retailers
   
+  // Payment Summary Modal state
+  const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
+  const [paymentSummaryData, setPaymentSummaryData] = useState(null);
+  const [paymentSummaryLoading, setPaymentSummaryLoading] = useState(false);
+  const [paymentSummaryStartDate, setPaymentSummaryStartDate] = useState('');
+  const [paymentSummaryEndDate, setPaymentSummaryEndDate] = useState('');
+  
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
     const map = new Map();
@@ -424,6 +431,36 @@ export default function RetailerDashboard() {
   const openPaymentModal = (dateData) => {
     setSelectedPaymentDate(dateData);
     setShowPaymentModal(true);
+  };
+
+  // Load Payment Summary Data
+  const loadPaymentSummary = async (startDate, endDate) => {
+    if (!dashboardData?.retailer?.id) return;
+    setPaymentSummaryLoading(true);
+    try {
+      let url = `/api/retailer-payment-summary?retailer_id=${dashboardData.retailer.id}`;
+      if (startDate) url += `&start_date=${startDate}`;
+      if (endDate) url += `&end_date=${endDate}`;
+      const response = await api.get(url);
+      setPaymentSummaryData(response.data);
+    } catch (error) {
+      console.error('Failed to load payment summary:', error);
+      toast.error('Failed to load payment summary');
+    } finally {
+      setPaymentSummaryLoading(false);
+    }
+  };
+
+  // Open Payment Summary Modal
+  const openPaymentSummaryModal = () => {
+    // Set default date range to last 30 days
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    setPaymentSummaryStartDate(thirtyDaysAgo.toISOString().split('T')[0]);
+    setPaymentSummaryEndDate(today.toISOString().split('T')[0]);
+    setShowPaymentSummaryModal(true);
+    loadPaymentSummary(thirtyDaysAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
   };
 
   const formatDate = (date) => {
@@ -1106,6 +1143,36 @@ export default function RetailerDashboard() {
             <span>₹${invoice.net_payable.toFixed(2)}</span>
           </div>
         </div>
+        
+        ${(invoice.paid_amount > 0 || invoice.payment_status === 'paid') ? `
+        <div style="margin-top: 20px; padding: 15px; border: 2px solid #15803d; border-radius: 8px; background: #f0fdf4;">
+          <h3 style="color: #15803d; margin-bottom: 10px; font-size: 14px;">Payment Details</h3>
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid #ddd;">
+            <span>Amount Paid:</span>
+            <span style="color: #15803d; font-weight: bold;">₹${(invoice.paid_amount || 0).toFixed(2)}</span>
+          </div>
+          ${invoice.payment_date ? `<div style="display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid #ddd;">
+            <span>Payment Date:</span>
+            <span>${new Date(invoice.payment_date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})}</span>
+          </div>` : ''}
+          ${invoice.payment_mode ? `<div style="display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid #ddd;">
+            <span>Payment Mode:</span>
+            <span style="text-transform: uppercase;">${invoice.payment_mode}</span>
+          </div>` : ''}
+          <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; font-weight: bold; margin-top: 5px; ${(invoice.net_payable - (invoice.paid_amount || 0)) <= 0.01 ? 'color: #15803d;' : 'color: #dc2626;'}">
+            <span>Balance:</span>
+            <span>₹${Math.max(0, invoice.net_payable - (invoice.paid_amount || 0)).toFixed(2)} ${(invoice.net_payable - (invoice.paid_amount || 0)) <= 0.01 ? '✓ PAID' : ''}</span>
+          </div>
+        </div>
+        ` : `
+        <div style="margin-top: 20px; padding: 15px; border: 2px solid #f59e0b; border-radius: 8px; background: #fffbeb;">
+          <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; color: #b45309;">
+            <span>Payment Status:</span>
+            <span>PENDING - ₹${invoice.net_payable.toFixed(2)}</span>
+          </div>
+        </div>
+        `}
+        
         <br><br>
         <button onclick="window.print()">Print Invoice</button>
       </body>
@@ -2253,6 +2320,21 @@ export default function RetailerDashboard() {
                           </p>
                         </div>
                       </div>
+                      {/* Payment Summary Button */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={`text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-7 sm:h-8 ${
+                          paymentDetails.is_full_upfront 
+                            ? 'border-purple-300 text-purple-700 hover:bg-purple-50' 
+                            : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                        }`}
+                        onClick={openPaymentSummaryModal}
+                        data-testid="payment-summary-btn"
+                      >
+                        <FileText size={12} className="mr-1" />
+                        Summary
+                      </Button>
                     </div>
                     
                     {/* 100% UPFRONT RETAILER LAYOUT */}
@@ -5210,6 +5292,154 @@ export default function RetailerDashboard() {
                 className="max-w-full max-h-[80vh] object-contain rounded-lg"
               />
               <p className="text-white text-center mt-3 text-lg font-medium">{enlargedImage.name}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== PAYMENT SUMMARY MODAL ==================== */}
+        {showPaymentSummaryModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-3 sm:p-4 border-b flex-shrink-0">
+                <div>
+                  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+                    <FileText size={20} className="text-emerald-600" />
+                    Payment Summary
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+                    {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name}
+                  </p>
+                </div>
+                <button onClick={() => setShowPaymentSummaryModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-3 sm:p-4 overflow-y-auto flex-1">
+                {/* Date Range Filter */}
+                <div className="flex flex-wrap items-center gap-2 mb-4 bg-gray-50 rounded-lg p-2 sm:p-3">
+                  <span className="text-xs sm:text-sm text-gray-600 font-medium">Date Range:</span>
+                  <Input
+                    type="date"
+                    value={paymentSummaryStartDate}
+                    onChange={(e) => setPaymentSummaryStartDate(e.target.value)}
+                    className="w-28 sm:w-36 h-7 sm:h-8 text-xs sm:text-sm"
+                  />
+                  <span className="text-gray-400">to</span>
+                  <Input
+                    type="date"
+                    value={paymentSummaryEndDate}
+                    onChange={(e) => setPaymentSummaryEndDate(e.target.value)}
+                    className="w-28 sm:w-36 h-7 sm:h-8 text-xs sm:text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-7 sm:h-8 px-2 sm:px-3 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700"
+                    onClick={() => loadPaymentSummary(paymentSummaryStartDate, paymentSummaryEndDate)}
+                  >
+                    Apply
+                  </Button>
+                </div>
+
+                {paymentSummaryLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600" />
+                  </div>
+                ) : paymentSummaryData ? (
+                  <>
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+                      <div className="bg-blue-50 rounded-lg p-2 sm:p-3 text-center">
+                        <p className="text-[10px] sm:text-xs text-blue-600 font-medium">Total Invoices</p>
+                        <p className="text-base sm:text-lg font-bold text-blue-700">{paymentSummaryData.total_invoices || 0}</p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-lg p-2 sm:p-3 text-center">
+                        <p className="text-[10px] sm:text-xs text-emerald-600 font-medium">Total Receivable</p>
+                        <p className="text-base sm:text-lg font-bold text-emerald-700">{formatCurrency(paymentSummaryData.total_receivable || 0)}</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-2 sm:p-3 text-center">
+                        <p className="text-[10px] sm:text-xs text-green-600 font-medium">Total Paid</p>
+                        <p className="text-base sm:text-lg font-bold text-green-700">{formatCurrency(paymentSummaryData.total_paid || 0)}</p>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg p-2 sm:p-3 text-center">
+                        <p className="text-[10px] sm:text-xs text-amber-600 font-medium">Balance</p>
+                        <p className="text-base sm:text-lg font-bold text-amber-700">{formatCurrency(paymentSummaryData.total_pending || 0)}</p>
+                      </div>
+                    </div>
+
+                    {/* Invoice Table */}
+                    <div className="bg-white rounded-lg border overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs sm:text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="p-2 sm:p-3 text-left font-medium text-gray-600">Invoice #</th>
+                              <th className="p-2 sm:p-3 text-left font-medium text-gray-600">Date</th>
+                              <th className="p-2 sm:p-3 text-right font-medium text-gray-600">Receivable</th>
+                              <th className="p-2 sm:p-3 text-right font-medium text-gray-600">Paid</th>
+                              <th className="p-2 sm:p-3 text-right font-medium text-gray-600">Balance</th>
+                              <th className="p-2 sm:p-3 text-center font-medium text-gray-600">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {(paymentSummaryData.invoices || []).length > 0 ? (
+                              paymentSummaryData.invoices.map((inv, idx) => {
+                                const balance = (inv.net_payable || 0) - (inv.paid_amount || 0);
+                                const isExcess = balance < -0.01;
+                                return (
+                                  <tr key={inv.id || idx} className="hover:bg-gray-50">
+                                    <td className="p-2 sm:p-3 font-medium text-blue-600">{inv.invoice_number}</td>
+                                    <td className="p-2 sm:p-3 text-gray-600">{formatDate(inv.invoice_date)}</td>
+                                    <td className="p-2 sm:p-3 text-right font-medium">{formatCurrency(inv.net_payable)}</td>
+                                    <td className="p-2 sm:p-3 text-right text-green-600 font-medium">{formatCurrency(inv.paid_amount || 0)}</td>
+                                    <td className={`p-2 sm:p-3 text-right font-medium ${isExcess ? 'text-purple-600' : balance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                                      {isExcess ? `(${formatCurrency(Math.abs(balance))})` : formatCurrency(balance)}
+                                    </td>
+                                    <td className="p-2 sm:p-3 text-center">
+                                      {isExcess ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-purple-100 text-purple-800">Excess</span>
+                                      ) : inv.payment_status === 'paid' || balance <= 0.01 ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-green-100 text-green-800">Paid</span>
+                                      ) : inv.payment_status === 'partial' ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-blue-100 text-blue-800">Partial</span>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan="6" className="p-4 text-center text-gray-500">No invoices found</td>
+                              </tr>
+                            )}
+                          </tbody>
+                          {(paymentSummaryData.invoices || []).length > 0 && (
+                            <tfoot className="bg-gray-50 font-semibold">
+                              <tr>
+                                <td colSpan="2" className="p-2 sm:p-3 text-right">Total:</td>
+                                <td className="p-2 sm:p-3 text-right">{formatCurrency(paymentSummaryData.total_receivable)}</td>
+                                <td className="p-2 sm:p-3 text-right text-green-600">{formatCurrency(paymentSummaryData.total_paid)}</td>
+                                <td className="p-2 sm:p-3 text-right text-amber-600">{formatCurrency(paymentSummaryData.total_pending)}</td>
+                                <td></td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-center text-gray-500 py-8">No data available</p>
+                )}
+              </div>
+
+              <div className="p-3 sm:p-4 border-t flex-shrink-0">
+                <Button variant="outline" className="w-full" onClick={() => setShowPaymentSummaryModal(false)}>
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
         )}

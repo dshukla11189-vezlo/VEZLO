@@ -11546,6 +11546,91 @@ async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Dep
         "adjusted_count": len([cn for cn in all_cns if cn.get("status") == "adjusted"])
     }
 
+class RemoveCreditAdjustmentInput(BaseModel):
+    invoice_id: str
+
+@api_router.post("/retailer-credit-notes/{credit_note_id}/remove-adjustment")
+async def remove_credit_adjustment(
+    credit_note_id: str,
+    input: RemoveCreditAdjustmentInput,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a credit note adjustment from an invoice and restore the credit"""
+    credit_note = await db.retailer_credit_notes.find_one({"id": credit_note_id}, {"_id": 0})
+    if not credit_note:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    
+    # Find the adjustment record for this invoice
+    adjustments = credit_note.get("adjusted_against_invoices", [])
+    adjustment = next((adj for adj in adjustments if adj.get("invoice_id") == input.invoice_id), None)
+    
+    if not adjustment:
+        raise HTTPException(status_code=404, detail="No adjustment found for this invoice")
+    
+    adj_amount = adjustment.get("amount", 0)
+    
+    # Get the invoice
+    invoice = await db.retailer_invoices.find_one({"id": input.invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Remove the adjustment from credit note and restore pending amount
+    new_adjustments = [adj for adj in adjustments if adj.get("invoice_id") != input.invoice_id]
+    new_adjusted_amount = max(0, (credit_note.get("adjusted_amount", 0) or 0) - adj_amount)
+    new_pending = (credit_note.get("amount", 0) or 0) - new_adjusted_amount
+    
+    # Determine new status
+    if new_adjusted_amount <= 0.01:
+        new_status = "pending"
+    elif new_pending <= 0.01:
+        new_status = "adjusted"
+    else:
+        new_status = "partial"
+    
+    await db.retailer_credit_notes.update_one(
+        {"id": credit_note_id},
+        {
+            "$set": {
+                "adjusted_against_invoices": new_adjustments,
+                "adjusted_amount": round(new_adjusted_amount, 2),
+                "pending_amount": round(new_pending, 2),
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Update the invoice paid_amount (reduce by the credit amount that was removed)
+    new_paid = max(0, (invoice.get("paid_amount", 0) or 0) - adj_amount)
+    net_payable = invoice.get("net_payable", 0) or 0
+    
+    # Determine new invoice payment status
+    if new_paid >= net_payable - 0.01:
+        inv_status = "paid"
+    elif new_paid > 0:
+        inv_status = "partial"
+    else:
+        inv_status = "pending"
+    
+    await db.retailer_invoices.update_one(
+        {"id": input.invoice_id},
+        {
+            "$set": {
+                "paid_amount": round(new_paid, 2),
+                "payment_status": inv_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    return {
+        "message": "Credit adjustment removed successfully",
+        "restored_amount": adj_amount,
+        "credit_note_pending": round(new_pending, 2),
+        "invoice_paid_amount": round(new_paid, 2),
+        "invoice_status": inv_status
+    }
+
 
 # ------------ RETAILER INVOICES ------------
 @api_router.get("/retailer-invoices")
@@ -15799,6 +15884,66 @@ async def get_retailer_payment_details(
         "upfront_collection_percentage": upfront_pct,
         "is_full_upfront": is_full_upfront,
         "credit_notes": credit_notes
+    }
+
+
+@api_router.get("/retailer-payment-summary")
+async def get_retailer_payment_summary(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get payment summary for a retailer with all invoices and their payment status.
+    Used by both admin and retailer portal.
+    """
+    # Determine retailer_id based on role
+    if current_user.get("role") == "retailer":
+        retailer_id = current_user.get("user_id")
+    elif not retailer_id:
+        raise HTTPException(status_code=400, detail="retailer_id is required for admin")
+    
+    # Build query
+    query = {"retailer_id": retailer_id}
+    
+    # Date filtering
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["invoice_date"] = date_query
+    
+    # Fetch invoices
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
+    
+    # Calculate totals
+    total_receivable = sum(inv.get("net_payable", 0) or 0 for inv in invoices)
+    total_paid = sum(inv.get("paid_amount", 0) or 0 for inv in invoices)
+    total_pending = total_receivable - total_paid
+    
+    # Simplify invoice data for response
+    invoice_list = []
+    for inv in invoices:
+        invoice_list.append({
+            "id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "invoice_date": inv.get("invoice_date"),
+            "net_payable": inv.get("net_payable", 0),
+            "paid_amount": inv.get("paid_amount", 0),
+            "payment_status": inv.get("payment_status", inv.get("status", "pending")),
+            "payment_date": inv.get("payment_date")
+        })
+    
+    return {
+        "retailer_id": retailer_id,
+        "total_invoices": len(invoice_list),
+        "total_receivable": round(total_receivable, 2),
+        "total_paid": round(total_paid, 2),
+        "total_pending": round(total_pending, 2),
+        "invoices": invoice_list
     }
 
 

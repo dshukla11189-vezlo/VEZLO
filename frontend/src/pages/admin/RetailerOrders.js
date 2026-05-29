@@ -103,6 +103,7 @@ export default function RetailerOrders() {
   const [editInvoiceForm, setEditInvoiceForm] = useState(null);
   const [editInvoicePayments, setEditInvoicePayments] = useState([]); // Payment history for edit modal
   const [editInvoicePaymentsLoading, setEditInvoicePaymentsLoading] = useState(false);
+  const [editInvoiceCreditAdjustments, setEditInvoiceCreditAdjustments] = useState([]); // Credit notes for edit modal
   // For item-level selection
   const [uninvoicedItems, setUninvoicedItems] = useState([]); // All uninvoiced items
   const [selectedItemIds, setSelectedItemIds] = useState([]);
@@ -184,6 +185,7 @@ export default function RetailerOrders() {
   const [selectedInvoiceForHistory, setSelectedInvoiceForHistory] = useState(null);
   const [invoicePaymentHistory, setInvoicePaymentHistory] = useState([]);
   const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
+  const [invoiceCreditAdjustments, setInvoiceCreditAdjustments] = useState([]); // Credit notes used for this invoice
   
   // Edit Payment state
   const [editingPayment, setEditingPayment] = useState(null);
@@ -4113,6 +4115,7 @@ export default function RetailerOrders() {
       remarks: invoice.remarks || ''
     });
     setShowEditInvoiceModal(true);
+    setEditInvoiceCreditAdjustments([]);
     
     // Load payment history if invoice has any payments
     if (invoice.paid_amount > 0) {
@@ -4120,6 +4123,13 @@ export default function RetailerOrders() {
       try {
         const response = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
         setEditInvoicePayments(response.data);
+        
+        // Also fetch credit adjustments for this invoice
+        const creditRes = await api.get(`/api/retailer-credit-notes?adjusted_against_invoice=${invoice.id}`);
+        const adjustedCredits = (creditRes.data || []).filter(cn => 
+          cn.adjusted_against_invoices?.some(adj => adj.invoice_id === invoice.id)
+        );
+        setEditInvoiceCreditAdjustments(adjustedCredits);
       } catch (error) {
         console.error('Failed to load payment history:', error);
         setEditInvoicePayments([]);
@@ -4893,9 +4903,17 @@ export default function RetailerOrders() {
     setSelectedInvoiceForHistory(invoice);
     setPaymentHistoryLoading(true);
     setShowPaymentHistoryModal(true);
+    setInvoiceCreditAdjustments([]);
     try {
       const response = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
       setInvoicePaymentHistory(response.data);
+      
+      // Also fetch credit adjustments for this invoice
+      const creditRes = await api.get(`/api/retailer-credit-notes?adjusted_against_invoice=${invoice.id}`);
+      const adjustedCredits = (creditRes.data || []).filter(cn => 
+        cn.adjusted_against_invoices?.some(adj => adj.invoice_id === invoice.id)
+      );
+      setInvoiceCreditAdjustments(adjustedCredits);
     } catch (error) {
       console.error('Failed to load payment history:', error);
       toast.error('Failed to load payment history');
@@ -6984,10 +7002,14 @@ export default function RetailerOrders() {
                             <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
                             <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(paidAmount)}</td>
                             <td className="p-3 text-right text-amber-600 font-medium">
-                              {pendingAmount > 0 ? formatCurrency(pendingAmount) : '-'}
+                              {pendingAmount > 0 ? formatCurrency(pendingAmount) : pendingAmount < 0 ? <span className="text-purple-600">{formatCurrency(Math.abs(pendingAmount))} excess</span> : '-'}
                             </td>
                             <td className="p-3 text-center">
-                              {status === 'paid' ? (
+                              {paidAmount > (invoice.net_payable || 0) ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200 animate-pulse">
+                                  <AlertTriangle size={12} className="mr-1" /> Excess Paid
+                                </span>
+                              ) : status === 'paid' ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
                                   <Check size={12} className="mr-1" /> Paid
                                 </span>
@@ -10189,6 +10211,60 @@ export default function RetailerOrders() {
                   </div>
                 )}
 
+                {/* Credit Notes Applied Section in Edit Modal */}
+                {editInvoiceCreditAdjustments.length > 0 && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 sm:p-4">
+                    <h4 className="text-sm font-semibold text-purple-700 mb-2 flex items-center gap-2">
+                      <CreditCard size={16} />
+                      Credit Notes Applied
+                    </h4>
+                    <div className="space-y-2">
+                      {editInvoiceCreditAdjustments.map((cn, idx) => {
+                        const adjustment = cn.adjusted_against_invoices?.find(adj => adj.invoice_id === editingInvoice.id);
+                        return (
+                          <div key={cn.id || idx} className="flex items-center justify-between bg-white rounded p-2 text-sm border border-purple-100">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-purple-700">{formatCurrency(adjustment?.amount || cn.amount)}</span>
+                                <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">CN #{cn.credit_note_number}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                From: {cn.original_invoice_number}
+                                {adjustment?.adjusted_at && ` • Applied: ${new Date(adjustment.adjusted_at).toLocaleDateString('en-IN')}`}
+                              </div>
+                            </div>
+                            <Button 
+                              type="button"
+                              size="sm" 
+                              variant="ghost" 
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50 ml-2"
+                              onClick={async () => {
+                                if (!window.confirm('Are you sure you want to remove this credit note adjustment? The credit will be restored.')) return;
+                                try {
+                                  await api.post(`/api/retailer-credit-notes/${cn.id}/remove-adjustment`, { invoice_id: editingInvoice.id });
+                                  toast.success('Credit note adjustment removed');
+                                  // Refresh
+                                  const creditRes = await api.get(`/api/retailer-credit-notes?adjusted_against_invoice=${editingInvoice.id}`);
+                                  const adjustedCredits = (creditRes.data || []).filter(c => 
+                                    c.adjusted_against_invoices?.some(adj => adj.invoice_id === editingInvoice.id)
+                                  );
+                                  setEditInvoiceCreditAdjustments(adjustedCredits);
+                                  loadInvoices();
+                                  loadPayments();
+                                } catch (error) {
+                                  toast.error(error.response?.data?.detail || 'Failed to remove credit note');
+                                }
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => { setShowEditInvoiceModal(false); setEditingInvoice(null); setEditInvoicePayments([]); }} className="flex-1">
                     Cancel
@@ -10974,6 +11050,49 @@ export default function RetailerOrders() {
                     </div>
                   )}
                 </div>
+
+                {/* Credit Notes Applied Section */}
+                {invoiceCreditAdjustments.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                      <CreditCard size={16} className="text-purple-600" />
+                      Credit Notes Applied
+                    </h4>
+                    <div className="space-y-2">
+                      {invoiceCreditAdjustments.map((cn, idx) => {
+                        const adjustment = cn.adjusted_against_invoices?.find(adj => adj.invoice_id === selectedInvoiceForHistory.id);
+                        return (
+                          <div key={cn.id || idx} className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className="text-lg font-bold text-purple-700">{formatCurrency(adjustment?.amount || cn.amount)}</span>
+                                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-800">CREDIT NOTE</span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-2">
+                              <div>
+                                <span className="text-gray-500">CN #:</span>{' '}
+                                <span className="font-medium text-purple-700">{cn.credit_note_number}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Original Invoice:</span>{' '}
+                                <span className="font-medium">{cn.original_invoice_number}</span>
+                              </div>
+                              {adjustment?.adjusted_at && (
+                                <div className="col-span-2">
+                                  <span className="text-gray-500">Applied:</span>{' '}
+                                  <span className="font-medium">
+                                    {new Date(adjustment.adjusted_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Add More Payment Button (if invoice still has pending amount) */}
                 {((selectedInvoiceForHistory.net_payable || 0) - (selectedInvoiceForHistory.paid_amount || 0)) > 0 && (

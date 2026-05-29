@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle, Calendar } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle, Calendar, CreditCard } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -2577,8 +2577,8 @@ Email: ${companyEmail}`;
         }
       });
       
-      // Get all GRNs that need updating
-      const grnsToUpdate = grns.filter(g => grnUpdates[g.id]);
+      // Get all GRNs that need updating - use savedGrnData for saved GRN tab
+      const grnsToUpdate = savedGrnData.filter(g => grnUpdates[g.id]);
       
       // Update each GRN to clear payment status
       for (const grn of grnsToUpdate) {
@@ -2606,6 +2606,60 @@ Email: ${companyEmail}`;
       await loadData();
     } catch (error) {
       toast.error('Failed to reset payments');
+      console.error(error);
+    } finally {
+      setMarkingAllPaid(null);
+    }
+  };
+  
+  // Clear/Delete payment for a specific date (called from Payment Details section)
+  const handleClearPaymentForDate = async (date, dateData) => {
+    setMarkingAllPaid(date);  // Show loading state
+    
+    try {
+      // Group items by GRN ID
+      const grnUpdates = {};
+      dateData.items.forEach(item => {
+        if (item.payment_received && item.grnId) {
+          if (!grnUpdates[item.grnId]) {
+            grnUpdates[item.grnId] = { itemIndices: [] };
+          }
+          grnUpdates[item.grnId].itemIndices.push(item.originalItemIndex);
+        }
+      });
+      
+      // Get all GRNs that need updating - use savedGrnData for saved GRN tab
+      const grnsToUpdate = savedGrnData.filter(g => grnUpdates[g.id]);
+      
+      // Update each GRN to clear payment status
+      for (const grn of grnsToUpdate) {
+        const updatedItems = [...(grn.items || [])];
+        grnUpdates[grn.id].itemIndices.forEach(idx => {
+          if (updatedItems[idx]) {
+            updatedItems[idx] = {
+              ...updatedItems[idx],
+              payment_received: false,
+              payment_date: null,
+              payment_mode: null,
+              payment_reference: null,
+              payment_remarks: null,
+              amount_received: null,
+              payment_difference: null
+            };
+          }
+        });
+        
+        await api.put(`/api/qc-grns/${grn.id}`, {
+          ...grn,
+          items: updatedItems
+        });
+      }
+      
+      toast.success(`Payment record for ${date} has been deleted`);
+      await loadData();
+      await loadSavedGrns(savedGrnDateFilters.fromDate, savedGrnDateFilters.toDate);
+    } catch (error) {
+      toast.error('Failed to delete payment record');
       console.error(error);
     } finally {
       setMarkingAllPaid(null);
@@ -5730,6 +5784,86 @@ Email: ${companyEmail}`;
                                       </tr>
                                     </tfoot>
                                   </table>
+                                </div>
+                              )}
+                              
+                              {/* Payment Details Section - Show when expanded and payment recorded */}
+                              {isExpanded && allPaid && itemWithPaymentInfo && (
+                                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                                      <CreditCard size={16} />
+                                      Payment Details
+                                    </h4>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-xs text-blue-600 border-blue-300 hover:bg-blue-100"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          // Open edit payment modal with existing data
+                                          setBulkGrnPaymentData({
+                                            date,
+                                            dateData,
+                                            totalGrnAmount: totalAmount,
+                                            isEditing: true
+                                          });
+                                          setBulkGrnPaymentForm({
+                                            amount_received: itemWithPaymentInfo.amount_received || totalAmount,
+                                            payment_date: itemWithPaymentInfo.payment_date || new Date().toISOString().split('T')[0],
+                                            payment_mode: itemWithPaymentInfo.payment_mode || 'Bank Transfer',
+                                            payment_reference: itemWithPaymentInfo.payment_reference || ''
+                                          });
+                                        }}
+                                      >
+                                        <Pencil size={12} className="mr-1" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-xs text-red-600 border-red-300 hover:bg-red-100"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (window.confirm(`Are you sure you want to delete the payment record for ${date}? This will mark all items as unpaid.`)) {
+                                            handleClearPaymentForDate(date, dateData);
+                                          }
+                                        }}
+                                      >
+                                        <Trash2 size={12} className="mr-1" />
+                                        Delete
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                                    <div>
+                                      <span className="text-gray-500">Amount Received:</span>
+                                      <p className="font-semibold text-green-700">₹{(itemWithPaymentInfo.amount_received || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Payment Date:</span>
+                                      <p className="font-semibold">{itemWithPaymentInfo.payment_date || '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Payment Mode:</span>
+                                      <p className="font-semibold">{itemWithPaymentInfo.payment_mode || '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Reference:</span>
+                                      <p className="font-semibold">{itemWithPaymentInfo.payment_reference || '-'}</p>
+                                    </div>
+                                  </div>
+                                  {paymentDifference !== 0 && (
+                                    <div className={`mt-2 p-2 rounded ${paymentDifference > 0 ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                                      <span className="text-xs font-semibold">
+                                        {paymentDifference > 0 ? 'Excess Payment' : 'Short Payment'}: ₹{Math.abs(paymentDifference).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </span>
+                                      <span className="text-xs ml-2">
+                                        (GRN: ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} | Received: ₹{(itemWithPaymentInfo.amount_received || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

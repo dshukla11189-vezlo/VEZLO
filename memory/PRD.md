@@ -31,12 +31,13 @@
 
 - **FEATURE**: Payment Summary Button on Retailer Portal ✅
   - Added "Summary" button in Payment Details block header
-  - Opens modal with:
-    - Date range filter
-    - Summary stats: Total Invoices, Total Receivable, Total Paid, Balance
-    - Invoice table with status (Paid/Partial/Pending/Excess)
-  - New backend API: `GET /api/retailer-payment-summary`
-  - Matches Admin panel's Payment Summary functionality
+  - Opens modal with SAME format as Admin panel:
+    - Table columns: #, Date, Invoice #, Gross, Reject, MRP, Comm., Payable, Paid, Net Due
+    - Green TOTAL footer row with all column sums
+    - Net Receivable display at bottom
+    - Download CSV button for export
+    - Back button to close modal
+  - New backend API: `GET /api/retailer-payment-summary` returns full invoice breakdown
   - Files: `/app/backend/server.py`, `/app/frontend/src/pages/retailer/Dashboard.js`
 
 ### May 29, 2025 (Session 8)

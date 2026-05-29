@@ -15897,6 +15897,7 @@ async def get_retailer_payment_summary(
     """
     Get payment summary for a retailer with all invoices and their payment status.
     Used by both admin and retailer portal.
+    Returns full invoice breakdown: Gross, Reject, MRP, Comm, Payable, Paid, Net Due
     """
     # Determine retailer_id based on role
     if current_user.get("role") == "retailer":
@@ -15916,23 +15917,42 @@ async def get_retailer_payment_summary(
             date_query["$lte"] = end_date + "T23:59:59"
         query["invoice_date"] = date_query
     
-    # Fetch invoices
+    # Fetch invoices with full details
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
     
     # Calculate totals
-    total_receivable = sum(inv.get("net_payable", 0) or 0 for inv in invoices)
+    total_gross = sum(inv.get("gross_value", 0) or 0 for inv in invoices)
+    total_reject = sum(inv.get("rejection_amount", 0) or 0 for inv in invoices)
+    total_mrp = sum(inv.get("total_mrp_value", 0) or 0 for inv in invoices)
+    total_commission = sum(inv.get("commission_amount", 0) or 0 for inv in invoices)
+    total_payable = sum(inv.get("net_payable", 0) or 0 for inv in invoices)
     total_paid = sum(inv.get("paid_amount", 0) or 0 for inv in invoices)
-    total_pending = total_receivable - total_paid
+    total_net_due = total_payable - total_paid
     
-    # Simplify invoice data for response
+    # Full invoice data for table display
     invoice_list = []
-    for inv in invoices:
+    for idx, inv in enumerate(invoices):
+        gross = inv.get("gross_value", 0) or 0
+        reject = inv.get("rejection_amount", 0) or 0
+        mrp = inv.get("total_mrp_value", 0) or 0
+        commission = inv.get("commission_amount", 0) or 0
+        payable = inv.get("net_payable", 0) or 0
+        paid = inv.get("paid_amount", 0) or 0
+        net_due = payable - paid
+        
         invoice_list.append({
+            "serial_num": idx + 1,
             "id": inv.get("id"),
             "invoice_number": inv.get("invoice_number"),
             "invoice_date": inv.get("invoice_date"),
-            "net_payable": inv.get("net_payable", 0),
-            "paid_amount": inv.get("paid_amount", 0),
+            "dispatch_date": inv.get("dispatch_date") or inv.get("invoice_date"),
+            "gross_value": round(gross, 2),
+            "rejection_amount": round(reject, 2),
+            "total_mrp_value": round(mrp, 2),
+            "commission_amount": round(commission, 2),
+            "net_payable": round(payable, 2),
+            "paid_amount": round(paid, 2),
+            "net_due": round(net_due, 2),
             "payment_status": inv.get("payment_status", inv.get("status", "pending")),
             "payment_date": inv.get("payment_date")
         })
@@ -15940,9 +15960,15 @@ async def get_retailer_payment_summary(
     return {
         "retailer_id": retailer_id,
         "total_invoices": len(invoice_list),
-        "total_receivable": round(total_receivable, 2),
-        "total_paid": round(total_paid, 2),
-        "total_pending": round(total_pending, 2),
+        "totals": {
+            "gross_value": round(total_gross, 2),
+            "rejection_amount": round(total_reject, 2),
+            "total_mrp_value": round(total_mrp, 2),
+            "commission_amount": round(total_commission, 2),
+            "net_payable": round(total_payable, 2),
+            "paid_amount": round(total_paid, 2),
+            "net_due": round(total_net_due, 2)
+        },
         "invoices": invoice_list
     }
 

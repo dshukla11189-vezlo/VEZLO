@@ -5299,26 +5299,26 @@ export default function RetailerDashboard() {
         {/* ==================== PAYMENT SUMMARY MODAL ==================== */}
         {showPaymentSummaryModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-              <div className="flex items-center justify-between p-3 sm:p-4 border-b flex-shrink-0">
-                <div>
-                  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
-                    <FileText size={20} className="text-emerald-600" />
-                    Payment Summary
-                  </h3>
-                  <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-                    {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name}
-                  </p>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between px-3 py-2 border-b bg-green-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <FileText size={18} className="text-green-600" />
+                  <h3 className="text-sm sm:text-base font-semibold text-green-800">Payment Summary</h3>
+                  {paymentSummaryData?.total_invoices > 0 && (
+                    <span className="text-xs text-gray-500">
+                      ({paymentSummaryData.total_invoices} invoices)
+                    </span>
+                  )}
                 </div>
-                <button onClick={() => setShowPaymentSummaryModal(false)} className="p-1 hover:bg-gray-100 rounded">
-                  <X size={20} />
+                <button onClick={() => setShowPaymentSummaryModal(false)} className="p-1 hover:bg-green-100 rounded">
+                  <X size={18} />
                 </button>
               </div>
               
               <div className="p-3 sm:p-4 overflow-y-auto flex-1">
                 {/* Date Range Filter */}
-                <div className="flex flex-wrap items-center gap-2 mb-4 bg-gray-50 rounded-lg p-2 sm:p-3">
-                  <span className="text-xs sm:text-sm text-gray-600 font-medium">Date Range:</span>
+                <div className="flex flex-wrap items-center gap-2 mb-3 bg-gray-50 rounded-lg p-2 sm:p-3">
+                  <span className="text-xs text-gray-600 font-medium">Date Range:</span>
                   <Input
                     type="date"
                     value={paymentSummaryStartDate}
@@ -5347,82 +5347,73 @@ export default function RetailerDashboard() {
                   </div>
                 ) : paymentSummaryData ? (
                   <>
-                    {/* Summary Stats */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
-                      <div className="bg-blue-50 rounded-lg p-2 sm:p-3 text-center">
-                        <p className="text-[10px] sm:text-xs text-blue-600 font-medium">Total Invoices</p>
-                        <p className="text-base sm:text-lg font-bold text-blue-700">{paymentSummaryData.total_invoices || 0}</p>
-                      </div>
-                      <div className="bg-emerald-50 rounded-lg p-2 sm:p-3 text-center">
-                        <p className="text-[10px] sm:text-xs text-emerald-600 font-medium">Total Receivable</p>
-                        <p className="text-base sm:text-lg font-bold text-emerald-700">{formatCurrency(paymentSummaryData.total_receivable || 0)}</p>
-                      </div>
-                      <div className="bg-green-50 rounded-lg p-2 sm:p-3 text-center">
-                        <p className="text-[10px] sm:text-xs text-green-600 font-medium">Total Paid</p>
-                        <p className="text-base sm:text-lg font-bold text-green-700">{formatCurrency(paymentSummaryData.total_paid || 0)}</p>
-                      </div>
-                      <div className="bg-amber-50 rounded-lg p-2 sm:p-3 text-center">
-                        <p className="text-[10px] sm:text-xs text-amber-600 font-medium">Balance</p>
-                        <p className="text-base sm:text-lg font-bold text-amber-700">{formatCurrency(paymentSummaryData.total_pending || 0)}</p>
-                      </div>
-                    </div>
-
-                    {/* Invoice Table */}
+                    {/* Full Summary Table matching Admin Panel format */}
                     <div className="bg-white rounded-lg border overflow-hidden">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-xs sm:text-sm">
-                          <thead className="bg-gray-50">
+                        <table className="w-full text-[10px] sm:text-xs min-w-[650px]">
+                          <thead className="bg-gray-100 sticky top-0">
                             <tr>
-                              <th className="p-2 sm:p-3 text-left font-medium text-gray-600">Invoice #</th>
-                              <th className="p-2 sm:p-3 text-left font-medium text-gray-600">Date</th>
-                              <th className="p-2 sm:p-3 text-right font-medium text-gray-600">Receivable</th>
-                              <th className="p-2 sm:p-3 text-right font-medium text-gray-600">Paid</th>
-                              <th className="p-2 sm:p-3 text-right font-medium text-gray-600">Balance</th>
-                              <th className="p-2 sm:p-3 text-center font-medium text-gray-600">Status</th>
+                              <th className="px-1.5 py-1.5 text-center text-gray-600 font-semibold w-8">#</th>
+                              <th className="px-1.5 py-1.5 text-left text-gray-600 font-semibold">Date</th>
+                              <th className="px-1.5 py-1.5 text-left text-gray-600 font-semibold">Invoice #</th>
+                              <th className="px-1.5 py-1.5 text-right text-gray-600 font-semibold">Gross</th>
+                              <th className="px-1.5 py-1.5 text-right text-red-600 font-semibold">Reject</th>
+                              <th className="px-1.5 py-1.5 text-right text-blue-600 font-semibold">MRP</th>
+                              <th className="px-1.5 py-1.5 text-right text-orange-600 font-semibold">Comm.</th>
+                              <th className="px-1.5 py-1.5 text-right text-green-600 font-semibold">Payable</th>
+                              <th className="px-1.5 py-1.5 text-right text-purple-600 font-semibold">Paid</th>
+                              <th className="px-1.5 py-1.5 text-right text-blue-800 font-bold">Net Due</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-gray-100">
+                          <tbody>
                             {(paymentSummaryData.invoices || []).length > 0 ? (
-                              paymentSummaryData.invoices.map((inv, idx) => {
-                                const balance = (inv.net_payable || 0) - (inv.paid_amount || 0);
-                                const isExcess = balance < -0.01;
-                                return (
-                                  <tr key={inv.id || idx} className="hover:bg-gray-50">
-                                    <td className="p-2 sm:p-3 font-medium text-blue-600">{inv.invoice_number}</td>
-                                    <td className="p-2 sm:p-3 text-gray-600">{formatDate(inv.invoice_date)}</td>
-                                    <td className="p-2 sm:p-3 text-right font-medium">{formatCurrency(inv.net_payable)}</td>
-                                    <td className="p-2 sm:p-3 text-right text-green-600 font-medium">{formatCurrency(inv.paid_amount || 0)}</td>
-                                    <td className={`p-2 sm:p-3 text-right font-medium ${isExcess ? 'text-purple-600' : balance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                                      {isExcess ? `(${formatCurrency(Math.abs(balance))})` : formatCurrency(balance)}
-                                    </td>
-                                    <td className="p-2 sm:p-3 text-center">
-                                      {isExcess ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-purple-100 text-purple-800">Excess</span>
-                                      ) : inv.payment_status === 'paid' || balance <= 0.01 ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-green-100 text-green-800">Paid</span>
-                                      ) : inv.payment_status === 'partial' ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-blue-100 text-blue-800">Partial</span>
-                                      ) : (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })
+                              paymentSummaryData.invoices.map((inv, idx) => (
+                                <tr key={inv.id || idx} className="border-t hover:bg-gray-50">
+                                  <td className="px-1.5 py-1.5 text-center text-gray-500">{inv.serial_num || idx + 1}</td>
+                                  <td className="px-1.5 py-1.5 text-left text-gray-700 whitespace-nowrap">
+                                    {new Date(inv.dispatch_date || inv.invoice_date).toLocaleDateString('en-IN', {day: '2-digit', month: '2-digit', year: 'numeric'})}
+                                  </td>
+                                  <td className="px-1.5 py-1.5 text-left font-medium text-gray-800 whitespace-nowrap">{inv.invoice_number}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-gray-700">₹{(inv.gross_value || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-red-600">-₹{(inv.rejection_amount || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-blue-600">₹{(inv.total_mrp_value || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-orange-600">-₹{(inv.commission_amount || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-green-600">₹{(inv.net_payable || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-purple-600">₹{(inv.paid_amount || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right font-semibold text-blue-800">₹{(inv.net_due || 0).toFixed(0)}</td>
+                                </tr>
+                              ))
                             ) : (
                               <tr>
-                                <td colSpan="6" className="p-4 text-center text-gray-500">No invoices found</td>
+                                <td colSpan="10" className="p-4 text-center text-gray-500">No invoices found</td>
                               </tr>
                             )}
                           </tbody>
-                          {(paymentSummaryData.invoices || []).length > 0 && (
-                            <tfoot className="bg-gray-50 font-semibold">
+                          {(paymentSummaryData.invoices || []).length > 0 && paymentSummaryData.totals && (
+                            <tfoot className="bg-green-100 font-bold sticky bottom-0">
                               <tr>
-                                <td colSpan="2" className="p-2 sm:p-3 text-right">Total:</td>
-                                <td className="p-2 sm:p-3 text-right">{formatCurrency(paymentSummaryData.total_receivable)}</td>
-                                <td className="p-2 sm:p-3 text-right text-green-600">{formatCurrency(paymentSummaryData.total_paid)}</td>
-                                <td className="p-2 sm:p-3 text-right text-amber-600">{formatCurrency(paymentSummaryData.total_pending)}</td>
-                                <td></td>
+                                <td colSpan={3} className="px-1.5 py-1.5 text-right text-green-800">TOTAL:</td>
+                                <td className="px-1.5 py-1.5 text-right text-gray-800">
+                                  ₹{(paymentSummaryData.totals.gross_value || 0).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-red-700">
+                                  -₹{(paymentSummaryData.totals.rejection_amount || 0).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-blue-700">
+                                  ₹{(paymentSummaryData.totals.total_mrp_value || 0).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-orange-700">
+                                  -₹{(paymentSummaryData.totals.commission_amount || 0).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-green-700">
+                                  ₹{(paymentSummaryData.totals.net_payable || 0).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-purple-700">
+                                  ₹{(paymentSummaryData.totals.paid_amount || 0).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-blue-800 font-bold">
+                                  ₹{(paymentSummaryData.totals.net_due || 0).toLocaleString('en-IN')}
+                                </td>
                               </tr>
                             </tfoot>
                           )}
@@ -5435,10 +5426,69 @@ export default function RetailerDashboard() {
                 )}
               </div>
 
-              <div className="p-3 sm:p-4 border-t flex-shrink-0">
-                <Button variant="outline" className="w-full" onClick={() => setShowPaymentSummaryModal(false)}>
-                  Close
-                </Button>
+              {/* Footer with Net Receivable and Download CSV */}
+              <div className="p-3 sm:p-4 border-t bg-gray-50 flex-shrink-0">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
+                  <div className="text-center sm:text-left">
+                    <span className="text-xs text-gray-600">Net Receivable: </span>
+                    <span className="text-lg font-bold text-blue-700">
+                      ₹{(paymentSummaryData?.totals?.net_due || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setShowPaymentSummaryModal(false)}>
+                      Back
+                    </Button>
+                    <Button 
+                      size="sm"
+                      onClick={() => {
+                        // Export to CSV
+                        if (!paymentSummaryData?.invoices?.length) {
+                          toast.error('No data to export');
+                          return;
+                        }
+                        const headers = ['#', 'Date', 'Invoice #', 'Gross', 'Reject', 'MRP', 'Comm.', 'Payable', 'Paid', 'Net Due'];
+                        const rows = paymentSummaryData.invoices.map(inv => [
+                          inv.serial_num || '',
+                          new Date(inv.dispatch_date || inv.invoice_date).toLocaleDateString('en-IN'),
+                          inv.invoice_number,
+                          inv.gross_value || 0,
+                          -(inv.rejection_amount || 0),
+                          inv.total_mrp_value || 0,
+                          -(inv.commission_amount || 0),
+                          inv.net_payable || 0,
+                          inv.paid_amount || 0,
+                          inv.net_due || 0
+                        ]);
+                        // Add totals row
+                        if (paymentSummaryData.totals) {
+                          rows.push([
+                            '', '', 'TOTAL',
+                            paymentSummaryData.totals.gross_value || 0,
+                            -(paymentSummaryData.totals.rejection_amount || 0),
+                            paymentSummaryData.totals.total_mrp_value || 0,
+                            -(paymentSummaryData.totals.commission_amount || 0),
+                            paymentSummaryData.totals.net_payable || 0,
+                            paymentSummaryData.totals.paid_amount || 0,
+                            paymentSummaryData.totals.net_due || 0
+                          ]);
+                        }
+                        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                        const blob = new Blob([csvContent], { type: 'text/csv' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `payment_summary_${dashboardData?.retailer?.company_name || 'retailer'}_${paymentSummaryStartDate}_to_${paymentSummaryEndDate}.csv`;
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        toast.success('CSV downloaded successfully');
+                      }}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      <Download size={14} className="mr-1" /> Download CSV
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

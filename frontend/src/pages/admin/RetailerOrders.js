@@ -2631,17 +2631,18 @@ export default function RetailerOrders() {
 
   // Recalculate stickers when date changes and we're on stickers tab
   useEffect(() => {
-    if (dailyReqSubTab === 'stickersMrp' && dailyReqDate) {
+    if (dailyReqSubTab === 'stickersMrp' && dailyReqDate && !stickersLoading) {
       calculateStickersData();
     }
-  }, [dailyReqDate, dailyReqSubTab, calculateStickersData]);
+  }, [dailyReqDate, dailyReqSubTab]); // Removed calculateStickersData from deps to prevent loops
 
   // Auto-calculate Daily Requirement when tab is opened or date changes
+  // Added loading check to prevent duplicate calls
   useEffect(() => {
-    if (activeTab === 'dailyRequirement' && dailyReqDate && dailyReqSubTab === 'purchase') {
+    if (activeTab === 'dailyRequirement' && dailyReqDate && dailyReqSubTab === 'purchase' && !dailyReqLoading) {
       calculateDailyRequirement();
     }
-  }, [activeTab, dailyReqDate, dailyReqSubTab, calculateDailyRequirement]);
+  }, [activeTab, dailyReqDate, dailyReqSubTab]); // Removed calculateDailyRequirement from deps to prevent loops
 
   // ==================== MRP TAB FUNCTIONS ====================
   // Load MRP data for a date
@@ -2761,11 +2762,11 @@ export default function RetailerOrders() {
 
   // Auto-load MRP data and indent products when MRP tab is selected - uses dailyReqDate (shared date picker)
   useEffect(() => {
-    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'stickersMrp' && dailyReqDate) {
+    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'stickersMrp' && dailyReqDate && !mrpLoading && !mrpIndentLoading) {
       loadMrpData(dailyReqDate);
       loadMrpIndentProducts(dailyReqDate);
     }
-  }, [activeTab, dailyReqSubTab, dailyReqDate, loadMrpData, loadMrpIndentProducts]);
+  }, [activeTab, dailyReqSubTab, dailyReqDate]); // Removed function deps to prevent loops
 
   // Get retail-applicable packagings
   const retailPackagings = useMemo(() => {
@@ -2808,8 +2809,8 @@ export default function RetailerOrders() {
   // Auto-initialize MRP entries for all indent products that don't have entries yet
   useEffect(() => {
     const autoInitializeMissingEntries = async () => {
-      // Skip if already done for this date or still loading
-      if (mrpAutoInitDone || mrpIndentProducts.length === 0 || mrpLoading || savingMrp) return;
+      // Skip if already done for this date or still loading or no indent products
+      if (mrpAutoInitDone || mrpIndentProducts.length === 0 || mrpLoading || savingMrp || mrpIndentLoading) return;
       
       // Find indent products that don't have MRP entries
       const missingProducts = mrpIndentProducts.filter(item => {
@@ -2862,9 +2863,9 @@ export default function RetailerOrders() {
     };
     
     // Delay slightly to ensure all data is loaded
-    const timer = setTimeout(autoInitializeMissingEntries, 500);
+    const timer = setTimeout(autoInitializeMissingEntries, 1000);
     return () => clearTimeout(timer);
-  }, [mrpIndentProducts, mrpData, mrpLoading, savingMrp, dailyReqDate, blinkitPrices, mrpAutoInitDone]);
+  }, [mrpIndentProducts.length, mrpData.length, mrpLoading, savingMrp, mrpIndentLoading, dailyReqDate, mrpAutoInitDone]);
 
 
   // Load Blinkit prices
@@ -2897,15 +2898,18 @@ export default function RetailerOrders() {
   };
 
   // Load Blinkit prices when MRP tab is selected
+  // Load Blinkit prices when MRP tab is opened (only once per session)
+  const [blinkitLoaded, setBlinkitLoaded] = useState(false);
   useEffect(() => {
-    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'stickersMrp') {
+    if (activeTab === 'dailyRequirement' && dailyReqSubTab === 'stickersMrp' && !blinkitLoaded && !blinkitLoading) {
       loadBlinkitPrices();
+      setBlinkitLoaded(true);
       // Also ensure products and packagings are loaded
       if (products.length === 0 || packagings.length === 0) {
         loadBaseData();
       }
     }
-  }, [activeTab, dailyReqSubTab, loadBlinkitPrices, products.length, packagings.length, loadBaseData]);
+  }, [activeTab, dailyReqSubTab, blinkitLoaded, blinkitLoading, products.length, packagings.length]);
 
   // Update Blinkit price for a product
   const updateBlinkitPrice = async (productId, price) => {

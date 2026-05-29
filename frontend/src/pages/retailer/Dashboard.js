@@ -3686,24 +3686,26 @@ export default function RetailerDashboard() {
                       <thead className="bg-gray-50 border-b">
                         <tr>
                           <th className="p-3 text-left w-8"></th>
-                          <th className="p-3 text-left font-medium text-gray-500">INVOICE #</th>
+                          <th className="p-3 text-center font-medium text-gray-500 w-12">S.NO</th>
+                          <th className="p-3 text-left font-medium text-gray-500">INVOICE</th>
                           <th className="p-3 text-left font-medium text-gray-500">DATE</th>
                           <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
                           <th className="p-3 text-right font-medium text-gray-500">GROSS VALUE</th>
                           <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
                           <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
-                          <th className="p-3 text-right font-medium text-blue-600">PAID AMOUNT</th>
-                          <th className="p-3 text-right font-medium text-gray-500">NET PAYABLE</th>
+                          <th className="p-3 text-right font-medium text-gray-700 font-bold">NET PAYABLE</th>
+                          <th className="p-3 text-right font-medium text-blue-600">PAID</th>
+                          <th className="p-3 text-right font-medium text-orange-600">PENDING</th>
                           <th className="p-3 text-center font-medium text-gray-500">PDF</th>
                           <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                         </tr>
                       </thead>
                       <tbody>
                         {invoices.length === 0 ? (
-                          <tr><td colSpan={11} className="p-8 text-center text-gray-400">No invoices found</td></tr>
-                        ) : invoices.map(invoice => {
-                          const grossValue = invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) * (i.mrp || 0)), 0) || 0;
-                          const rejectionValue = invoice.items?.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0;
+                          <tr><td colSpan={13} className="p-8 text-center text-gray-400">No invoices found</td></tr>
+                        ) : invoices.map((invoice, invoiceIndex) => {
+                          const grossValue = invoice.gross_value || invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) * (i.mrp || 0)), 0) || 0;
+                          const rejectionValue = invoice.rejection_amount || invoice.items?.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0;
                           const netValue = grossValue - rejectionValue;
                           const commissionAmt = invoice.commission_amount || (netValue * (invoice.commission_percentage || 0) / 100);
                           const payableAmt = invoice.net_payable || (netValue - commissionAmt);
@@ -3712,10 +3714,11 @@ export default function RetailerDashboard() {
                           
                           // Get paid amount from invoice or payments
                           const paidAmount = invoice.paid_amount || 0;
-                          const remainingPayable = payableAmt - paidAmount;
+                          const pendingAmount = Math.max(0, payableAmt - paidAmount);
                           
                           // Check for Excess Paid condition
                           const isExcessPaid = paidAmount > payableAmt + 0.01;
+                          const excessAmount = isExcessPaid ? paidAmount - payableAmt : 0;
                           
                           // Get payment details for this invoice
                           const invoicePayments = payments.filter(p => p.invoice_id === invoice.id);
@@ -3726,6 +3729,7 @@ export default function RetailerDashboard() {
                                 <td className="p-3">
                                   {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                 </td>
+                                <td className="p-3 text-center text-gray-500">{invoiceIndex + 1}</td>
                                 <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
                                 <td className="p-3">{formatDate(invoice.invoice_date)}</td>
                                 <td className="p-3 text-center">{invoice.items?.length || 0}</td>
@@ -3734,32 +3738,27 @@ export default function RetailerDashboard() {
                                   {rejectionValue > 0 ? `-${formatCurrency(rejectionValue)}` : '-'}
                                 </td>
                                 <td className="p-3 text-right text-green-600">
-                                  {formatCurrency(commissionAmt)} ({invoice.commission_percentage || 0}%)
+                                  -{formatCurrency(commissionAmt)} ({invoice.commission_percentage || 0}%)
+                                </td>
+                                <td className="p-3 text-right font-bold text-gray-800">
+                                  {formatCurrency(payableAmt)}
                                 </td>
                                 <td className="p-3 text-right text-blue-600 font-medium">
                                   {paidAmount > 0 ? formatCurrency(paidAmount) : '-'}
                                 </td>
-                                <td className="p-3 text-right font-bold">
+                                <td className="p-3 text-right font-medium">
                                   {isExcessPaid ? (
-                                    <span className="text-purple-600">{formatCurrency(Math.abs(remainingPayable))} excess</span>
-                                  ) : isPaid ? (
-                                    <span className="text-green-700">{formatCurrency(payableAmt)}</span>
+                                    <span className="text-purple-600">{formatCurrency(excessAmount)} excess</span>
+                                  ) : pendingAmount > 0 ? (
+                                    <span className="text-orange-600">{formatCurrency(pendingAmount)}</span>
                                   ) : (
-                                    <span className={remainingPayable > 0 ? 'text-orange-600' : 'text-gray-800'}>
-                                      {formatCurrency(remainingPayable > 0 ? remainingPayable : payableAmt)}
-                                    </span>
+                                    <span className="text-green-600">-</span>
                                   )}
                                 </td>
                                 <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
-                                  {isPaid ? (
-                                    <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
-                                      <Download size={14} className="text-blue-600" />
-                                    </Button>
-                                  ) : (
-                                    <span className="text-gray-300" title="PDF available after full payment">
-                                      <Download size={14} />
-                                    </span>
-                                  )}
+                                  <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
+                                    <Download size={14} className="text-blue-600" />
+                                  </Button>
                                 </td>
                                 <td className="p-3 text-center">
                                   {isExcessPaid ? (
@@ -3783,7 +3782,7 @@ export default function RetailerDashboard() {
                               </tr>
                               {expandedInvoices[invoice.id] && (
                                 <tr className="bg-blue-50/50">
-                                  <td colSpan={11} className="p-3">
+                                  <td colSpan={13} className="p-3">
                                     <div className="bg-white rounded-lg border overflow-hidden">
                                       <table className="w-full text-sm">
                                         <thead className="bg-gray-100">
@@ -3821,62 +3820,135 @@ export default function RetailerDashboard() {
                                               </tr>
                                             );
                                           })}
+                                          {/* TOTAL ROW */}
+                                          <tr className="border-t-2 border-gray-300 bg-gray-100 font-bold">
+                                            <td colSpan={3} className="p-2 text-right text-gray-700">TOTAL:</td>
+                                            <td className="p-2 text-center text-gray-700">
+                                              {invoice.items?.reduce((sum, i) => sum + (i.supplied_qty || i.quantity || 0), 0)}
+                                            </td>
+                                            <td className="p-2 text-center text-red-600">
+                                              {rejectionValue > 0 ? `-${invoice.items?.reduce((sum, i) => sum + (i.rejected_qty || 0), 0)}` : '-'}
+                                            </td>
+                                            <td className="p-2 text-center text-green-700">
+                                              {invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) - (i.rejected_qty || 0)), 0)}
+                                            </td>
+                                            <td className="p-2 text-right">-</td>
+                                            <td className="p-2 text-right text-gray-800">{formatCurrency(netValue)}</td>
+                                          </tr>
                                         </tbody>
                                       </table>
                                       
-                                      {/* Payment Details Section - Made more prominent */}
-                                      {(invoicePayments.length > 0 || isPaid) && (
-                                        <div className="border-t-2 border-green-200 bg-green-50 p-4 mt-2">
-                                          <div className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
-                                            <CheckCircle size={16} className="text-green-600" />
-                                            Payment Details
-                                          </div>
-                                          {invoicePayments.length > 0 ? (
-                                            <div className="space-y-2">
-                                              {invoicePayments.map((payment, pIdx) => (
-                                                <div key={pIdx} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-green-200 shadow-sm">
-                                                  <div className="flex items-center gap-4">
-                                                    <span className="text-sm font-medium text-gray-600 bg-green-100 px-2 py-1 rounded">#{pIdx + 1}</span>
-                                                    <span className="text-lg font-bold text-green-700">{formatCurrency(payment.amount)}</span>
-                                                    {payment.payment_mode && (
-                                                      <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">via {payment.payment_mode}</span>
-                                                    )}
-                                                  </div>
-                                                  <div className="text-sm text-gray-600">
-                                                    {payment.payment_date ? (
-                                                      <>
-                                                        <span className="font-medium">Paid on {formatDate(payment.payment_date)}</span>
-                                                        {payment.created_at && (
-                                                          <span className="ml-2 text-gray-500">
-                                                            at {new Date(payment.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                                                          </span>
-                                                        )}
-                                                      </>
-                                                    ) : payment.created_at ? (
-                                                      <>
-                                                        <span className="font-medium">Recorded on {new Date(payment.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                                        <span className="ml-2 text-gray-500">
-                                                          at {new Date(payment.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                      </>
-                                                    ) : null}
-                                                  </div>
-                                                </div>
-                                              ))}
+                                      {/* Invoice Summary with Payment Details */}
+                                      <div className="border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-white p-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                          {/* Invoice Breakdown */}
+                                          <div className="space-y-2">
+                                            <div className="flex justify-between text-sm">
+                                              <span className="text-gray-600">Gross Value:</span>
+                                              <span className="font-medium">{formatCurrency(grossValue)}</span>
                                             </div>
-                                          ) : isPaid && (
-                                            <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-lg border border-green-200">
-                                              <CheckCircle size={20} className="text-green-600" />
-                                              <span className="text-base font-medium text-green-700">
-                                                Payment completed - {formatCurrency(payableAmt)}
+                                            {rejectionValue > 0 && (
+                                              <div className="flex justify-between text-sm">
+                                                <span className="text-red-600">(-) Rejection:</span>
+                                                <span className="font-medium text-red-600">-{formatCurrency(rejectionValue)}</span>
+                                              </div>
+                                            )}
+                                            <div className="flex justify-between text-sm">
+                                              <span className="text-gray-600">MRP Value:</span>
+                                              <span className="font-medium">{formatCurrency(netValue)}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm">
+                                              <span className="text-green-600">(-) Commission ({invoice.commission_percentage}%):</span>
+                                              <span className="font-medium text-green-600">-{formatCurrency(commissionAmt)}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm pt-2 border-t border-gray-200">
+                                              <span className="font-bold text-gray-800">Net Payable:</span>
+                                              <span className="font-bold text-gray-800">{formatCurrency(payableAmt)}</span>
+                                            </div>
+                                          </div>
+                                          
+                                          {/* Payment Status */}
+                                          <div className="bg-white rounded-lg border p-3 space-y-2">
+                                            <div className="flex justify-between text-sm">
+                                              <span className="text-blue-600 font-medium">Paid Amount:</span>
+                                              <span className="font-bold text-blue-600">{formatCurrency(paidAmount)}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm">
+                                              <span className={pendingAmount > 0 ? 'text-orange-600 font-medium' : isExcessPaid ? 'text-purple-600 font-medium' : 'text-green-600 font-medium'}>
+                                                {isExcessPaid ? 'Excess Amount:' : 'Pending Amount:'}
                                               </span>
-                                              {invoice.payment_date && (
-                                                <span className="text-sm text-gray-500">
-                                                  on {formatDate(invoice.payment_date)}
-                                                </span>
+                                              <span className={`font-bold ${pendingAmount > 0 ? 'text-orange-600' : isExcessPaid ? 'text-purple-600' : 'text-green-600'}`}>
+                                                {isExcessPaid ? formatCurrency(excessAmount) : pendingAmount > 0 ? formatCurrency(pendingAmount) : '-'}
+                                              </span>
+                                            </div>
+                                            <div className="flex justify-between text-sm pt-2 border-t">
+                                              <span className="text-gray-600">Status:</span>
+                                              {isExcessPaid ? (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">Excess Paid</span>
+                                              ) : isPaid ? (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Cleared</span>
+                                              ) : isPartial ? (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Partial</span>
+                                              ) : (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">Pending</span>
                                               )}
                                             </div>
-                                          )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Payment Details Section */}
+                                      {invoicePayments.length > 0 && (
+                                        <div className="border-t-2 border-green-200 bg-green-50 p-4">
+                                          <div className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
+                                            <CheckCircle size={16} className="text-green-600" />
+                                            Payment History
+                                          </div>
+                                          <div className="space-y-2">
+                                            {invoicePayments.map((payment, pIdx) => (
+                                              <div key={pIdx} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-green-200 shadow-sm">
+                                                <div className="flex items-center gap-4">
+                                                  <span className="text-sm font-medium text-gray-600 bg-green-100 px-2 py-1 rounded">#{pIdx + 1}</span>
+                                                  <span className="text-lg font-bold text-green-700">{formatCurrency(payment.amount)}</span>
+                                                  {payment.payment_mode && (
+                                                    <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded uppercase">{payment.payment_mode}</span>
+                                                  )}
+                                                </div>
+                                                <div className="text-sm text-gray-600">
+                                                  {payment.payment_date ? (
+                                                    <span className="font-medium">Paid on {formatDate(payment.payment_date)}</span>
+                                                  ) : payment.created_at ? (
+                                                    <span className="font-medium">Recorded on {new Date(payment.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                                  ) : null}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Credit Notes Section */}
+                                      {invoice.credit_notes_applied && invoice.credit_notes_applied.length > 0 && (
+                                        <div className="border-t-2 border-purple-200 bg-purple-50 p-4">
+                                          <div className="text-sm font-semibold text-purple-800 mb-3 flex items-center gap-2">
+                                            <CreditCard size={16} className="text-purple-600" />
+                                            Credit Notes Applied
+                                          </div>
+                                          <div className="space-y-2">
+                                            {invoice.credit_notes_applied.map((cn, cnIdx) => (
+                                              <div key={cnIdx} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-purple-200 shadow-sm">
+                                                <div className="flex items-center gap-4">
+                                                  <span className="text-sm font-medium text-purple-600">{cn.credit_note_number || `CN #${cnIdx + 1}`}</span>
+                                                  <span className="text-lg font-bold text-purple-700">{formatCurrency(cn.amount || cn.adjusted_amount || 0)}</span>
+                                                </div>
+                                                {cn.adjusted_at && (
+                                                  <div className="text-sm text-gray-600">
+                                                    Applied on {new Date(cn.adjusted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
                                         </div>
                                       )}
                                     </div>

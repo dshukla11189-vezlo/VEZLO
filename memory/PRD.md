@@ -2,6 +2,20 @@
 
 ## Changelog (May 2025)
 
+### May 29, 2025 (Session 8) - Part 4
+- **FEATURE**: Payment Ledger Section in Retailer Portal ✅
+  - Added "Payment Ledger" option in hamburger menu (between My Orders and Closing)
+  - Shows all payments received from retailer, grouped by date
+  - Payments with same reference number are summed and shown as one amount
+  - Click on any date to expand and see:
+    - Payment groups (by reference number) with mode and total amount
+    - Which invoices each payment was adjusted against
+    - Credit notes applied on that date
+  - Date range filter to select custom period
+  - Summary cards: Total Received, Credit Notes Applied, Total Transactions
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js`, `/app/backend/server.py`
+  - New API: `GET /api/retailer-payment-ledger`
+
 ### May 29, 2025 (Session 8) - Part 3
 - **FEATURE**: Complete Payment Details in Invoice PDF ✅
   - Downloaded invoice PDF now shows detailed payment history table:

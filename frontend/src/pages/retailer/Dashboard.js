@@ -2250,7 +2250,7 @@ export default function RetailerDashboard() {
   const menuItems = [
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
-    { id: 'ledger', label: t('retailer.ledger') || 'Payment Ledger', icon: FileText },
+    { id: 'ledger', label: 'Payment Ledger', icon: FileText },
     { id: 'closing', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
     { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
   ];
@@ -4253,7 +4253,7 @@ export default function RetailerDashboard() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <FileText className="text-blue-600" size={18} />
-                    {t('retailer.paymentLedger') || 'Payment Ledger'}
+                    Payment Ledger
                   </CardTitle>
                 </div>
                 

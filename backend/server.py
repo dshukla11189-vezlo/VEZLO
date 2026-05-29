@@ -7340,7 +7340,7 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
                 
                 purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
     
-    # Build list of all products that REQUIRE closing (opening > 0 OR purchase > 0, and not already closed)
+    # Build list of all products that REQUIRE closing (opening > 0 OR purchase > 0 OR dispatch > 0, and not already closed)
     products_requiring_closing = []
     
     for product in all_products:
@@ -7357,9 +7357,10 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             opening_qty = yesterday_map.get(product_id, {}).get("closing_qty", 0)
         
         purchase_qty = purchases_by_product.get(product_id, 0)
+        dispatch_qty = existing.get("dispatch_qty", 0) or 0
         
-        # If has opening OR purchase, it requires closing
-        if opening_qty > 0 or purchase_qty > 0:
+        # If has opening OR purchase OR dispatch activity, it requires closing
+        if opening_qty > 0 or purchase_qty > 0 or dispatch_qty != 0:
             products_requiring_closing.append({
                 "product_id": product_id,
                 "product_name": product.get("name", "Unknown")
@@ -9093,6 +9094,7 @@ async def get_closable_products_for_date(
             dispatch_qty = round(dispatches_by_product.get(product_id, 0), 2)
             
             # Skip products with no activity (opening=0, purchase=0, dispatch=0)
+            # Include products with non-zero dispatch (even negative for corrections)
             if opening_qty == 0 and purchase_qty == 0 and dispatch_qty == 0:
                 continue
             

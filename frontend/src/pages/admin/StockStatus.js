@@ -290,9 +290,9 @@ export default function StockStatus() {
   };
 
   const handleSaveClosing = async () => {
-    // Get all OPEN products that need closing (with activity: opening > 0 OR purchase > 0)
+    // Get all OPEN products that need closing (with activity: opening > 0 OR purchase > 0 OR dispatch != 0)
     const openProductsRequiringClosing = closableProductsForDate.filter(p => 
-      p.status === 'open' && (p.opening_qty > 0 || p.purchase_qty > 0)
+      p.status === 'open' && (p.opening_qty > 0 || p.purchase_qty > 0 || (p.dispatch_qty && p.dispatch_qty !== 0))
     );
 
     // Check if ALL required products have closing values entered
@@ -822,7 +822,7 @@ export default function StockStatus() {
                         const wastage = closingQty !== null ? Math.max(0, available - closingQty) : null;
                         const isClosed = item.status === 'closed';
                         const hasValue = closingData[item.product_id] !== '' && closingData[item.product_id] !== undefined && closingData[item.product_id] !== null;
-                        const needsValue = !isClosed && (item.opening_qty > 0 || item.purchase_qty > 0);
+                        const needsValue = !isClosed && (item.opening_qty > 0 || item.purchase_qty > 0 || (item.dispatch_qty && item.dispatch_qty !== 0));
                         const isMissing = needsValue && !hasValue;
                         
                         return (
@@ -881,7 +881,7 @@ export default function StockStatus() {
               
               {/* Summary */}
               {closableProductsForDate.length > 0 && (() => {
-                const openProducts = closableProductsForDate.filter(p => p.status === 'open' && (p.opening_qty > 0 || p.purchase_qty > 0));
+                const openProducts = closableProductsForDate.filter(p => p.status === 'open' && (p.opening_qty > 0 || p.purchase_qty > 0 || (p.dispatch_qty && p.dispatch_qty !== 0)));
                 const filledCount = openProducts.filter(p => 
                   closingData[p.product_id] !== '' && closingData[p.product_id] !== undefined && closingData[p.product_id] !== null
                 ).length;

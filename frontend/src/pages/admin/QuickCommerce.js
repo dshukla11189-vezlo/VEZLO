@@ -2513,8 +2513,8 @@ Email: ${companyEmail}`;
         }
       });
       
-      // Get all GRNs that need updating
-      const grnsToUpdate = grns.filter(g => grnUpdates[g.id]);
+      // Get all GRNs that need updating - use savedGrnData which contains all dates in the Saved GRN tab
+      const grnsToUpdate = savedGrnData.filter(g => grnUpdates[g.id]);
       
       // Update each GRN - store payment difference only on the first item for the date
       let isFirstItem = true;

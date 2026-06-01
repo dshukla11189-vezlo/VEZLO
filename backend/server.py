@@ -2068,6 +2068,7 @@ async def delete_farmer(farmer_id: str, current_user: dict = Depends(get_current
 async def get_procurements(
     from_date: str = None,
     to_date: str = None,
+    filter_by: str = "date",  # 'date' (default) or 'payment_date'
     limit: int = 1000,
     current_user: dict = Depends(get_current_user)
 ):
@@ -2077,15 +2078,25 @@ async def get_procurements(
     # Build query with optional date filters
     # Note: Dates in DB are stored as strings in ISO format
     query = {}
+    
+    # Choose which field to filter by
+    date_field = "payment_date" if filter_by == "payment_date" else "date"
+    
     if from_date or to_date:
         date_filter = {}
         if from_date:
-            # Filter dates >= from_date (string comparison works for ISO dates)
-            date_filter["$gte"] = from_date + "T00:00:00" if 'T' not in from_date else from_date
+            # For payment_date field (YYYY-MM-DD format), use simple string comparison
+            # For date field (ISO format with T), add time component
+            if filter_by == "payment_date":
+                date_filter["$gte"] = from_date  # payment_date is stored as YYYY-MM-DD
+            else:
+                date_filter["$gte"] = from_date + "T00:00:00" if 'T' not in from_date else from_date
         if to_date:
-            # Filter dates <= to_date end of day
-            date_filter["$lte"] = to_date + "T23:59:59" if 'T' not in to_date else to_date
-        query["date"] = date_filter
+            if filter_by == "payment_date":
+                date_filter["$lte"] = to_date  # payment_date is stored as YYYY-MM-DD
+            else:
+                date_filter["$lte"] = to_date + "T23:59:59" if 'T' not in to_date else to_date
+        query[date_field] = date_filter
     
     procurements = await db.procurements.find(query, {"_id": 0}).sort("date", -1).to_list(limit)
     for p in procurements:

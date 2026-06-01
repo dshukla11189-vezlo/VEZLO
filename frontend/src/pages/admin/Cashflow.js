@@ -72,9 +72,11 @@ export default function Cashflow() {
         retailInvoicesRes,
         qcGrnsRes,
         retailersRes,
-        retailerPaymentsRes
+        retailerPaymentsRes,
+        // Fetch procurements by PAYMENT_DATE for outflows (when cash actually moved)
+        procurementsByPaymentDateRes
       ] = await Promise.all([
-        api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`),
+        api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`),  // For Payables (by procurement date)
         api.get(`/api/procurement-payments?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/variable?from_date=${fromDate}&to_date=${toDate}`),
         api.get(`/api/expenses/fixed`),
@@ -82,7 +84,9 @@ export default function Cashflow() {
         api.get(`/api/retailer-invoices?from_date=${fromDate}&to_date=${toDate}`),
         api.get('/api/qc-grns'),
         api.get('/api/retailers'),
-        api.get('/api/retailer-payments')  // Fetch actual payment records
+        api.get('/api/retailer-payments'),  // Fetch actual payment records
+        // Separate call for procurements filtered by payment_date (for cash outflows)
+        api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}&filter_by=payment_date`)
       ]);
       
       // Build retailer lookup map (id -> company_name or name)
@@ -94,10 +98,13 @@ export default function Cashflow() {
       // Get all procurement payments for employee reimbursement tracking
       const allProcurementPayments = procurementPaymentsRes.data || [];
       
-      // Process Procurements (Payables)
+      // Process Procurements (Payables) - filtered by PROCUREMENT DATE
       const procurements = procurementsRes.data || [];
       const procTotal = procurements.reduce((sum, p) => sum + (p.total_amount || 0), 0);
       const procPaid = procurements.reduce((sum, p) => sum + (p.paid_amount || 0), 0);
+      
+      // Procurements filtered by PAYMENT DATE - for Outflows (when cash actually moved)
+      const procurementsByPaymentDate = procurementsByPaymentDateRes.data || [];
       
       // Process Variable Expenses (Payables)
       const varExpenses = variableExpensesRes.data || [];
@@ -411,18 +418,16 @@ export default function Cashflow() {
       let totalOutflow = 0;
       
       // INFLOWS: QC GRN payments received - AGGREGATE BY PAYMENT DATE
-      // Use allQcGrns (not filtered by dispatch_date) because payments can come later
+      // Only include items with actual payment_date (when cash was received)
       const grnByDate = {};
       allQcGrns.forEach(grn => {
         grn.items?.forEach((item) => {
-          // For Payments tab, use payment_date (when money was received), not dispatch_date
+          // Only use payment_date for filtering - this is when cash actually came in
           const paymentDate = (item.payment_date)?.split('T')[0];
-          const dispatchDate = (item.dispatch_date || item.date)?.split('T')[0];
-          // Use payment_date for filtering in Payments, fall back to dispatch_date
-          const dateForFilter = paymentDate || dispatchDate;
           
-          if (dateForFilter >= fromDate && dateForFilter <= toDate && item.payment_received) {
-            const key = paymentDate || dispatchDate; // Group by payment date
+          // Only include if payment was received AND we have a payment date within range
+          if (item.payment_received && paymentDate && paymentDate >= fromDate && paymentDate <= toDate) {
+            const key = paymentDate; // Group by payment date
             if (!grnByDate[key]) {
               grnByDate[key] = {
                 date: key,
@@ -527,17 +532,22 @@ export default function Cashflow() {
       });
       
       // OUTFLOWS: Procurement payments made BY COMPANY (not employee)
-      // Only include if company actually paid the farmer and within date range
-      procurements.forEach(p => {
+      // Use procurementsByPaymentDate (filtered by payment_date, not procurement date)
+      // This shows when cash ACTUALLY went out
+      procurementsByPaymentDate.forEach(p => {
         const paidAmount = p.paid_amount || 0;
         const paidByCompany = !p.paid_by_type || p.paid_by_type === 'company' || p.paid_by_type === '';
-        const procDate = (p.payment_date || p.date)?.split('T')[0];
-        if (paidAmount > 0 && paidByCompany && procDate >= fromDate && procDate <= toDate) {
+        // The payment_date is already filtered by the API
+        const paymentDate = (p.payment_date)?.split('T')[0];
+        
+        // Include if there's a payment and it was paid by company
+        if (paidAmount > 0 && paidByCompany && paymentDate) {
           totalOutflow += paidAmount;
           outflows.push({
             type: 'Procurement',
             recipient: p.farmer_name || 'Farmer',
-            date: p.payment_date || p.date,
+            date: paymentDate,  // Show payment date (when cash moved)
+            procurementDate: p.date?.split('T')[0],  // Keep original date for reference
             description: `${p.items?.length || 0} items`,
             amount: paidAmount,
             payment_mode: p.payment_mode || '-',
@@ -551,78 +561,88 @@ export default function Cashflow() {
       // OUTFLOWS: Variable Expenses - Include both:
       // 1. Company-paid expenses (direct payments) - ONLY if payment_status is 'paid'
       // 2. Settled employee reimbursements (company paid employee back)
+      // Filter by PAYMENT DATE (when cash actually went out)
       varExpenses.forEach(e => {
-        const expDate = (e.date)?.split('T')[0];
-        if (expDate >= fromDate && expDate <= toDate) {
-          const paidByCompany = e.paid_by === 'Company' || 
-            (!e.paid_by_type && !e.paid_by) ||
-            (e.paid_by_type === 'company');
-          
-          // Check if employee-paid AND truly settled (company has reimbursed)
-          // Must have BOTH is_settled=true AND settlement_status='settled'
-          const isEmployeePaid = e.paid_by_type === 'employee' || 
-            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
-          const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
-          const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
-          
-          // For company-paid expenses, ONLY include if payment_status is 'paid'
-          // For employee reimbursements, include if truly settled (company already paid the employee back)
-          const companyPaidAndSettled = paidByCompany && e.payment_status === 'paid';
-          
-          // Include if company paid directly (and status is paid) OR if employee was reimbursed
-          if (companyPaidAndSettled || isEmployeePaidAndSettled) {
-            const amount = e.amount || 0;
-            totalOutflow += amount;
-            outflows.push({
-              type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Variable Expense',
-              recipient: isEmployeePaidAndSettled ? e.paid_by : (e.paid_to || e.category),
-              date: e.settlement_date || e.date,
-              description: `${e.category} - ${e.description || ''}`,
-              amount: amount,
-              payment_mode: e.payment_mode || 'Cash',
-              reference: '-',
-              paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
-              id: e.id
-            });
-          }
+        const paidByCompany = e.paid_by === 'Company' || 
+          (!e.paid_by_type && !e.paid_by) ||
+          (e.paid_by_type === 'company');
+        
+        // Check if employee-paid AND truly settled (company has reimbursed)
+        const isEmployeePaid = e.paid_by_type === 'employee' || 
+          (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
+        const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
+        const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
+        
+        // For company-paid expenses, ONLY include if payment_status is 'paid'
+        const companyPaidAndSettled = paidByCompany && e.payment_status === 'paid';
+        
+        // Determine the actual payment date (when cash moved)
+        // For reimbursements, use settlement_date; for direct payments, use payment_date or date
+        const actualPaymentDate = isEmployeePaidAndSettled 
+          ? (e.settlement_date || e.date)?.split('T')[0]
+          : (e.payment_date || e.date)?.split('T')[0];
+        
+        // Only include if within the filter date range based on PAYMENT DATE
+        if ((companyPaidAndSettled || isEmployeePaidAndSettled) && 
+            actualPaymentDate && actualPaymentDate >= fromDate && actualPaymentDate <= toDate) {
+          const amount = e.amount || 0;
+          totalOutflow += amount;
+          outflows.push({
+            type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Variable Expense',
+            recipient: isEmployeePaidAndSettled ? e.paid_by : (e.paid_to || e.category),
+            date: actualPaymentDate,  // Show actual payment date
+            expenseDate: e.date?.split('T')[0],  // Keep original expense date for reference
+            description: `${e.category} - ${e.description || ''}`,
+            amount: amount,
+            payment_mode: e.payment_mode || 'Cash',
+            reference: '-',
+            paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
+            id: e.id
+          });
         }
       });
       
       // OUTFLOWS: Fixed Expenses - Include both company-paid (if status is Paid) and settled reimbursements
+      // Filter by PAYMENT DATE (when cash actually went out)
       fixedExpenses.forEach(e => {
-        const displayDate = e.date ? e.date.split('T')[0] : 
-          (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
+        const paidByCompany = e.paid_by === 'Company' || 
+          (!e.paid_by_type && !e.paid_by) ||
+          (e.paid_by_type === 'company');
         
-        if (displayDate && displayDate >= fromDate && displayDate <= toDate) {
-          const paidByCompany = e.paid_by === 'Company' || 
-            (!e.paid_by_type && !e.paid_by) ||
-            (e.paid_by_type === 'company');
-          
-          // Check if employee-paid AND truly settled
-          // Must have BOTH is_settled=true AND settlement_status='settled'
-          const isEmployeePaid = e.paid_by_type === 'employee' || 
-            (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
-          const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
-          const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
-          
-          // For company-paid expenses, ONLY include if status is 'Paid'
-          const companyPaidAndSettled = paidByCompany && e.status === 'Paid';
-          
-          if (companyPaidAndSettled || isEmployeePaidAndSettled) {
-            const amount = e.amount || 0;
-            totalOutflow += amount;
-            outflows.push({
-              type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Fixed Expense',
-              recipient: isEmployeePaidAndSettled ? e.paid_by : e.category,
-              date: displayDate,
-              description: e.description || e.category,
-              amount: amount,
-              payment_mode: e.payment_mode || '-',
-              reference: '-',
-              paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
-              id: e.id
-            });
-          }
+        // Check if employee-paid AND truly settled
+        const isEmployeePaid = e.paid_by_type === 'employee' || 
+          (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
+        const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
+        const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
+        
+        // For company-paid expenses, ONLY include if status is 'Paid'
+        const companyPaidAndSettled = paidByCompany && e.status === 'Paid';
+        
+        // Determine actual payment date (when cash moved)
+        // For reimbursements use settlement_date, for direct payments use payment_date or date
+        const expenseDate = e.date ? e.date.split('T')[0] : 
+          (e.year && e.month ? `${e.year}-${String(e.month).padStart(2, '0')}-01` : null);
+        const actualPaymentDate = isEmployeePaidAndSettled 
+          ? (e.settlement_date || expenseDate)?.split('T')[0]
+          : (e.payment_date || expenseDate);
+        
+        // Only include if within filter date range based on PAYMENT DATE
+        if ((companyPaidAndSettled || isEmployeePaidAndSettled) && 
+            actualPaymentDate && actualPaymentDate >= fromDate && actualPaymentDate <= toDate) {
+          const amount = e.amount || 0;
+          totalOutflow += amount;
+          outflows.push({
+            type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Fixed Expense',
+            recipient: isEmployeePaidAndSettled ? e.paid_by : e.category,
+            date: actualPaymentDate,  // Show actual payment date
+            expenseDate: expenseDate,  // Keep original expense date for reference
+            description: e.description || e.category,
+            amount: amount,
+            payment_mode: e.payment_mode || '-',
+            reference: '-',
+            paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
+            id: e.id
+          });
         }
       });
       

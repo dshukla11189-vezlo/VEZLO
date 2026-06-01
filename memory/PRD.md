@@ -1,5 +1,27 @@
 # Mr Organix - Product Requirements Document
 
+## Changelog (June 2025)
+
+### June 1, 2025 (Session 9)
+- **FIX**: Retailer Portal Product Images ✅
+  - Fixed API call to include `include_images=true` parameter
+  - Catalogue API now correctly returns image_url field
+  - Note: Products don't have images uploaded yet (showing placeholder icons is correct behavior)
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (line 303)
+
+- **FEATURE**: Staff Attendance Enhancements ✅
+  - **Date Restriction**: Date picker now limited to current month and last month only
+    - Shows "(Editable: current & last month)" helper text
+    - Uses min/max attributes on date input
+  - **Daily Hours Column**: Renamed "WORKING HRS" to "DAILY HOURS"
+    - Default value: 9 hours
+    - Editable per labourer (range 0-12, step 0.5)
+    - Appears before OT Hours column as requested
+  - **Daily Hours Summary Card**: New purple summary card showing total daily hours
+    - Added to the 4-card summary grid (Total, Present, Daily Hrs, OT Hours)
+  - **Wage Calculation**: Daily hours affects wage calculation (hourly_rate × daily_hours)
+  - Files: `/app/frontend/src/pages/admin/LaborCosts.js`, `/app/backend/routes/labour.py`
+
 ## Changelog (May 2025)
 
 ### May 29, 2025 (Session 8) - Part 5

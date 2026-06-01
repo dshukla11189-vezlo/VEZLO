@@ -25,6 +25,25 @@ export default function LaborCosts() {
   const [activeTab, setActiveTab] = useState('costs'); // 'costs', 'attendance', 'labours', or 'payroll'
   const today = new Date().toISOString().split('T')[0];
   
+  // Calculate allowed date range for attendance editing (current month and last month only)
+  const getAttendanceDateLimits = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed
+    
+    // First day of last month
+    const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    const minDate = new Date(lastMonthYear, lastMonth, 1).toISOString().split('T')[0];
+    
+    // Today is the max date
+    const maxDate = today;
+    
+    return { minDate, maxDate };
+  };
+  
+  const { minDate: attendanceMinDate, maxDate: attendanceMaxDate } = getAttendanceDateLimits();
+  
   // Labours state
   const [labours, setLabours] = useState([]);
   const [loadingLabours, setLoadingLabours] = useState(false);
@@ -430,6 +449,7 @@ export default function LaborCosts() {
   // Calculate attendance totals
   const attendancePresentCount = attendance.filter(a => a.present).length;
   const attendanceAbsentCount = attendance.length - attendancePresentCount;
+  const totalDailyHours = attendance.reduce((sum, a) => sum + (a.present ? (a.working_hours || 9) : 0), 0);
   const totalOvertimeHours = attendance.reduce((sum, a) => sum + (a.present ? a.overtime_hours : 0), 0);
 
   // Labour form handlers
@@ -1118,12 +1138,17 @@ export default function LaborCosts() {
                   type="date"
                   value={attendanceDate}
                   onChange={(e) => setAttendanceDate(e.target.value)}
+                  min={attendanceMinDate}
+                  max={attendanceMaxDate}
                   className="w-40 h-9"
                   data-testid="attendance-date-input"
                 />
                 {attendanceDate === today && (
                   <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Today</span>
                 )}
+                <span className="text-xs text-gray-500">
+                  (Editable: current & last month)
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowCopyModal(true)} data-testid="copy-attendance-btn">
@@ -1155,7 +1180,7 @@ export default function LaborCosts() {
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">
@@ -1178,6 +1203,19 @@ export default function LaborCosts() {
                     <div>
                       <p className="text-[10px] text-green-800 font-medium uppercase">Present</p>
                       <p className="text-lg font-bold text-green-900">{attendancePresentCount}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-purple-600 rounded-lg">
+                      <Clock className="text-white" size={16} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-purple-800 font-medium uppercase">Daily Hrs</p>
+                      <p className="text-lg font-bold text-purple-900">{totalDailyHours}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -1209,7 +1247,7 @@ export default function LaborCosts() {
                     <tr>
                       <th>LABOURER</th>
                       <th className="text-center">STATUS</th>
-                      <th className="text-center">WORKING HRS</th>
+                      <th className="text-center">DAILY HOURS</th>
                       <th className="text-center">OT HOURS</th>
                     </tr>
                   </thead>
@@ -1247,7 +1285,7 @@ export default function LaborCosts() {
                                 max="12"
                                 step="0.5"
                                 className="w-20 h-8 text-center mx-auto"
-                                data-testid={`working-hours-${record.labour_id}`}
+                                data-testid={`daily-hours-${record.labour_id}`}
                               />
                             ) : (
                               <span className="text-gray-400">-</span>

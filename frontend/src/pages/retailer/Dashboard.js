@@ -300,7 +300,7 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-payments'),
         api.get('/api/product-types'),
         api.get('/api/retailer-immediately-payable'),
-        api.get('/api/retailer-catalogue'),  // Load without images first for speed
+        api.get('/api/retailer-catalogue?include_images=true'),  // Include images for product display
         api.get('/api/retailer-catalogue/mrp')
       ]);
       setDashboardData(dashRes.data);

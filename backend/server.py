@@ -2348,6 +2348,12 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
     if "is_settled" in input:
         update_fields["is_settled"] = input["is_settled"]
     
+    # Reimbursement fields for partial/excess reimbursement tracking
+    if "reimbursement_amount" in input:
+        update_fields["reimbursement_amount"] = input["reimbursement_amount"]
+    if "employee_credit_amount" in input:
+        update_fields["employee_credit_amount"] = input["employee_credit_amount"]
+    
     # Date field
     new_date = None
     if "date" in input:

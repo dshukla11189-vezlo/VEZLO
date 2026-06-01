@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock, FileText, Download } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock, FileText, Download, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -210,11 +210,17 @@ export default function Procurement() {
     payment_date: new Date().toISOString().split('T')[0],
     payment_mode: 'bank_transfer',
     payment_reference: '',
-    remarks: ''
+    remarks: '',
+    reimbursement_amount: 0  // For partial reimbursement
   });
   const [selectedForSettlement, setSelectedForSettlement] = useState([]);  // For bulk settlement
   const [selectedForPDF, setSelectedForPDF] = useState([]);  // For PDF download
   const [fixingLegacyData, setFixingLegacyData] = useState(false);  // For legacy data migration
+  
+  // Expanded farmer view state (for date-wise breakdown)
+  const [expandedFarmerId, setExpandedFarmerId] = useState(null);
+  const [selectedPurchasesForPayment, setSelectedPurchasesForPayment] = useState([]);  // Selected individual purchases
+  const [partialPaymentAmounts, setPartialPaymentAmounts] = useState({});  // { purchaseId: amount }
 
   // Farmer form
   const [farmerForm, setFarmerForm] = useState({
@@ -984,7 +990,8 @@ export default function Procurement() {
       payment_date: new Date().toISOString().split('T')[0],
       payment_mode: 'bank_transfer',
       payment_reference: '',
-      remarks: ''
+      remarks: '',
+      reimbursement_amount: procurement.total_amount || 0  // Default to full amount
     });
     setShowSettlementModal(true);
   };
@@ -992,16 +999,39 @@ export default function Procurement() {
   const handleSettlementSubmit = async () => {
     if (!settlementProcurement) return;
     
+    const employeePaidAmount = settlementProcurement.total_amount || 0;
+    const reimbursementAmount = settlementForm.reimbursement_amount || employeePaidAmount;
+    
+    // Validate reimbursement amount
+    if (reimbursementAmount <= 0) {
+      toast.error('Please enter a valid reimbursement amount');
+      return;
+    }
+    
     try {
+      // Calculate if there's excess (credit) for the employee
+      const excessAmount = reimbursementAmount > employeePaidAmount ? reimbursementAmount - employeePaidAmount : 0;
+      const isFullyReimbursed = reimbursementAmount >= employeePaidAmount;
+      
       await api.put(`/api/procurement/${settlementProcurement.id}`, {
-        settlement_status: 'settled',
+        settlement_status: isFullyReimbursed ? 'settled' : 'partial_reimbursement',
         settlement_date: settlementForm.payment_date,
         settlement_mode: settlementForm.payment_mode,
         settlement_reference: settlementForm.payment_reference,
         settlement_remarks: settlementForm.remarks,
-        is_settled: true
+        reimbursement_amount: reimbursementAmount,
+        employee_credit_amount: excessAmount,
+        is_settled: isFullyReimbursed
       });
-      toast.success('Reimbursement recorded successfully');
+      
+      if (excessAmount > 0) {
+        toast.success(`Reimbursement recorded! Employee credit: ₹${excessAmount.toLocaleString('en-IN')}`);
+      } else if (isFullyReimbursed) {
+        toast.success('Full reimbursement recorded successfully');
+      } else {
+        toast.success(`Partial reimbursement of ₹${reimbursementAmount.toLocaleString('en-IN')} recorded`);
+      }
+      
       setShowSettlementModal(false);
       setSettlementProcurement(null);
       loadData();
@@ -1679,28 +1709,49 @@ export default function Procurement() {
     }
 
     try {
+      const paymentDate = new Date().toISOString().split('T')[0];
+      const bulkPaymentReference = bulkPaymentForm.reference || `BULK-${Date.now()}`;
+      
       // Process payments for each selected farmer's pending purchases
       for (const farmerData of selectedFarmersForPayment) {
         for (const purchase of farmerData.purchases) {
           if ((purchase.pending_amount || 0) > 0) {
-            // Mark as fully paid
-            const newPaidAmount = purchase.total_amount;
+            // Check if there's a partial amount specified
+            const partialAmount = farmerData.partial_amounts?.[purchase.id];
+            const payAmount = partialAmount ?? purchase.pending_amount;
+            
+            if (payAmount <= 0) continue;
+            
+            const newPaidAmount = (purchase.paid_amount || 0) + payAmount;
+            const newPendingAmount = (purchase.total_amount || 0) - newPaidAmount;
+            const isFullyPaid = newPendingAmount <= 0.01; // Account for floating point
+            
             await api.put(`/api/procurement/${purchase.id}`, {
               ...purchase,
               paid_amount: newPaidAmount,
-              pending_amount: 0,
-              payment_status: 'paid'
+              pending_amount: Math.max(0, newPendingAmount),
+              payment_status: isFullyPaid ? 'paid' : 'partial',
+              last_payment_date: paymentDate,
+              last_payment_amount: payAmount,
+              last_payment_mode: bulkPaymentForm.payment_mode,
+              last_payment_reference: bulkPaymentReference,
+              bulk_payment_reference: bulkPaymentReference,
+              is_bulk_payment: true
             });
           }
         }
       }
       
-      toast.success(`Payment recorded for ${selectedFarmersForPayment.length} farmer(s)`);
+      const totalFarmers = selectedFarmersForPayment.length;
+      toast.success(`Payment recorded for ${totalFarmers} farmer(s). Ref: ${bulkPaymentReference}`);
       setOpenBulkPayment(false);
       setSelectedFarmersForPayment([]);
+      setSelectedPurchasesForPayment([]);
+      setPartialPaymentAmounts({});
       setBulkPaymentForm({ payment_mode: 'cash', reference: '' });
       loadData();
     } catch (error) {
+      console.error('Bulk payment error:', error);
       toast.error('Failed to record payments');
     }
   };
@@ -3280,6 +3331,7 @@ export default function Procurement() {
                   <thead>
                     <tr>
                       <th className="w-10"></th>
+                      <th className="w-8"></th>
                       <th>FARMER</th>
                       <th>CONTACT</th>
                       <th className="text-right">TOTAL PURCHASES</th>
@@ -3292,41 +3344,248 @@ export default function Procurement() {
                   <tbody>
                     {getFarmerWisePending().map((farmerData) => {
                       const isSelected = selectedFarmersForPayment.some(f => f.farmer_id === farmerData.farmer_id);
+                      const isExpanded = expandedFarmerId === farmerData.farmer_id;
+                      
                       return (
-                        <tr key={farmerData.farmer_id} data-testid={`pending-row-${farmerData.farmer_id}`}>
-                          <td>
-                            <Checkbox
-                              checked={isSelected}
-                              onCheckedChange={() => toggleFarmerSelection(farmerData)}
-                              data-testid={`select-farmer-${farmerData.farmer_id}`}
-                            />
-                          </td>
-                          <td className="font-medium">{farmerData.farmer_name}</td>
-                          <td>
-                            <div className="flex items-center gap-1 text-sm text-gray-600">
-                              <Phone size={12} />
-                              {farmerData.contact || '-'}
-                            </div>
-                          </td>
-                          <td className="text-right">{farmerData.purchase_count}</td>
-                          <td className="text-right font-semibold">₹{farmerData.total_amount.toFixed(2)}</td>
-                          <td className="text-right text-green-700">₹{farmerData.paid_amount.toFixed(2)}</td>
-                          <td className="text-right text-red-700 font-bold">₹{farmerData.pending_amount.toFixed(2)}</td>
-                          <td className="text-center">
-                            <Button
-                              size="sm"
-                              variant="outline"
+                        <React.Fragment key={farmerData.farmer_id}>
+                          <tr 
+                            data-testid={`pending-row-${farmerData.farmer_id}`}
+                            className={isExpanded ? 'bg-blue-50' : 'hover:bg-gray-50'}
+                          >
+                            <td>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleFarmerSelection(farmerData)}
+                                data-testid={`select-farmer-${farmerData.farmer_id}`}
+                              />
+                            </td>
+                            <td>
+                              <button
+                                onClick={() => {
+                                  setExpandedFarmerId(isExpanded ? null : farmerData.farmer_id);
+                                  if (!isExpanded) {
+                                    // Reset selections when expanding a new farmer
+                                    setSelectedPurchasesForPayment([]);
+                                    setPartialPaymentAmounts({});
+                                  }
+                                }}
+                                className="p-1 hover:bg-gray-200 rounded"
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown size={16} className="text-blue-600" />
+                                ) : (
+                                  <ChevronRight size={16} className="text-gray-400" />
+                                )}
+                              </button>
+                            </td>
+                            <td 
+                              className="font-medium cursor-pointer text-blue-700 hover:underline"
                               onClick={() => {
-                                setSelectedFarmersForPayment([farmerData]);
-                                setOpenBulkPayment(true);
+                                setExpandedFarmerId(isExpanded ? null : farmerData.farmer_id);
+                                if (!isExpanded) {
+                                  setSelectedPurchasesForPayment([]);
+                                  setPartialPaymentAmounts({});
+                                }
                               }}
-                              data-testid={`pay-single-${farmerData.farmer_id}`}
                             >
-                              <IndianRupee size={14} className="mr-1" />
-                              Pay
-                            </Button>
-                          </td>
-                        </tr>
+                              {farmerData.farmer_name}
+                            </td>
+                            <td>
+                              <div className="flex items-center gap-1 text-sm text-gray-600">
+                                <Phone size={12} />
+                                {farmerData.contact || '-'}
+                              </div>
+                            </td>
+                            <td className="text-right">{farmerData.purchase_count}</td>
+                            <td className="text-right font-semibold">₹{farmerData.total_amount.toFixed(2)}</td>
+                            <td className="text-right text-green-700">₹{farmerData.paid_amount.toFixed(2)}</td>
+                            <td className="text-right text-red-700 font-bold">₹{farmerData.pending_amount.toFixed(2)}</td>
+                            <td className="text-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedFarmersForPayment([farmerData]);
+                                  setOpenBulkPayment(true);
+                                }}
+                                data-testid={`pay-single-${farmerData.farmer_id}`}
+                              >
+                                <IndianRupee size={14} className="mr-1" />
+                                Pay All
+                              </Button>
+                            </td>
+                          </tr>
+                          
+                          {/* Expanded Date-wise Breakdown */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={9} className="p-0">
+                                <div className="bg-blue-50 border-t border-b border-blue-200 p-4">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h4 className="font-semibold text-blue-800 flex items-center gap-2">
+                                      <Calendar size={16} />
+                                      Date-wise Purchase Summary
+                                    </h4>
+                                    {selectedPurchasesForPayment.length > 0 && (
+                                      <Button
+                                        size="sm"
+                                        className="bg-[#14532D] hover:bg-[#166534]"
+                                        onClick={() => {
+                                          // Calculate selected total
+                                          const selectedTotal = selectedPurchasesForPayment.reduce((sum, purchaseId) => {
+                                            const amount = partialPaymentAmounts[purchaseId] || 
+                                              farmerData.purchases.find(p => p.id === purchaseId)?.pending_amount || 0;
+                                            return sum + amount;
+                                          }, 0);
+                                          
+                                          // Set up bulk payment for selected purchases
+                                          const selectedPurchaseData = {
+                                            ...farmerData,
+                                            purchases: farmerData.purchases.filter(p => selectedPurchasesForPayment.includes(p.id)),
+                                            pending_amount: selectedTotal,
+                                            partial_amounts: partialPaymentAmounts
+                                          };
+                                          setSelectedFarmersForPayment([selectedPurchaseData]);
+                                          setOpenBulkPayment(true);
+                                        }}
+                                      >
+                                        <IndianRupee size={14} className="mr-1" />
+                                        Pay Selected ({selectedPurchasesForPayment.length})
+                                      </Button>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="bg-white rounded-lg border overflow-hidden">
+                                    <table className="w-full text-sm">
+                                      <thead className="bg-gray-100">
+                                        <tr>
+                                          <th className="p-2 text-left w-10">
+                                            <Checkbox
+                                              checked={selectedPurchasesForPayment.length === farmerData.purchases.length && farmerData.purchases.length > 0}
+                                              onCheckedChange={(checked) => {
+                                                if (checked) {
+                                                  setSelectedPurchasesForPayment(farmerData.purchases.map(p => p.id));
+                                                } else {
+                                                  setSelectedPurchasesForPayment([]);
+                                                }
+                                              }}
+                                            />
+                                          </th>
+                                          <th className="p-2 text-left">DATE</th>
+                                          <th className="p-2 text-right">PURCHASE AMOUNT</th>
+                                          <th className="p-2 text-right">PAID</th>
+                                          <th className="p-2 text-right">PENDING</th>
+                                          <th className="p-2 text-right">PAY AMOUNT</th>
+                                          <th className="p-2 text-center">PAYMENT INFO</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {farmerData.purchases
+                                          .sort((a, b) => new Date(b.date) - new Date(a.date))
+                                          .map((purchase) => {
+                                            const isChecked = selectedPurchasesForPayment.includes(purchase.id);
+                                            const payAmount = partialPaymentAmounts[purchase.id] ?? purchase.pending_amount;
+                                            const hasBulkPayment = purchase.bulk_payment_reference || purchase.last_payment_reference;
+                                            
+                                            return (
+                                              <tr 
+                                                key={purchase.id} 
+                                                className={`border-t ${isChecked ? 'bg-green-50' : 'hover:bg-gray-50'}`}
+                                              >
+                                                <td className="p-2">
+                                                  <Checkbox
+                                                    checked={isChecked}
+                                                    onCheckedChange={(checked) => {
+                                                      if (checked) {
+                                                        setSelectedPurchasesForPayment(prev => [...prev, purchase.id]);
+                                                        setPartialPaymentAmounts(prev => ({
+                                                          ...prev,
+                                                          [purchase.id]: purchase.pending_amount
+                                                        }));
+                                                      } else {
+                                                        setSelectedPurchasesForPayment(prev => prev.filter(id => id !== purchase.id));
+                                                        setPartialPaymentAmounts(prev => {
+                                                          const newAmounts = {...prev};
+                                                          delete newAmounts[purchase.id];
+                                                          return newAmounts;
+                                                        });
+                                                      }
+                                                    }}
+                                                  />
+                                                </td>
+                                                <td className="p-2 font-medium">
+                                                  {new Date(purchase.date).toLocaleDateString('en-IN', {
+                                                    day: '2-digit',
+                                                    month: 'short',
+                                                    year: 'numeric'
+                                                  })}
+                                                </td>
+                                                <td className="p-2 text-right">₹{purchase.total_amount?.toFixed(2)}</td>
+                                                <td className="p-2 text-right text-green-700">₹{(purchase.paid_amount || 0).toFixed(2)}</td>
+                                                <td className="p-2 text-right text-red-700 font-semibold">₹{purchase.pending_amount?.toFixed(2)}</td>
+                                                <td className="p-2 text-right">
+                                                  {isChecked ? (
+                                                    <Input
+                                                      type="number"
+                                                      step="0.01"
+                                                      value={payAmount}
+                                                      onChange={(e) => {
+                                                        const value = parseFloat(e.target.value) || 0;
+                                                        setPartialPaymentAmounts(prev => ({
+                                                          ...prev,
+                                                          [purchase.id]: Math.min(value, purchase.pending_amount)
+                                                        }));
+                                                      }}
+                                                      className="w-24 h-7 text-right text-sm"
+                                                      max={purchase.pending_amount}
+                                                    />
+                                                  ) : (
+                                                    <span className="text-gray-400">-</span>
+                                                  )}
+                                                </td>
+                                                <td className="p-2 text-center">
+                                                  {hasBulkPayment ? (
+                                                    <div className="text-xs">
+                                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">
+                                                        <CheckSquare size={10} />
+                                                        Bulk Payment
+                                                      </span>
+                                                      {purchase.last_payment_reference && (
+                                                        <div className="text-gray-500 mt-1">
+                                                          Ref: {purchase.last_payment_reference}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  ) : (
+                                                    <span className="text-gray-400 text-xs">-</span>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        {/* Totals Row */}
+                                        <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                                          <td colSpan={2} className="p-2 text-right">TOTAL:</td>
+                                          <td className="p-2 text-right">₹{farmerData.total_amount.toFixed(2)}</td>
+                                          <td className="p-2 text-right text-green-700">₹{farmerData.paid_amount.toFixed(2)}</td>
+                                          <td className="p-2 text-right text-red-700">₹{farmerData.pending_amount.toFixed(2)}</td>
+                                          <td className="p-2 text-right text-blue-700">
+                                            {selectedPurchasesForPayment.length > 0 && (
+                                              <>₹{selectedPurchasesForPayment.reduce((sum, id) => {
+                                                return sum + (partialPaymentAmounts[id] || farmerData.purchases.find(p => p.id === id)?.pending_amount || 0);
+                                              }, 0).toFixed(2)}</>
+                                            )}
+                                          </td>
+                                          <td></td>
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -3810,32 +4069,79 @@ export default function Procurement() {
 
       {/* Bulk Payment Dialog */}
       <Dialog open={openBulkPayment} onOpenChange={setOpenBulkPayment}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Record Bulk Payment</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <IndianRupee size={20} className="text-green-700" />
+              Record Bulk Payment
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleBulkPayment} className="space-y-4">
             <div className="bg-gray-50 p-4 rounded-lg space-y-3 max-h-60 overflow-y-auto">
               <p className="text-sm font-medium text-gray-700 mb-2">
                 Selected Farmers ({selectedFarmersForPayment.length}):
               </p>
-              {selectedFarmersForPayment.map((farmerData) => (
-                <div key={farmerData.farmer_id} className="flex justify-between items-center text-sm py-2 border-b border-gray-200 last:border-0">
-                  <div>
-                    <p className="font-medium">{farmerData.farmer_name}</p>
-                    <p className="text-xs text-gray-500">{farmerData.purchase_count} pending purchase(s)</p>
+              {selectedFarmersForPayment.map((farmerData) => {
+                // Check if this has specific purchases selected (partial payment scenario)
+                const hasPartialAmounts = farmerData.partial_amounts && Object.keys(farmerData.partial_amounts).length > 0;
+                const totalToPayForFarmer = hasPartialAmounts 
+                  ? Object.values(farmerData.partial_amounts).reduce((sum, amt) => sum + amt, 0)
+                  : farmerData.pending_amount;
+                
+                return (
+                  <div key={farmerData.farmer_id} className="py-2 border-b border-gray-200 last:border-0">
+                    <div className="flex justify-between items-center text-sm">
+                      <div>
+                        <p className="font-medium">{farmerData.farmer_name}</p>
+                        <p className="text-xs text-gray-500">
+                          {farmerData.purchases?.length || farmerData.purchase_count} pending purchase(s)
+                        </p>
+                      </div>
+                      <span className="font-bold text-green-700">₹{totalToPayForFarmer.toFixed(2)}</span>
+                    </div>
+                    
+                    {/* Show date-wise breakdown for selected purchases */}
+                    {hasPartialAmounts && (
+                      <div className="mt-2 pl-3 border-l-2 border-green-300 space-y-1">
+                        {farmerData.purchases.map(purchase => {
+                          const payAmount = farmerData.partial_amounts[purchase.id];
+                          if (!payAmount) return null;
+                          return (
+                            <div key={purchase.id} className="flex justify-between text-xs text-gray-600">
+                              <span>
+                                {new Date(purchase.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                {payAmount < purchase.pending_amount && (
+                                  <span className="ml-1 text-orange-600">(Partial)</span>
+                                )}
+                              </span>
+                              <span>₹{payAmount.toFixed(2)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <span className="font-bold text-red-700">₹{farmerData.pending_amount.toFixed(2)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="bg-green-50 p-4 rounded-lg border border-green-200">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-green-800">Total Payment Amount:</span>
-                <span className="text-2xl font-bold text-green-700">₹{getSelectedTotalPending().toFixed(2)}</span>
+                <span className="text-2xl font-bold text-green-700">
+                  ₹{selectedFarmersForPayment.reduce((sum, f) => {
+                    const hasPartialAmounts = f.partial_amounts && Object.keys(f.partial_amounts).length > 0;
+                    return sum + (hasPartialAmounts 
+                      ? Object.values(f.partial_amounts).reduce((s, a) => s + a, 0)
+                      : f.pending_amount);
+                  }, 0).toFixed(2)}
+                </span>
               </div>
-              <p className="text-xs text-green-600 mt-1">All pending amounts will be marked as paid</p>
+              <p className="text-xs text-green-600 mt-1">
+                {selectedFarmersForPayment.some(f => f.partial_amounts && Object.keys(f.partial_amounts).length > 0) 
+                  ? 'Selected amounts will be marked as paid'
+                  : 'All pending amounts will be marked as paid'}
+              </p>
             </div>
 
             <div>
@@ -3857,7 +4163,7 @@ export default function Procurement() {
             </div>
 
             <div>
-              <Label htmlFor="bulk-payment-reference">Reference / Note</Label>
+              <Label htmlFor="bulk-payment-reference">Reference / Transaction ID *</Label>
               <Input
                 id="bulk-payment-reference"
                 placeholder="Transaction ID, Cheque number, etc."
@@ -3865,6 +4171,7 @@ export default function Procurement() {
                 value={bulkPaymentForm.reference}
                 onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, reference: e.target.value })}
               />
+              <p className="text-xs text-gray-500 mt-1">This reference will be recorded against all selected purchases</p>
             </div>
 
             <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-bulk-payment-button">
@@ -3885,10 +4192,64 @@ export default function Procurement() {
                 Record Reimbursement
               </h3>
               <p className="text-sm text-purple-600 mt-1">
-                Paid by: {settlementProcurement.paid_by} | Amount: ₹{settlementProcurement.total_amount?.toLocaleString('en-IN')}
+                Paid by: {settlementProcurement.paid_by}
               </p>
             </div>
+            
+            {/* Amount Summary */}
+            <div className="p-4 bg-gray-50 border-b space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Purchase Amount:</span>
+                <span className="font-medium">₹{(settlementProcurement.total_amount || 0).toLocaleString('en-IN')}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Employee Paid:</span>
+                <span className="font-medium text-blue-700">₹{(settlementProcurement.total_amount || 0).toLocaleString('en-IN')}</span>
+              </div>
+              {settlementForm.reimbursement_amount > settlementProcurement.total_amount && (
+                <div className="flex justify-between text-sm pt-2 border-t">
+                  <span className="text-green-700 font-medium">Employee Credit:</span>
+                  <span className="font-bold text-green-700">
+                    ₹{(settlementForm.reimbursement_amount - settlementProcurement.total_amount).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              )}
+            </div>
+            
             <div className="p-4 space-y-4">
+              {/* Reimbursement Amount Field */}
+              <div>
+                <Label className="text-sm font-medium">Reimbursement Amount *</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={settlementForm.reimbursement_amount}
+                    onChange={(e) => setSettlementForm(prev => ({ 
+                      ...prev, 
+                      reimbursement_amount: parseFloat(e.target.value) || 0 
+                    }))}
+                    className="flex-1"
+                    data-testid="reimbursement-amount-input"
+                  />
+                  <Button 
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettlementForm(prev => ({ 
+                      ...prev, 
+                      reimbursement_amount: settlementProcurement.total_amount || 0 
+                    }))}
+                    className="text-xs whitespace-nowrap"
+                  >
+                    Full Amount
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter the amount to reimburse. Can be partial or include excess (creates credit).
+                </p>
+              </div>
+              
               <div>
                 <Label className="text-sm">Reimbursement Date *</Label>
                 <Input
@@ -3948,8 +4309,12 @@ export default function Procurement() {
               <Button 
                 className="flex-1 bg-purple-600 hover:bg-purple-700" 
                 onClick={handleSettlementSubmit}
+                disabled={settlementForm.reimbursement_amount <= 0}
               >
-                <Check size={14} className="mr-1" /> Record Reimbursement
+                <Check size={14} className="mr-1" /> 
+                {settlementForm.reimbursement_amount < settlementProcurement.total_amount 
+                  ? 'Record Partial' 
+                  : 'Record Reimbursement'}
               </Button>
             </div>
           </div>

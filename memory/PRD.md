@@ -2,6 +2,33 @@
 
 ## Changelog (June 2025)
 
+### June 1, 2025 (Session 9) - Part 2
+- **FEATURE**: Partial Reimbursement for Employee-Paid Procurements ✅
+  - Added editable "Reimbursement Amount" field to settlement modal
+  - Supports partial reimbursement (any amount up to or exceeding paid amount)
+  - Creates employee credit when reimbursement exceeds purchase amount
+  - Shows "Full Amount" quick-fill button
+  - Displays real-time credit calculation in modal
+  - Files: `/app/frontend/src/pages/admin/Procurement.js` (lines 206-225, 998-1040, 4137-4230)
+
+- **FEATURE**: Expandable Farmer-wise Date Summary in Pending Payments ✅
+  - Click farmer name or chevron icon to expand row
+  - Shows date-wise purchase breakdown: Date | Purchase Amount | Paid | Pending | Pay Amount
+  - Checkboxes for selecting individual purchases
+  - Editable partial payment amounts per purchase
+  - "Pay Selected" button appears when dates are selected
+  - Shows totals row at bottom
+  - Files: `/app/frontend/src/pages/admin/Procurement.js` (lines 3291-3596)
+
+- **FEATURE**: Bulk Payment Tracking & Display ✅
+  - Updated Bulk Payment Modal to show date-wise breakdown
+  - Shows "(Partial)" indicator for partial amounts
+  - Displays total payment amount with summary
+  - Records payment reference against all selected purchases
+  - Added `bulk_payment_reference`, `last_payment_reference`, `last_payment_mode` fields
+  - Shows "Bulk Payment" badge on paid dates
+  - Files: `/app/frontend/src/pages/admin/Procurement.js` (lines 1703-1757, 4070-4160)
+
 ### June 1, 2025 (Session 9)
 - **FIX**: Retailer Portal Product Images ✅
   - Fixed API call to include `include_images=true` parameter

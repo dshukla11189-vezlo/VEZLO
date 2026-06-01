@@ -218,6 +218,7 @@ export default function RetailerDashboard() {
   // NEW: Cart-based indent system
   const [catalogue, setCatalogue] = useState([]); // Products from admin catalogue
   const [catalogueLoading, setCatalogueLoading] = useState(false);
+  const [catalogueError, setCatalogueError] = useState(false); // Track if catalogue failed to load
   const [cart, setCart] = useState({}); // {productId_variantId: {product, variant, quantity}}
   const [showCart, setShowCart] = useState(false);
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({}); // Categories collapsed by default
@@ -344,6 +345,7 @@ export default function RetailerDashboard() {
 
   const loadData = useCallback(async (retryCount = 0) => {
     setLoading(true);
+    setCatalogueError(false); // Reset error state
     try {
       // Use Promise.allSettled to prevent single API failure from breaking entire load
       const results = await Promise.allSettled([
@@ -389,6 +391,14 @@ export default function RetailerDashboard() {
       const catalogueData = getData(catalogueRes, []);
       const filteredCatalogue = (catalogueData || []).filter(item => item.show_on_portal !== false);
       setCatalogue(filteredCatalogue);
+      
+      // Track if catalogue specifically failed
+      if (catalogueRes.status === 'rejected') {
+        setCatalogueError(true);
+        console.error('Catalogue failed to load:', catalogueRes.reason);
+      } else {
+        setCatalogueError(false);
+      }
       
       // Note: Images are lazy-loaded by the LazyImage component when they enter the viewport
       // This prevents browser crashes by only loading visible images
@@ -3078,9 +3088,21 @@ export default function RetailerDashboard() {
             {/* Product Categories */}
             {catalogueLoading ? (
               <div className="text-center py-8 text-gray-500">Loading products...</div>
+            ) : catalogueError ? (
+              <div className="text-center py-8">
+                <div className="text-red-500 mb-2">Failed to load products. Please try again.</div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => window.location.reload()}
+                  className="text-sm"
+                >
+                  Refresh Page
+                </Button>
+              </div>
             ) : catalogue.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                No products available. Please contact admin.
+                No products available. Please contact admin to add products.
               </div>
             ) : (
               <div className="space-y-3">

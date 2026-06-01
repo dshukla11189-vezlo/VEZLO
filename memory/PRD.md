@@ -2,22 +2,43 @@
 
 ## Changelog (June 2025)
 
-### June 1, 2025 (Session 10) - Stability Improvements
+### June 1, 2025 (Session 10) - Stability & Login Improvements
 - **FIX**: Retailer Portal Crash Prevention ✅
   - Changed `Promise.all` to `Promise.allSettled` in `loadData()` function
   - Added automatic retry mechanism (up to 3 attempts with exponential backoff)
-  - Dashboard now loads gracefully even if some APIs fail (non-critical ones won't crash the page)
-  - Improved error handling for edge cases
+  - Dashboard now loads gracefully even if some APIs fail
   - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (lines 307-380)
 
 - **FIX**: LazyImage Component Improvements ✅
   - Added `isMounted` ref to prevent React state updates on unmounted components
   - Added fallback for browsers without IntersectionObserver support
   - Better error handling with try/catch around observer creation
-  - Fixed potential `className` undefined issues
-  - Improved accessibility with `role="img"` and `aria-label` attributes
-  - Increased `rootMargin` back to 100px for smoother preloading
   - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (lines 22-110)
+
+- **FIX**: Login - Case-Insensitive Email ✅
+  - Email login now works regardless of case (e.g., "TEST@GMAIL.COM" matches "test@gmail.com")
+  - Uses MongoDB regex with case-insensitive flag
+  - Files: `/app/backend/server.py` (login function ~line 845)
+
+- **FIX**: Login - Phone Number Normalization ✅
+  - Users can now login with phone number in ANY format:
+    - Just 10 digits: `9876543210`
+    - With +91 prefix: `+919876543210`
+    - With spaces: `+91 98765 43210`
+    - With 91 prefix (no plus): `919876543210`
+  - Uses MongoDB aggregation to normalize stored contacts during comparison
+  - Files: `/app/backend/server.py` (login function ~line 845)
+
+- **NEW**: Contact Normalization Endpoint ✅
+  - Added `/api/users/normalize-contacts` endpoint for admin to normalize all existing user contacts and emails
+  - Removes spaces, dashes, and +91 prefix from contacts
+  - Converts emails to lowercase
+  - Files: `/app/backend/server.py` (~line 1050)
+
+- **IMPROVEMENT**: User Creation/Update Normalization ✅
+  - New users' contact numbers are now normalized on creation
+  - Emails are stored in lowercase for consistent searching
+  - Files: `/app/backend/server.py` (create_user, update_user functions)
 
 ### June 1, 2025 (Session 9) - Part 2
 - **FEATURE**: Partial Reimbursement for Employee-Paid Procurements ✅

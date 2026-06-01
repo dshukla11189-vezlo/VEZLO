@@ -843,15 +843,86 @@ async def register(input: RegisterRequest):
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(input: LoginRequest):
+    import re
     # Check if identifier is email or mobile number
     identifier = input.identifier.strip()
     
-    # Search by email first, then by contact (mobile)
-    user = await db.users.find_one({"email": identifier}, {"_id": 0})
+    # Search by email first (case-insensitive)
+    # Escape special regex characters in email
+    escaped_email = re.escape(identifier)
+    user = await db.users.find_one(
+        {"email": {"$regex": f"^{escaped_email}$", "$options": "i"}}, 
+        {"_id": 0}
+    )
     
     if not user:
         # Try searching by mobile/contact number
+        # Normalize the input: remove spaces, dashes, and handle +91 prefix
+        normalized_contact = identifier.replace(" ", "").replace("-", "").replace("+91", "")
+        # If number starts with 91 and is longer than 10 digits, strip 91
+        if normalized_contact.startswith("91") and len(normalized_contact) > 10:
+            normalized_contact = normalized_contact[2:]
+        
+        # Search with exact match first
         user = await db.users.find_one({"contact": identifier}, {"_id": 0})
+        
+        # If not found, try normalized version
+        if not user and normalized_contact != identifier:
+            user = await db.users.find_one({"contact": normalized_contact}, {"_id": 0})
+        
+        # Also try searching with stored contact that may have different format
+        # by normalizing both sides before comparison
+        if not user:
+            # Use aggregation pipeline to normalize stored contacts and compare
+            pipeline = [
+                {
+                    "$addFields": {
+                        "normalized_contact": {
+                            "$replaceAll": {
+                                "input": {
+                                    "$replaceAll": {
+                                        "input": {
+                                            "$replaceAll": {
+                                                "input": {"$ifNull": ["$contact", ""]},
+                                                "find": " ",
+                                                "replacement": ""
+                                            }
+                                        },
+                                        "find": "-",
+                                        "replacement": ""
+                                    }
+                                },
+                                "find": "+91",
+                                "replacement": ""
+                            }
+                        }
+                    }
+                },
+                {
+                    "$match": {
+                        "$expr": {
+                            "$or": [
+                                {"$eq": ["$normalized_contact", normalized_contact]},
+                                {"$regexMatch": {"input": "$normalized_contact", "regex": f"{normalized_contact}$"}}
+                            ]
+                        }
+                    }
+                },
+                {"$project": {"_id": 0}}
+            ]
+            
+            try:
+                result = await db.users.aggregate(pipeline).to_list(1)
+                if result:
+                    user = result[0]
+            except Exception as e:
+                logger.error(f"Phone aggregation error: {e}")
+                # Fallback to regex if aggregation fails
+                escaped_contact = re.escape(normalized_contact)
+                user = await db.users.find_one(
+                    {"contact": {"$regex": f"{escaped_contact}$"}}, 
+                    {"_id": 0}
+                )
     
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -895,15 +966,32 @@ async def get_users(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/users")
 async def create_user(input: RegisterRequest, current_user: dict = Depends(get_current_user)):
+    import re
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admins can create users")
     
-    existing = await db.users.find_one({"email": input.email}, {"_id": 0})
+    # Case-insensitive email check (escape special characters)
+    escaped_email = re.escape(input.email)
+    existing = await db.users.find_one(
+        {"email": {"$regex": f"^{escaped_email}$", "$options": "i"}}, 
+        {"_id": 0}
+    )
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user_dict = input.model_dump()
     user_dict["password"] = hash_password(user_dict.pop("password"))
+    
+    # Normalize contact number - remove spaces, dashes, and +91/91 prefix
+    if user_dict.get("contact"):
+        contact = user_dict["contact"].replace(" ", "").replace("-", "").replace("+91", "")
+        if contact.startswith("91") and len(contact) > 10:
+            contact = contact[2:]
+        user_dict["contact"] = contact
+    
+    # Store email in lowercase for consistent searching
+    if user_dict.get("email"):
+        user_dict["email"] = user_dict["email"].lower()
     
     # Generate 5-digit referral code for retailers
     if user_dict.get("role") == "retailer":
@@ -924,6 +1012,7 @@ async def create_user(input: RegisterRequest, current_user: dict = Depends(get_c
 
 @api_router.put("/users/{user_id}")
 async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depends(get_current_user)):
+    import re
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admins can update users")
     
@@ -936,11 +1025,16 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
     if input.name:
         update_data["name"] = input.name
     if input.email:
-        # Check if email is already taken by another user
-        email_check = await db.users.find_one({"email": input.email, "id": {"$ne": user_id}})
+        # Check if email is already taken by another user (case-insensitive)
+        escaped_email = re.escape(input.email)
+        email_check = await db.users.find_one({
+            "email": {"$regex": f"^{escaped_email}$", "$options": "i"}, 
+            "id": {"$ne": user_id}
+        })
         if email_check:
             raise HTTPException(status_code=400, detail="Email already in use")
-        update_data["email"] = input.email
+        # Store email in lowercase
+        update_data["email"] = input.email.lower()
     if input.password:
         update_data["password"] = hash_password(input.password)
     if input.role:
@@ -948,7 +1042,11 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
     if input.company_name is not None:
         update_data["company_name"] = input.company_name
     if input.contact is not None:
-        update_data["contact"] = input.contact
+        # Normalize contact number
+        contact = input.contact.replace(" ", "").replace("-", "").replace("+91", "")
+        if contact.startswith("91") and len(contact) > 10:
+            contact = contact[2:]
+        update_data["contact"] = contact
     if input.address is not None:
         update_data["address"] = input.address
     if input.commission_percentage is not None:
@@ -975,6 +1073,38 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=404, detail="User not found")
     
     return {"message": "User deleted successfully"}
+
+
+@api_router.post("/users/normalize-contacts")
+async def normalize_user_contacts(current_user: dict = Depends(get_current_user)):
+    """Admin-only endpoint to normalize all users' contact numbers and emails"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run this")
+    
+    users = await db.users.find({}, {"_id": 0, "id": 1, "contact": 1, "email": 1}).to_list(10000)
+    updated_count = 0
+    
+    for user in users:
+        update_data = {}
+        
+        # Normalize contact number
+        if user.get("contact"):
+            contact = user["contact"].replace(" ", "").replace("-", "").replace("+91", "")
+            if contact.startswith("91") and len(contact) > 10:
+                contact = contact[2:]
+            if contact != user["contact"]:
+                update_data["contact"] = contact
+        
+        # Normalize email to lowercase
+        if user.get("email") and user["email"] != user["email"].lower():
+            update_data["email"] = user["email"].lower()
+        
+        if update_data:
+            await db.users.update_one({"id": user["id"]}, {"$set": update_data})
+            updated_count += 1
+    
+    return {"message": f"Normalized {updated_count} user records"}
+
 
 # ============================================================================
 # SECTION: PRODUCTS & PACKAGING ROUTES (Lines ~310-375)

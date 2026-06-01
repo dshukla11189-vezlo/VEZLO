@@ -1668,6 +1668,16 @@ export default function VariableExpenses() {
                     placeholder="Enter reference number"
                   />
                 </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Remarks</label>
+                  <Input
+                    value={reimbursementForm.remarks}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    placeholder="Optional notes for this reimbursement..."
+                    data-testid="bulk-settlement-remarks"
+                  />
+                </div>
               </div>
               <div className="p-4 border-t flex gap-2 flex-shrink-0">
                 <Button variant="outline" className="flex-1" onClick={() => { setShowBulkSettlementModal(false); setBulkSettlementEmployee(null); }}>

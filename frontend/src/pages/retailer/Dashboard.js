@@ -19,67 +19,105 @@ import { useNavigate } from 'react-router-dom';
 
 // Lazy loading image component - only loads image when visible in viewport
 // Optimized for performance: only loads images when they enter the viewport
+// Includes robust error handling and memory cleanup
 const LazyImage = ({ src, alt, className, onError, onClick }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [hasError, setHasError] = useState(false);
   const imgRef = useRef(null);
   const observerRef = useRef(null);
+  const isMounted = useRef(true);
   
   useEffect(() => {
-    if (!src) return;
+    isMounted.current = true;
     
-    // Create intersection observer to detect when image enters viewport
-    observerRef.current = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          // Disconnect after first intersection to save memory
-          if (observerRef.current) {
-            observerRef.current.disconnect();
-            observerRef.current = null;
+    // Early return for empty/invalid src
+    if (!src || typeof src !== 'string' || src.trim() === '') {
+      return;
+    }
+    
+    // Skip IntersectionObserver if not supported (fallback to immediate load)
+    if (!('IntersectionObserver' in window)) {
+      setIsVisible(true);
+      return;
+    }
+    
+    try {
+      // Create intersection observer to detect when image enters viewport
+      observerRef.current = new IntersectionObserver(
+        ([entry]) => {
+          if (entry?.isIntersecting && isMounted.current) {
+            setIsVisible(true);
+            // Disconnect after first intersection to save memory
+            if (observerRef.current) {
+              observerRef.current.disconnect();
+              observerRef.current = null;
+            }
           }
+        },
+        { 
+          rootMargin: '100px', // Start loading 100px before entering viewport
+          threshold: 0.01 
         }
-      },
-      { 
-        rootMargin: '50px', // Start loading 50px before entering viewport (reduced from 100px)
-        threshold: 0.01 
+      );
+      
+      if (imgRef.current && observerRef.current) {
+        observerRef.current.observe(imgRef.current);
       }
-    );
-    
-    if (imgRef.current) {
-      observerRef.current.observe(imgRef.current);
+    } catch (err) {
+      // Fallback if observer fails
+      console.warn('IntersectionObserver error, falling back to immediate load:', err);
+      if (isMounted.current) {
+        setIsVisible(true);
+      }
     }
     
     // Cleanup on unmount
     return () => {
+      isMounted.current = false;
       if (observerRef.current) {
-        observerRef.current.disconnect();
+        try {
+          observerRef.current.disconnect();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
         observerRef.current = null;
       }
     };
   }, [src]);
   
-  const handleLoad = () => setIsLoaded(true);
+  const handleLoad = () => {
+    if (isMounted.current) {
+      setIsLoaded(true);
+    }
+  };
+  
   const handleError = () => {
-    setHasError(true);
-    if (onError) onError();
+    if (isMounted.current) {
+      setHasError(true);
+      if (onError) onError();
+    }
   };
   
   // Show placeholder for missing or errored images
   if (!src || hasError) {
     return (
-      <div className={`${className} bg-gray-100 rounded border flex items-center justify-center`} onClick={onClick}>
+      <div 
+        className={`${className || ''} bg-gray-100 rounded border flex items-center justify-center flex-shrink-0`} 
+        onClick={onClick}
+        role="img"
+        aria-label={alt || 'No image'}
+      >
         <ImageIcon size={16} className="text-gray-400" />
       </div>
     );
   }
   
   return (
-    <div ref={imgRef} className="relative" onClick={onClick}>
+    <div ref={imgRef} className="relative flex-shrink-0" onClick={onClick}>
       {/* Show loading skeleton until image loads */}
       {!isLoaded && (
-        <div className={`${className} bg-gray-100 rounded border flex items-center justify-center animate-pulse`}>
+        <div className={`${className || ''} bg-gray-100 rounded border flex items-center justify-center animate-pulse`}>
           <ImageIcon size={16} className="text-gray-300" />
         </div>
       )}
@@ -87,8 +125,8 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
       {isVisible && (
         <img
           src={src}
-          alt={alt}
-          className={`${className} ${isLoaded ? '' : 'absolute opacity-0'}`}
+          alt={alt || ''}
+          className={`${className || ''} ${isLoaded ? '' : 'absolute opacity-0 top-0 left-0'}`}
           onLoad={handleLoad}
           onError={handleError}
           loading="lazy"
@@ -304,10 +342,11 @@ export default function RetailerDashboard() {
   const [grnItems, setGrnItems] = useState([]);
   const [confirmedGrns, setConfirmedGrns] = useState({}); // Track which dispatches have confirmed GRNs
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (retryCount = 0) => {
     setLoading(true);
     try {
-      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes, catalogueRes, mrpRes] = await Promise.all([
+      // Use Promise.allSettled to prevent single API failure from breaking entire load
+      const results = await Promise.allSettled([
         api.get('/api/retailer-dashboard'),
         api.get('/api/retailer-indents'),
         api.get('/api/retailer-dispatches'),
@@ -322,35 +361,64 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-catalogue?include_images=true'),  // Include images for product display
         api.get('/api/retailer-catalogue/mrp')
       ]);
-      setDashboardData(dashRes.data);
-      setIndents(indentsRes.data);
-      setDispatches(dispatchesRes.data);
-      setInvoices(invoicesRes.data);
-      setRejections(rejectionsRes.data);
-      setProducts(productsRes.data);
-      setPackagings(packagingsRes.data);
-      setPayments(paymentsRes.data || []);
-      setProductTypes(typesRes.data || []);
-      setImmediatelyPayable(payableRes.data || null);
+      
+      // Helper to safely extract data from settled result
+      const getData = (result, fallback = null) => {
+        return result.status === 'fulfilled' ? result.value.data : fallback;
+      };
+      
+      const [dashRes, indentsRes, dispatchesRes, invoicesRes, rejectionsRes, productsRes, packagingsRes, grnsRes, paymentsRes, typesRes, payableRes, catalogueRes, mrpRes] = results;
+      
+      // Check if critical APIs failed (dashboard is essential)
+      if (dashRes.status === 'rejected') {
+        throw new Error('Dashboard data failed to load');
+      }
+      
+      setDashboardData(getData(dashRes));
+      setIndents(getData(indentsRes, []));
+      setDispatches(getData(dispatchesRes, []));
+      setInvoices(getData(invoicesRes, []));
+      setRejections(getData(rejectionsRes, []));
+      setProducts(getData(productsRes, []));
+      setPackagings(getData(packagingsRes, []));
+      setPayments(getData(paymentsRes, []) || []);
+      setProductTypes(getData(typesRes, []) || []);
+      setImmediatelyPayable(getData(payableRes) || null);
+      
       // Filter catalogue to only show items with show_on_portal: true
-      const filteredCatalogue = (catalogueRes.data || []).filter(item => item.show_on_portal !== false);
+      const catalogueData = getData(catalogueRes, []);
+      const filteredCatalogue = (catalogueData || []).filter(item => item.show_on_portal !== false);
       setCatalogue(filteredCatalogue);
       
       // Note: Images are lazy-loaded by the LazyImage component when they enter the viewport
       // This prevents browser crashes by only loading visible images
       
       // Set MRP data
-      setMrpData(mrpRes.data?.mrp_data || {});
+      const mrpResponse = getData(mrpRes, {});
+      setMrpData(mrpResponse?.mrp_data || {});
       
       // Build a map of dispatch_id -> GRN confirmed status
       const grnMap = {};
-      (grnsRes.data || []).forEach(grn => {
+      (getData(grnsRes, []) || []).forEach(grn => {
         grnMap[grn.dispatch_id] = true;
       });
       setConfirmedGrns(grnMap);
+      
+      // Log any failed API calls for debugging (but don't crash)
+      const failedCalls = results.filter(r => r.status === 'rejected');
+      if (failedCalls.length > 0) {
+        console.warn(`${failedCalls.length} API call(s) failed but dashboard loaded with available data`);
+      }
     } catch (error) {
       console.error('Failed to load data:', error);
-      toast.error('Failed to load data');
+      // Retry up to 2 times with exponential backoff
+      if (retryCount < 2) {
+        const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s
+        console.log(`Retrying in ${delay}ms... (attempt ${retryCount + 2}/3)`);
+        setTimeout(() => loadData(retryCount + 1), delay);
+        return;
+      }
+      toast.error('Failed to load data. Please refresh the page.');
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,23 @@
 
 ## Changelog (June 2025)
 
+### June 1, 2025 (Session 10) - Stability Improvements
+- **FIX**: Retailer Portal Crash Prevention ✅
+  - Changed `Promise.all` to `Promise.allSettled` in `loadData()` function
+  - Added automatic retry mechanism (up to 3 attempts with exponential backoff)
+  - Dashboard now loads gracefully even if some APIs fail (non-critical ones won't crash the page)
+  - Improved error handling for edge cases
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (lines 307-380)
+
+- **FIX**: LazyImage Component Improvements ✅
+  - Added `isMounted` ref to prevent React state updates on unmounted components
+  - Added fallback for browsers without IntersectionObserver support
+  - Better error handling with try/catch around observer creation
+  - Fixed potential `className` undefined issues
+  - Improved accessibility with `role="img"` and `aria-label` attributes
+  - Increased `rootMargin` back to 100px for smoother preloading
+  - Files: `/app/frontend/src/pages/retailer/Dashboard.js` (lines 22-110)
+
 ### June 1, 2025 (Session 9) - Part 2
 - **FEATURE**: Partial Reimbursement for Employee-Paid Procurements ✅
   - Added editable "Reimbursement Amount" field to settlement modal

@@ -2704,6 +2704,9 @@ async def create_procurement_payment(procurement_id: str, payment_data: dict, cu
         procurement_paid_by = "Company"
     
     # Update procurement with all relevant fields
+    # Get the latest payment info for display purposes
+    latest_payment = max(all_payments, key=lambda x: x.get("created_at", ""))
+    
     await db.procurements.update_one(
         {"id": procurement_id},
         {"$set": {
@@ -2712,7 +2715,17 @@ async def create_procurement_payment(procurement_id: str, payment_data: dict, cu
             "payment_status": payment_status,
             "settlement_status": settlement_status,
             "paid_by_type": procurement_paid_by_type,
-            "paid_by": procurement_paid_by
+            "paid_by": procurement_paid_by,
+            # Add payment details for Cashflow display
+            "payment_date": latest_payment.get("payment_date"),
+            "payment_mode": latest_payment.get("payment_mode"),
+            "payment_reference": latest_payment.get("reference_number"),
+            "last_payment_date": latest_payment.get("payment_date"),
+            "last_payment_amount": latest_payment.get("amount"),
+            "last_payment_mode": latest_payment.get("payment_mode"),
+            "last_payment_reference": latest_payment.get("reference_number"),
+            "is_bulk_payment": latest_payment.get("is_bulk_payment", False),
+            "bulk_payment_reference": latest_payment.get("bulk_payment_reference")
         }}
     )
     

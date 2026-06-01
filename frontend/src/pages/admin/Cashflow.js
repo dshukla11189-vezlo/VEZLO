@@ -56,6 +56,25 @@ export default function Cashflow() {
     qc: false
   });
   
+  // Expanded dates for grouped views
+  const [expandedDates, setExpandedDates] = useState({
+    payables: {},      // { '2026-06-01': true, '2026-05-28': false }
+    receivables: {},
+    inflows: {},
+    outflows: {}
+  });
+  
+  // Toggle date expansion
+  const toggleDateExpansion = (section, date) => {
+    setExpandedDates(prev => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        [date]: !prev[section][date]
+      }
+    }));
+  };
+  
   // Active tab
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -689,6 +708,30 @@ export default function Cashflow() {
     return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
+  // Group items by date for collapsed view
+  const groupByDate = (items, dateField = 'date') => {
+    const grouped = {};
+    items.forEach(item => {
+      const date = (item[dateField] || item.date || '')?.split('T')[0];
+      if (!date) return;
+      
+      if (!grouped[date]) {
+        grouped[date] = {
+          date,
+          items: [],
+          totalAmount: 0,
+          count: 0
+        };
+      }
+      grouped[date].items.push(item);
+      grouped[date].totalAmount += Math.abs(item.amount || item.total_amount || item.pending_amount || 0);
+      grouped[date].count += 1;
+    });
+    
+    // Sort by date descending
+    return Object.values(grouped).sort((a, b) => new Date(b.date) - new Date(a.date));
+  };
+
   // Calculate totals
   const totalPayables = 
     payablesSummary.procurement.pending + 
@@ -1102,12 +1145,13 @@ export default function Cashflow() {
               </div>
             </div>
 
-            {/* Payables Table */}
+            {/* Payables Table - Grouped by Date */}
             <div className="bg-white rounded-lg border overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
+                      <th className="p-3 text-left w-10"></th>
                       <th className="p-3 text-left">Date</th>
                       <th className="p-3 text-left">Type</th>
                       <th className="p-3 text-left">Description</th>
@@ -1118,35 +1162,70 @@ export default function Cashflow() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="p-8 text-center text-gray-500">
-                          No pending payables in this period
-                        </td>
-                      </tr>
-                    ) : (
-                      payablesDetails
-                        .filter(p => payablesFilter === 'all' || p.entity === payablesFilter)
-                        .map((item, idx) => (
-                          <tr key={`${item.entity}-${item.id}-${idx}`} className="hover:bg-gray-50">
-                            <td className="p-3 whitespace-nowrap">{formatDate(item.date)}</td>
-                            <td className="p-3">
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                item.type === 'Procurement' ? 'bg-orange-100 text-orange-700' :
-                                item.type === 'Variable Expense' ? 'bg-purple-100 text-purple-700' :
-                                'bg-blue-100 text-blue-700'
-                              }`}>
-                                {item.type}
-                              </span>
+                    {(() => {
+                      const filteredPayables = payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter);
+                      const groupedData = groupByDate(filteredPayables);
+                      
+                      if (groupedData.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={8} className="p-8 text-center text-gray-500">
+                              No pending payables in this period
                             </td>
-                            <td className="p-3 max-w-xs truncate">{item.description}</td>
-                            <td className="p-3 text-right font-medium">₹{item.total?.toFixed(2)}</td>
-                            <td className="p-3 text-right text-green-600">₹{item.paid?.toFixed(2)}</td>
-                            <td className="p-3 text-right font-semibold text-red-600">₹{item.pending?.toFixed(2)}</td>
-                            <td className="p-3 text-center">{getStatusBadge(item.status)}</td>
                           </tr>
-                        ))
-                    )}
+                        );
+                      }
+                      
+                      return groupedData.map((group) => {
+                        const isExpanded = expandedDates.payables[group.date];
+                        const groupTotal = group.items.reduce((sum, i) => sum + (i.total || 0), 0);
+                        const groupPaid = group.items.reduce((sum, i) => sum + (i.paid || 0), 0);
+                        const groupPending = group.items.reduce((sum, i) => sum + (i.pending || 0), 0);
+                        
+                        return (
+                          <React.Fragment key={group.date}>
+                            {/* Date Group Header Row */}
+                            <tr 
+                              className="bg-gray-100 hover:bg-gray-200 cursor-pointer font-medium"
+                              onClick={() => toggleDateExpansion('payables', group.date)}
+                            >
+                              <td className="p-3">
+                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              </td>
+                              <td className="p-3 font-semibold">{formatDate(group.date)}</td>
+                              <td className="p-3 text-gray-600">{group.count} item(s)</td>
+                              <td className="p-3"></td>
+                              <td className="p-3 text-right font-semibold">₹{groupTotal.toFixed(2)}</td>
+                              <td className="p-3 text-right text-green-600 font-medium">₹{groupPaid.toFixed(2)}</td>
+                              <td className="p-3 text-right text-red-600 font-bold">₹{groupPending.toFixed(2)}</td>
+                              <td className="p-3"></td>
+                            </tr>
+                            
+                            {/* Expanded Items */}
+                            {isExpanded && group.items.map((item, idx) => (
+                              <tr key={`${item.entity}-${item.id}-${idx}`} className="hover:bg-blue-50 bg-white">
+                                <td className="p-3"></td>
+                                <td className="p-3 pl-8 text-gray-500 text-xs">{formatDate(item.date)}</td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                    item.type === 'Procurement' ? 'bg-orange-100 text-orange-700' :
+                                    item.type === 'Variable Expense' ? 'bg-purple-100 text-purple-700' :
+                                    'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {item.type}
+                                  </span>
+                                </td>
+                                <td className="p-3 max-w-xs truncate">{item.description}</td>
+                                <td className="p-3 text-right">₹{item.total?.toFixed(2)}</td>
+                                <td className="p-3 text-right text-green-600">₹{item.paid?.toFixed(2)}</td>
+                                <td className="p-3 text-right text-red-600">₹{item.pending?.toFixed(2)}</td>
+                                <td className="p-3 text-center">{getStatusBadge(item.status)}</td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      });
+                    })()}
                   </tbody>
                   {payablesDetails.filter(p => payablesFilter === 'all' || p.entity === payablesFilter).length > 0 && (
                     <tfoot className="bg-red-50">
@@ -1179,6 +1258,7 @@ export default function Cashflow() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th className="p-3 text-left w-10"></th>
                     <th className="p-3 text-left">Date</th>
                     <th className="p-3 text-left">Type</th>
                     <th className="p-3 text-left">Description</th>
@@ -1189,37 +1269,73 @@ export default function Cashflow() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {receivablesDetails.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-8 text-center text-gray-500">
-                        No pending receivables in this period
-                      </td>
-                    </tr>
-                  ) : (
-                    receivablesDetails.map((item, idx) => (
-                      <tr key={`${item.entity}-${item.id}-${idx}`} className="hover:bg-gray-50">
-                        <td className="p-3 whitespace-nowrap">{formatDate(item.date)}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            item.type === 'Retail Invoice' ? 'bg-emerald-100 text-emerald-700' :
-                            'bg-teal-100 text-teal-700'
-                          }`}>
-                            {item.type}
-                          </span>
-                        </td>
-                        <td className="p-3 max-w-xs truncate">{item.description}</td>
-                        <td className="p-3 text-right font-medium">₹{item.total?.toFixed(2)}</td>
-                        <td className="p-3 text-right text-green-600">₹{item.received?.toFixed(2)}</td>
-                        <td className="p-3 text-right font-semibold text-green-600">₹{item.pending?.toFixed(2)}</td>
-                        <td className="p-3 text-center">{getStatusBadge(item.status)}</td>
-                      </tr>
-                    ))
-                  )}
+                  {(() => {
+                    const groupedData = groupByDate(receivablesDetails);
+                    
+                    if (groupedData.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="p-8 text-center text-gray-500">
+                            No pending receivables in this period
+                          </td>
+                        </tr>
+                      );
+                    }
+                    
+                    return groupedData.map((group) => {
+                      const isExpanded = expandedDates.receivables[group.date];
+                      const groupTotal = group.items.reduce((sum, i) => sum + (i.total || 0), 0);
+                      const groupReceived = group.items.reduce((sum, i) => sum + (i.received || 0), 0);
+                      const groupPending = group.items.reduce((sum, i) => sum + (i.pending || 0), 0);
+                      
+                      return (
+                        <React.Fragment key={group.date}>
+                          {/* Date Group Header Row */}
+                          <tr 
+                            className="bg-gray-100 hover:bg-gray-200 cursor-pointer font-medium"
+                            onClick={() => toggleDateExpansion('receivables', group.date)}
+                          >
+                            <td className="p-3">
+                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </td>
+                            <td className="p-3 font-semibold">{formatDate(group.date)}</td>
+                            <td className="p-3 text-gray-600">{group.count} item(s)</td>
+                            <td className="p-3"></td>
+                            <td className="p-3 text-right font-semibold">₹{groupTotal.toFixed(2)}</td>
+                            <td className="p-3 text-right text-green-600 font-medium">₹{groupReceived.toFixed(2)}</td>
+                            <td className="p-3 text-right text-green-600 font-bold">₹{groupPending.toFixed(2)}</td>
+                            <td className="p-3"></td>
+                          </tr>
+                          
+                          {/* Expanded Items */}
+                          {isExpanded && group.items.map((item, idx) => (
+                            <tr key={`${item.entity}-${item.id}-${idx}`} className="hover:bg-green-50 bg-white">
+                              <td className="p-3"></td>
+                              <td className="p-3 pl-8 text-gray-500 text-xs">{formatDate(item.date)}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 text-xs rounded-full ${
+                                  item.type === 'Retail Invoice' ? 'bg-emerald-100 text-emerald-700' :
+                                  'bg-teal-100 text-teal-700'
+                                }`}>
+                                  {item.type}
+                                </span>
+                              </td>
+                              <td className="p-3 max-w-xs truncate">{item.description}</td>
+                              <td className="p-3 text-right">₹{item.total?.toFixed(2)}</td>
+                              <td className="p-3 text-right text-green-600">₹{item.received?.toFixed(2)}</td>
+                              <td className="p-3 text-right text-green-600">₹{item.pending?.toFixed(2)}</td>
+                              <td className="p-3 text-center">{getStatusBadge(item.status)}</td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
                 </tbody>
                 {receivablesDetails.length > 0 && (
                   <tfoot className="bg-green-50">
                     <tr>
-                      <td colSpan={3} className="p-3 font-semibold text-green-900">Total Receivables</td>
+                      <td colSpan={4} className="p-3 font-semibold text-green-900">Total Receivables</td>
                       <td className="p-3 text-right font-semibold">₹{receivablesDetails.reduce((s, i) => s + i.total, 0).toFixed(2)}</td>
                       <td className="p-3 text-right font-semibold text-green-600">₹{receivablesDetails.reduce((s, i) => s + i.received, 0).toFixed(2)}</td>
                       <td className="p-3 text-right font-bold text-green-600">₹{receivablesDetails.reduce((s, i) => s + i.pending, 0).toFixed(2)}</td>
@@ -1406,7 +1522,7 @@ export default function Cashflow() {
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Inflows Section */}
+              {/* Inflows Section - Grouped by Date */}
               <div className="bg-white rounded-lg border overflow-hidden">
                 <div className="p-4 border-b bg-green-50">
                   <div className="flex items-center justify-between">
@@ -1427,37 +1543,60 @@ export default function Cashflow() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
+                          <th className="w-8 px-2 py-2"></th>
                           <th className="text-left px-4 py-2 font-medium text-gray-600">Date</th>
                           <th className="text-left px-4 py-2 font-medium text-gray-600">Source</th>
-                          <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
                           <th className="text-right px-4 py-2 font-medium text-gray-600">Amount</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {paymentsData.inflows.map((payment, idx) => (
-                          <tr key={`inflow-${idx}`} className="hover:bg-gray-50">
-                            <td className="px-4 py-2 text-gray-600">{formatDate(payment.date)}</td>
-                            <td className="px-4 py-2">
-                              <div className="font-medium text-gray-900">{payment.source}</div>
-                              <div className="text-xs text-gray-500">{payment.description}</div>
-                            </td>
-                            <td className="px-4 py-2">
-                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                                {payment.type}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-right font-medium text-green-600">
-                              +{formatCurrency(payment.amount)}
-                            </td>
-                          </tr>
-                        ))}
+                        {(() => {
+                          const groupedInflows = groupByDate(paymentsData.inflows);
+                          return groupedInflows.map((group) => {
+                            const isExpanded = expandedDates.inflows[group.date];
+                            return (
+                              <React.Fragment key={group.date}>
+                                <tr 
+                                  className="bg-green-50 hover:bg-green-100 cursor-pointer font-medium"
+                                  onClick={() => toggleDateExpansion('inflows', group.date)}
+                                >
+                                  <td className="px-2 py-2">
+                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                  </td>
+                                  <td className="px-4 py-2 font-semibold">{formatDate(group.date)}</td>
+                                  <td className="px-4 py-2 text-gray-600">{group.count} payment(s)</td>
+                                  <td className="px-4 py-2 text-right font-bold text-green-600">
+                                    +{formatCurrency(group.totalAmount)}
+                                  </td>
+                                </tr>
+                                {isExpanded && group.items.map((payment, idx) => (
+                                  <tr key={`inflow-${group.date}-${idx}`} className="hover:bg-gray-50 bg-white">
+                                    <td className="px-2 py-2"></td>
+                                    <td className="px-4 py-2 pl-8 text-xs text-gray-500">
+                                      <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+                                        {payment.type}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <div className="font-medium text-gray-900">{payment.source}</div>
+                                      <div className="text-xs text-gray-500">{payment.description}</div>
+                                    </td>
+                                    <td className="px-4 py-2 text-right text-green-600">
+                                      +{formatCurrency(payment.amount)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
                       </tbody>
                     </table>
                   )}
                 </div>
               </div>
               
-              {/* Outflows Section */}
+              {/* Outflows Section - Grouped by Date */}
               <div className="bg-white rounded-lg border overflow-hidden">
                 <div className="p-4 border-b bg-red-50">
                   <div className="flex items-center justify-between">
@@ -1478,38 +1617,61 @@ export default function Cashflow() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
+                          <th className="w-8 px-2 py-2"></th>
                           <th className="text-left px-4 py-2 font-medium text-gray-600">Date</th>
                           <th className="text-left px-4 py-2 font-medium text-gray-600">Recipient</th>
-                          <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
                           <th className="text-right px-4 py-2 font-medium text-gray-600">Amount</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {paymentsData.outflows.map((payment, idx) => (
-                          <tr key={`outflow-${idx}`} className="hover:bg-gray-50">
-                            <td className="px-4 py-2 text-gray-600">{formatDate(payment.date)}</td>
-                            <td className="px-4 py-2">
-                              <div className="font-medium text-gray-900">{payment.recipient}</div>
-                              <div className="text-xs text-gray-500">{payment.description}</div>
-                              {payment.paid_by !== 'Company' && (
-                                <div className="text-xs text-purple-600">Paid by: {payment.paid_by}</div>
-                              )}
-                            </td>
-                            <td className="px-4 py-2">
-                              <span className={`px-2 py-0.5 text-xs rounded-full ${
-                                payment.type === 'Procurement' ? 'bg-blue-100 text-blue-700' :
-                                payment.type === 'Variable Expense' ? 'bg-orange-100 text-orange-700' :
-                                payment.type === 'Fixed Expense' ? 'bg-purple-100 text-purple-700' :
-                                'bg-amber-100 text-amber-700'
-                              }`}>
-                                {payment.type}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-right font-medium text-red-600">
-                              -{formatCurrency(payment.amount)}
-                            </td>
-                          </tr>
-                        ))}
+                        {(() => {
+                          const groupedOutflows = groupByDate(paymentsData.outflows);
+                          return groupedOutflows.map((group) => {
+                            const isExpanded = expandedDates.outflows[group.date];
+                            return (
+                              <React.Fragment key={group.date}>
+                                <tr 
+                                  className="bg-red-50 hover:bg-red-100 cursor-pointer font-medium"
+                                  onClick={() => toggleDateExpansion('outflows', group.date)}
+                                >
+                                  <td className="px-2 py-2">
+                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                  </td>
+                                  <td className="px-4 py-2 font-semibold">{formatDate(group.date)}</td>
+                                  <td className="px-4 py-2 text-gray-600">{group.count} payment(s)</td>
+                                  <td className="px-4 py-2 text-right font-bold text-red-600">
+                                    -{formatCurrency(group.totalAmount)}
+                                  </td>
+                                </tr>
+                                {isExpanded && group.items.map((payment, idx) => (
+                                  <tr key={`outflow-${group.date}-${idx}`} className="hover:bg-gray-50 bg-white">
+                                    <td className="px-2 py-2"></td>
+                                    <td className="px-4 py-2 pl-8 text-xs">
+                                      <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                        payment.type === 'Procurement' ? 'bg-blue-100 text-blue-700' :
+                                        payment.type === 'Variable Expense' ? 'bg-orange-100 text-orange-700' :
+                                        payment.type === 'Fixed Expense' ? 'bg-purple-100 text-purple-700' :
+                                        'bg-amber-100 text-amber-700'
+                                      }`}>
+                                        {payment.type}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <div className="font-medium text-gray-900">{payment.recipient}</div>
+                                      <div className="text-xs text-gray-500">{payment.description}</div>
+                                      {payment.paid_by !== 'Company' && (
+                                        <div className="text-xs text-purple-600">Paid by: {payment.paid_by}</div>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2 text-right text-red-600">
+                                      -{formatCurrency(payment.amount)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
                       </tbody>
                     </table>
                   )}

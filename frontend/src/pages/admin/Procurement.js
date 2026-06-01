@@ -3763,15 +3763,32 @@ export default function Procurement() {
                   ) : procurementPayments.length === 0 ? (
                     <p className="text-xs text-gray-500">No payment records found (legacy payment)</p>
                   ) : (
-                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
                       {procurementPayments.map((payment, idx) => (
                         <div key={payment.id || idx} className="bg-white border border-green-100 rounded p-2 text-xs">
                           <div className="flex justify-between items-start">
                             <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className="font-semibold text-green-700">₹{payment.amount?.toFixed(2)}</span>
                                 <span className="text-gray-500 uppercase text-[10px] bg-gray-100 px-1 rounded">{payment.payment_mode}</span>
+                                {payment.is_bulk_payment && (
+                                  <span className="text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                    BULK PAYMENT
+                                  </span>
+                                )}
                               </div>
+                              {/* Reference Number */}
+                              {payment.reference_number && (
+                                <div className="text-blue-700 font-medium mb-1">
+                                  Ref #: {payment.reference_number}
+                                </div>
+                              )}
+                              {/* Remarks */}
+                              {payment.remarks && (
+                                <div className="text-gray-600 italic mb-1">
+                                  "{payment.remarks}"
+                                </div>
+                              )}
                               <div className="text-gray-600">
                                 <span>Paid on: {formatDate(payment.payment_date)}</span>
                                 <span className="ml-2">by {payment.paid_by_type === 'employee' ? payment.paid_by : 'Company'}</span>

@@ -2663,6 +2663,8 @@ async def create_procurement_payment(procurement_id: str, payment_data: dict, cu
         "paid_by": paid_by,
         "paid_by_employee_id": paid_by_employee_id,
         "settlement_status": "pending_reimbursement" if paid_by_type == "employee" else "settled",
+        "is_bulk_payment": payment_data.get("is_bulk_payment", False),
+        "bulk_payment_reference": payment_data.get("bulk_payment_reference"),
         "recorded_by": current_user["user_id"],
         "recorded_by_name": current_user.get("name") or current_user.get("email"),
         "created_at": datetime.now(timezone.utc).isoformat(),

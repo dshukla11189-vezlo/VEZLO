@@ -245,7 +245,8 @@ export default function Procurement() {
   const [openBulkPayment, setOpenBulkPayment] = useState(false);
   const [bulkPaymentForm, setBulkPaymentForm] = useState({
     payment_mode: 'cash',
-    reference: ''
+    reference: '',
+    remarks: ''
   });
   
   // Previous day procurements for auto-populate
@@ -1726,16 +1727,31 @@ export default function Procurement() {
             const newPendingAmount = (purchase.total_amount || 0) - newPaidAmount;
             const isFullyPaid = newPendingAmount <= 0.01; // Account for floating point
             
-            await api.put(`/api/procurement/${purchase.id}`, {
-              ...purchase,
-              paid_amount: newPaidAmount,
-              pending_amount: Math.max(0, newPendingAmount),
-              payment_status: isFullyPaid ? 'paid' : 'partial',
-              last_payment_date: paymentDate,
-              last_payment_amount: payAmount,
-              last_payment_mode: bulkPaymentForm.payment_mode,
-              last_payment_reference: bulkPaymentReference,
-              bulk_payment_reference: bulkPaymentReference,
+            // Create payment record in procurement_payments collection
+            await api.post(`/api/procurement/${purchase.id}/payments`, {
+              amount: payAmount,
+              payment_date: paymentDate,
+              payment_mode: bulkPaymentForm.payment_mode,
+              reference_number: bulkPaymentReference,
+              remarks: bulkPaymentForm.remarks || `Bulk payment for ${farmerData.farmer_name}`,
+              paid_by_type: 'company',
+              paid_by_employee_id: null,
+              is_bulk_payment: true,
+              bulk_payment_reference: bulkPaymentReference
+            });
+            
+            // Also record to general payments for farmer tracking
+            await api.post('/api/payments', {
+              date: new Date().toISOString(),
+              party_type: 'farmer',
+              party_id: purchase.farmer_id,
+              party_name: farmerData.farmer_name,
+              amount: payAmount,
+              payment_mode: bulkPaymentForm.payment_mode,
+              reference: bulkPaymentReference,
+              remarks: bulkPaymentForm.remarks || `Bulk payment for procurement on ${formatDate(purchase.date)}`,
+              paid_by_type: 'company',
+              paid_by: 'Company',
               is_bulk_payment: true
             });
           }
@@ -1748,7 +1764,7 @@ export default function Procurement() {
       setSelectedFarmersForPayment([]);
       setSelectedPurchasesForPayment([]);
       setPartialPaymentAmounts({});
-      setBulkPaymentForm({ payment_mode: 'cash', reference: '' });
+      setBulkPaymentForm({ payment_mode: 'cash', reference: '', remarks: '' });
       loadData();
     } catch (error) {
       console.error('Bulk payment error:', error);
@@ -4172,6 +4188,17 @@ export default function Procurement() {
                 onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, reference: e.target.value })}
               />
               <p className="text-xs text-gray-500 mt-1">This reference will be recorded against all selected purchases</p>
+            </div>
+
+            <div>
+              <Label htmlFor="bulk-payment-remarks">Remarks</Label>
+              <Input
+                id="bulk-payment-remarks"
+                placeholder="Optional notes for this payment..."
+                data-testid="bulk-payment-remarks-input"
+                value={bulkPaymentForm.remarks}
+                onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, remarks: e.target.value })}
+              />
             </div>
 
             <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-bulk-payment-button">

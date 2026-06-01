@@ -18,38 +18,55 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 // Lazy loading image component - only loads image when visible in viewport
+// Optimized for performance: only loads images when they enter the viewport
 const LazyImage = ({ src, alt, className, onError, onClick }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [hasError, setHasError] = useState(false);
   const imgRef = useRef(null);
+  const observerRef = useRef(null);
   
   useEffect(() => {
     if (!src) return;
     
-    const observer = new IntersectionObserver(
+    // Create intersection observer to detect when image enters viewport
+    observerRef.current = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           setIsVisible(true);
-          observer.disconnect();
+          // Disconnect after first intersection to save memory
+          if (observerRef.current) {
+            observerRef.current.disconnect();
+            observerRef.current = null;
+          }
         }
       },
-      { rootMargin: '100px' } // Start loading 100px before entering viewport
+      { 
+        rootMargin: '50px', // Start loading 50px before entering viewport (reduced from 100px)
+        threshold: 0.01 
+      }
     );
     
     if (imgRef.current) {
-      observer.observe(imgRef.current);
+      observerRef.current.observe(imgRef.current);
     }
     
-    return () => observer.disconnect();
+    // Cleanup on unmount
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
+    };
   }, [src]);
   
   const handleLoad = () => setIsLoaded(true);
-  const handleError = (e) => {
+  const handleError = () => {
     setHasError(true);
-    if (onError) onError(e);
+    if (onError) onError();
   };
   
+  // Show placeholder for missing or errored images
   if (!src || hasError) {
     return (
       <div className={`${className} bg-gray-100 rounded border flex items-center justify-center`} onClick={onClick}>
@@ -60,11 +77,13 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
   
   return (
     <div ref={imgRef} className="relative" onClick={onClick}>
+      {/* Show loading skeleton until image loads */}
       {!isLoaded && (
         <div className={`${className} bg-gray-100 rounded border flex items-center justify-center animate-pulse`}>
           <ImageIcon size={16} className="text-gray-300" />
         </div>
       )}
+      {/* Only render img tag when visible in viewport */}
       {isVisible && (
         <img
           src={src}
@@ -72,7 +91,7 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
           className={`${className} ${isLoaded ? '' : 'absolute opacity-0'}`}
           onLoad={handleLoad}
           onError={handleError}
-          loading="eager"
+          loading="lazy"
           decoding="async"
         />
       )}
@@ -317,42 +336,8 @@ export default function RetailerDashboard() {
       const filteredCatalogue = (catalogueRes.data || []).filter(item => item.show_on_portal !== false);
       setCatalogue(filteredCatalogue);
       
-      // Preload images in batches to prevent browser crash
-      // This loads 5 images at a time with a small delay between batches
-      const preloadImagesInBatches = async () => {
-        const itemsWithImages = filteredCatalogue.filter(item => item.image_url);
-        const BATCH_SIZE = 5; // Load 5 images at a time
-        const BATCH_DELAY = 100; // 100ms delay between batches
-        
-        for (let i = 0; i < itemsWithImages.length; i += BATCH_SIZE) {
-          const batch = itemsWithImages.slice(i, i + BATCH_SIZE);
-          
-          // Load batch of images with error handling
-          await Promise.allSettled(
-            batch.map(item => {
-              return new Promise((resolve) => {
-                const imageUrl = item.image_url.startsWith('/') 
-                  ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
-                  : item.image_url;
-                const img = new Image();
-                img.onload = () => resolve();
-                img.onerror = () => resolve(); // Don't fail on error, just continue
-                img.src = imageUrl;
-                // Timeout after 5 seconds to prevent hanging
-                setTimeout(resolve, 5000);
-              });
-            })
-          );
-          
-          // Small delay before next batch to prevent overwhelming the browser
-          if (i + BATCH_SIZE < itemsWithImages.length) {
-            await new Promise(r => setTimeout(r, BATCH_DELAY));
-          }
-        }
-      };
-      
-      // Start preloading in background (don't await - let it run async)
-      preloadImagesInBatches().catch(err => console.log('Image preload error:', err));
+      // Note: Images are lazy-loaded by the LazyImage component when they enter the viewport
+      // This prevents browser crashes by only loading visible images
       
       // Set MRP data
       setMrpData(mrpRes.data?.mrp_data || {});

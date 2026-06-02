@@ -1710,6 +1710,12 @@ export default function Procurement() {
       return;
     }
 
+    // Validate transaction reference for non-cash payments
+    if (bulkPaymentForm.payment_mode !== 'cash' && !bulkPaymentForm.reference?.trim()) {
+      toast.error('Transaction Reference is required for non-cash payments');
+      return;
+    }
+
     try {
       const paymentDate = new Date().toISOString().split('T')[0];
       const bulkPaymentReference = bulkPaymentForm.reference || `BULK-${Date.now()}`;
@@ -4353,15 +4359,22 @@ export default function Procurement() {
             </div>
 
             <div>
-              <Label htmlFor="bulk-payment-reference">Reference / Transaction ID *</Label>
+              <Label htmlFor="bulk-payment-reference">
+                Reference / Transaction ID {bulkPaymentForm.payment_mode !== 'cash' && <span className="text-red-500">*</span>}
+              </Label>
               <Input
                 id="bulk-payment-reference"
-                placeholder="Transaction ID, Cheque number, etc."
+                placeholder={bulkPaymentForm.payment_mode === 'cash' ? "Optional for cash payments" : "Transaction ID, Cheque number, etc."}
                 data-testid="bulk-payment-reference-input"
                 value={bulkPaymentForm.reference}
                 onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, reference: e.target.value })}
+                className={bulkPaymentForm.payment_mode !== 'cash' && !bulkPaymentForm.reference?.trim() ? 'border-orange-300' : ''}
               />
-              <p className="text-xs text-gray-500 mt-1">This reference will be recorded against all selected purchases</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {bulkPaymentForm.payment_mode === 'cash' 
+                  ? 'Optional for cash payments' 
+                  : 'Required for non-cash payments'}
+              </p>
             </div>
 
             <div>

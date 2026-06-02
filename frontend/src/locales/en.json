@@ -16,6 +16,7 @@
     "attendance": "Attendance",
     "userManagement": "User Management",
     "backup": "Data Backup",
+    "scrapedShops": "Scraped Shops",
     "logout": "Logout"
   },
   "dashboard": {

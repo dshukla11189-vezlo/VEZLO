@@ -8,7 +8,7 @@ import {
   Filter, Building2, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import api from '../../api';
+import api from '../../utils/api';
 
 const ScrapedShops = () => {
   // State
@@ -187,6 +187,7 @@ const ScrapedShops = () => {
               onClick={startScraper}
               disabled={scraperStatus.status === 'running'}
               className="bg-green-600 hover:bg-green-700"
+              data-testid="start-scraper-btn"
             >
               {scraperStatus.status === 'running' ? (
                 <>
@@ -201,7 +202,7 @@ const ScrapedShops = () => {
               )}
             </Button>
             
-            <Button variant="outline" onClick={exportCSV} disabled={total === 0}>
+            <Button variant="outline" onClick={exportCSV} disabled={total === 0} data-testid="export-csv-btn">
               <Download size={16} className="mr-2" />
               Export CSV
             </Button>
@@ -210,7 +211,7 @@ const ScrapedShops = () => {
 
         {/* Scraper Status */}
         {scraperStatus.status === 'running' && (
-          <Card className="border-blue-200 bg-blue-50">
+          <Card className="border-blue-200 bg-blue-50" data-testid="scraper-running-status">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <Loader2 size={20} className="animate-spin text-blue-600" />
@@ -224,7 +225,7 @@ const ScrapedShops = () => {
         )}
 
         {scraperStatus.status === 'completed' && scraperStatus.result && (
-          <Card className="border-green-200 bg-green-50">
+          <Card className="border-green-200 bg-green-50" data-testid="scraper-completed-status">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <CheckCircle size={20} className="text-green-600" />
@@ -237,6 +238,32 @@ const ScrapedShops = () => {
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {scraperStatus.status === 'error' && (
+          <Card className="border-red-200 bg-red-50" data-testid="scraper-error-status">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <XCircle size={20} className="text-red-600" />
+                <div>
+                  <p className="font-semibold text-red-800">Scraping Error</p>
+                  <p className="text-sm text-red-600">{scraperStatus.message}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Info Note */}
+        {stats?.total_shops === 0 && scraperStatus.status === 'idle' && (
+          <Card className="border-amber-200 bg-amber-50">
+            <CardContent className="p-4">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> JustDial has bot protection. For better results, configure a Google Maps API key 
+                in the backend environment (GOOGLE_MAPS_API_KEY). Without it, scraping may be limited.
+              </p>
             </CardContent>
           </Card>
         )}

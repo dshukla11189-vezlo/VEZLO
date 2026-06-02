@@ -16891,11 +16891,7 @@ async def bulk_add_catalogue_items(
     return {"message": f"Added {added_count}, updated {updated_count} catalogue items"}
 
 
-# Include router
-app.include_router(api_router)
-
-# Include modular routers (refactored from server.py)
-app.include_router(labour_router)
+# Note: Router inclusion moved to end of file after all route definitions
 
 # Add no-cache middleware for API responses
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18807,6 +18803,10 @@ async def update_scraped_shop(
     
     return {"message": "Shop updated successfully"}
 
+
+# Include routers at the end after all routes are defined
+app.include_router(api_router)
+app.include_router(labour_router)
 
 
 @app.on_event("shutdown")

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
-import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator, Users, Database, Leaf, UserCheck, Wallet } from 'lucide-react';
+import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator, Users, Database, Leaf, UserCheck, Wallet, Building2 } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose, isMobile }) {
   const { t } = useTranslation();
@@ -24,6 +24,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     { path: '/admin/labor-costs', icon: UserCheck, labelKey: 'app.laborCosts' },
     { path: '/admin/users', icon: Users, labelKey: 'app.userManagement' },
     { path: '/admin/backup', icon: Database, labelKey: 'app.backup' },
+    { path: '/admin/scraped-shops', icon: Building2, labelKey: 'app.scrapedShops' },
   ];
 
   // Staff access: Procurement, Stock Status, Quick Commerce, Retailer Orders, Wastage Dashboard, Variable Expenses, Attendance

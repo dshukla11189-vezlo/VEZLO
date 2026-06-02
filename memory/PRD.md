@@ -2,6 +2,24 @@
 
 ## Changelog (June 2025)
 
+### June 2, 2025 (Session 11) - Pune Retail Shops Scraper
+- **NEW FEATURE**: Pune Retail Shops Scraper ✅
+  - Created scraping infrastructure for collecting 1000+ Kirana/Grocery/Supermarket shops in Pune
+  - New page: `/admin/scraped-shops` accessible from Admin sidebar
+  - Backend scraper: `/app/backend/scrapers/pune_retail_scraper.py`
+  - Supports JustDial and Google Maps (requires GOOGLE_MAPS_API_KEY)
+  - Features:
+    - Start/Stop scraper with background processing
+    - Real-time status updates
+    - Stats dashboard (Total Shops, Areas, Source breakdown)
+    - Search, filter by area/type/phone
+    - Edit/Delete individual shops
+    - Export to CSV
+    - Pagination support
+  - APIs: `/api/scraper/start`, `/api/scraper/status`, `/api/scraper/stats`, `/api/scraped-shops`, `/api/scraped-shops/export`
+  - **Note**: JustDial has anti-bot protection (403 errors). Google Maps API key recommended for better results.
+  - Files: `/app/backend/scrapers/pune_retail_scraper.py`, `/app/frontend/src/pages/admin/ScrapedShops.js`, `/app/backend/server.py`, `/app/frontend/src/App.js`, `/app/frontend/src/components/Sidebar.js`
+
 ### June 2, 2025 (Session 10 Cont.) - Performance, Credit Notes & UI Updates
 - **OPTIMIZATION**: Retailer Create Order Page Load Time ✅
   - **Before**: Loaded all 85 products + 32MB of base64 images in one request

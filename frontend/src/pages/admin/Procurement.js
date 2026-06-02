@@ -1091,19 +1091,45 @@ export default function Procurement() {
   );
 
   // Group unsettled procurements by employee for bulk reimbursement
+  // Normalize employee names to handle case sensitivity and minor variations
   const getEmployeesWithPendingReimbursements = useCallback(() => {
     const employeeMap = {};
+    
+    // Helper function to normalize employee name for grouping
+    const normalizeEmployeeName = (name) => {
+      if (!name) return 'unknown';
+      return name.toLowerCase().trim().replace(/\s+/g, ' ');
+    };
+    
+    // Helper function to get the best display name (most complete/proper case)
+    const getBestDisplayName = (names) => {
+      // Prefer the longest name or the one with proper capitalization
+      return names.reduce((best, current) => {
+        if (!best) return current;
+        // Prefer longer names (more complete)
+        if (current.length > best.length) return current;
+        // Prefer properly capitalized names
+        if (current[0] === current[0].toUpperCase() && best[0] !== best[0].toUpperCase()) return current;
+        return best;
+      }, null);
+    };
+    
     unsettledEmployeeProcurements.forEach(proc => {
-      const employeeId = proc.paid_by_employee_id || proc.paid_by || 'unknown';
       const employeeName = proc.paid_by || 'Unknown Employee';
+      const normalizedName = normalizeEmployeeName(employeeName);
       
-      if (!employeeMap[employeeId]) {
-        employeeMap[employeeId] = {
-          id: employeeId,
-          name: employeeName,
+      if (!employeeMap[normalizedName]) {
+        employeeMap[normalizedName] = {
+          id: proc.paid_by_employee_id || normalizedName,
+          names: [employeeName], // Track all name variations
           procurements: [],
           total_pending: 0
         };
+      } else {
+        // Track name variations for display
+        if (!employeeMap[normalizedName].names.includes(employeeName)) {
+          employeeMap[normalizedName].names.push(employeeName);
+        }
       }
       
       // Calculate remaining amount to reimburse
@@ -1112,16 +1138,21 @@ export default function Procurement() {
       const remainingToReimburse = amountPaid - alreadyReimbursed;
       
       if (remainingToReimburse > 0) {
-        employeeMap[employeeId].procurements.push({
+        employeeMap[normalizedName].procurements.push({
           ...proc,
           remaining_to_reimburse: remainingToReimburse
         });
-        employeeMap[employeeId].total_pending += remainingToReimburse;
+        employeeMap[normalizedName].total_pending += remainingToReimburse;
       }
     });
     
+    // Set display name using the best variation
     return Object.values(employeeMap)
       .filter(emp => emp.total_pending > 0)
+      .map(emp => ({
+        ...emp,
+        name: getBestDisplayName(emp.names)
+      }))
       .sort((a, b) => b.total_pending - a.total_pending);
   }, [unsettledEmployeeProcurements]);
 

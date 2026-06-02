@@ -1209,6 +1209,7 @@ export default function Procurement() {
           const newTotalReimbursed = (proc.reimbursement_amount || 0) + reimburseAmount;
           const isFullySettled = Math.abs(newTotalReimbursed - (proc.paid_amount || 0)) < 0.01;
           
+          // Update the procurement record
           await api.put(`/api/procurement/${proc.id}`, {
             reimbursement_amount: newTotalReimbursed,
             settlement_status: isFullySettled ? 'settled' : 'partial_reimbursement',
@@ -1217,6 +1218,20 @@ export default function Procurement() {
             settlement_reference: settlementReference,
             settlement_remarks: employeeReimbursementForm.remarks,
             is_settled: isFullySettled
+          });
+          
+          // Create a payment record for the employee reimbursement in procurement_payments
+          await api.post(`/api/procurement/${proc.id}/payments`, {
+            amount: reimburseAmount,
+            payment_date: employeeReimbursementForm.payment_date,
+            payment_mode: employeeReimbursementForm.payment_mode,
+            reference_number: settlementReference,
+            remarks: `Employee reimbursement to ${selectedEmployeeForReimbursement.name}`,
+            paid_by_type: 'company',
+            paid_by_employee_id: null,
+            is_reimbursement: true,
+            reimbursed_to: selectedEmployeeForReimbursement.name,
+            reimbursed_to_employee_id: selectedEmployeeForReimbursement.id
           });
           
           if (isFullySettled) settledCount++;
@@ -3988,6 +4003,76 @@ export default function Procurement() {
                   </h4>
                   {loadingPayments ? (
                     <p className="text-xs text-gray-500">Loading...</p>
+                  ) : procurementPayments.length === 0 && selectedProcurement.paid_by_type === 'employee' ? (
+                    /* Show constructed payment info for employee-paid procurements without records */
+                    <div className="space-y-2">
+                      {/* Employee Payment */}
+                      <div className="bg-white border border-green-100 rounded p-2 text-xs">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="font-semibold text-green-700">₹{(selectedProcurement.paid_amount || 0).toFixed(2)}</span>
+                          <span className="text-gray-500 uppercase text-[10px] bg-gray-100 px-1 rounded">{selectedProcurement.payment_mode || 'Cash'}</span>
+                          <span className="text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                            EMPLOYEE PAID
+                          </span>
+                        </div>
+                        {selectedProcurement.payment_reference && (
+                          <div className="text-blue-700 font-medium mb-1">
+                            Ref #: {selectedProcurement.payment_reference}
+                          </div>
+                        )}
+                        <div className="text-gray-600">
+                          <span>Paid on: {formatDate(selectedProcurement.payment_date || selectedProcurement.date)}</span>
+                          <span className="ml-2">by <strong className="text-purple-700">{selectedProcurement.paid_by}</strong></span>
+                        </div>
+                      </div>
+                      
+                      {/* Settlement/Reimbursement */}
+                      {selectedProcurement.settlement_status === 'settled' && (
+                        <div className="bg-white border border-blue-100 rounded p-2 text-xs">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-semibold text-blue-700">₹{(selectedProcurement.reimbursement_amount || selectedProcurement.paid_amount || 0).toFixed(2)}</span>
+                            <span className="text-gray-500 uppercase text-[10px] bg-gray-100 px-1 rounded">{selectedProcurement.settlement_mode || 'Bank Transfer'}</span>
+                            <span className="text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                              REIMBURSED
+                            </span>
+                          </div>
+                          {selectedProcurement.settlement_reference && (
+                            <div className="text-blue-700 font-medium mb-1">
+                              Ref #: {selectedProcurement.settlement_reference}
+                            </div>
+                          )}
+                          {selectedProcurement.settlement_remarks && (
+                            <div className="text-gray-600 italic mb-1">
+                              "{selectedProcurement.settlement_remarks}"
+                            </div>
+                          )}
+                          <div className="text-gray-600">
+                            <span>Settled on: {formatDate(selectedProcurement.settlement_date)}</span>
+                            <span className="ml-2">to <strong className="text-blue-700">{selectedProcurement.paid_by}</strong></span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedProcurement.settlement_status === 'partial_reimbursement' && (
+                        <div className="bg-white border border-orange-100 rounded p-2 text-xs">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-semibold text-orange-700">₹{(selectedProcurement.reimbursement_amount || 0).toFixed(2)}</span>
+                            <span className="text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                              PARTIAL REIMBURSEMENT
+                            </span>
+                          </div>
+                          <div className="text-gray-600">
+                            <span>Remaining: ₹{((selectedProcurement.paid_amount || 0) - (selectedProcurement.reimbursement_amount || 0)).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedProcurement.settlement_status === 'pending_reimbursement' && (
+                        <div className="bg-orange-50 border border-orange-200 rounded p-2 text-xs">
+                          <span className="text-orange-700 font-medium">⏳ Reimbursement pending to {selectedProcurement.paid_by}</span>
+                        </div>
+                      )}
+                    </div>
                   ) : procurementPayments.length === 0 ? (
                     <p className="text-xs text-gray-500">No payment records found (legacy payment)</p>
                   ) : (
@@ -4002,6 +4087,16 @@ export default function Procurement() {
                                 {payment.is_bulk_payment && (
                                   <span className="text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
                                     BULK PAYMENT
+                                  </span>
+                                )}
+                                {payment.is_reimbursement && (
+                                  <span className="text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                    REIMBURSED
+                                  </span>
+                                )}
+                                {payment.paid_by_type === 'employee' && !payment.is_reimbursement && (
+                                  <span className="text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                    EMPLOYEE PAID
                                   </span>
                                 )}
                               </div>
@@ -4019,7 +4114,11 @@ export default function Procurement() {
                               )}
                               <div className="text-gray-600">
                                 <span>Paid on: {formatDate(payment.payment_date)}</span>
-                                <span className="ml-2">by {payment.paid_by_type === 'employee' ? payment.paid_by : 'Company'}</span>
+                                {payment.is_reimbursement ? (
+                                  <span className="ml-2">to <strong className="text-blue-700">{payment.reimbursed_to || payment.paid_by}</strong></span>
+                                ) : (
+                                  <span className="ml-2">by {payment.paid_by_type === 'employee' ? <strong className="text-purple-700">{payment.paid_by}</strong> : 'Company'}</span>
+                                )}
                               </div>
                               {payment.created_at && (
                                 <div className="text-gray-400 text-[10px] mt-1">
@@ -4039,26 +4138,30 @@ export default function Procurement() {
                               )}
                             </div>
                             <div className="flex gap-1 flex-shrink-0">
-                              <Button 
-                                type="button"
-                                size="sm" 
-                                variant="ghost" 
-                                className="text-blue-500 hover:bg-blue-50 h-6 w-6 p-0"
-                                onClick={() => handleEditProcurementPayment(payment)}
-                                title="Edit Payment"
-                              >
-                                <Edit2 size={12} />
-                              </Button>
-                              <Button 
-                                type="button"
-                                size="sm" 
-                                variant="ghost" 
-                                className="text-red-500 hover:bg-red-50 h-6 w-6 p-0"
-                                onClick={() => handleDeleteProcurementPayment(payment.id)}
-                                title="Delete Payment"
-                              >
-                                <Trash2 size={12} />
-                              </Button>
+                              {!payment.is_reimbursement && (
+                                <>
+                                  <Button 
+                                    type="button"
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="text-blue-500 hover:bg-blue-50 h-6 w-6 p-0"
+                                    onClick={() => handleEditProcurementPayment(payment)}
+                                    title="Edit Payment"
+                                  >
+                                    <Edit2 size={12} />
+                                  </Button>
+                                  <Button 
+                                    type="button"
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="text-red-500 hover:bg-red-50 h-6 w-6 p-0"
+                                    onClick={() => handleDeleteProcurementPayment(payment.id)}
+                                    title="Delete Payment"
+                                  >
+                                    <Trash2 size={12} />
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>

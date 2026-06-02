@@ -8167,8 +8167,8 @@ export default function RetailerOrders() {
                               >
                                 Kg
                               </Button>
-                              {/* Variants from qcPackaging */}
-                              {qcPackaging
+                              {/* Variants from packagings */}
+                              {packagings
                                 .filter(pkg => !closingEntryItems.some(
                                   item => item.product_id === product.id && item.variant_name === pkg.name
                                 ))

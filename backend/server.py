@@ -18302,6 +18302,62 @@ async def delete_retailer_closing_inventory(
         "deleted_count": result.deleted_count
     }
 
+
+@app.get("/api/retailer-closing-inventory/last-supply/{retailer_id}")
+async def get_last_supply_items(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get items from the retailer's last supply (most recent dispatch).
+    This is used to pre-populate the closing inventory form.
+    """
+    # Get the most recent dispatch for this retailer
+    last_dispatch = await db.retailer_dispatches.find_one(
+        {"retailer_id": retailer_id},
+        {"_id": 0},
+        sort=[("dispatch_date", -1), ("created_at", -1)]
+    )
+    
+    if not last_dispatch:
+        return {
+            "success": True,
+            "items": [],
+            "last_dispatch_date": None,
+            "message": "No dispatches found for this retailer"
+        }
+    
+    # Extract unique products with variants from the last dispatch
+    items = []
+    seen = set()
+    
+    for item in last_dispatch.get("items", []):
+        product_id = item.get("product_id")
+        variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+        variant_name = item.get("variant_name") or item.get("packaging_name") or "Kg"
+        
+        key = f"{product_id}_{variant_name}"
+        if key not in seen:
+            seen.add(key)
+            items.append({
+                "product_id": product_id,
+                "product_name": item.get("product_name", ""),
+                "variant_id": variant_id,
+                "variant_name": variant_name,
+                "last_supplied_qty": item.get("supplied_qty", 0)
+            })
+    
+    # Sort by product name
+    items.sort(key=lambda x: x.get("product_name", "").lower())
+    
+    return {
+        "success": True,
+        "items": items,
+        "last_dispatch_date": str(last_dispatch.get("dispatch_date", ""))[:10],
+        "dispatch_id": last_dispatch.get("id")
+    }
+
+
 @app.delete("/api/retailer-closing-inventory/item/{item_id}")
 async def delete_closing_inventory_item(
     item_id: str,

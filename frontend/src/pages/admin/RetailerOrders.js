@@ -258,6 +258,14 @@ export default function RetailerOrders() {
   const [adminEnteringClosing, setAdminEnteringClosing] = useState(false); // Admin entering new closing data
   const [adminClosingInputs, setAdminClosingInputs] = useState({}); // Admin input values for new closing
   
+  // New Closing Inventory Entry Mode (simplified)
+  const [closingEntryMode, setClosingEntryMode] = useState(false); // Toggle for new entry mode
+  const [lastSupplyItems, setLastSupplyItems] = useState([]); // Items from last dispatch
+  const [closingEntryItems, setClosingEntryItems] = useState([]); // Items being entered
+  const [lastSupplyDate, setLastSupplyDate] = useState(null);
+  const [showAddProductModal, setShowAddProductModal] = useState(false); // Modal to add more products
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
   const [showPaymentSummaryPreview, setShowPaymentSummaryPreview] = useState(false); // Preview popup
@@ -724,6 +732,122 @@ export default function RetailerOrders() {
       setClosingHasData(false);
     }
   }, [closingInventoryRetailer, closingInventoryDate]);
+
+  // Load last supply items for a retailer (for new closing entry)
+  const loadLastSupplyItems = useCallback(async (retailerId) => {
+    if (!retailerId) {
+      setLastSupplyItems([]);
+      setClosingEntryItems([]);
+      setLastSupplyDate(null);
+      return;
+    }
+    try {
+      const res = await api.get(`/api/retailer-closing-inventory/last-supply/${retailerId}`);
+      const items = res.data.items || [];
+      setLastSupplyItems(items);
+      setLastSupplyDate(res.data.last_dispatch_date);
+      
+      // Pre-populate closing entry items with last supply items
+      setClosingEntryItems(items.map(item => ({
+        ...item,
+        closing_qty: ''
+      })));
+      
+    } catch (error) {
+      console.error('Failed to load last supply items:', error);
+      setLastSupplyItems([]);
+      setClosingEntryItems([]);
+      setLastSupplyDate(null);
+    }
+  }, []);
+
+  // Start new closing entry mode
+  const startClosingEntry = async () => {
+    if (!closingInventoryRetailer) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    await loadLastSupplyItems(closingInventoryRetailer);
+    setClosingEntryMode(true);
+  };
+
+  // Add product to closing entry list
+  const addProductToClosingEntry = (product, variant) => {
+    // Check if already in list
+    const exists = closingEntryItems.some(
+      item => item.product_id === product.id && item.variant_name === variant.name
+    );
+    if (exists) {
+      toast.error('Product with this variant already in list');
+      return;
+    }
+    
+    setClosingEntryItems(prev => [...prev, {
+      product_id: product.id,
+      product_name: product.name,
+      variant_id: variant.id || '',
+      variant_name: variant.name || 'Kg',
+      closing_qty: ''
+    }]);
+    setShowAddProductModal(false);
+    setProductSearchTerm('');
+  };
+
+  // Remove product from closing entry list
+  const removeFromClosingEntry = (index) => {
+    setClosingEntryItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Update closing qty in entry mode
+  const updateClosingEntryQty = (index, value) => {
+    setClosingEntryItems(prev => prev.map((item, i) => 
+      i === index ? { ...item, closing_qty: value } : item
+    ));
+  };
+
+  // Save closing entry
+  const saveClosingEntry = async () => {
+    // Filter items with actual closing qty entered
+    const itemsToSave = closingEntryItems.filter(item => 
+      item.closing_qty !== '' && item.closing_qty !== null && item.closing_qty !== undefined
+    );
+    
+    if (itemsToSave.length === 0) {
+      toast.error('Please enter closing quantity for at least one item');
+      return;
+    }
+    
+    try {
+      await api.post('/api/retailer-closing-inventory/bulk', {
+        retailer_id: closingInventoryRetailer,
+        closing_date: closingInventoryDate,
+        items: itemsToSave.map(item => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          variant_id: item.variant_id,
+          variant_name: item.variant_name,
+          closing_qty: parseFloat(item.closing_qty) || 0
+        }))
+      });
+      
+      toast.success(`Saved closing inventory for ${itemsToSave.length} items`);
+      setClosingEntryMode(false);
+      setClosingEntryItems([]);
+      loadClosingInventory();
+      
+    } catch (error) {
+      console.error('Failed to save closing inventory:', error);
+      toast.error('Failed to save closing inventory');
+    }
+  };
+
+  // Cancel closing entry mode
+  const cancelClosingEntry = () => {
+    setClosingEntryMode(false);
+    setClosingEntryItems([]);
+    setShowAddProductModal(false);
+    setProductSearchTerm('');
+  };
 
   // Admin: Update closing inventory item
   const updateClosingItem = async (itemId, newQty, newVariantName = null) => {
@@ -7774,8 +7898,13 @@ export default function RetailerOrders() {
                   <label className="block text-xs font-medium text-gray-600 mb-1">Select Retailer</label>
                   <select
                     value={closingInventoryRetailer}
-                    onChange={(e) => setClosingInventoryRetailer(e.target.value)}
+                    onChange={(e) => {
+                      setClosingInventoryRetailer(e.target.value);
+                      setClosingEntryMode(false);
+                      setClosingEntryItems([]);
+                    }}
                     className="w-full h-9 border rounded px-3 text-sm"
+                    disabled={closingEntryMode}
                   >
                     <option value="">-- Select Retailer --</option>
                     {retailers.map(r => (
@@ -7790,79 +7919,288 @@ export default function RetailerOrders() {
                     value={closingInventoryDate}
                     onChange={(e) => setClosingInventoryDate(e.target.value)}
                     className="h-9"
+                    disabled={closingEntryMode}
                   />
                 </div>
-                <div className="flex items-end">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={loadClosingInventory}
-                    className="h-9"
-                  >
-                    <Search size={14} className="mr-1" /> Load
-                  </Button>
+                <div className="flex items-end gap-2">
+                  {!closingEntryMode ? (
+                    <>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={loadClosingInventory}
+                        className="h-9"
+                      >
+                        <Search size={14} className="mr-1" /> Load
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        onClick={startClosingEntry}
+                        className="h-9 bg-green-600 hover:bg-green-700 text-white"
+                        disabled={!closingInventoryRetailer}
+                      >
+                        <Plus size={14} className="mr-1" /> New Entry
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={cancelClosingEntry}
+                        className="h-9 border-red-300 text-red-600 hover:bg-red-50"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        onClick={saveClosingEntry}
+                        className="h-9 bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <Save size={14} className="mr-1" /> Save Closing
+                      </Button>
+                    </>
+                  )}
                 </div>
-                <div className="flex items-end">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => {
-                      if (closingInventoryData.length === 0) {
-                        toast.error('No inventory data to export');
-                        return;
-                      }
-                      
-                      // Build export data
-                      const exportData = closingInventoryData.map(item => ({
-                        'Product Name': item.product_name || '',
-                        'Variant': item.variant_name || 'Kg',
-                        'Opening': item.opening_qty || 0,
-                        'Received': item.received_qty || 0,
-                        'Rejection': item.rejection_qty || 0,
-                        'Items Sold': Math.max(0, (item.opening_qty || 0) + (item.received_qty || 0) - (item.rejection_qty || 0) - (item.closing_qty || 0)),
-                        'Closing': item.closing_qty ?? 0
-                      }));
-                      
-                      // Create CSV content
-                      const headers = ['Product Name', 'Variant', 'Opening', 'Received', 'Rejection', 'Items Sold', 'Closing'];
-                      const csvRows = [
-                        headers.join(','),
-                        ...exportData.map(row => 
-                          headers.map(h => {
-                            const val = row[h];
-                            if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
-                              return `"${val.replace(/"/g, '""')}"`;
-                            }
-                            return val;
-                          }).join(',')
-                        )
-                      ];
-                      const csvContent = csvRows.join('\n');
-                      
-                      // Download as CSV
-                      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                      const url = window.URL.createObjectURL(blob);
-                      const link = document.createElement('a');
-                      link.href = url;
-                      const retailerName = retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer';
-                      link.setAttribute('download', `Inventory_${retailerName}_${closingInventoryDate}.csv`);
-                      document.body.appendChild(link);
-                      link.click();
-                      link.remove();
-                      window.URL.revokeObjectURL(url);
-                      
-                      toast.success('Inventory exported successfully');
-                    }}
-                    className="h-9 text-green-700 border-green-300 hover:bg-green-50"
-                    disabled={closingInventoryData.length === 0}
-                  >
-                    <Download size={14} className="mr-1" /> Export
-                  </Button>
-                </div>
+                {!closingEntryMode && (
+                  <div className="flex items-end">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => {
+                        if (closingInventoryData.length === 0) {
+                          toast.error('No inventory data to export');
+                          return;
+                        }
+                        
+                        // Build export data
+                        const exportData = closingInventoryData.map(item => ({
+                          'Product Name': item.product_name || '',
+                          'Variant': item.variant_name || 'Kg',
+                          'Opening': item.opening_qty || 0,
+                          'Received': item.received_qty || 0,
+                          'Rejection': item.rejection_qty || 0,
+                          'Items Sold': Math.max(0, (item.opening_qty || 0) + (item.received_qty || 0) - (item.rejection_qty || 0) - (item.closing_qty || 0)),
+                          'Closing': item.closing_qty ?? 0
+                        }));
+                        
+                        // Create CSV content
+                        const headers = ['Product Name', 'Variant', 'Opening', 'Received', 'Rejection', 'Items Sold', 'Closing'];
+                        const csvRows = [
+                          headers.join(','),
+                          ...exportData.map(row => 
+                            headers.map(h => {
+                              const val = row[h];
+                              if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+                                return `"${val.replace(/"/g, '""')}"`;
+                              }
+                              return val;
+                            }).join(',')
+                          )
+                        ];
+                        const csvContent = csvRows.join('\n');
+                        
+                        // Download as CSV
+                        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                        const url = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        const retailerName = retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer';
+                        link.setAttribute('download', `Inventory_${retailerName}_${closingInventoryDate}.csv`);
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                        window.URL.revokeObjectURL(url);
+                        
+                        toast.success('Inventory exported successfully');
+                      }}
+                      className="h-9 text-green-700 border-green-300 hover:bg-green-50"
+                      disabled={closingInventoryData.length === 0}
+                    >
+                      <Download size={14} className="mr-1" /> Export
+                    </Button>
+                  </div>
+                )}
               </div>
 
-              {/* Full Inventory Table */}
-              {closingInventoryRetailer && closingInventoryDate ? (
+              {/* New Closing Entry Mode */}
+              {closingEntryMode && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <ClipboardList className="text-blue-600" size={20} />
+                        <div>
+                          <p className="font-medium text-blue-800">
+                            Entering Closing Inventory for {retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer'}
+                          </p>
+                          <p className="text-sm text-blue-700">
+                            Date: {closingInventoryDate} | Pre-populated from last supply{lastSupplyDate ? ` (${lastSupplyDate})` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => setShowAddProductModal(true)}
+                        className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                      >
+                        <Plus size={14} className="mr-1" /> Add Product
+                      </Button>
+                    </div>
+                  </div>
+
+                  {closingEntryItems.length > 0 ? (
+                    <div className="overflow-x-auto border rounded-lg">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="p-3 text-left font-medium text-gray-600 w-8">#</th>
+                            <th className="p-3 text-left font-medium text-gray-600">Product</th>
+                            <th className="p-3 text-left font-medium text-gray-500">Variant</th>
+                            <th className="p-3 text-center font-medium text-amber-600 w-32">Closing Qty</th>
+                            <th className="p-3 text-center font-medium text-gray-500 w-16">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {closingEntryItems.map((item, index) => (
+                            <tr key={`${item.product_id}-${item.variant_name}-${index}`} className="border-t hover:bg-gray-50">
+                              <td className="p-3 text-gray-500">{index + 1}</td>
+                              <td className="p-3 font-medium">{item.product_name}</td>
+                              <td className="p-3 text-gray-600">{item.variant_name}</td>
+                              <td className="p-3 text-center">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  value={item.closing_qty}
+                                  onChange={(e) => updateClosingEntryQty(index, e.target.value)}
+                                  className="w-24 h-8 text-center mx-auto"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td className="p-3 text-center">
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost"
+                                  onClick={() => removeFromClosingEntry(index)}
+                                  className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                                  title="Remove"
+                                >
+                                  <Trash2 size={12} />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-100 font-semibold text-sm">
+                          <tr>
+                            <td colSpan={3} className="p-3 text-right">Total Items:</td>
+                            <td className="p-3 text-center text-amber-600">
+                              {closingEntryItems.filter(i => i.closing_qty !== '' && i.closing_qty !== null).length} entered
+                            </td>
+                            <td className="p-3 text-center text-gray-500">
+                              {closingEntryItems.length} items
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">
+                      <ClipboardList size={40} className="mx-auto mb-2 text-gray-300" />
+                      <p>No products from last supply found.</p>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => setShowAddProductModal(true)}
+                        className="mt-2"
+                      >
+                        <Plus size={14} className="mr-1" /> Add Products
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Add Product Modal */}
+              {showAddProductModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                  <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[80vh] overflow-auto">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold">Add Product to Closing Inventory</h3>
+                      <Button 
+                        size="sm" 
+                        variant="ghost"
+                        onClick={() => { setShowAddProductModal(false); setProductSearchTerm(''); }}
+                        className="h-8 w-8 p-0"
+                      >
+                        <X size={16} />
+                      </Button>
+                    </div>
+                    
+                    <Input
+                      type="text"
+                      placeholder="Search products..."
+                      value={productSearchTerm}
+                      onChange={(e) => setProductSearchTerm(e.target.value)}
+                      className="mb-4"
+                    />
+                    
+                    <div className="max-h-96 overflow-y-auto space-y-2">
+                      {products
+                        .filter(p => 
+                          p.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+                          (p.name_hi && p.name_hi.includes(productSearchTerm))
+                        )
+                        .slice(0, 20)
+                        .map(product => (
+                          <div key={product.id} className="border rounded p-3 hover:bg-gray-50">
+                            <p className="font-medium text-sm">{product.name}</p>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {/* Default Kg variant */}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => addProductToClosingEntry(product, { id: '', name: 'Kg' })}
+                                className="text-xs h-7"
+                              >
+                                Kg
+                              </Button>
+                              {/* Variants from qcPackaging */}
+                              {qcPackaging
+                                .filter(pkg => !closingEntryItems.some(
+                                  item => item.product_id === product.id && item.variant_name === pkg.name
+                                ))
+                                .slice(0, 6)
+                                .map(pkg => (
+                                  <Button
+                                    key={pkg.id}
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => addProductToClosingEntry(product, { id: pkg.id, name: pkg.name })}
+                                    className="text-xs h-7"
+                                  >
+                                    {pkg.name}
+                                  </Button>
+                                ))
+                              }
+                            </div>
+                          </div>
+                        ))
+                      }
+                      {products.filter(p => 
+                        p.name.toLowerCase().includes(productSearchTerm.toLowerCase())
+                      ).length === 0 && (
+                        <p className="text-center text-gray-500 py-4">No products found</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Full Inventory Table - Only show when not in entry mode */}
+              {!closingEntryMode && closingInventoryRetailer && closingInventoryDate ? (
                 closingHasData ? (
                   /* Normal view - has closing data recorded */
                   <div className="overflow-x-auto border rounded-lg">

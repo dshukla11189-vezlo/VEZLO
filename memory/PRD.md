@@ -2,24 +2,33 @@
 
 ## Changelog (June 2025)
 
-### June 2, 2025 (Session 12) - Auto Indent Weight-Based Grouping Fix V3
-- **FIX**: Auto Indent Generation Logic - Smart Weight Clustering ✅
-  - **Problem**: Auto-generated indents created multiple entries for similar weight variants like Broccoli 200g, 300g, 400g
-  - **Solution**: Four-tier intelligent weight grouping:
-    1. **DB Lookup**: First checks `qc_packaging` collection for exact variant weight
-    2. **Name Extraction**: Extracts weight from variant name (handles ranges: "240-260 gm" → 250g)
-    3. **Bucket Normalization**: Groups to standard buckets (50, 100, 200, 250, 300, 400, 500, 1000g, etc.)
-    4. **Close Weight Merging**: Post-processing merges variants within 300g of each other
-  - **Key Functions**:
-    - `extract_weight_from_variant()` - Extracts weight from variant name
-    - `normalize_weight_to_bucket()` - Maps weight to closest standard bucket
-    - `merge_close_weight_variants()` - Combines close weight entries for same product
-  - **Results**: Tamanna Mart reduced from 64 to 46 items
-    - Broccoli: 3 entries (200g, 300g, 400g) → 1 entry
-    - Fresh Mint: 2 entries (75g, 100g) → 1 entry
-    - Potato/Onion: 500g and 1000g stay separate (500g gap exceeds threshold)
-  - **Latest Variant**: Always uses the most recent invoice's variant name for display
-  - Files: `/app/backend/server.py` (lines 14785-14935, 15118-15145, 15363-15377)
+### June 2, 2025 (Session 12) - Closing Inventory Enhancement & Auto Indent Fix
+
+#### Closing Inventory - New Entry Mode ✅
+- **NEW FEATURE**: Simplified Closing Inventory Entry
+  - When user selects retailer and clicks "New Entry", products from last supply auto-populate
+  - Pre-populated with last dispatch items (product name, variant)
+  - "Add Product" modal to add more products not in last supply
+  - Simple quantity entry and save
+  - View previous dates' closing by changing date and clicking "Load"
+- **API Added**: `GET /api/retailer-closing-inventory/last-supply/{retailer_id}`
+  - Returns items from most recent dispatch for the retailer
+  - Used to pre-populate closing inventory form
+- **UI Changes**:
+  - New "New Entry" button alongside "Load" button
+  - Entry mode shows blue info banner with retailer name and last supply date
+  - Table with # | Product | Variant | Closing Qty | Action columns
+  - "Add Product" modal with search and variant selection
+  - Cancel and Save Closing buttons
+- Files: `/app/backend/server.py` (lines 18288-18349), `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+#### Auto Indent - Smart Weight Clustering V3 ✅
+- **FIX**: Auto Indent Generation Logic - Smart Weight Clustering
+  - Four-tier weight grouping: DB lookup → Name extraction → Bucket normalization → Close weight merging
+  - Added `merge_close_weight_variants()` - Combines variants within 300g of each other
+  - Results: Tamanna Mart reduced from 64 to 46 items
+  - Different weight categories (500g vs 1000g) correctly kept separate
+- Files: `/app/backend/server.py` (lines 14785-14935, 15118-15145, 15363-15377)
 
 ### June 2, 2025 (Session 11) - Image Storage Migration & Expense Improvements
 - **MIGRATION**: Product Images - Base64 to Filesystem ✅

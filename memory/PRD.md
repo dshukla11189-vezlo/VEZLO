@@ -2,6 +2,20 @@
 
 ## Changelog (June 2025)
 
+### June 2, 2025 (Session 12) - Auto Indent Weight-Based Grouping Fix
+- **FIX**: Auto Indent Generation Logic - Weight-Based Grouping ✅
+  - **Problem**: Auto-generated indents created duplicate line items for the same product when variant names differed (e.g., "Tomato Local 1kg" vs "Tomato 1 kg")
+  - **Solution**: Implemented weight extraction and normalization for intelligent grouping
+  - **New Function**: `extract_weight_from_variant()` uses regex to extract weights from variant names
+    - Handles formats: 500g, 500gm, 500 gm, 500+ gm, 1kg, 1 kg, 2.5kg, 450-500 gm
+    - Normalizes all to grams (e.g., 1kg → 1000g)
+  - **Grouping Key Changed**: From `product_id_variant_name` to `product_id_normalized_weight`
+  - **Latest Variant Name**: Uses most recent invoice's variant name for display
+  - **Fallback**: Items without extractable weights (e.g., "Half Dozen", "1 Dozen") remain separate
+  - **Testing**: 19/19 tests passed, 70 products benefit from this fix
+  - Files: `/app/backend/server.py` (lines 14785-14820, 14850-15000, 15030-15210)
+  - Test File: `/app/backend/tests/test_auto_indent_weight_grouping.py`
+
 ### June 2, 2025 (Session 11) - Image Storage Migration & Expense Improvements
 - **MIGRATION**: Product Images - Base64 to Filesystem ✅
   - Migrated 68 product images from MongoDB base64 to `/app/uploads/products/`

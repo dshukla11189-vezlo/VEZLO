@@ -246,7 +246,8 @@ export default function Procurement() {
   const [bulkPaymentForm, setBulkPaymentForm] = useState({
     payment_mode: 'cash',
     reference: '',
-    remarks: ''
+    remarks: '',
+    custom_amount: ''  // For editable bulk payment amount
   });
   
   // Previous day procurements for auto-populate
@@ -1713,58 +1714,106 @@ export default function Procurement() {
       const paymentDate = new Date().toISOString().split('T')[0];
       const bulkPaymentReference = bulkPaymentForm.reference || `BULK-${Date.now()}`;
       
-      // Process payments for each selected farmer's pending purchases
+      // Calculate total pending
+      const totalPending = selectedFarmersForPayment.reduce((sum, f) => {
+        const hasPartialAmounts = f.partial_amounts && Object.keys(f.partial_amounts).length > 0;
+        return sum + (hasPartialAmounts 
+          ? Object.values(f.partial_amounts).reduce((s, a) => s + a, 0)
+          : f.pending_amount);
+      }, 0);
+      
+      // Get the payment amount (custom or total pending)
+      const paymentAmount = bulkPaymentForm.custom_amount 
+        ? parseFloat(bulkPaymentForm.custom_amount) 
+        : totalPending;
+      
+      if (paymentAmount <= 0) {
+        toast.error('Payment amount must be greater than 0');
+        return;
+      }
+      
+      // Collect all purchases from all farmers, sorted by date (oldest first)
+      let allPurchases = [];
       for (const farmerData of selectedFarmersForPayment) {
         for (const purchase of farmerData.purchases) {
           if ((purchase.pending_amount || 0) > 0) {
-            // Check if there's a partial amount specified
-            const partialAmount = farmerData.partial_amounts?.[purchase.id];
-            const payAmount = partialAmount ?? purchase.pending_amount;
-            
-            if (payAmount <= 0) continue;
-            
-            const newPaidAmount = (purchase.paid_amount || 0) + payAmount;
-            const newPendingAmount = (purchase.total_amount || 0) - newPaidAmount;
-            const isFullyPaid = newPendingAmount <= 0.01; // Account for floating point
-            
-            // Create payment record in procurement_payments collection
-            await api.post(`/api/procurement/${purchase.id}/payments`, {
-              amount: payAmount,
-              payment_date: paymentDate,
-              payment_mode: bulkPaymentForm.payment_mode,
-              reference_number: bulkPaymentReference,
-              remarks: bulkPaymentForm.remarks || `Bulk payment for ${farmerData.farmer_name}`,
-              paid_by_type: 'company',
-              paid_by_employee_id: null,
-              is_bulk_payment: true,
-              bulk_payment_reference: bulkPaymentReference
-            });
-            
-            // Also record to general payments for farmer tracking
-            await api.post('/api/payments', {
-              date: new Date().toISOString(),
-              party_type: 'farmer',
-              party_id: purchase.farmer_id,
-              party_name: farmerData.farmer_name,
-              amount: payAmount,
-              payment_mode: bulkPaymentForm.payment_mode,
-              reference: bulkPaymentReference,
-              remarks: bulkPaymentForm.remarks || `Bulk payment for procurement on ${formatDate(purchase.date)}`,
-              paid_by_type: 'company',
-              paid_by: 'Company',
-              is_bulk_payment: true
+            allPurchases.push({
+              ...purchase,
+              farmer_name: farmerData.farmer_name,
+              farmer_id: farmerData.farmer_id
             });
           }
         }
       }
       
-      const totalFarmers = selectedFarmersForPayment.length;
-      toast.success(`Payment recorded for ${totalFarmers} farmer(s). Ref: ${bulkPaymentReference}`);
+      // Sort by date (oldest first)
+      allPurchases.sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      // Auto-allocate payment to oldest entries first
+      let remainingPayment = paymentAmount;
+      const paymentsToProcess = [];
+      
+      for (const purchase of allPurchases) {
+        if (remainingPayment <= 0) break;
+        
+        const purchasePending = purchase.pending_amount || 0;
+        const payAmount = Math.min(remainingPayment, purchasePending);
+        
+        if (payAmount > 0) {
+          paymentsToProcess.push({
+            purchase,
+            payAmount,
+            isFullPayment: Math.abs(payAmount - purchasePending) < 0.01
+          });
+          remainingPayment -= payAmount;
+        }
+      }
+      
+      // Process payments
+      for (const { purchase, payAmount } of paymentsToProcess) {
+        // Create payment record in procurement_payments collection
+        await api.post(`/api/procurement/${purchase.id}/payments`, {
+          amount: payAmount,
+          payment_date: paymentDate,
+          payment_mode: bulkPaymentForm.payment_mode,
+          reference_number: bulkPaymentReference,
+          remarks: bulkPaymentForm.remarks || `Bulk payment for ${purchase.farmer_name}`,
+          paid_by_type: 'company',
+          paid_by_employee_id: null,
+          is_bulk_payment: true,
+          bulk_payment_reference: bulkPaymentReference
+        });
+        
+        // Also record to general payments for farmer tracking
+        await api.post('/api/payments', {
+          date: new Date().toISOString(),
+          party_type: 'farmer',
+          party_id: purchase.farmer_id,
+          party_name: purchase.farmer_name,
+          amount: payAmount,
+          payment_mode: bulkPaymentForm.payment_mode,
+          reference: bulkPaymentReference,
+          remarks: bulkPaymentForm.remarks || `Bulk payment for procurement on ${formatDate(purchase.date)}`,
+          paid_by_type: 'company',
+          paid_by: 'Company',
+          is_bulk_payment: true
+        });
+      }
+      
+      const totalFarmers = [...new Set(paymentsToProcess.map(p => p.purchase.farmer_id))].length;
+      const fullPayments = paymentsToProcess.filter(p => p.isFullPayment).length;
+      const partialPayments = paymentsToProcess.length - fullPayments;
+      
+      let successMsg = `Payment of ₹${paymentAmount.toFixed(2)} recorded. `;
+      if (fullPayments > 0) successMsg += `${fullPayments} entries fully paid. `;
+      if (partialPayments > 0) successMsg += `${partialPayments} entries partially paid.`;
+      
+      toast.success(successMsg);
       setOpenBulkPayment(false);
       setSelectedFarmersForPayment([]);
       setSelectedPurchasesForPayment([]);
       setPartialPaymentAmounts({});
-      setBulkPaymentForm({ payment_mode: 'cash', reference: '', remarks: '' });
+      setBulkPaymentForm({ payment_mode: 'cash', reference: '', remarks: '', custom_amount: '' });
       loadData();
     } catch (error) {
       console.error('Bulk payment error:', error);
@@ -4158,10 +4207,11 @@ export default function Procurement() {
               })}
             </div>
 
-            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200 space-y-3">
+              {/* Total Pending Display */}
               <div className="flex justify-between items-center">
-                <span className="font-semibold text-green-800">Total Payment Amount:</span>
-                <span className="text-2xl font-bold text-green-700">
+                <span className="text-sm text-green-700">Total Pending:</span>
+                <span className="text-lg font-bold text-green-700">
                   ₹{selectedFarmersForPayment.reduce((sum, f) => {
                     const hasPartialAmounts = f.partial_amounts && Object.keys(f.partial_amounts).length > 0;
                     return sum + (hasPartialAmounts 
@@ -4170,11 +4220,118 @@ export default function Procurement() {
                   }, 0).toFixed(2)}
                 </span>
               </div>
-              <p className="text-xs text-green-600 mt-1">
-                {selectedFarmersForPayment.some(f => f.partial_amounts && Object.keys(f.partial_amounts).length > 0) 
-                  ? 'Selected amounts will be marked as paid'
-                  : 'All pending amounts will be marked as paid'}
-              </p>
+              
+              {/* Editable Payment Amount */}
+              <div>
+                <Label htmlFor="bulk-payment-amount" className="text-green-800 font-semibold">
+                  Payment Amount
+                </Label>
+                <div className="flex gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                    <Input
+                      id="bulk-payment-amount"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder={selectedFarmersForPayment.reduce((sum, f) => {
+                        const hasPartialAmounts = f.partial_amounts && Object.keys(f.partial_amounts).length > 0;
+                        return sum + (hasPartialAmounts 
+                          ? Object.values(f.partial_amounts).reduce((s, a) => s + a, 0)
+                          : f.pending_amount);
+                      }, 0).toFixed(2)}
+                      className="pl-7 text-lg font-semibold"
+                      data-testid="bulk-payment-amount-input"
+                      value={bulkPaymentForm.custom_amount}
+                      onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, custom_amount: e.target.value })}
+                    />
+                  </div>
+                  <Button 
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="whitespace-nowrap"
+                    onClick={() => setBulkPaymentForm({ 
+                      ...bulkPaymentForm, 
+                      custom_amount: selectedFarmersForPayment.reduce((sum, f) => {
+                        const hasPartialAmounts = f.partial_amounts && Object.keys(f.partial_amounts).length > 0;
+                        return sum + (hasPartialAmounts 
+                          ? Object.values(f.partial_amounts).reduce((s, a) => s + a, 0)
+                          : f.pending_amount);
+                      }, 0).toFixed(2)
+                    })}
+                  >
+                    Full Amount
+                  </Button>
+                </div>
+                <p className="text-xs text-green-600 mt-1">
+                  Enter custom amount or leave empty to pay full pending. Payment will be applied to oldest entries first.
+                </p>
+              </div>
+              
+              {/* Allocation Preview */}
+              {bulkPaymentForm.custom_amount && parseFloat(bulkPaymentForm.custom_amount) > 0 && (() => {
+                const paymentAmount = parseFloat(bulkPaymentForm.custom_amount);
+                const totalPending = selectedFarmersForPayment.reduce((sum, f) => sum + f.pending_amount, 0);
+                
+                // Collect all purchases sorted by date
+                let allPurchases = [];
+                for (const farmerData of selectedFarmersForPayment) {
+                  for (const purchase of farmerData.purchases) {
+                    if ((purchase.pending_amount || 0) > 0) {
+                      allPurchases.push({
+                        ...purchase,
+                        farmer_name: farmerData.farmer_name
+                      });
+                    }
+                  }
+                }
+                allPurchases.sort((a, b) => new Date(a.date) - new Date(b.date));
+                
+                // Calculate allocation
+                let remaining = paymentAmount;
+                const allocations = [];
+                for (const purchase of allPurchases) {
+                  if (remaining <= 0) break;
+                  const payAmt = Math.min(remaining, purchase.pending_amount);
+                  allocations.push({
+                    date: purchase.date,
+                    farmer: purchase.farmer_name,
+                    amount: payAmt,
+                    isPartial: payAmt < purchase.pending_amount
+                  });
+                  remaining -= payAmt;
+                }
+                
+                return (
+                  <div className="mt-2 pt-2 border-t border-green-200">
+                    <p className="text-xs font-medium text-green-800 mb-1">Allocation Preview (oldest first):</p>
+                    <div className="max-h-24 overflow-y-auto space-y-1">
+                      {allocations.map((alloc, idx) => (
+                        <div key={idx} className="flex justify-between text-xs">
+                          <span className="text-gray-600">
+                            {new Date(alloc.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - {alloc.farmer}
+                            {alloc.isPartial && <span className="text-orange-600 ml-1">(Partial)</span>}
+                          </span>
+                          <span className={alloc.isPartial ? 'text-orange-600' : 'text-green-600'}>
+                            ₹{alloc.amount.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {remaining > 0 && (
+                      <p className="text-xs text-orange-600 mt-1">
+                        ⚠️ ₹{remaining.toFixed(2)} exceeds pending amount
+                      </p>
+                    )}
+                    {paymentAmount < totalPending && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        Remaining pending after payment: ₹{(totalPending - paymentAmount).toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div>

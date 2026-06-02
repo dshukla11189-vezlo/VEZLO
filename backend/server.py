@@ -18604,6 +18604,211 @@ async def list_qc_daily_requirements(
     return docs
 
 
+
+# ============================================
+# PUNE RETAIL SHOPS SCRAPER ENDPOINTS
+# ============================================
+
+# Background task for scraping
+scraping_task = None
+scraping_status = {"status": "idle", "progress": 0, "message": ""}
+
+@api_router.post("/scraper/start")
+async def start_retail_scraper(
+    input: dict = {},
+    current_user: dict = Depends(get_current_user)
+):
+    """Start the Pune retail shops scraper"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run scraper")
+    
+    global scraping_task, scraping_status
+    
+    if scraping_status.get("status") == "running":
+        return {"message": "Scraper is already running", "status": scraping_status}
+    
+    max_shops = input.get("max_shops", 1000)
+    google_api_key = input.get("google_api_key") or os.environ.get("GOOGLE_MAPS_API_KEY")
+    
+    # Import and run scraper
+    from scrapers.pune_retail_scraper import run_scraper
+    
+    scraping_status = {"status": "running", "progress": 0, "message": "Starting scraper..."}
+    
+    async def run_in_background():
+        global scraping_status
+        try:
+            result = await run_scraper(google_api_key=google_api_key, max_shops=max_shops)
+            scraping_status = {
+                "status": "completed",
+                "progress": 100,
+                "message": f"Completed! Saved {result['total_saved']} shops",
+                "result": result
+            }
+        except Exception as e:
+            scraping_status = {
+                "status": "error",
+                "progress": 0,
+                "message": str(e)
+            }
+    
+    # Run in background
+    asyncio.create_task(run_in_background())
+    
+    return {"message": "Scraper started", "status": scraping_status}
+
+
+@api_router.get("/scraper/status")
+async def get_scraper_status(current_user: dict = Depends(get_current_user)):
+    """Get current scraper status"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view scraper status")
+    
+    return scraping_status
+
+
+@api_router.get("/scraper/stats")
+async def get_scraper_stats(current_user: dict = Depends(get_current_user)):
+    """Get statistics about scraped retail shops"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view scraper stats")
+    
+    from scrapers.pune_retail_scraper import get_scraping_stats
+    return await get_scraping_stats()
+
+
+@api_router.get("/scraped-shops")
+async def get_scraped_shops(
+    query: str = None,
+    area: str = None,
+    shop_type: str = None,
+    has_phone: bool = None,
+    skip: int = 0,
+    limit: int = Query(default=50, le=200),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get scraped retail shops with filtering"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view scraped shops")
+    
+    from scrapers.pune_retail_scraper import search_shops
+    shops = await search_shops(
+        query=query,
+        area=area,
+        shop_type=shop_type,
+        has_phone=has_phone,
+        skip=skip,
+        limit=limit
+    )
+    
+    # Get total count for pagination
+    filter_query = {}
+    if query:
+        filter_query["name"] = {"$regex": query, "$options": "i"}
+    if area:
+        filter_query["area"] = {"$regex": area, "$options": "i"}
+    if shop_type:
+        filter_query["shop_type"] = shop_type
+    if has_phone:
+        filter_query["phone"] = {"$ne": "", "$exists": True}
+    
+    total = await db.scraped_retail_shops.count_documents(filter_query)
+    
+    return {
+        "shops": shops,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
+
+
+@api_router.get("/scraped-shops/export")
+async def export_scraped_shops(
+    format: str = "csv",
+    current_user: dict = Depends(get_current_user)
+):
+    """Export scraped shops to CSV"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can export data")
+    
+    from scrapers.pune_retail_scraper import export_to_csv
+    
+    csv_data = await export_to_csv()
+    
+    if not csv_data:
+        raise HTTPException(status_code=404, detail="No data to export")
+    
+    from fastapi.responses import Response
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=pune_retail_shops_{datetime.now().strftime('%Y%m%d')}.csv"
+        }
+    )
+
+
+@api_router.delete("/scraped-shops/{shop_id}")
+async def delete_scraped_shop(
+    shop_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a scraped shop"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete shops")
+    
+    result = await db.scraped_retail_shops.delete_one({"id": shop_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    
+    return {"message": "Shop deleted successfully"}
+
+
+@api_router.put("/scraped-shops/{shop_id}")
+async def update_scraped_shop(
+    shop_id: str,
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a scraped shop's details"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can update shops")
+    
+    update_data = {}
+    if "name" in input:
+        update_data["name"] = input["name"]
+    if "address" in input:
+        update_data["address"] = input["address"]
+    if "phone" in input:
+        update_data["phone"] = input["phone"]
+    if "area" in input:
+        update_data["area"] = input["area"]
+    if "shop_type" in input:
+        update_data["shop_type"] = input["shop_type"]
+    if "verified" in input:
+        update_data["verified"] = input["verified"]
+    if "notes" in input:
+        update_data["notes"] = input["notes"]
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    update_data["updated_by"] = current_user["user_id"]
+    
+    result = await db.scraped_retail_shops.update_one(
+        {"id": shop_id},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    
+    return {"message": "Shop updated successfully"}
+
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     global backup_scheduler

@@ -32,6 +32,17 @@
     - Shows remaining pending after partial reimbursement
   - Files: `/app/frontend/src/pages/admin/VariableExpenses.js`
 
+- **ENHANCEMENT**: Procurement - Employee Bulk Reimbursement ✅
+  - Redesigned "Pending Employee Reimbursements" section
+  - Groups pending procurements by employee with individual "Settle" buttons
+  - Employee Reimbursement Modal (same design as Variable Expenses):
+    - Shows total pending reimbursement for the employee
+    - Editable amount with "Full Amount" button
+    - Real-time allocation preview (oldest procurement first)
+    - Transaction Reference mandatory for non-cash payments
+    - Shows remaining after partial reimbursement
+  - Files: `/app/frontend/src/pages/admin/Procurement.js`
+
 ### June 2, 2025 (Session 10 Cont.) - Performance, Credit Notes & UI Updates
 - **OPTIMIZATION**: Retailer Create Order Page Load Time ✅
   - **Before**: Loaded all 85 products + 32MB of base64 images in one request

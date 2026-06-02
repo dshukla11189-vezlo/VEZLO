@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock, FileText, Download, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
+import { Plus, Trash2, UserPlus, DollarSign, Edit, Edit2, Eye, Filter, Save, BookmarkPlus, IndianRupee, CheckSquare, Square, Phone, X, FileSpreadsheet, Search, Check, Clock, FileText, Download, ChevronDown, ChevronRight, Calendar, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import AutocompleteInput from '../../components/AutocompleteInput';
@@ -216,6 +216,17 @@ export default function Procurement() {
   const [selectedForSettlement, setSelectedForSettlement] = useState([]);  // For bulk settlement
   const [selectedForPDF, setSelectedForPDF] = useState([]);  // For PDF download
   const [fixingLegacyData, setFixingLegacyData] = useState(false);  // For legacy data migration
+  
+  // Employee Bulk Reimbursement Modal (new - like Variable Expenses)
+  const [showEmployeeReimbursementModal, setShowEmployeeReimbursementModal] = useState(false);
+  const [selectedEmployeeForReimbursement, setSelectedEmployeeForReimbursement] = useState(null);
+  const [employeeReimbursementForm, setEmployeeReimbursementForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_mode: 'Bank Transfer',
+    payment_reference: '',
+    remarks: '',
+    custom_amount: ''
+  });
   
   // Expanded farmer view state (for date-wise breakdown)
   const [expandedFarmerId, setExpandedFarmerId] = useState(null);
@@ -1078,6 +1089,125 @@ export default function Procurement() {
   const unsettledEmployeeProcurements = procurements.filter(
     p => p.paid_by_type === 'employee' && p.settlement_status !== 'settled' && (p.payment_status === 'paid' || p.payment_status === 'partial')
   );
+
+  // Group unsettled procurements by employee for bulk reimbursement
+  const getEmployeesWithPendingReimbursements = useCallback(() => {
+    const employeeMap = {};
+    unsettledEmployeeProcurements.forEach(proc => {
+      const employeeId = proc.paid_by_employee_id || proc.paid_by || 'unknown';
+      const employeeName = proc.paid_by || 'Unknown Employee';
+      
+      if (!employeeMap[employeeId]) {
+        employeeMap[employeeId] = {
+          id: employeeId,
+          name: employeeName,
+          procurements: [],
+          total_pending: 0
+        };
+      }
+      
+      // Calculate remaining amount to reimburse
+      const amountPaid = proc.paid_amount || 0;
+      const alreadyReimbursed = proc.reimbursement_amount || 0;
+      const remainingToReimburse = amountPaid - alreadyReimbursed;
+      
+      if (remainingToReimburse > 0) {
+        employeeMap[employeeId].procurements.push({
+          ...proc,
+          remaining_to_reimburse: remainingToReimburse
+        });
+        employeeMap[employeeId].total_pending += remainingToReimburse;
+      }
+    });
+    
+    return Object.values(employeeMap)
+      .filter(emp => emp.total_pending > 0)
+      .sort((a, b) => b.total_pending - a.total_pending);
+  }, [unsettledEmployeeProcurements]);
+
+  // Open employee reimbursement modal
+  const openEmployeeReimbursementModal = (employee) => {
+    setSelectedEmployeeForReimbursement(employee);
+    setEmployeeReimbursementForm({
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_mode: 'Bank Transfer',
+      payment_reference: '',
+      remarks: '',
+      custom_amount: ''
+    });
+    setShowEmployeeReimbursementModal(true);
+  };
+
+  // Handle employee bulk reimbursement with oldest-first allocation
+  const handleEmployeeBulkReimbursement = async () => {
+    if (!selectedEmployeeForReimbursement) return;
+    
+    // Validate transaction reference for non-cash payments
+    if (employeeReimbursementForm.payment_mode !== 'Cash' && !employeeReimbursementForm.payment_reference?.trim()) {
+      toast.error('Transaction Reference is required for non-cash payments');
+      return;
+    }
+    
+    const reimbursementAmount = employeeReimbursementForm.custom_amount 
+      ? parseFloat(employeeReimbursementForm.custom_amount) 
+      : selectedEmployeeForReimbursement.total_pending;
+    
+    if (reimbursementAmount <= 0) {
+      toast.error('Reimbursement amount must be greater than 0');
+      return;
+    }
+    
+    try {
+      // Sort procurements by date (oldest first)
+      const sortedProcurements = [...selectedEmployeeForReimbursement.procurements].sort(
+        (a, b) => new Date(a.date) - new Date(b.date)
+      );
+      
+      let remainingReimbursement = reimbursementAmount;
+      const settlementReference = employeeReimbursementForm.payment_reference || `REIMB-PROC-${Date.now()}`;
+      let settledCount = 0;
+      let partialCount = 0;
+      
+      for (const proc of sortedProcurements) {
+        if (remainingReimbursement <= 0) break;
+        
+        const procRemaining = proc.remaining_to_reimburse || ((proc.paid_amount || 0) - (proc.reimbursement_amount || 0));
+        const reimburseAmount = Math.min(remainingReimbursement, procRemaining);
+        
+        if (reimburseAmount > 0) {
+          const newTotalReimbursed = (proc.reimbursement_amount || 0) + reimburseAmount;
+          const isFullySettled = Math.abs(newTotalReimbursed - (proc.paid_amount || 0)) < 0.01;
+          
+          await api.put(`/api/procurement/${proc.id}`, {
+            reimbursement_amount: newTotalReimbursed,
+            settlement_status: isFullySettled ? 'settled' : 'partial_reimbursement',
+            settlement_date: employeeReimbursementForm.payment_date,
+            settlement_mode: employeeReimbursementForm.payment_mode,
+            settlement_reference: settlementReference,
+            settlement_remarks: employeeReimbursementForm.remarks,
+            is_settled: isFullySettled
+          });
+          
+          if (isFullySettled) settledCount++;
+          else partialCount++;
+          
+          remainingReimbursement -= reimburseAmount;
+        }
+      }
+      
+      let successMsg = `Reimbursed ₹${reimbursementAmount.toLocaleString('en-IN')} to ${selectedEmployeeForReimbursement.name}. `;
+      if (settledCount > 0) successMsg += `${settledCount} fully settled. `;
+      if (partialCount > 0) successMsg += `${partialCount} partially settled.`;
+      
+      toast.success(successMsg);
+      setShowEmployeeReimbursementModal(false);
+      setSelectedEmployeeForReimbursement(null);
+      loadData();
+    } catch (error) {
+      console.error('Employee bulk reimbursement error:', error);
+      toast.error('Failed to record reimbursement');
+    }
+  };
 
   // Fix legacy employee payments data (migration)
   const handleFixLegacyData = async () => {
@@ -2926,43 +3056,55 @@ export default function Procurement() {
         </Card>
       </div>
       
-      {/* Pending Employee Reimbursements Section */}
-      {unsettledEmployeeProcurements.length > 0 && (
+      {/* Pending Employee Reimbursements Section - Grouped by Employee */}
+      {getEmployeesWithPendingReimbursements().length > 0 && (
         <Card className="mb-4 border-purple-200 bg-purple-50">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2 text-purple-800">
-                <IndianRupee size={18} />
+                <Users size={18} />
                 Pending Employee Reimbursements
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-purple-700 font-bold">
-                  ₹{unsettledEmployeeProcurements.reduce((sum, p) => sum + (p.paid_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  Total: ₹{getEmployeesWithPendingReimbursements().reduce((sum, emp) => sum + emp.total_pending, 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </span>
-                {selectedForSettlement.length > 0 && (
-                  <Button
-                    size="sm"
-                    className="bg-purple-600 hover:bg-purple-700 text-white"
-                    onClick={handleBulkSettlement}
-                  >
-                    <Check size={14} className="mr-1" /> Settle Selected ({selectedForSettlement.length})
-                  </Button>
-                )}
+                <button 
+                  onClick={handleFixLegacyData}
+                  disabled={fixingLegacyData}
+                  className="text-xs text-purple-500 hover:text-purple-700 underline"
+                >
+                  {fixingLegacyData ? 'Fixing...' : 'Sync legacy data'}
+                </button>
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-purple-600 mt-1">
-                {unsettledEmployeeProcurements.length} procurements paid by employees - awaiting company reimbursement
-              </p>
-              <button 
-                onClick={handleFixLegacyData}
-                disabled={fixingLegacyData}
-                className="text-xs text-purple-500 hover:text-purple-700 underline"
-              >
-                {fixingLegacyData ? 'Fixing...' : 'Sync legacy data'}
-              </button>
-            </div>
           </CardHeader>
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {getEmployeesWithPendingReimbursements().map(employee => (
+                <div 
+                  key={employee.id} 
+                  className="bg-white border border-purple-100 rounded-lg p-3 flex items-center justify-between"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900">{employee.name}</p>
+                    <p className="text-xs text-gray-500">{employee.procurements.length} procurement(s)</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-purple-700">₹{employee.total_pending.toLocaleString('en-IN')}</span>
+                    <Button
+                      size="sm"
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                      onClick={() => openEmployeeReimbursementModal(employee)}
+                      data-testid={`settle-employee-${employee.id}`}
+                    >
+                      Settle
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
         </Card>
       )}
       
@@ -4529,6 +4671,200 @@ export default function Procurement() {
                 {settlementForm.reimbursement_amount < settlementProcurement.total_amount 
                   ? 'Record Partial' 
                   : 'Record Reimbursement'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Employee Bulk Reimbursement Modal */}
+      {showEmployeeReimbursementModal && selectedEmployeeForReimbursement && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="p-4 border-b bg-purple-50 flex-shrink-0">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Users size={20} className="text-purple-600" />
+                    Reimburse {selectedEmployeeForReimbursement.name}
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedEmployeeForReimbursement.procurements.length} procurement(s) pending reimbursement
+                  </p>
+                </div>
+                <button 
+                  onClick={() => { setShowEmployeeReimbursementModal(false); setSelectedEmployeeForReimbursement(null); }} 
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-4 space-y-4 overflow-y-auto flex-1">
+              {/* Reimbursement Amount Section */}
+              <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-purple-700">Total Pending Reimbursement:</span>
+                  <span className="text-lg font-bold text-purple-700">
+                    ₹{selectedEmployeeForReimbursement.total_pending.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                
+                <div>
+                  <label className="text-xs font-medium text-purple-800 mb-1 block">Reimbursement Amount</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder={selectedEmployeeForReimbursement.total_pending.toFixed(2)}
+                        className="pl-7 text-lg font-semibold"
+                        data-testid="procurement-employee-reimbursement-amount"
+                        value={employeeReimbursementForm.custom_amount}
+                        onChange={(e) => setEmployeeReimbursementForm(prev => ({ ...prev, custom_amount: e.target.value }))}
+                      />
+                    </div>
+                    <Button 
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="whitespace-nowrap"
+                      onClick={() => setEmployeeReimbursementForm(prev => ({ 
+                        ...prev, 
+                        custom_amount: selectedEmployeeForReimbursement.total_pending.toFixed(2)
+                      }))}
+                    >
+                      Full Amount
+                    </Button>
+                  </div>
+                  <p className="text-xs text-purple-600 mt-1">
+                    Enter custom amount or leave empty to reimburse full pending. Amount applies to oldest procurements first.
+                  </p>
+                </div>
+                
+                {/* Allocation Preview */}
+                {employeeReimbursementForm.custom_amount && parseFloat(employeeReimbursementForm.custom_amount) > 0 && (() => {
+                  const reimbAmount = parseFloat(employeeReimbursementForm.custom_amount);
+                  const sortedProcs = [...selectedEmployeeForReimbursement.procurements].sort(
+                    (a, b) => new Date(a.date) - new Date(b.date)
+                  );
+                  
+                  let remaining = reimbAmount;
+                  const allocations = [];
+                  for (const proc of sortedProcs) {
+                    if (remaining <= 0) break;
+                    const procRemaining = proc.remaining_to_reimburse || ((proc.paid_amount || 0) - (proc.reimbursement_amount || 0));
+                    if (procRemaining <= 0) continue;
+                    const allocAmt = Math.min(remaining, procRemaining);
+                    allocations.push({
+                      date: proc.date,
+                      farmer: proc.farmer_name,
+                      amount: allocAmt,
+                      isPartial: allocAmt < procRemaining
+                    });
+                    remaining -= allocAmt;
+                  }
+                  
+                  return (
+                    <div className="mt-2 pt-2 border-t border-purple-200">
+                      <p className="text-xs font-medium text-purple-800 mb-1">Allocation Preview (oldest first):</p>
+                      <div className="max-h-24 overflow-y-auto space-y-1">
+                        {allocations.map((alloc, idx) => (
+                          <div key={idx} className="flex justify-between text-xs">
+                            <span className="text-gray-600">
+                              {new Date(alloc.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - {alloc.farmer}
+                              {alloc.isPartial && <span className="text-orange-600 ml-1">(Partial)</span>}
+                            </span>
+                            <span className={alloc.isPartial ? 'text-orange-600' : 'text-purple-600'}>
+                              ₹{alloc.amount.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {remaining > 0 && (
+                        <p className="text-xs text-orange-600 mt-1">
+                          ⚠️ ₹{remaining.toFixed(2)} exceeds pending amount
+                        </p>
+                      )}
+                      {reimbAmount < selectedEmployeeForReimbursement.total_pending && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          Remaining after this reimbursement: ₹{(selectedEmployeeForReimbursement.total_pending - reimbAmount).toFixed(2)}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Payment Details */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reimbursement Date *</label>
+                  <Input
+                    type="date"
+                    value={employeeReimbursementForm.payment_date}
+                    onChange={(e) => setEmployeeReimbursementForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
+                  <Select 
+                    value={employeeReimbursementForm.payment_mode} 
+                    onValueChange={(v) => setEmployeeReimbursementForm(prev => ({ ...prev, payment_mode: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Reference / Transaction ID {employeeReimbursementForm.payment_mode !== 'Cash' && <span className="text-red-500">*</span>}
+                </label>
+                <Input
+                  value={employeeReimbursementForm.payment_reference}
+                  onChange={(e) => setEmployeeReimbursementForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                  placeholder={employeeReimbursementForm.payment_mode === 'Cash' ? "Optional for cash" : "Required for non-cash payments"}
+                  className={employeeReimbursementForm.payment_mode !== 'Cash' && !employeeReimbursementForm.payment_reference?.trim() ? 'border-orange-300' : ''}
+                  data-testid="procurement-employee-reimbursement-reference"
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Remarks</label>
+                <Input
+                  value={employeeReimbursementForm.remarks}
+                  onChange={(e) => setEmployeeReimbursementForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  placeholder="Optional notes for this reimbursement..."
+                />
+              </div>
+            </div>
+            
+            <div className="p-4 border-t flex gap-2 flex-shrink-0">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => { setShowEmployeeReimbursementModal(false); setSelectedEmployeeForReimbursement(null); }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                onClick={handleEmployeeBulkReimbursement}
+                data-testid="confirm-procurement-employee-reimbursement-btn"
+              >
+                <IndianRupee size={14} className="mr-1" /> Confirm Reimbursement
               </Button>
             </div>
           </div>

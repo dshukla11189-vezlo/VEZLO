@@ -1621,14 +1621,14 @@ export default function VariableExpenses() {
         {/* View Payment Modal */}
         {showViewPaymentModal && viewingExpense && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-              <div className="p-4 border-b bg-blue-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+              <div className="p-4 border-b bg-blue-50 flex-shrink-0">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Eye size={20} className="text-blue-600" />
-                  Payment Details
+                  Expense Details
                 </h3>
               </div>
-              <div className="p-4 space-y-4">
+              <div className="p-4 space-y-4 overflow-y-auto flex-1">
                 {/* Expense Summary */}
                 <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
                   <div className="flex justify-between">
@@ -1639,62 +1639,114 @@ export default function VariableExpenses() {
                     <span className="text-gray-600">Description:</span>
                     <span className="font-medium">{viewingExpense.description || '-'}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Paid To:</span>
+                    <span className="font-medium">{viewingExpense.paid_to || '-'}</span>
+                  </div>
                   <div className="flex justify-between border-t pt-2">
                     <span className="text-gray-600">Amount:</span>
                     <span className="font-bold text-lg">₹{viewingExpense.amount?.toFixed(2)}</span>
                   </div>
                 </div>
                 
-                {/* Payment Info */}
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-700">Payment Information</h4>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="bg-green-50 p-2 rounded">
-                      <span className="text-gray-600 block text-xs">Payment Mode</span>
-                      <span className="font-medium">{viewingExpense.payment_mode || 'Cash'}</span>
-                    </div>
-                    <div className="bg-green-50 p-2 rounded">
-                      <span className="text-gray-600 block text-xs">Payment Date</span>
-                      <span className="font-medium">{viewingExpense.payment_date?.split('T')[0] || viewingExpense.date?.split('T')[0]}</span>
-                    </div>
-                    <div className="bg-green-50 p-2 rounded">
-                      <span className="text-gray-600 block text-xs">Paid By</span>
-                      <span className={`font-medium ${viewingExpense.paid_by === 'Company' ? 'text-blue-600' : 'text-purple-600'}`}>
-                        {viewingExpense.paid_by || 'Company'}
-                      </span>
-                    </div>
-                    {viewingExpense.payment_reference && (
-                      <div className="bg-green-50 p-2 rounded">
-                        <span className="text-gray-600 block text-xs">Reference</span>
-                        <span className="font-medium">{viewingExpense.payment_reference}</span>
+                {/* Payment History Section */}
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <h4 className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-2">
+                    <Clock size={14} /> Payment History
+                  </h4>
+                  <div className="space-y-2">
+                    {/* Original Payment */}
+                    <div className="bg-white border border-green-100 rounded p-2 text-xs">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-semibold text-green-700">₹{(viewingExpense.amount || 0).toFixed(2)}</span>
+                        <span className="text-gray-500 uppercase text-[10px] bg-gray-100 px-1 rounded">{viewingExpense.payment_mode || 'Cash'}</span>
+                        {viewingExpense.paid_by_type === 'employee' ? (
+                          <span className="text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                            EMPLOYEE PAID
+                          </span>
+                        ) : (
+                          <span className="text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                            COMPANY PAID
+                          </span>
+                        )}
                       </div>
+                      {viewingExpense.payment_reference && (
+                        <div className="text-blue-700 font-medium mb-1">
+                          Ref #: {viewingExpense.payment_reference}
+                        </div>
+                      )}
+                      <div className="text-gray-600">
+                        <span>Paid on: {viewingExpense.payment_date?.split('T')[0] || viewingExpense.date?.split('T')[0]}</span>
+                        <span className="ml-2">by <strong className={viewingExpense.paid_by_type === 'employee' ? 'text-purple-700' : 'text-blue-700'}>
+                          {viewingExpense.paid_by || 'Company'}
+                        </strong></span>
+                      </div>
+                    </div>
+                    
+                    {/* Settlement/Reimbursement Record */}
+                    {viewingExpense.paid_by_type === 'employee' && (
+                      <>
+                        {viewingExpense.settlement_status === 'settled' && (
+                          <div className="bg-white border border-blue-100 rounded p-2 text-xs">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="font-semibold text-blue-700">₹{(viewingExpense.total_reimbursed || viewingExpense.amount || 0).toFixed(2)}</span>
+                              <span className="text-gray-500 uppercase text-[10px] bg-gray-100 px-1 rounded">{viewingExpense.settlement_mode || 'Bank Transfer'}</span>
+                              <span className="text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                REIMBURSED
+                              </span>
+                            </div>
+                            {viewingExpense.settlement_reference && (
+                              <div className="text-blue-700 font-medium mb-1">
+                                Ref #: {viewingExpense.settlement_reference}
+                              </div>
+                            )}
+                            {viewingExpense.settlement_remarks && (
+                              <div className="text-gray-600 italic mb-1">
+                                "{viewingExpense.settlement_remarks}"
+                              </div>
+                            )}
+                            <div className="text-gray-600">
+                              <span>Settled on: {viewingExpense.settlement_date?.split('T')[0]}</span>
+                              <span className="ml-2">to <strong className="text-blue-700">{viewingExpense.paid_by}</strong></span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {viewingExpense.settlement_status === 'partial' && (
+                          <div className="bg-white border border-orange-100 rounded p-2 text-xs">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="font-semibold text-orange-700">₹{(viewingExpense.total_reimbursed || 0).toFixed(2)}</span>
+                              <span className="text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                PARTIAL REIMBURSEMENT
+                              </span>
+                            </div>
+                            <div className="text-gray-600">
+                              <span>Remaining: ₹{((viewingExpense.amount || 0) - (viewingExpense.total_reimbursed || 0)).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {(viewingExpense.settlement_status === 'pending_reimbursement' || !viewingExpense.settlement_status || viewingExpense.settlement_status === 'pending') && (
+                          <div className="bg-orange-50 border border-orange-200 rounded p-2 text-xs">
+                            <span className="text-orange-700 font-medium">⏳ Reimbursement pending to {viewingExpense.paid_by}</span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
                 
-                {/* Settlement Status for Employee Paid */}
-                {viewingExpense.paid_by_type === 'employee' && (
-                  <div className="border-t pt-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Reimbursement Status:</span>
-                      {viewingExpense.settlement_status === 'settled' ? (
-                        <span className="px-3 py-1 rounded-full text-sm bg-green-100 text-green-700">Settled</span>
-                      ) : (
-                        <span className="px-3 py-1 rounded-full text-sm bg-amber-100 text-amber-700">Pending Reimbursement</span>
-                      )}
-                    </div>
-                    {viewingExpense.settlement_status !== 'settled' && (
-                      <Button 
-                        className="w-full mt-3 bg-green-600 hover:bg-green-700"
-                        onClick={() => handleSettleReimbursement(viewingExpense)}
-                      >
-                        <CheckCircle size={14} className="mr-1" /> Mark as Settled
-                      </Button>
-                    )}
-                  </div>
+                {/* Settle Button for Employee Paid Expenses */}
+                {viewingExpense.paid_by_type === 'employee' && viewingExpense.settlement_status !== 'settled' && (
+                  <Button 
+                    className="w-full bg-purple-600 hover:bg-purple-700"
+                    onClick={() => { setShowViewPaymentModal(false); openReimbursementModal(viewingExpense); }}
+                  >
+                    <IndianRupee size={14} className="mr-1" /> Record Reimbursement
+                  </Button>
                 )}
               </div>
-              <div className="p-4 border-t flex gap-2">
+              <div className="p-4 border-t flex gap-2 flex-shrink-0">
                 <Button variant="outline" className="flex-1" onClick={() => setShowViewPaymentModal(false)}>
                   Close
                 </Button>

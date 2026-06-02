@@ -586,11 +586,12 @@ export default function Cashflow() {
           (!e.paid_by_type && !e.paid_by) ||
           (e.paid_by_type === 'company');
         
-        // Check if employee-paid AND truly settled (company has reimbursed)
+        // Check if employee-paid AND has settlement (partial or full)
         const isEmployeePaid = e.paid_by_type === 'employee' || 
           (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
-        const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
-        const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
+        const hasSettlement = e.settlement_status === 'settled' || e.settlement_status === 'partial_reimbursement' || e.settlement_status === 'partial';
+        const settlementAmount = e.total_reimbursed || (hasSettlement ? e.amount : 0);
+        const isEmployeePaidAndSettled = isEmployeePaid && hasSettlement && settlementAmount > 0;
         
         // For company-paid expenses, ONLY include if payment_status is 'paid'
         const companyPaidAndSettled = paidByCompany && e.payment_status === 'paid';
@@ -604,7 +605,7 @@ export default function Cashflow() {
         // Only include if within the filter date range based on PAYMENT DATE
         if ((companyPaidAndSettled || isEmployeePaidAndSettled) && 
             actualPaymentDate && actualPaymentDate >= fromDate && actualPaymentDate <= toDate) {
-          const amount = e.amount || 0;
+          const amount = isEmployeePaidAndSettled ? settlementAmount : (e.amount || 0);
           totalOutflow += amount;
           outflows.push({
             type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Variable Expense',
@@ -613,8 +614,8 @@ export default function Cashflow() {
             expenseDate: e.date?.split('T')[0],  // Keep original expense date for reference
             description: `${e.category} - ${e.description || ''}`,
             amount: amount,
-            payment_mode: e.payment_mode || 'Cash',
-            reference: '-',
+            payment_mode: isEmployeePaidAndSettled ? (e.settlement_mode || 'Bank Transfer') : (e.payment_mode || 'Cash'),
+            reference: isEmployeePaidAndSettled ? (e.settlement_reference || '-') : '-',
             paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
             id: e.id
           });
@@ -628,11 +629,12 @@ export default function Cashflow() {
           (!e.paid_by_type && !e.paid_by) ||
           (e.paid_by_type === 'company');
         
-        // Check if employee-paid AND truly settled
+        // Check if employee-paid AND has settlement (partial or full)
         const isEmployeePaid = e.paid_by_type === 'employee' || 
           (e.paid_by && e.paid_by !== 'Company' && !e.paid_by.toLowerCase().includes('company'));
-        const isTrulySettled = e.is_settled === true && e.settlement_status === 'settled';
-        const isEmployeePaidAndSettled = isEmployeePaid && isTrulySettled;
+        const hasSettlement = e.settlement_status === 'settled' || e.settlement_status === 'partial_reimbursement' || e.settlement_status === 'partial';
+        const settlementAmount = e.total_reimbursed || (hasSettlement ? e.amount : 0);
+        const isEmployeePaidAndSettled = isEmployeePaid && hasSettlement && settlementAmount > 0;
         
         // For company-paid expenses, ONLY include if status is 'Paid'
         const companyPaidAndSettled = paidByCompany && e.status === 'Paid';
@@ -648,7 +650,7 @@ export default function Cashflow() {
         // Only include if within filter date range based on PAYMENT DATE
         if ((companyPaidAndSettled || isEmployeePaidAndSettled) && 
             actualPaymentDate && actualPaymentDate >= fromDate && actualPaymentDate <= toDate) {
-          const amount = e.amount || 0;
+          const amount = isEmployeePaidAndSettled ? settlementAmount : (e.amount || 0);
           totalOutflow += amount;
           outflows.push({
             type: isEmployeePaidAndSettled ? 'Reimbursement' : 'Fixed Expense',
@@ -657,8 +659,8 @@ export default function Cashflow() {
             expenseDate: expenseDate,  // Keep original expense date for reference
             description: e.description || e.category,
             amount: amount,
-            payment_mode: e.payment_mode || '-',
-            reference: '-',
+            payment_mode: isEmployeePaidAndSettled ? (e.settlement_mode || 'Bank Transfer') : (e.payment_mode || '-'),
+            reference: isEmployeePaidAndSettled ? (e.settlement_reference || '-') : '-',
             paid_by: isEmployeePaidAndSettled ? `Reimbursed to ${e.paid_by}` : 'Company',
             id: e.id
           });

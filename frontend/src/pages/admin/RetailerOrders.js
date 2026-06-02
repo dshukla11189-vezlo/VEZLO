@@ -4254,6 +4254,28 @@ export default function RetailerOrders() {
     }
   };
 
+  // Create credit note for excess payment
+  const handleCreateExcessCreditNote = async (invoice, excessAmount) => {
+    const retailerName = getRetailerNameById(invoice.retailer_id) || invoice.retailer_name || 'Unknown';
+    const confirmMsg = `Create Credit Note for ₹${excessAmount.toFixed(2)} excess payment on invoice ${invoice.invoice_number} (${retailerName})?\n\nThis credit note can be adjusted against future invoices.`;
+    
+    if (!window.confirm(confirmMsg)) return;
+    
+    try {
+      const response = await api.post('/api/retailer-credit-notes/from-excess', {
+        invoice_id: invoice.id,
+        excess_amount: excessAmount,
+        remarks: `Excess payment on invoice ${invoice.invoice_number}`
+      });
+      
+      toast.success(response.data.message || 'Credit note created successfully');
+      loadInvoices(); // Refresh to show updated status
+    } catch (error) {
+      console.error('Error creating credit note:', error);
+      toast.error(error.response?.data?.detail || 'Failed to create credit note');
+    }
+  };
+
   // Number to words function for invoice
   const numberToWords = (num) => {
     if (num === 0) return 'Zero Rupees Only';
@@ -7087,7 +7109,31 @@ export default function RetailerOrders() {
                             </td>
                             <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
-                                {status === 'paid' ? (
+                                {paidAmount > (invoice.net_payable || 0) ? (
+                                  // Excess Paid - show View and Credit Note button
+                                  <>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                      onClick={() => openPaymentHistoryModal(invoice)}
+                                      title="View Payment Details"
+                                    >
+                                      <Eye size={14} className="mr-1" /> View
+                                    </Button>
+                                    {!invoice.has_excess_credit_note && (
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        className="text-purple-600 border-purple-300 hover:bg-purple-50"
+                                        onClick={() => handleCreateExcessCreditNote(invoice, paidAmount - (invoice.net_payable || 0))}
+                                        title="Create Credit Note for Excess Amount"
+                                      >
+                                        <FileText size={14} className="mr-1" /> CN
+                                      </Button>
+                                    )}
+                                  </>
+                                ) : status === 'paid' ? (
                                   <Button 
                                     size="sm" 
                                     variant="outline" 

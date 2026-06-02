@@ -11527,6 +11527,95 @@ async def create_retailer_credit_note(
         "credit_note": {k: v for k, v in credit_note.items() if k != "_id"}
     }
 
+@api_router.post("/retailer-credit-notes/from-excess")
+async def create_credit_note_from_excess(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a credit note from excess payment on an invoice"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create credit notes")
+    
+    invoice_id = input.get("invoice_id")
+    excess_amount = input.get("excess_amount", 0)
+    remarks = input.get("remarks", "")
+    
+    if excess_amount <= 0:
+        raise HTTPException(status_code=400, detail="Excess amount must be greater than 0")
+    
+    # Get the invoice
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    retailer_id = invoice.get("retailer_id")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": retailer_id})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Check if credit note already exists for this invoice's excess
+    existing_cn = await db.retailer_credit_notes.find_one({
+        "original_invoice_id": invoice_id,
+        "source": "excess_payment"
+    })
+    if existing_cn:
+        raise HTTPException(status_code=400, detail=f"Credit note {existing_cn.get('credit_note_number')} already exists for this invoice's excess payment")
+    
+    # Generate credit note number
+    retailer_name = retailer.get("company_name", retailer.get("name", ""))
+    retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+    count = await db.retailer_credit_notes.count_documents({"retailer_id": retailer_id})
+    credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
+    
+    # Create credit note - no commission deduction for excess payments (already collected)
+    credit_note = {
+        "id": str(uuid.uuid4()),
+        "credit_note_number": credit_note_number,
+        "retailer_id": retailer_id,
+        "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
+        "original_invoice_id": invoice_id,
+        "original_invoice_number": invoice.get("invoice_number", ""),
+        "source": "excess_payment",  # Mark as excess payment credit note
+        "rejection_id": None,
+        "rejection_date": None,
+        "rejection_value": 0,  # No rejection value - this is from excess payment
+        "commission_percentage": 0,  # No commission deduction
+        "commission_deducted": 0,
+        "amount": round(excess_amount, 2),  # Full excess amount as credit
+        "rejection_details": [],
+        "status": "pending",
+        "adjusted_amount": 0,
+        "pending_amount": round(excess_amount, 2),
+        "adjusted_against_invoices": [],
+        "remarks": remarks or f"Excess payment on invoice {invoice.get('invoice_number', '')}",
+        "created_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.retailer_credit_notes.insert_one(credit_note)
+    
+    # Update the invoice to mark it has excess credit note
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {
+            "$set": {
+                "has_excess_credit_note": True,
+                "excess_credit_note_id": credit_note["id"],
+                "excess_credit_note_amount": round(excess_amount, 2),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    logger.info(f"Created excess payment credit note {credit_note_number} for {retailer_name} - Amount: {excess_amount}")
+    
+    return {
+        "message": f"Credit note {credit_note_number} created for excess amount ₹{excess_amount}",
+        "credit_note": {k: v for k, v in credit_note.items() if k != "_id"}
+    }
+
 @api_router.post("/retailer-credit-notes/adjust")
 async def adjust_credit_note(
     input: dict,

@@ -2,14 +2,19 @@
 
 ## Changelog (June 2025)
 
-### June 2, 2025 (Session 10 Cont.) - Performance Optimization
+### June 2, 2025 (Session 10 Cont.) - Performance & Credit Note Features
 - **OPTIMIZATION**: Retailer Create Order Page Load Time ✅
-  - **Before**: Loaded all 85 products + 32MB of base64 images in one request (slow, crashes on mobile)
-  - **After**: 
-    1. Categories load instantly (~46KB without images)
-    2. Images load on-demand when category is expanded (separate API call)
-  - New API endpoint: `/api/products/images?ids=...` for lazy image loading
-  - Files: `/app/backend/server.py` (line ~1155), `/app/frontend/src/pages/retailer/Dashboard.js`
+  - **Before**: Loaded all 85 products + 32MB of base64 images in one request
+  - **After**: Categories load instantly (~46KB), images load on-demand when expanded
+  - New API: `/api/products/images?ids=...` for lazy image loading
+  - Files: `/app/backend/server.py`, `/app/frontend/src/pages/retailer/Dashboard.js`
+
+- **NEW FEATURE**: One-Click Credit Note for Excess Payments ✅
+  - When retailer has "Excess Paid" status (paid more than net receivable), a "CN" button now appears
+  - One click creates a credit note for the exact excess amount
+  - Credit note can be adjusted against future invoices
+  - New API: `POST /api/retailer-credit-notes/from-excess`
+  - Files: `/app/backend/server.py` (~line 11550), `/app/frontend/src/pages/admin/RetailerOrders.js` (~line 4270, 7100)
 
 ### June 1, 2025 (Session 10) - Stability & Login Improvements
 - **FIX**: Retailer Portal Crash Prevention ✅

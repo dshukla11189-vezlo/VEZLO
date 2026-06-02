@@ -2,7 +2,7 @@
 
 ## Changelog (June 2025)
 
-### June 2, 2025 (Session 11) - Image Storage Migration & Bulk Payment
+### June 2, 2025 (Session 11) - Image Storage Migration & Expense Improvements
 - **MIGRATION**: Product Images - Base64 to Filesystem ✅
   - Migrated 68 product images from MongoDB base64 to `/app/uploads/products/`
   - Images auto-compressed and resized to max 800×800 pixels
@@ -18,6 +18,15 @@
   - Transaction reference now mandatory for non-cash payments (UPI, Bank, Cheque)
   - "Full Amount" button to quickly fill total pending
   - Files: `/app/frontend/src/pages/admin/Procurement.js`
+
+- **ENHANCEMENT**: Variable Expenses - Validations & Settle Feature ✅
+  - "Paid To (Vendor)" field is now mandatory
+  - Transaction Reference mandatory for non-cash payments
+  - When "Retail Only" vertical selected, shows Retailer dropdown (All/Specific retailer)
+  - New "Settle" button in header opens vendor bulk payment modal
+  - Vendor Payment Modal: Select vendor → See pending amount → Enter custom amount → Auto-allocate oldest first
+  - Allocation preview shows which expenses will be paid/partially paid
+  - Files: `/app/frontend/src/pages/admin/VariableExpenses.js`
 
 ### June 2, 2025 (Session 10 Cont.) - Performance, Credit Notes & UI Updates
 - **OPTIMIZATION**: Retailer Create Order Page Load Time ✅

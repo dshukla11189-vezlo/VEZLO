@@ -44,6 +44,7 @@ export default function VariableExpenses() {
   const [expenses, setExpenses] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [staffUsers, setStaffUsers] = useState([]); // Admin and Staff users
+  const [retailers, setRetailers] = useState([]); // Retailers for retail vertical
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showSettlementDialog, setShowSettlementDialog] = useState(false);
@@ -78,7 +79,8 @@ export default function VariableExpenses() {
     settlement_status: 'settled', // 'settled' or 'pending_reimbursement'
     settlement_date: '',
     settlement_remarks: '',
-    vertical: 'all' // 'all', 'qc', or 'retail'
+    vertical: 'all', // 'all', 'qc', or 'retail'
+    retailer_id: '' // For retail-specific expenses
   });
   
   // Payment Details Modal state (for recording payment details when marking as Paid)
@@ -114,6 +116,17 @@ export default function VariableExpenses() {
   const [showBulkSettlementModal, setShowBulkSettlementModal] = useState(false);
   const [bulkSettlementEmployee, setBulkSettlementEmployee] = useState(null);
   const [bulkSettlementExpenses, setBulkSettlementExpenses] = useState([]);
+  
+  // Vendor Bulk Payment state (new - like Procurement)
+  const [showVendorPaymentModal, setShowVendorPaymentModal] = useState(false);
+  const [vendorPaymentForm, setVendorPaymentForm] = useState({
+    payment_mode: 'Cash',
+    reference: '',
+    remarks: '',
+    custom_amount: ''
+  });
+  const [selectedVendorForPayment, setSelectedVendorForPayment] = useState(null);
+  const [vendorsWithPending, setVendorsWithPending] = useState([]);
 
   const loadExpenses = useCallback(async () => {
     setLoading(true);
@@ -160,10 +173,22 @@ export default function VariableExpenses() {
     }
   };
 
+  // Load Retailers for retail vertical dropdown
+  const loadRetailers = async () => {
+    try {
+      const response = await api.get('/api/retailers');
+      setRetailers(response.data || []);
+    } catch (error) {
+      console.error('Failed to load retailers:', error);
+      setRetailers([]);
+    }
+  };
+
   useEffect(() => {
     loadExpenses();
     loadEmployees();
     loadStaffUsers();
+    loadRetailers();
   }, [loadExpenses]);
 
   const resetForm = () => {
@@ -187,7 +212,8 @@ export default function VariableExpenses() {
       settlement_status: 'settled',
       settlement_date: '',
       settlement_remarks: '',
-      vertical: 'all'
+      vertical: 'all',
+      retailer_id: ''
     });
     setEditingExpense(null);
   };
@@ -195,6 +221,18 @@ export default function VariableExpenses() {
   const handleSubmit = async () => {
     if (!formData.category || !formData.amount) {
       toast.error('Category and Amount are required');
+      return;
+    }
+    
+    // Validate Paid To is mandatory
+    if (!formData.paid_to?.trim()) {
+      toast.error('Paid To (Vendor/Person name) is required');
+      return;
+    }
+    
+    // Validate transaction reference for non-cash payments
+    if (formData.payment_mode !== 'Cash' && !formData.payment_reference?.trim()) {
+      toast.error('Transaction Reference is required for non-cash payments');
       return;
     }
     
@@ -242,7 +280,8 @@ export default function VariableExpenses() {
         paid_by_employee_id: formData.paid_by_employee_id,
         payment_date: formData.payment_date,
         payment_reference: formData.payment_reference,
-        settlement_status: settlementStatus
+        settlement_status: settlementStatus,
+        retailer_id: formData.vertical === 'retail' ? formData.retailer_id : null
       };
       
       if (editingExpense) {
@@ -553,6 +592,118 @@ export default function VariableExpenses() {
     }
   };
 
+  // Calculate vendors/employees with pending payments
+  const getVendorsWithPendingPayments = useCallback(() => {
+    const vendorMap = {};
+    expenses.forEach(expense => {
+      if (expense.payment_status !== 'paid') {
+        const vendorKey = expense.paid_to || 'Unknown';
+        if (!vendorMap[vendorKey]) {
+          vendorMap[vendorKey] = {
+            name: vendorKey,
+            expenses: [],
+            total_pending: 0
+          };
+        }
+        const pending = (expense.amount || 0) - (expense.paid_amount || 0);
+        if (pending > 0) {
+          vendorMap[vendorKey].expenses.push(expense);
+          vendorMap[vendorKey].total_pending += pending;
+        }
+      }
+    });
+    return Object.values(vendorMap).filter(v => v.total_pending > 0).sort((a, b) => b.total_pending - a.total_pending);
+  }, [expenses]);
+
+  // Open vendor payment modal
+  const openVendorPaymentModal = () => {
+    const vendors = getVendorsWithPendingPayments();
+    setVendorsWithPending(vendors);
+    setSelectedVendorForPayment(null);
+    setVendorPaymentForm({
+      payment_mode: 'Cash',
+      reference: '',
+      remarks: '',
+      custom_amount: ''
+    });
+    setShowVendorPaymentModal(true);
+  };
+
+  // Handle vendor bulk payment
+  const handleVendorBulkPayment = async () => {
+    if (!selectedVendorForPayment) {
+      toast.error('Please select a vendor');
+      return;
+    }
+
+    // Validate transaction reference for non-cash payments
+    if (vendorPaymentForm.payment_mode !== 'Cash' && !vendorPaymentForm.reference?.trim()) {
+      toast.error('Transaction Reference is required for non-cash payments');
+      return;
+    }
+
+    const paymentAmount = vendorPaymentForm.custom_amount 
+      ? parseFloat(vendorPaymentForm.custom_amount) 
+      : selectedVendorForPayment.total_pending;
+
+    if (paymentAmount <= 0) {
+      toast.error('Payment amount must be greater than 0');
+      return;
+    }
+
+    try {
+      // Sort expenses by date (oldest first)
+      const sortedExpenses = [...selectedVendorForPayment.expenses].sort(
+        (a, b) => new Date(a.date) - new Date(b.date)
+      );
+
+      let remainingPayment = paymentAmount;
+      const paymentReference = vendorPaymentForm.reference || `BULK-VE-${Date.now()}`;
+      let updatedCount = 0;
+      let partialCount = 0;
+
+      for (const expense of sortedExpenses) {
+        if (remainingPayment <= 0) break;
+
+        const currentPending = (expense.amount || 0) - (expense.paid_amount || 0);
+        const payAmount = Math.min(remainingPayment, currentPending);
+
+        if (payAmount > 0) {
+          const newPaidAmount = (expense.paid_amount || 0) + payAmount;
+          const isFullyPaid = Math.abs(newPaidAmount - expense.amount) < 0.01;
+
+          await api.put(`/api/expenses/variable/${expense.id}`, {
+            paid_amount: newPaidAmount,
+            payment_status: isFullyPaid ? 'paid' : 'partially_paid',
+            payment_date: new Date().toISOString().split('T')[0],
+            payment_mode: vendorPaymentForm.payment_mode,
+            payment_reference: paymentReference,
+            is_settled: isFullyPaid,
+            settlement_status: isFullyPaid ? 'settled' : expense.settlement_status
+          });
+
+          if (isFullyPaid) updatedCount++;
+          else partialCount++;
+          
+          remainingPayment -= payAmount;
+        }
+      }
+
+      let successMsg = `Payment of ₹${paymentAmount.toFixed(2)} recorded for ${selectedVendorForPayment.name}. `;
+      if (updatedCount > 0) successMsg += `${updatedCount} fully paid. `;
+      if (partialCount > 0) successMsg += `${partialCount} partially paid.`;
+
+      toast.success(successMsg);
+      setShowVendorPaymentModal(false);
+      setSelectedVendorForPayment(null);
+      setVendorPaymentForm({ payment_mode: 'Cash', reference: '', remarks: '', custom_amount: '' });
+      loadExpenses();
+    } catch (error) {
+      console.error('Vendor bulk payment error:', error);
+      toast.error('Failed to record payment');
+    }
+  };
+
   const employeesWithPendingReimbursements = getEmployeesWithPendingReimbursements();
 
   const unsettledExpenses = expenses.filter(e => e.payment_status !== 'paid' && !e.is_settled);
@@ -586,14 +737,15 @@ export default function VariableExpenses() {
             <Button variant="outline" size="sm" onClick={loadExpenses}>
               <RefreshCw size={14} className="mr-1" /> Refresh
             </Button>
-            {unsettledExpenses.length > 0 && (
+            {getVendorsWithPendingPayments().length > 0 && (
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => setShowSettlementDialog(true)}
-                className="text-orange-600 border-orange-300"
+                onClick={openVendorPaymentModal}
+                className="text-purple-600 border-purple-300"
+                data-testid="settle-payments-btn"
               >
-                <CheckCircle size={14} className="mr-1" /> Settle ({unsettledExpenses.length})
+                <IndianRupee size={14} className="mr-1" /> Settle
               </Button>
             )}
             <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">
@@ -1109,14 +1261,30 @@ export default function VariableExpenses() {
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">Paid To</label>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Paid To (Vendor) *</label>
                   <Input
                     placeholder="Vendor/Person name"
                     value={formData.paid_to}
                     onChange={(e) => setFormData(prev => ({ ...prev, paid_to: e.target.value }))}
-                    className="h-8 text-sm"
+                    className={`h-8 text-sm ${!formData.paid_to?.trim() ? 'border-orange-300' : ''}`}
+                    data-testid="paid-to-input"
                   />
                 </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">
+                    Transaction Ref {formData.payment_mode !== 'Cash' && <span className="text-red-500">*</span>}
+                  </label>
+                  <Input
+                    placeholder={formData.payment_mode === 'Cash' ? "Optional for cash" : "Transaction ID required"}
+                    value={formData.payment_reference}
+                    onChange={(e) => setFormData(prev => ({ ...prev, payment_reference: e.target.value }))}
+                    className={`h-8 text-sm ${formData.payment_mode !== 'Cash' && !formData.payment_reference?.trim() ? 'border-orange-300' : ''}`}
+                    data-testid="payment-reference-input"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-1 block">Receipt/Bill No</label>
                   <Input
@@ -1131,7 +1299,7 @@ export default function VariableExpenses() {
               {/* Vertical Allocation */}
               <div>
                 <label className="text-xs font-medium text-gray-700 mb-1 block">Vertical Incurred For? *</label>
-                <Select value={formData.vertical} onValueChange={(v) => setFormData(prev => ({ ...prev, vertical: v }))}>
+                <Select value={formData.vertical} onValueChange={(v) => setFormData(prev => ({ ...prev, vertical: v, retailer_id: '' }))}>
                   <SelectTrigger className="h-8 text-sm">
                     <SelectValue placeholder="Select Vertical" />
                   </SelectTrigger>
@@ -1147,6 +1315,29 @@ export default function VariableExpenses() {
                   {formData.vertical === 'retail' && 'Expense will be allocated only to Retail vertical'}
                 </p>
               </div>
+              
+              {/* Retailer Selection - Only shown when vertical is 'retail' */}
+              {formData.vertical === 'retail' && (
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Retailer</label>
+                  <Select value={formData.retailer_id} onValueChange={(v) => setFormData(prev => ({ ...prev, retailer_id: v }))}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Select Retailer (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Retailers</SelectItem>
+                      {retailers.map(retailer => (
+                        <SelectItem key={retailer.id} value={retailer.id}>
+                          {retailer.company_name || retailer.name || retailer.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Select specific retailer or "All Retailers" for general retail expense
+                  </p>
+                </div>
+              )}
               
               {/* Paid By Section */}
               <div className="border-t pt-3 mt-3">
@@ -1689,6 +1880,196 @@ export default function VariableExpenses() {
                   disabled={bulkSettlementExpenses.length === 0}
                 >
                   <CheckCircle size={14} className="mr-1" /> Settle {bulkSettlementExpenses.length} Expenses
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Vendor Bulk Payment Modal */}
+        {showVendorPaymentModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] flex flex-col">
+              <div className="p-4 border-b flex justify-between items-center">
+                <h3 className="font-semibold text-lg">Settle Vendor Payments</h3>
+                <button onClick={() => setShowVendorPaymentModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+              </div>
+              
+              <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                {/* Vendor Selection */}
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Select Vendor/Employee</label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-2">
+                    {vendorsWithPending.map(vendor => (
+                      <div
+                        key={vendor.name}
+                        onClick={() => setSelectedVendorForPayment(vendor)}
+                        className={`p-3 rounded-lg cursor-pointer border transition-all ${
+                          selectedVendorForPayment?.name === vendor.name 
+                            ? 'border-purple-500 bg-purple-50' 
+                            : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="font-medium text-gray-900">{vendor.name}</p>
+                            <p className="text-xs text-gray-500">{vendor.expenses.length} pending expense(s)</p>
+                          </div>
+                          <p className="font-bold text-purple-700">₹{vendor.total_pending.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {vendorsWithPending.length === 0 && (
+                      <p className="text-center text-gray-500 py-4">No pending payments</p>
+                    )}
+                  </div>
+                </div>
+
+                {selectedVendorForPayment && (
+                  <>
+                    {/* Payment Amount */}
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-green-700">Total Pending:</span>
+                        <span className="text-lg font-bold text-green-700">
+                          ₹{selectedVendorForPayment.total_pending.toLocaleString()}
+                        </span>
+                      </div>
+                      
+                      <div>
+                        <label className="text-xs font-medium text-green-800 mb-1 block">Payment Amount</label>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder={selectedVendorForPayment.total_pending.toFixed(2)}
+                              className="pl-7 text-lg font-semibold"
+                              data-testid="vendor-payment-amount"
+                              value={vendorPaymentForm.custom_amount}
+                              onChange={(e) => setVendorPaymentForm(prev => ({ ...prev, custom_amount: e.target.value }))}
+                            />
+                          </div>
+                          <Button 
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => setVendorPaymentForm(prev => ({ 
+                              ...prev, 
+                              custom_amount: selectedVendorForPayment.total_pending.toFixed(2)
+                            }))}
+                          >
+                            Full Amount
+                          </Button>
+                        </div>
+                        <p className="text-xs text-green-600 mt-1">
+                          Enter custom amount or leave empty to pay full pending. Payment applies to oldest entries first.
+                        </p>
+                      </div>
+                      
+                      {/* Allocation Preview */}
+                      {vendorPaymentForm.custom_amount && parseFloat(vendorPaymentForm.custom_amount) > 0 && (() => {
+                        const paymentAmount = parseFloat(vendorPaymentForm.custom_amount);
+                        const sortedExpenses = [...selectedVendorForPayment.expenses].sort(
+                          (a, b) => new Date(a.date) - new Date(b.date)
+                        );
+                        
+                        let remaining = paymentAmount;
+                        const allocations = [];
+                        for (const expense of sortedExpenses) {
+                          if (remaining <= 0) break;
+                          const pending = (expense.amount || 0) - (expense.paid_amount || 0);
+                          const payAmt = Math.min(remaining, pending);
+                          allocations.push({
+                            date: expense.date,
+                            category: expense.category,
+                            amount: payAmt,
+                            isPartial: payAmt < pending
+                          });
+                          remaining -= payAmt;
+                        }
+                        
+                        return (
+                          <div className="mt-2 pt-2 border-t border-green-200">
+                            <p className="text-xs font-medium text-green-800 mb-1">Allocation Preview (oldest first):</p>
+                            <div className="max-h-24 overflow-y-auto space-y-1">
+                              {allocations.map((alloc, idx) => (
+                                <div key={idx} className="flex justify-between text-xs">
+                                  <span className="text-gray-600">
+                                    {new Date(alloc.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - {alloc.category}
+                                    {alloc.isPartial && <span className="text-orange-600 ml-1">(Partial)</span>}
+                                  </span>
+                                  <span className={alloc.isPartial ? 'text-orange-600' : 'text-green-600'}>
+                                    ₹{alloc.amount.toFixed(2)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            {remaining > 0 && (
+                              <p className="text-xs text-orange-600 mt-1">
+                                ⚠️ ₹{remaining.toFixed(2)} exceeds pending amount
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Payment Details */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
+                        <Select value={vendorPaymentForm.payment_mode} onValueChange={(v) => setVendorPaymentForm(prev => ({ ...prev, payment_mode: v }))}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PAYMENT_MODES.map(mode => (
+                              <SelectItem key={mode} value={mode}>{mode}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1 block">
+                          Reference {vendorPaymentForm.payment_mode !== 'Cash' && <span className="text-red-500">*</span>}
+                        </label>
+                        <Input
+                          placeholder={vendorPaymentForm.payment_mode === 'Cash' ? "Optional" : "Required for non-cash"}
+                          value={vendorPaymentForm.reference}
+                          onChange={(e) => setVendorPaymentForm(prev => ({ ...prev, reference: e.target.value }))}
+                          className={vendorPaymentForm.payment_mode !== 'Cash' && !vendorPaymentForm.reference?.trim() ? 'border-orange-300' : ''}
+                          data-testid="vendor-payment-reference"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Remarks</label>
+                      <Input
+                        placeholder="Optional notes..."
+                        value={vendorPaymentForm.remarks}
+                        onChange={(e) => setVendorPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              <div className="p-4 border-t flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setShowVendorPaymentModal(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                  onClick={handleVendorBulkPayment}
+                  disabled={!selectedVendorForPayment}
+                  data-testid="confirm-vendor-payment-btn"
+                >
+                  <IndianRupee size={14} className="mr-1" /> Confirm Payment
                 </Button>
               </div>
             </div>

@@ -5322,12 +5322,20 @@ export default function RetailerOrders() {
           const upfrontPct = selectedRetailerData?.upfront_collection_percentage || 50;
           const isFullUpfront = upfrontPct === 100;
           
-          // Get pending credit notes for this retailer
-          const retailerCreditNotes = creditNotes.filter(cn => 
-            cn.retailer_id === selectedRetailer && 
-            (cn.status === 'pending' || cn.status === 'partial')
-          );
-          const totalPendingCredit = retailerCreditNotes.reduce((sum, cn) => sum + (cn.pending_amount || 0), 0);
+          // Get pending credit notes - filter by retailer only if one is selected
+          // Only include pending/partial status (unadjusted credit notes)
+          const retailerCreditNotes = creditNotes.filter(cn => {
+            const isUnadjusted = cn.status === 'pending' || cn.status === 'partial';
+            if (!isUnadjusted) return false;
+            // If a specific retailer is selected, filter by that retailer
+            if (selectedRetailer) {
+              return cn.retailer_id === selectedRetailer;
+            }
+            // If "All Retailers", include all pending credit notes
+            return true;
+          });
+          // Sum up the pending_amount (unadjusted portion) of each credit note
+          const totalPendingCredit = retailerCreditNotes.reduce((sum, cn) => sum + (cn.pending_amount || cn.amount || 0), 0);
           
           return (
           <div className={`rounded-lg border p-4 mb-4 ${isFullUpfront ? 'bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200' : 'bg-gradient-to-r from-red-50 to-orange-50 border-red-200'}`}>

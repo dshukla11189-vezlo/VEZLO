@@ -5342,9 +5342,16 @@ export default function RetailerOrders() {
                   Payment Details {isFullUpfront && <span className="text-xs font-normal text-purple-600 ml-1">(100% Upfront)</span>}
                 </span>
               </div>
-              <p className={`text-2xl font-bold ${isFullUpfront ? 'text-purple-700' : 'text-red-700'}`}>
-                {formatCurrency(immediatelyPayable.grand_totals.total)}
-              </p>
+              <div className="text-right">
+                <p className={`text-2xl font-bold ${isFullUpfront ? 'text-purple-700' : 'text-red-700'}`}>
+                  {formatCurrency(immediatelyPayable.grand_totals.total - totalPendingCredit)}
+                </p>
+                {totalPendingCredit > 0 && (
+                  <p className="text-xs text-gray-500">
+                    After ₹{totalPendingCredit.toLocaleString()} credit adjustment
+                  </p>
+                )}
+              </div>
             </div>
             
             {/* 100% UPFRONT RETAILER LAYOUT */}
@@ -5460,8 +5467,8 @@ export default function RetailerOrders() {
             ) : (
               /* NON-100% UPFRONT RETAILER LAYOUT (Original) */
               <>
-            {/* 2 Summary Cards - X% Upfront and Final Payment */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            {/* 3 Summary Cards - X% Upfront, Final Payment, and Credit Notes */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
               {/* X% Upfront Card */}
               <div 
                 className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
@@ -5495,6 +5502,29 @@ export default function RetailerOrders() {
                     </p>
                   </div>
                   <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'final' ? 'rotate-180' : ''}`} />
+                </div>
+              </div>
+              
+              {/* Credit Notes Card */}
+              <div 
+                className={`bg-white/80 rounded p-3 border cursor-pointer transition-all hover:shadow-md ${
+                  expandedPayableSection === 'credits' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-100'
+                }`}
+                onClick={() => setExpandedPayableSection(expandedPayableSection === 'credits' ? null : 'credits')}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs text-gray-500">Credit Notes</p>
+                    <p className={`text-lg font-bold ${totalPendingCredit > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
+                      {totalPendingCredit > 0 ? `- ${formatCurrency(totalPendingCredit)}` : '₹0'}
+                    </p>
+                    {totalPendingCredit > 0 && (
+                      <p className="text-[10px] text-purple-600">
+                        {retailerCreditNotes.length} credit note(s)
+                      </p>
+                    )}
+                  </div>
+                  <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'credits' ? 'rotate-180' : ''}`} />
                 </div>
               </div>
             </div>
@@ -5540,6 +5570,29 @@ export default function RetailerOrders() {
                   {((expandedPayableSection === 'upfront' && (!immediatelyPayable.detailed_entries.upfront || immediatelyPayable.detailed_entries.upfront.length === 0)) ||
                     (expandedPayableSection === 'final' && (!immediatelyPayable.detailed_entries.credit_due?.length && !immediatelyPayable.detailed_entries.overdue?.length))) && (
                     <p className="text-xs text-gray-400 text-center py-2">No entries in this category</p>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Credit Notes Expandable Section */}
+            {expandedPayableSection === 'credits' && (
+              <div className="bg-white rounded-lg border p-3 mb-3 max-h-64 overflow-y-auto">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Pending Credit Notes</p>
+                <div className="space-y-1">
+                  {retailerCreditNotes.length > 0 ? retailerCreditNotes.map((cn, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-gray-50">
+                      <div className="flex items-center gap-2">
+                        <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px]">
+                          {cn.credit_note_number}
+                        </span>
+                        <span className="text-gray-700">{cn.source === 'excess_payment' ? 'Excess Payment' : 'Rejection'}</span>
+                        <span className="text-gray-400">({new Date(cn.created_at).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})})</span>
+                      </div>
+                      <span className="font-bold text-purple-600">{formatCurrency(cn.pending_amount || cn.amount)}</span>
+                    </div>
+                  )) : (
+                    <p className="text-xs text-gray-400 text-center py-2">No pending credit notes</p>
                   )}
                 </div>
               </div>

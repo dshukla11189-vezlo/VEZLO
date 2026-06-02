@@ -15977,13 +15977,11 @@ async def get_retailer_payment_details(
             "remarks": pmt.get("remarks", "")
         })
     
-    # For 100% upfront retailers, also fetch pending credit notes
-    credit_notes = []
-    if is_full_upfront:
-        credit_notes = await db.retailer_credit_notes.find(
-            {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(100)
+    # Fetch pending credit notes for ALL retailers (not just 100% upfront)
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
     
     # Group invoices by date and aggregate
     date_aggregates = {}  # date_str -> {invoices: [...], totals: {...}}

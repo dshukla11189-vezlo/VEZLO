@@ -2,7 +2,7 @@
 
 ## Changelog (June 2025)
 
-### June 2, 2025 (Session 10 Cont.) - Performance & Credit Note Features
+### June 2, 2025 (Session 10 Cont.) - Performance, Credit Notes & UI Updates
 - **OPTIMIZATION**: Retailer Create Order Page Load Time ✅
   - **Before**: Loaded all 85 products + 32MB of base64 images in one request
   - **After**: Categories load instantly (~46KB), images load on-demand when expanded
@@ -10,11 +10,19 @@
   - Files: `/app/backend/server.py`, `/app/frontend/src/pages/retailer/Dashboard.js`
 
 - **NEW FEATURE**: One-Click Credit Note for Excess Payments ✅
-  - When retailer has "Excess Paid" status (paid more than net receivable), a "CN" button now appears
+  - When retailer has "Excess Paid" status, a "CN" button appears
   - One click creates a credit note for the exact excess amount
-  - Credit note can be adjusted against future invoices
   - New API: `POST /api/retailer-credit-notes/from-excess`
-  - Files: `/app/backend/server.py` (~line 11550), `/app/frontend/src/pages/admin/RetailerOrders.js` (~line 4270, 7100)
+  - Files: `/app/backend/server.py` (~line 11550), `/app/frontend/src/pages/admin/RetailerOrders.js`
+
+- **ENHANCEMENT**: Payment Details Block - Credit Notes Display ✅
+  - **Admin Portal**: Added Credit Notes card (3rd card) showing pending credit amount
+  - **Admin Portal**: Total now shows net payable after credit adjustment
+  - **Retailer Portal**: Renamed to "Pending Payment Details"
+  - **Retailer Portal**: Changed color scheme from green to blue/indigo
+  - **Retailer Portal**: Shows credit notes sum and net payable after adjustment
+  - Credit notes now fetched for ALL retailers (not just 100% upfront)
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`, `/app/frontend/src/pages/retailer/Dashboard.js`, `/app/backend/server.py`
 
 ### June 1, 2025 (Session 10) - Stability & Login Improvements
 - **FIX**: Retailer Portal Crash Prevention ✅

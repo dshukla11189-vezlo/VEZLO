@@ -2530,7 +2530,7 @@ export default function RetailerDashboard() {
               <Card data-testid="payment-details-card" className={`mb-6 shadow-lg ${
                 paymentDetails.is_full_upfront 
                   ? 'border-purple-300 bg-gradient-to-br from-purple-50 via-white to-blue-50' 
-                  : 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50'
+                  : 'border-blue-300 bg-gradient-to-br from-blue-50 via-white to-indigo-50'
               }`}>
                 <CardContent className="p-3 sm:p-4 md:p-6">
                   <div className="flex flex-col gap-3 sm:gap-4">
@@ -2538,26 +2538,31 @@ export default function RetailerDashboard() {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className={`p-2 sm:p-3 md:p-4 rounded-xl shrink-0 ${
-                          paymentDetails.is_full_upfront ? 'bg-purple-100' : 'bg-emerald-100'
+                          paymentDetails.is_full_upfront ? 'bg-purple-100' : 'bg-blue-100'
                         }`}>
                           <CreditCard size={24} className={`${
-                            paymentDetails.is_full_upfront ? 'text-purple-600' : 'text-emerald-600'
+                            paymentDetails.is_full_upfront ? 'text-purple-600' : 'text-blue-600'
                           } sm:w-7 sm:h-7 md:w-9 md:h-9`} />
                         </div>
                         <div>
                           <p className={`text-xs sm:text-sm font-semibold uppercase tracking-wide ${
-                            paymentDetails.is_full_upfront ? 'text-purple-600' : 'text-emerald-600'
+                            paymentDetails.is_full_upfront ? 'text-purple-600' : 'text-blue-600'
                           }`}>
-                            {t('Payment Details')}
+                            {t('Pending Payment Details')}
                             {paymentDetails.is_full_upfront && (
                               <span className="text-[10px] sm:text-xs font-normal text-purple-500 ml-1 sm:ml-2">(100% Upfront)</span>
                             )}
                           </p>
                           <p className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold ${
-                            paymentDetails.is_full_upfront ? 'text-purple-700' : 'text-emerald-700'
+                            paymentDetails.is_full_upfront ? 'text-purple-700' : 'text-blue-700'
                           }`}>
-                            {formatCurrency(paymentDetails.totals?.grand_total || 0)}
+                            {formatCurrency((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0))}
                           </p>
+                          {paymentDetails.totals?.total_pending_credit > 0 && (
+                            <p className="text-[10px] sm:text-xs text-gray-500">
+                              After ₹{(paymentDetails.totals?.total_pending_credit || 0).toLocaleString()} credit adjustment
+                            </p>
+                          )}
                         </div>
                       </div>
                       {/* Payment Summary Button */}
@@ -2567,7 +2572,7 @@ export default function RetailerDashboard() {
                         className={`text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-7 sm:h-8 ${
                           paymentDetails.is_full_upfront 
                             ? 'border-purple-300 text-purple-700 hover:bg-purple-50' 
-                            : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                            : 'border-blue-300 text-blue-700 hover:bg-blue-50'
                         }`}
                         onClick={openPaymentSummaryModal}
                         data-testid="payment-summary-btn"
@@ -2696,11 +2701,11 @@ export default function RetailerDashboard() {
                     ) : (
                       /* STANDARD RETAILER LAYOUT (50% upfront) */
                       <>
-                        {/* Summary boxes */}
+                        {/* Summary boxes - 3 columns including Credit Notes */}
                         <div className="flex gap-2 sm:gap-3">
-                          <div className="bg-white rounded-lg border border-green-200 p-2 px-2 sm:px-3 text-center flex-1">
-                            <p className="text-[10px] sm:text-xs text-green-600 font-medium">50% Upfront</p>
-                            <p className="text-sm sm:text-base font-bold text-green-700">
+                          <div className="bg-white rounded-lg border border-blue-200 p-2 px-2 sm:px-3 text-center flex-1">
+                            <p className="text-[10px] sm:text-xs text-blue-600 font-medium">50% Upfront</p>
+                            <p className="text-sm sm:text-base font-bold text-blue-700">
                               {formatCurrency(paymentDetails.totals?.upfront_50_total || 0)}
                             </p>
                           </div>
@@ -2710,6 +2715,14 @@ export default function RetailerDashboard() {
                               {formatCurrency(paymentDetails.totals?.final_payment_total || 0)}
                             </p>
                           </div>
+                          {(paymentDetails.totals?.total_pending_credit > 0 || paymentDetails.credit_notes?.length > 0) && (
+                            <div className="bg-white rounded-lg border border-purple-200 p-2 px-2 sm:px-3 text-center flex-1">
+                              <p className="text-[10px] sm:text-xs text-purple-600 font-medium">Credit Notes</p>
+                              <p className="text-sm sm:text-base font-bold text-purple-700">
+                                - {formatCurrency(paymentDetails.totals?.total_pending_credit || 0)}
+                              </p>
+                            </div>
+                          )}
                         </div>
                         
                         {/* Date Filters */}

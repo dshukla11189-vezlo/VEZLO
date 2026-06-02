@@ -2,6 +2,15 @@
 
 ## Changelog (June 2025)
 
+### June 2, 2025 (Session 10 Cont.) - Performance Optimization
+- **OPTIMIZATION**: Retailer Create Order Page Load Time ✅
+  - **Before**: Loaded all 85 products + 32MB of base64 images in one request (slow, crashes on mobile)
+  - **After**: 
+    1. Categories load instantly (~46KB without images)
+    2. Images load on-demand when category is expanded (separate API call)
+  - New API endpoint: `/api/products/images?ids=...` for lazy image loading
+  - Files: `/app/backend/server.py` (line ~1155), `/app/frontend/src/pages/retailer/Dashboard.js`
+
 ### June 1, 2025 (Session 10) - Stability & Login Improvements
 - **FIX**: Retailer Portal Crash Prevention ✅
   - Changed `Promise.all` to `Promise.allSettled` in `loadData()` function

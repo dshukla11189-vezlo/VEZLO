@@ -1152,6 +1152,27 @@ async def get_products(
     asyncio.create_task(persist_error_log(error_entry, is_critical=True))
     raise HTTPException(status_code=500, detail=f"Database connection error after {max_retries} retries")
 
+@api_router.get("/products/images")
+async def get_product_images(
+    ids: str = "",  # Comma-separated product IDs
+    current_user: dict = Depends(get_current_user)
+):
+    """Get images for specific products - used for lazy loading"""
+    if not ids:
+        return {}
+    
+    product_ids = [id.strip() for id in ids.split(",") if id.strip()]
+    if not product_ids or len(product_ids) > 100:  # Limit to 100 products per request
+        return {}
+    
+    products = await db.products.find(
+        {"id": {"$in": product_ids}},
+        {"_id": 0, "id": 1, "image_url": 1}
+    ).to_list(100)
+    
+    # Return as a map: productId -> imageUrl
+    return {p["id"]: p.get("image_url", "") for p in products}
+
 # ==================== UNITS MANAGEMENT ====================
 @api_router.get("/units")
 async def get_units(current_user: dict = Depends(get_current_user)):

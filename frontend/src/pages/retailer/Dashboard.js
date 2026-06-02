@@ -219,6 +219,8 @@ export default function RetailerDashboard() {
   const [catalogue, setCatalogue] = useState([]); // Products from admin catalogue
   const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [catalogueError, setCatalogueError] = useState(false); // Track if catalogue failed to load
+  const [catalogueImages, setCatalogueImages] = useState({}); // Lazy-loaded images: productId -> imageUrl
+  const [loadingImages, setLoadingImages] = useState({}); // Track which categories are loading images
   const [cart, setCart] = useState({}); // {productId_variantId: {product, variant, quantity}}
   const [showCart, setShowCart] = useState(false);
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({}); // Categories collapsed by default
@@ -360,7 +362,7 @@ export default function RetailerDashboard() {
         api.get('/api/retailer-payments'),
         api.get('/api/product-types'),
         api.get('/api/retailer-immediately-payable'),
-        api.get('/api/retailer-catalogue?include_images=true'),  // Include images for product display
+        api.get('/api/retailer-catalogue?include_images=false'),  // Load names instantly, images load lazily
         api.get('/api/retailer-catalogue/mrp')
       ]);
       
@@ -433,6 +435,32 @@ export default function RetailerDashboard() {
       setLoading(false);
     }
   }, []);
+
+  // Load images for products in a specific category (called when category is expanded)
+  const loadCategoryImages = useCallback(async (category) => {
+    // Get product IDs for this category
+    const categoryProducts = catalogue.filter(p => (p.category || 'Others') === category);
+    const productIds = categoryProducts.map(p => p.product_id).filter(Boolean);
+    
+    if (productIds.length === 0) return; // No products
+    
+    setLoadingImages(prev => ({ ...prev, [category]: true }));
+    
+    try {
+      // Fetch images for these products from the products collection
+      const res = await api.get(`/api/products/images?ids=${productIds.join(',')}`);
+      if (res.data) {
+        setCatalogueImages(prev => ({
+          ...prev,
+          ...res.data // { productId: imageUrl, ... }
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to load images for category:', category, error);
+    } finally {
+      setLoadingImages(prev => ({ ...prev, [category]: false }));
+    }
+  }, [catalogue]); // Only depend on catalogue, not catalogueImages
 
   // Check if yesterday's closing is missing
   const checkYesterdayClosing = useCallback(async () => {
@@ -661,12 +689,19 @@ export default function RetailerDashboard() {
     return Object.keys(catalogueByCategory).sort((a, b) => (categoryOrder[a] || 99) - (categoryOrder[b] || 99));
   }, [catalogueByCategory]);
 
-  // Toggle catalogue category expansion
+  // Toggle catalogue category expansion and load images
   const toggleCatalogueCategory = (category) => {
+    const isCurrentlyExpanded = expandedCatalogueCategories[category];
+    
     setExpandedCatalogueCategories(prev => ({
       ...prev,
       [category]: !prev[category]
     }));
+    
+    // Load images when expanding (not collapsing)
+    if (!isCurrentlyExpanded) {
+      loadCategoryImages(category);
+    }
   };
 
   // Get variant name from ID
@@ -3154,10 +3189,11 @@ export default function RetailerDashboard() {
                       {isExpanded && (
                         <div className="divide-y">
                           {filteredItems.map(item => {
-                            // Construct proper image URL
-                            const productImageUrl = item.image_url?.startsWith('/') 
-                              ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
-                              : item.image_url;
+                            // Get image URL: first check lazy-loaded images, then fallback to item.image_url
+                            const rawImageUrl = catalogueImages[item.product_id] || item.image_url;
+                            const productImageUrl = rawImageUrl?.startsWith('/') 
+                              ? `${process.env.REACT_APP_BACKEND_URL}${rawImageUrl}` 
+                              : rawImageUrl;
                             
                             return (
                             <div key={item.product_id} className="p-3 hover:bg-gray-50">
@@ -3367,9 +3403,11 @@ export default function RetailerDashboard() {
                   </div>
                 ) : (
                   Object.entries(cart).map(([key, item]) => {
-                    const cartImageUrl = item.image_url?.startsWith('/') 
-                      ? `${process.env.REACT_APP_BACKEND_URL}${item.image_url}` 
-                      : item.image_url;
+                    // Get image from lazy-loaded images or fallback to item.image_url
+                    const rawCartImageUrl = catalogueImages[item.product_id] || item.image_url;
+                    const cartImageUrl = rawCartImageUrl?.startsWith('/') 
+                      ? `${process.env.REACT_APP_BACKEND_URL}${rawCartImageUrl}` 
+                      : rawCartImageUrl;
                     
                     // Get MRP for this item
                     const mrp = getMrp(item.product_id, item.variant_id);

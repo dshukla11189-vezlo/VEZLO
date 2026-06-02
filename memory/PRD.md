@@ -25,7 +25,11 @@
   - When "Retail Only" vertical selected, shows Retailer dropdown (All/Specific retailer)
   - New "Settle" button in header opens vendor bulk payment modal
   - Vendor Payment Modal: Select vendor → See pending amount → Enter custom amount → Auto-allocate oldest first
-  - Allocation preview shows which expenses will be paid/partially paid
+  - **Employee Reimbursement Modal Redesigned**: Now matches vendor payment design
+    - Editable reimbursement amount with "Full Amount" button
+    - Real-time allocation preview showing which expenses will be settled (oldest to newest)
+    - Transaction Reference mandatory for non-cash payments (Bank Transfer, UPI, Cheque)
+    - Shows remaining pending after partial reimbursement
   - Files: `/app/frontend/src/pages/admin/VariableExpenses.js`
 
 ### June 2, 2025 (Session 10 Cont.) - Performance, Credit Notes & UI Updates

@@ -109,7 +109,8 @@ export default function VariableExpenses() {
     payment_date: new Date().toISOString().split('T')[0],
     payment_mode: 'Bank Transfer',
     payment_reference: '',
-    remarks: ''
+    remarks: '',
+    custom_amount: ''  // For editable reimbursement amount
   });
   
   // Bulk Settlement state
@@ -553,35 +554,90 @@ export default function VariableExpenses() {
 
   // Open bulk settlement modal for an employee
   const openBulkSettlementModal = (employee) => {
-    setBulkSettlementEmployee(employee);
-    setBulkSettlementExpenses(employee.expenses.map(e => e.id));
+    // Calculate remaining amount for each expense (total - already reimbursed)
+    const employeeWithRemaining = {
+      ...employee,
+      expenses: employee.expenses.map(e => ({
+        ...e,
+        remaining_amount: (e.amount || 0) - (e.total_reimbursed || 0)
+      })).filter(e => e.remaining_amount > 0),  // Only show expenses with remaining amount
+      total_remaining: employee.expenses.reduce((sum, e) => sum + ((e.amount || 0) - (e.total_reimbursed || 0)), 0)
+    };
+    
+    setBulkSettlementEmployee(employeeWithRemaining);
+    setBulkSettlementExpenses([]);  // No longer using checkboxes
     setReimbursementForm({
       payment_date: new Date().toISOString().split('T')[0],
       payment_mode: 'Bank Transfer',
       payment_reference: '',
-      remarks: ''
+      remarks: '',
+      custom_amount: ''
     });
     setShowBulkSettlementModal(true);
   };
 
-  // Handle bulk settlement
+  // Handle bulk settlement (employee reimbursement with auto-allocation)
   const handleBulkSettlement = async () => {
-    if (!bulkSettlementEmployee || bulkSettlementExpenses.length === 0) return;
+    if (!bulkSettlementEmployee) return;
+    
+    // Validate transaction reference for non-cash payments
+    if (reimbursementForm.payment_mode !== 'Cash' && !reimbursementForm.payment_reference?.trim()) {
+      toast.error('Transaction Reference is required for non-cash payments');
+      return;
+    }
+    
+    const reimbursementAmount = reimbursementForm.custom_amount 
+      ? parseFloat(reimbursementForm.custom_amount) 
+      : bulkSettlementEmployee.total_remaining;
+    
+    if (reimbursementAmount <= 0) {
+      toast.error('Reimbursement amount must be greater than 0');
+      return;
+    }
     
     try {
-      // Update all selected expenses - only send fields that need updating
-      for (const expenseId of bulkSettlementExpenses) {
-        await api.put(`/api/expenses/variable/${expenseId}`, {
-          settlement_status: 'settled',
-          settlement_date: reimbursementForm.payment_date,
-          settlement_mode: reimbursementForm.payment_mode,
-          settlement_reference: reimbursementForm.payment_reference,
-          settlement_remarks: reimbursementForm.remarks,
-          is_settled: true
-        });
+      // Sort expenses by date (oldest first)
+      const sortedExpenses = [...bulkSettlementEmployee.expenses].sort(
+        (a, b) => new Date(a.date) - new Date(b.date)
+      );
+      
+      let remainingReimbursement = reimbursementAmount;
+      const settlementReference = reimbursementForm.payment_reference || `REIMB-${Date.now()}`;
+      let settledCount = 0;
+      let partialCount = 0;
+      
+      for (const expense of sortedExpenses) {
+        if (remainingReimbursement <= 0) break;
+        
+        const expenseRemaining = expense.remaining_amount || ((expense.amount || 0) - (expense.total_reimbursed || 0));
+        const reimburseAmount = Math.min(remainingReimbursement, expenseRemaining);
+        
+        if (reimburseAmount > 0) {
+          const newTotalReimbursed = (expense.total_reimbursed || 0) + reimburseAmount;
+          const isFullySettled = Math.abs(newTotalReimbursed - expense.amount) < 0.01;
+          
+          await api.put(`/api/expenses/variable/${expense.id}`, {
+            total_reimbursed: newTotalReimbursed,
+            settlement_status: isFullySettled ? 'settled' : 'partial_reimbursement',
+            settlement_date: reimbursementForm.payment_date,
+            settlement_mode: reimbursementForm.payment_mode,
+            settlement_reference: settlementReference,
+            settlement_remarks: reimbursementForm.remarks,
+            is_settled: isFullySettled
+          });
+          
+          if (isFullySettled) settledCount++;
+          else partialCount++;
+          
+          remainingReimbursement -= reimburseAmount;
+        }
       }
       
-      toast.success(`${bulkSettlementExpenses.length} expenses settled for ${bulkSettlementEmployee.name}`);
+      let successMsg = `Reimbursed ₹${reimbursementAmount.toFixed(2)} to ${bulkSettlementEmployee.name}. `;
+      if (settledCount > 0) successMsg += `${settledCount} fully settled. `;
+      if (partialCount > 0) successMsg += `${partialCount} partially settled.`;
+      
+      toast.success(successMsg);
       setShowBulkSettlementModal(false);
       setBulkSettlementEmployee(null);
       setBulkSettlementExpenses([]);
@@ -1775,88 +1831,156 @@ export default function VariableExpenses() {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
               <div className="p-4 border-b bg-purple-50 flex-shrink-0">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <Users size={20} className="text-purple-600" />
-                  Settle Expenses for {bulkSettlementEmployee.name}
-                </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {bulkSettlementEmployee.expenses.length} expenses totaling ₹{bulkSettlementEmployee.total.toLocaleString()}
-                </p>
-              </div>
-              <div className="p-4 space-y-4 overflow-y-auto flex-1">
-                {/* Expense List */}
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {bulkSettlementEmployee.expenses.map((expense, idx) => (
-                    <div key={expense.id} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={bulkSettlementExpenses.includes(expense.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setBulkSettlementExpenses(prev => [...prev, expense.id]);
-                            } else {
-                              setBulkSettlementExpenses(prev => prev.filter(id => id !== expense.id));
-                            }
-                          }}
-                          className="w-4 h-4"
-                        />
-                        <div>
-                          <span className="font-medium">{expense.category}</span>
-                          <span className="text-gray-500 ml-2 text-xs">{expense.date?.split('T')[0]}</span>
-                        </div>
-                      </div>
-                      <span className="font-semibold">₹{expense.amount?.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="bg-purple-50 p-3 rounded-lg">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Selected Items:</span>
-                    <span className="font-medium">{bulkSettlementExpenses.length} / {bulkSettlementEmployee.expenses.length}</span>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Users size={20} className="text-purple-600" />
+                      Reimburse {bulkSettlementEmployee.name}
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {bulkSettlementEmployee.expenses.length} pending expense(s)
+                    </p>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium">Total to Reimburse:</span>
-                    <span className="font-bold text-lg text-purple-700">
-                      ₹{bulkSettlementEmployee.expenses
-                        .filter(e => bulkSettlementExpenses.includes(e.id))
-                        .reduce((s, e) => s + (e.amount || 0), 0)
-                        .toLocaleString()}
+                  <button onClick={() => { setShowBulkSettlementModal(false); setBulkSettlementEmployee(null); }} className="text-gray-500 hover:text-gray-700">✕</button>
+                </div>
+              </div>
+              
+              <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                {/* Reimbursement Amount Section */}
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-purple-700">Total Pending Reimbursement:</span>
+                    <span className="text-lg font-bold text-purple-700">
+                      ₹{bulkSettlementEmployee.total_remaining?.toLocaleString() || bulkSettlementEmployee.total?.toLocaleString()}
                     </span>
                   </div>
+                  
+                  <div>
+                    <label className="text-xs font-medium text-purple-800 mb-1 block">Reimbursement Amount</label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder={(bulkSettlementEmployee.total_remaining || bulkSettlementEmployee.total || 0).toFixed(2)}
+                          className="pl-7 text-lg font-semibold"
+                          data-testid="employee-reimbursement-amount"
+                          value={reimbursementForm.custom_amount}
+                          onChange={(e) => setReimbursementForm(prev => ({ ...prev, custom_amount: e.target.value }))}
+                        />
+                      </div>
+                      <Button 
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="whitespace-nowrap"
+                        onClick={() => setReimbursementForm(prev => ({ 
+                          ...prev, 
+                          custom_amount: (bulkSettlementEmployee.total_remaining || bulkSettlementEmployee.total || 0).toFixed(2)
+                        }))}
+                      >
+                        Full Amount
+                      </Button>
+                    </div>
+                    <p className="text-xs text-purple-600 mt-1">
+                      Enter custom amount or leave empty to reimburse full pending. Amount applies to oldest expenses first.
+                    </p>
+                  </div>
+                  
+                  {/* Allocation Preview */}
+                  {reimbursementForm.custom_amount && parseFloat(reimbursementForm.custom_amount) > 0 && (() => {
+                    const reimbAmount = parseFloat(reimbursementForm.custom_amount);
+                    const sortedExpenses = [...bulkSettlementEmployee.expenses].sort(
+                      (a, b) => new Date(a.date) - new Date(b.date)
+                    );
+                    
+                    let remaining = reimbAmount;
+                    const allocations = [];
+                    for (const expense of sortedExpenses) {
+                      if (remaining <= 0) break;
+                      const expRemaining = expense.remaining_amount || ((expense.amount || 0) - (expense.total_reimbursed || 0));
+                      if (expRemaining <= 0) continue;
+                      const allocAmt = Math.min(remaining, expRemaining);
+                      allocations.push({
+                        date: expense.date,
+                        category: expense.category,
+                        amount: allocAmt,
+                        isPartial: allocAmt < expRemaining
+                      });
+                      remaining -= allocAmt;
+                    }
+                    
+                    const totalPending = bulkSettlementEmployee.total_remaining || bulkSettlementEmployee.total || 0;
+                    
+                    return (
+                      <div className="mt-2 pt-2 border-t border-purple-200">
+                        <p className="text-xs font-medium text-purple-800 mb-1">Allocation Preview (oldest first):</p>
+                        <div className="max-h-24 overflow-y-auto space-y-1">
+                          {allocations.map((alloc, idx) => (
+                            <div key={idx} className="flex justify-between text-xs">
+                              <span className="text-gray-600">
+                                {new Date(alloc.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - {alloc.category}
+                                {alloc.isPartial && <span className="text-orange-600 ml-1">(Partial)</span>}
+                              </span>
+                              <span className={alloc.isPartial ? 'text-orange-600' : 'text-purple-600'}>
+                                ₹{alloc.amount.toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        {remaining > 0 && (
+                          <p className="text-xs text-orange-600 mt-1">
+                            ⚠️ ₹{remaining.toFixed(2)} exceeds pending amount
+                          </p>
+                        )}
+                        {reimbAmount < totalPending && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            Remaining after this reimbursement: ₹{(totalPending - reimbAmount).toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reimbursement Date *</label>
-                  <Input
-                    type="date"
-                    value={reimbursementForm.payment_date}
-                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_date: e.target.value }))}
-                  />
+                {/* Payment Details */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Reimbursement Date *</label>
+                    <Input
+                      type="date"
+                      value={reimbursementForm.payment_date}
+                      onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
+                    <Select value={reimbursementForm.payment_mode} onValueChange={(v) => setReimbursementForm(prev => ({ ...prev, payment_mode: v }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="UPI">UPI</SelectItem>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Cheque">Cheque</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
-                  <Select value={reimbursementForm.payment_mode} onValueChange={(v) => setReimbursementForm(prev => ({ ...prev, payment_mode: v }))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="UPI">UPI</SelectItem>
-                      <SelectItem value="Cash">Cash</SelectItem>
-                      <SelectItem value="Cheque">Cheque</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">Reference / Transaction ID</label>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">
+                    Reference / Transaction ID {reimbursementForm.payment_mode !== 'Cash' && <span className="text-red-500">*</span>}
+                  </label>
                   <Input
                     value={reimbursementForm.payment_reference}
                     onChange={(e) => setReimbursementForm(prev => ({ ...prev, payment_reference: e.target.value }))}
-                    placeholder="Enter reference number"
+                    placeholder={reimbursementForm.payment_mode === 'Cash' ? "Optional for cash" : "Required for non-cash payments"}
+                    className={reimbursementForm.payment_mode !== 'Cash' && !reimbursementForm.payment_reference?.trim() ? 'border-orange-300' : ''}
+                    data-testid="employee-reimbursement-reference"
                   />
                 </div>
                 
@@ -1870,6 +1994,7 @@ export default function VariableExpenses() {
                   />
                 </div>
               </div>
+              
               <div className="p-4 border-t flex gap-2 flex-shrink-0">
                 <Button variant="outline" className="flex-1" onClick={() => { setShowBulkSettlementModal(false); setBulkSettlementEmployee(null); }}>
                   Cancel
@@ -1877,9 +2002,9 @@ export default function VariableExpenses() {
                 <Button 
                   className="flex-1 bg-purple-600 hover:bg-purple-700" 
                   onClick={handleBulkSettlement}
-                  disabled={bulkSettlementExpenses.length === 0}
+                  data-testid="confirm-employee-reimbursement-btn"
                 >
-                  <CheckCircle size={14} className="mr-1" /> Settle {bulkSettlementExpenses.length} Expenses
+                  <IndianRupee size={14} className="mr-1" /> Confirm Reimbursement
                 </Button>
               </div>
             </div>

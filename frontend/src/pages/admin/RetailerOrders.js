@@ -4270,7 +4270,8 @@ export default function RetailerOrders() {
       });
       
       toast.success(response.data.message || 'Credit note created successfully');
-      loadInvoices(); // Refresh to show updated status
+      loadInvoices(); // Refresh invoices to show updated status
+      loadCreditNotes(); // Refresh credit notes to show in expanded view
     } catch (error) {
       console.error('Error creating credit note:', error);
       toast.error(error.response?.data?.detail || 'Failed to create credit note');

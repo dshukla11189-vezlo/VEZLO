@@ -2,19 +2,24 @@
 
 ## Changelog (June 2025)
 
-### June 2, 2025 (Session 12) - Auto Indent Weight-Based Grouping Fix
-- **FIX**: Auto Indent Generation Logic - Weight-Based Grouping ✅
-  - **Problem**: Auto-generated indents created duplicate line items for the same product when variant names differed (e.g., "Tomato Local 1kg" vs "Tomato 1 kg")
-  - **Solution**: Implemented weight extraction and normalization for intelligent grouping
-  - **New Function**: `extract_weight_from_variant()` uses regex to extract weights from variant names
-    - Handles formats: 500g, 500gm, 500 gm, 500+ gm, 1kg, 1 kg, 2.5kg, 450-500 gm
-    - Normalizes all to grams (e.g., 1kg → 1000g)
-  - **Grouping Key Changed**: From `product_id_variant_name` to `product_id_normalized_weight`
-  - **Latest Variant Name**: Uses most recent invoice's variant name for display
-  - **Fallback**: Items without extractable weights (e.g., "Half Dozen", "1 Dozen") remain separate
-  - **Testing**: 19/19 tests passed, 70 products benefit from this fix
-  - Files: `/app/backend/server.py` (lines 14785-14820, 14850-15000, 15030-15210)
-  - Test File: `/app/backend/tests/test_auto_indent_weight_grouping.py`
+### June 2, 2025 (Session 12) - Auto Indent Weight-Based Grouping Fix V3
+- **FIX**: Auto Indent Generation Logic - Smart Weight Clustering ✅
+  - **Problem**: Auto-generated indents created multiple entries for similar weight variants like Broccoli 200g, 300g, 400g
+  - **Solution**: Four-tier intelligent weight grouping:
+    1. **DB Lookup**: First checks `qc_packaging` collection for exact variant weight
+    2. **Name Extraction**: Extracts weight from variant name (handles ranges: "240-260 gm" → 250g)
+    3. **Bucket Normalization**: Groups to standard buckets (50, 100, 200, 250, 300, 400, 500, 1000g, etc.)
+    4. **Close Weight Merging**: Post-processing merges variants within 300g of each other
+  - **Key Functions**:
+    - `extract_weight_from_variant()` - Extracts weight from variant name
+    - `normalize_weight_to_bucket()` - Maps weight to closest standard bucket
+    - `merge_close_weight_variants()` - Combines close weight entries for same product
+  - **Results**: Tamanna Mart reduced from 64 to 46 items
+    - Broccoli: 3 entries (200g, 300g, 400g) → 1 entry
+    - Fresh Mint: 2 entries (75g, 100g) → 1 entry
+    - Potato/Onion: 500g and 1000g stay separate (500g gap exceeds threshold)
+  - **Latest Variant**: Always uses the most recent invoice's variant name for display
+  - Files: `/app/backend/server.py` (lines 14785-14935, 15118-15145, 15363-15377)
 
 ### June 2, 2025 (Session 11) - Image Storage Migration & Expense Improvements
 - **MIGRATION**: Product Images - Base64 to Filesystem ✅

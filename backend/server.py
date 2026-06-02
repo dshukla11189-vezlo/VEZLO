@@ -14786,6 +14786,7 @@ def extract_weight_from_variant(variant_name: str) -> str:
     """
     Extract normalized weight from variant name for grouping.
     Handles formats like: '1kg', '1 kg', '500g', '500 gm', '1 Kg', '500 GM', '250gm', '2.5kg', '500+ gm'
+    Also handles range formats: '240-260 gm' (uses average), '300-350gm'
     Returns a normalized weight string like '1000g', '500g', etc.
     If no weight found, returns empty string.
     """
@@ -14794,7 +14795,22 @@ def extract_weight_from_variant(variant_name: str) -> str:
     
     variant_lower = variant_name.lower().strip()
     
-    # Pattern to match weight: number (with optional decimal) followed by optional + and unit
+    # First, try to match range format: "240-260 gm", "300-350gm", "190-210 gm Packet"
+    range_pattern = r'(\d+)\s*[-–]\s*(\d+)\s*\+?\s*(kg|kgs|g|gm|gms|gram|grams)'
+    range_match = re.search(range_pattern, variant_lower)
+    if range_match:
+        low = float(range_match.group(1))
+        high = float(range_match.group(2))
+        unit = range_match.group(3)
+        # Use average of range
+        avg = (low + high) / 2
+        if unit in ('kg', 'kgs'):
+            grams = int(avg * 1000)
+        else:
+            grams = int(avg)
+        return f"{grams}g"
+    
+    # Pattern to match single weight: number (with optional decimal) followed by optional + and unit
     # Handles: 1kg, 1 kg, 500g, 500gm, 500 gm, 2.5kg, 500+ gm, etc.
     weight_pattern = r'(\d+(?:\.\d+)?)\s*\+?\s*(kg|kgs|kilogram|kilograms|g|gm|gms|gram|grams)'
     
@@ -14814,6 +14830,139 @@ def extract_weight_from_variant(variant_name: str) -> str:
     return f"{grams}g"
 
 
+def normalize_weight_to_bucket(weight_gm: float) -> int:
+    """
+    Normalize weight to a standard bucket for grouping similar weights.
+    This groups weights that are close to each other into the same bucket.
+    
+    Standard buckets are chosen based on common produce packaging sizes.
+    The algorithm finds the closest bucket to the given weight.
+    
+    Examples:
+    - 475g, 450g, 500g → 500g bucket (all ~500g category)
+    - 325g, 350g, 300g → 300g bucket (all ~300g category)
+    - 1000g → 1000g bucket
+    """
+    if weight_gm <= 0:
+        return 0
+    
+    # Define standard weight buckets (in grams) based on common produce packaging
+    # These represent typical weight categories used in retail
+    standard_buckets = [
+        50, 75, 100, 150, 200, 250, 300, 400, 500, 
+        700, 750, 1000, 1500, 2000, 2500, 3000, 5000
+    ]
+    
+    # Find the closest bucket
+    closest_bucket = standard_buckets[0]
+    min_distance = abs(weight_gm - closest_bucket)
+    
+    for bucket in standard_buckets:
+        distance = abs(weight_gm - bucket)
+        if distance < min_distance:
+            min_distance = distance
+            closest_bucket = bucket
+    
+    return closest_bucket
+
+
+def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 300) -> dict:
+    """
+    Post-process product_weight_totals to merge variants of the same product
+    that have weights close together (within max_gap_gm).
+    
+    For example:
+    - Broccoli 200g, 300g, 400g → Merge into one (all within 200g of each other)
+    - Potato 500g, 1000g → Keep separate (500g gap is too large)
+    - Fresh Mint 75g, 100g → Merge into one (25g gap)
+    
+    Args:
+        product_weight_totals: Dict keyed by "product_id_weightg" with aggregation data
+        max_gap_gm: Maximum gap between adjacent weights to consider them "close" (default 300g)
+    
+    Returns:
+        Merged dict with combined entries
+    """
+    from collections import defaultdict
+    
+    # Group entries by product_id
+    product_entries = defaultdict(list)
+    for key, data in product_weight_totals.items():
+        product_id = data["product_id"]
+        weight_bucket = data.get("weight_bucket", 0)
+        product_entries[product_id].append({
+            "key": key,
+            "weight_bucket": weight_bucket,
+            "data": data
+        })
+    
+    merged_result = {}
+    
+    for product_id, entries in product_entries.items():
+        if len(entries) == 1:
+            # Only one entry, keep as-is
+            merged_result[entries[0]["key"]] = entries[0]["data"]
+            continue
+        
+        # Sort by weight bucket
+        entries.sort(key=lambda x: x["weight_bucket"])
+        
+        # Find clusters of close weights
+        clusters = []
+        current_cluster = [entries[0]]
+        
+        for i in range(1, len(entries)):
+            prev_weight = entries[i-1]["weight_bucket"]
+            curr_weight = entries[i]["weight_bucket"]
+            
+            # If gap is small enough, add to current cluster
+            if curr_weight - prev_weight <= max_gap_gm:
+                current_cluster.append(entries[i])
+            else:
+                # Gap too large, start new cluster
+                clusters.append(current_cluster)
+                current_cluster = [entries[i]]
+        
+        # Don't forget the last cluster
+        clusters.append(current_cluster)
+        
+        # Process each cluster
+        for cluster in clusters:
+            if len(cluster) == 1:
+                # Single entry cluster, keep as-is
+                merged_result[cluster[0]["key"]] = cluster[0]["data"]
+            else:
+                # Multiple entries in cluster - merge them
+                # Find the middle weight variant
+                weights = [e["weight_bucket"] for e in cluster]
+                mid_weight = weights[len(weights) // 2]  # Use median weight
+                
+                # Find the entry closest to mid weight
+                mid_entry = min(cluster, key=lambda x: abs(x["weight_bucket"] - mid_weight))
+                
+                # Combine all data
+                combined_total_qty = sum(e["data"]["total_qty"] for e in cluster)
+                combined_dates = set()
+                for e in cluster:
+                    combined_dates.update(e["data"]["dates"])
+                
+                # Find the latest variant across all entries
+                latest_entry = max(cluster, key=lambda x: x["data"]["latest_invoice_date"])
+                
+                # Create merged entry using mid variant's key but latest variant name
+                merged_key = mid_entry["key"]
+                merged_data = mid_entry["data"].copy()
+                merged_data["total_qty"] = combined_total_qty
+                merged_data["dates"] = combined_dates
+                merged_data["latest_variant_name"] = latest_entry["data"]["latest_variant_name"]
+                merged_data["latest_variant_id"] = latest_entry["data"]["latest_variant_id"]
+                merged_data["latest_invoice_date"] = latest_entry["data"]["latest_invoice_date"]
+                
+                merged_result[merged_key] = merged_data
+    
+    return merged_result
+
+
 async def generate_auto_indents_for_tomorrow():
     """
     Auto-generate retailer indents for the next day based on invoice history.
@@ -14822,8 +14971,9 @@ async def generate_auto_indents_for_tomorrow():
     Logic:
     1. Calculate tomorrow's day of week (e.g., Monday)
     2. For each retailer, find invoice quantities on the same weekday in the last 7 weeks
-    3. Calculate average based on count of days with data and increase by 10%
-    4. Create auto-generated indent
+    3. Group products by product_id + actual weight (from packaging database)
+    4. Calculate average based on count of days with data and increase by 10%
+    5. Create auto-generated indent
     
     Note: Invoice quantity = Dispatch - Rejections (the net final number)
     """
@@ -14844,6 +14994,15 @@ async def generate_auto_indents_for_tomorrow():
         # Get all products for reference
         products = await db.products.find({}, {"_id": 0}).to_list(1000)
         product_map = {p["id"]: p for p in products}
+        
+        # Get packaging variants for weight lookup
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        packaging_weight_map = {}
+        for p in packaging_variants:
+            name = p.get('name', '').strip().lower()
+            weight = p.get('weight_gm', 0)
+            if name and weight:
+                packaging_weight_map[name] = weight
         
         auto_indents_created = 0
         
@@ -14896,7 +15055,7 @@ async def generate_auto_indents_for_tomorrow():
                 logger.info(f"Analyzing {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoices for {retailer_name}")
                 
                 # Calculate average invoice quantity per product+weight combination
-                # Group by product_id + normalized weight to combine variants with same actual weight
+                # Group by product_id + actual weight from packaging database
                 product_weight_totals = {}
                 
                 for inv in same_weekday_invoices:
@@ -14912,13 +15071,23 @@ async def generate_auto_indents_for_tomorrow():
                         invoice_qty = item.get("quantity", 0) or 0
                         
                         if product_id and invoice_qty > 0:
-                            # Extract normalized weight from variant name
-                            normalized_weight = extract_weight_from_variant(variant_name)
+                            # Get actual weight - first try packaging database, then extract from name
+                            variant_key = variant_name.strip().lower()
+                            actual_weight_gm = packaging_weight_map.get(variant_key, 0)
                             
-                            # Key by product_id + normalized weight
-                            # If no weight found, fall back to variant_name to keep items separate
-                            if normalized_weight:
-                                key = f"{product_id}_{normalized_weight}"
+                            # If not found in DB, try extracting from variant name
+                            if actual_weight_gm == 0:
+                                extracted_weight = extract_weight_from_variant(variant_name)
+                                if extracted_weight:
+                                    # Parse extracted weight (e.g., "250g" -> 250)
+                                    actual_weight_gm = int(extracted_weight.replace('g', ''))
+                            
+                            # Key by product_id + normalized weight bucket
+                            # Normalize weight to a standard bucket (e.g., 475g → 500g bucket)
+                            # This groups similar weights (within 15%) together
+                            if actual_weight_gm > 0:
+                                weight_bucket = normalize_weight_to_bucket(actual_weight_gm)
+                                key = f"{product_id}_{weight_bucket}g"
                             else:
                                 key = f"{product_id}_{variant_name}"
                             
@@ -14928,7 +15097,8 @@ async def generate_auto_indents_for_tomorrow():
                                     "product_name": product_name,
                                     "variant_id": variant_id,
                                     "variant_name": variant_name,
-                                    "normalized_weight": normalized_weight,
+                                    "actual_weight_gm": actual_weight_gm,
+                                    "weight_bucket": weight_bucket if actual_weight_gm > 0 else 0,
                                     "total_qty": 0,
                                     "dates": set(),
                                     "latest_invoice_date": inv_date,
@@ -14948,6 +15118,11 @@ async def generate_auto_indents_for_tomorrow():
                 if not product_weight_totals:
                     logger.info(f"No invoice items for {retailer_name}, skipping")
                     continue
+                
+                # Merge close weight variants (within 300g of each other)
+                # This combines entries like Broccoli 200g, 300g, 400g into one
+                # But keeps Potato 500g and 1000g separate (500g gap)
+                product_weight_totals = merge_close_weight_variants(product_weight_totals, max_gap_gm=300)
                 
                 # Calculate average and add 10% buffer
                 # Use the latest variant name for display (most recent invoice)
@@ -15057,6 +15232,15 @@ async def generate_single_auto_indent(
         
         retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
         
+        # Get packaging variants for weight lookup
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        packaging_weight_map = {}
+        for p in packaging_variants:
+            name = p.get('name', '').strip().lower()
+            weight = p.get('weight_gm', 0)
+            if name and weight:
+                packaging_weight_map[name] = weight
+        
         # Check if indent already exists for this retailer and date
         existing_indent = await db.retailer_indents.find_one({
             "retailer_id": retailer_id,
@@ -15113,7 +15297,7 @@ async def generate_single_auto_indent(
             }
         
         # Calculate average invoice quantity per product+weight combination
-        # Group by product_id + normalized weight to combine variants with same actual weight
+        # Group by product_id + actual weight from packaging database
         # Invoice quantity = Dispatch - Rejections (the net final number)
         product_weight_totals = {}
         dates_with_data = set()
@@ -15131,13 +15315,23 @@ async def generate_single_auto_indent(
                 invoice_qty = item.get("quantity", 0) or 0
                 
                 if product_id and invoice_qty > 0:
-                    # Extract normalized weight from variant name
-                    normalized_weight = extract_weight_from_variant(variant_name)
+                    # Get actual weight - first try packaging database, then extract from name
+                    variant_key = variant_name.strip().lower()
+                    actual_weight_gm = packaging_weight_map.get(variant_key, 0)
                     
-                    # Key by product_id + normalized weight
-                    # If no weight found, fall back to variant_name to keep items separate
-                    if normalized_weight:
-                        key = f"{product_id}_{normalized_weight}"
+                    # If not found in DB, try extracting from variant name
+                    if actual_weight_gm == 0:
+                        extracted_weight = extract_weight_from_variant(variant_name)
+                        if extracted_weight:
+                            # Parse extracted weight (e.g., "250g" -> 250)
+                            actual_weight_gm = int(extracted_weight.replace('g', ''))
+                    
+                    # Key by product_id + normalized weight bucket
+                    # Normalize weight to a standard bucket (e.g., 475g → 500g bucket)
+                    # This groups similar weights (within 15%) together
+                    if actual_weight_gm > 0:
+                        weight_bucket = normalize_weight_to_bucket(actual_weight_gm)
+                        key = f"{product_id}_{weight_bucket}g"
                     else:
                         key = f"{product_id}_{variant_name}"
                     
@@ -15147,7 +15341,8 @@ async def generate_single_auto_indent(
                             "product_name": product_name,
                             "variant_id": variant_id,
                             "variant_name": variant_name,
-                            "normalized_weight": normalized_weight,
+                            "actual_weight_gm": actual_weight_gm,
+                            "weight_bucket": weight_bucket if actual_weight_gm > 0 else 0,
                             "total_qty": 0,
                             "dates": set(),
                             "latest_invoice_date": inv_date,
@@ -15170,6 +15365,11 @@ async def generate_single_auto_indent(
                 "success": False,
                 "message": f"No invoice data found for {retailer_name} on this weekday"
             }
+        
+        # Merge close weight variants (within 300g of each other)
+        # This combines entries like Broccoli 200g, 300g, 400g into one
+        # But keeps Potato 500g and 1000g separate (500g gap)
+        product_weight_totals = merge_close_weight_variants(product_weight_totals, max_gap_gm=300)
         
         # Create indent items with average + 10% buffer
         # Use the latest variant name for display (most recent invoice)

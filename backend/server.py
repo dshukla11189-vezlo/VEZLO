@@ -11422,9 +11422,11 @@ async def get_retailer_payments_detailed(retailer_id: str, current_user: dict = 
 async def get_retailer_credit_notes(
     retailer_id: str = None,
     status: str = None,
+    original_invoice_id: str = None,
+    adjusted_against_invoice: str = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get all credit notes, optionally filtered by retailer or status"""
+    """Get all credit notes, optionally filtered by retailer, status, or invoice"""
     query = {}
     if current_user["role"] == "retailer":
         query["retailer_id"] = current_user["user_id"]
@@ -11433,6 +11435,14 @@ async def get_retailer_credit_notes(
     
     if status:
         query["status"] = status
+    
+    # Filter by original invoice (credit notes CREATED FROM this invoice)
+    if original_invoice_id:
+        query["original_invoice_id"] = original_invoice_id
+    
+    # Filter by adjusted against invoice (credit notes APPLIED TO this invoice)
+    if adjusted_against_invoice:
+        query["adjusted_against_invoices.invoice_id"] = adjusted_against_invoice
     
     credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     return credit_notes

@@ -186,6 +186,7 @@ export default function RetailerOrders() {
   const [invoicePaymentHistory, setInvoicePaymentHistory] = useState([]);
   const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
   const [invoiceCreditAdjustments, setInvoiceCreditAdjustments] = useState([]); // Credit notes used for this invoice
+  const [invoiceOriginatedCreditNotes, setInvoiceOriginatedCreditNotes] = useState([]); // Credit notes created FROM this invoice (excess payment)
   
   // Edit Payment state
   const [editingPayment, setEditingPayment] = useState(null);
@@ -4972,16 +4973,21 @@ export default function RetailerOrders() {
     setPaymentHistoryLoading(true);
     setShowPaymentHistoryModal(true);
     setInvoiceCreditAdjustments([]);
+    setInvoiceOriginatedCreditNotes([]);
     try {
       const response = await api.get(`/api/retailer-invoices/${invoice.id}/payments`);
       setInvoicePaymentHistory(response.data);
       
-      // Also fetch credit adjustments for this invoice
+      // Also fetch credit adjustments for this invoice (credits APPLIED to this invoice)
       const creditRes = await api.get(`/api/retailer-credit-notes?adjusted_against_invoice=${invoice.id}`);
       const adjustedCredits = (creditRes.data || []).filter(cn => 
         cn.adjusted_against_invoices?.some(adj => adj.invoice_id === invoice.id)
       );
       setInvoiceCreditAdjustments(adjustedCredits);
+      
+      // Fetch credit notes CREATED FROM this invoice (excess payment or rejection)
+      const originatedRes = await api.get(`/api/retailer-credit-notes?original_invoice_id=${invoice.id}`);
+      setInvoiceOriginatedCreditNotes(originatedRes.data || []);
     } catch (error) {
       console.error('Failed to load payment history:', error);
       toast.error('Failed to load payment history');
@@ -7201,6 +7207,7 @@ export default function RetailerOrders() {
                                     className="text-blue-600 border-blue-300 hover:bg-blue-50"
                                     onClick={() => openPaymentHistoryModal(invoice)}
                                     title="View Payment Details"
+                                    data-testid={`view-payment-${invoice.id}`}
                                   >
                                     <Eye size={14} className="mr-1" /> View
                                   </Button>
@@ -7326,6 +7333,60 @@ export default function RetailerOrders() {
                                     </tr>
                                   </tbody>
                                 </table>
+                                
+                                {/* Credit Notes Section - show if any credit notes exist for this invoice */}
+                                {(() => {
+                                  // Find credit notes created FROM this invoice (excess payment or rejection)
+                                  const invoiceCNs = creditNotes.filter(cn => cn.original_invoice_id === invoice.id);
+                                  if (invoiceCNs.length === 0) return null;
+                                  
+                                  return (
+                                    <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                      <h4 className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-2">
+                                        <FileText size={14} />
+                                        Credit Notes Created from this Invoice
+                                      </h4>
+                                      <div className="space-y-2">
+                                        {invoiceCNs.map((cn, cnIdx) => (
+                                          <div key={cnIdx} className="bg-white rounded border p-2 text-xs">
+                                            <div className="flex justify-between items-center">
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-semibold text-blue-700">{cn.credit_note_number}</span>
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                                  cn.source === 'excess_payment' 
+                                                    ? 'bg-amber-100 text-amber-700' 
+                                                    : 'bg-red-100 text-red-700'
+                                                }`}>
+                                                  {cn.source === 'excess_payment' ? 'EXCESS PAYMENT' : 'REJECTION'}
+                                                </span>
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                                  cn.status === 'settled' ? 'bg-green-100 text-green-700' : 
+                                                  cn.status === 'partial' ? 'bg-yellow-100 text-yellow-700' : 
+                                                  'bg-gray-100 text-gray-700'
+                                                }`}>
+                                                  {cn.status?.toUpperCase()}
+                                                </span>
+                                              </div>
+                                              <span className="font-bold text-blue-700">{formatCurrency(cn.amount)}</span>
+                                            </div>
+                                            {cn.source !== 'excess_payment' && cn.rejection_details?.length > 0 && (
+                                              <div className="mt-1 text-gray-600">
+                                                <span className="text-gray-500">Rejected:</span>{' '}
+                                                {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.unit})`).join(', ')}
+                                              </div>
+                                            )}
+                                            {cn.pending_amount > 0 && cn.pending_amount !== cn.amount && (
+                                              <div className="mt-1">
+                                                <span className="text-gray-500">Pending:</span>{' '}
+                                                <span className="text-amber-600 font-medium">{formatCurrency(cn.pending_amount)}</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </td>
                             </tr>
                           )}
@@ -11483,6 +11544,74 @@ export default function RetailerOrders() {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Credit Notes Created FROM This Invoice Section */}
+                {invoiceOriginatedCreditNotes.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                      <FileText size={16} className="text-blue-600" />
+                      Credit Notes Created
+                      <span className="text-xs font-normal text-gray-500">(from this invoice)</span>
+                    </h4>
+                    <div className="space-y-2">
+                      {invoiceOriginatedCreditNotes.map((cn, idx) => (
+                        <div key={cn.id || idx} className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-lg font-bold text-blue-700">{formatCurrency(cn.amount)}</span>
+                              <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                                cn.source === 'excess_payment' 
+                                  ? 'bg-amber-100 text-amber-800' 
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {cn.source === 'excess_payment' ? 'EXCESS PAYMENT' : 'REJECTION'}
+                              </span>
+                              <span className={`ml-1 px-2 py-0.5 text-xs rounded-full ${
+                                cn.status === 'settled' ? 'bg-green-100 text-green-800' : 
+                                cn.status === 'partial' ? 'bg-yellow-100 text-yellow-800' : 
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {cn.status?.toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-2">
+                            <div>
+                              <span className="text-gray-500">CN #:</span>{' '}
+                              <span className="font-medium text-blue-700">{cn.credit_note_number}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Created:</span>{' '}
+                              <span className="font-medium">
+                                {new Date(cn.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                            {cn.source !== 'excess_payment' && cn.rejection_details?.length > 0 && (
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Rejected Items:</span>{' '}
+                                <span className="font-medium">
+                                  {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.unit})`).join(', ')}
+                                </span>
+                              </div>
+                            )}
+                            {cn.pending_amount > 0 && cn.pending_amount < cn.amount && (
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Pending Amount:</span>{' '}
+                                <span className="font-medium text-amber-600">{formatCurrency(cn.pending_amount)}</span>
+                              </div>
+                            )}
+                            {cn.remarks && (
+                              <div className="col-span-2">
+                                <span className="text-gray-500">Remarks:</span>{' '}
+                                <span className="font-medium">{cn.remarks}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

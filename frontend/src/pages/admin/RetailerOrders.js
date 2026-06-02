@@ -265,6 +265,7 @@ export default function RetailerOrders() {
   const [lastSupplyDate, setLastSupplyDate] = useState(null);
   const [showAddProductModal, setShowAddProductModal] = useState(false); // Modal to add more products
   const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [closingRetailerCatalogue, setClosingRetailerCatalogue] = useState([]); // Retailer-specific catalogue for closing entry
   
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
@@ -767,6 +768,16 @@ export default function RetailerOrders() {
       toast.error('Please select a retailer first');
       return;
     }
+    
+    // Load retailer-specific catalogue
+    try {
+      const catalogueRes = await api.get(`/api/retailer-catalogue?retailer_id=${closingInventoryRetailer}`);
+      setClosingRetailerCatalogue(catalogueRes.data || []);
+    } catch (error) {
+      console.error('Failed to load retailer catalogue:', error);
+      setClosingRetailerCatalogue([]);
+    }
+    
     await loadLastSupplyItems(closingInventoryRetailer);
     setClosingEntryMode(true);
   };
@@ -8148,51 +8159,71 @@ export default function RetailerOrders() {
                     />
                     
                     <div className="max-h-96 overflow-y-auto space-y-2">
-                      {products
-                        .filter(p => 
-                          p.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-                          (p.name_hi && p.name_hi.includes(productSearchTerm))
-                        )
+                      {/* Filter to only show products in retailer's catalogue */}
+                      {closingRetailerCatalogue
+                        .filter(catItem => {
+                          const product = products.find(p => p.id === catItem.product_id);
+                          if (!product) return false;
+                          return product.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+                            (product.name_hi && product.name_hi.includes(productSearchTerm));
+                        })
                         .slice(0, 20)
-                        .map(product => (
-                          <div key={product.id} className="border rounded p-3 hover:bg-gray-50">
-                            <p className="font-medium text-sm">{product.name}</p>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {/* Default Kg variant */}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => addProductToClosingEntry(product, { id: '', name: 'Kg' })}
-                                className="text-xs h-7"
-                              >
-                                Kg
-                              </Button>
-                              {/* Variants from packagings */}
-                              {packagings
-                                .filter(pkg => !closingEntryItems.some(
-                                  item => item.product_id === product.id && item.variant_name === pkg.name
-                                ))
-                                .slice(0, 6)
-                                .map(pkg => (
+                        .map(catItem => {
+                          const product = products.find(p => p.id === catItem.product_id);
+                          if (!product) return null;
+                          
+                          // Get variants from catalogue for this product
+                          const catalogueVariantIds = catItem.variants || [];
+                          const catalogueVariants = packagings.filter(pkg => 
+                            catalogueVariantIds.includes(pkg.id)
+                          );
+                          
+                          return (
+                            <div key={product.id} className="border rounded p-3 hover:bg-gray-50">
+                              <p className="font-medium text-sm">{product.name}</p>
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {/* Default Kg variant - always available */}
+                                {!closingEntryItems.some(item => item.product_id === product.id && item.variant_name === 'Kg') && (
                                   <Button
-                                    key={pkg.id}
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => addProductToClosingEntry(product, { id: pkg.id, name: pkg.name })}
+                                    onClick={() => addProductToClosingEntry(product, { id: '', name: 'Kg' })}
                                     className="text-xs h-7"
                                   >
-                                    {pkg.name}
+                                    Kg
                                   </Button>
-                                ))
-                              }
+                                )}
+                                {/* Only show variants that are in the retailer's catalogue for this product */}
+                                {catalogueVariants
+                                  .filter(pkg => !closingEntryItems.some(
+                                    item => item.product_id === product.id && item.variant_name === pkg.name
+                                  ))
+                                  .map(pkg => (
+                                    <Button
+                                      key={pkg.id}
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => addProductToClosingEntry(product, { id: pkg.id, name: pkg.name })}
+                                      className="text-xs h-7"
+                                    >
+                                      {pkg.name}
+                                    </Button>
+                                  ))
+                                }
+                                {catalogueVariants.length === 0 && closingEntryItems.some(item => item.product_id === product.id && item.variant_name === 'Kg') && (
+                                  <span className="text-xs text-gray-400">All variants added</span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))
+                          );
+                        })
                       }
-                      {products.filter(p => 
-                        p.name.toLowerCase().includes(productSearchTerm.toLowerCase())
-                      ).length === 0 && (
-                        <p className="text-center text-gray-500 py-4">No products found</p>
+                      {closingRetailerCatalogue.filter(catItem => {
+                        const product = products.find(p => p.id === catItem.product_id);
+                        if (!product) return false;
+                        return product.name.toLowerCase().includes(productSearchTerm.toLowerCase());
+                      }).length === 0 && (
+                        <p className="text-center text-gray-500 py-4">No products found in retailer catalogue</p>
                       )}
                     </div>
                   </div>

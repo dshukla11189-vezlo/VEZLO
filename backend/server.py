@@ -14782,6 +14782,38 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
 
 # ==================== AUTO INDENT GENERATION ====================
 
+def extract_weight_from_variant(variant_name: str) -> str:
+    """
+    Extract normalized weight from variant name for grouping.
+    Handles formats like: '1kg', '1 kg', '500g', '500 gm', '1 Kg', '500 GM', '250gm', '2.5kg', '500+ gm'
+    Returns a normalized weight string like '1000g', '500g', etc.
+    If no weight found, returns empty string.
+    """
+    if not variant_name:
+        return ""
+    
+    variant_lower = variant_name.lower().strip()
+    
+    # Pattern to match weight: number (with optional decimal) followed by optional + and unit
+    # Handles: 1kg, 1 kg, 500g, 500gm, 500 gm, 2.5kg, 500+ gm, etc.
+    weight_pattern = r'(\d+(?:\.\d+)?)\s*\+?\s*(kg|kgs|kilogram|kilograms|g|gm|gms|gram|grams)'
+    
+    match = re.search(weight_pattern, variant_lower)
+    if not match:
+        return ""
+    
+    number = float(match.group(1))
+    unit = match.group(2)
+    
+    # Normalize to grams
+    if unit in ('kg', 'kgs', 'kilogram', 'kilograms'):
+        grams = int(number * 1000)
+    else:  # g, gm, gms, gram, grams
+        grams = int(number)
+    
+    return f"{grams}g"
+
+
 async def generate_auto_indents_for_tomorrow():
     """
     Auto-generate retailer indents for the next day based on invoice history.
@@ -14863,11 +14895,14 @@ async def generate_auto_indents_for_tomorrow():
                 
                 logger.info(f"Analyzing {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoices for {retailer_name}")
                 
-                # Calculate average invoice quantity per product+variant combination
-                product_variant_totals = {}
+                # Calculate average invoice quantity per product+weight combination
+                # Group by product_id + normalized weight to combine variants with same actual weight
+                product_weight_totals = {}
                 
                 for inv in same_weekday_invoices:
                     inv_date_str = inv.get("invoice_date", "")[:10]
+                    inv_date = datetime.fromisoformat(inv.get("invoice_date", "").replace('Z', '+00:00'))
+                    
                     for item in inv.get("items", []):
                         product_id = item.get("product_id")
                         product_name = item.get("product_name", "")
@@ -14877,27 +14912,47 @@ async def generate_auto_indents_for_tomorrow():
                         invoice_qty = item.get("quantity", 0) or 0
                         
                         if product_id and invoice_qty > 0:
-                            # Create unique key for product+variant combination
-                            key = f"{product_id}_{variant_name}"
-                            if key not in product_variant_totals:
-                                product_variant_totals[key] = {
+                            # Extract normalized weight from variant name
+                            normalized_weight = extract_weight_from_variant(variant_name)
+                            
+                            # Key by product_id + normalized weight
+                            # If no weight found, fall back to variant_name to keep items separate
+                            if normalized_weight:
+                                key = f"{product_id}_{normalized_weight}"
+                            else:
+                                key = f"{product_id}_{variant_name}"
+                            
+                            if key not in product_weight_totals:
+                                product_weight_totals[key] = {
                                     "product_id": product_id,
                                     "product_name": product_name,
                                     "variant_id": variant_id,
                                     "variant_name": variant_name,
+                                    "normalized_weight": normalized_weight,
                                     "total_qty": 0,
-                                    "dates": set()
+                                    "dates": set(),
+                                    "latest_invoice_date": inv_date,
+                                    "latest_variant_name": variant_name,
+                                    "latest_variant_id": variant_id
                                 }
-                            product_variant_totals[key]["total_qty"] += invoice_qty
-                            product_variant_totals[key]["dates"].add(inv_date_str)
+                            
+                            product_weight_totals[key]["total_qty"] += invoice_qty
+                            product_weight_totals[key]["dates"].add(inv_date_str)
+                            
+                            # Track the most recent variant name for display
+                            if inv_date > product_weight_totals[key]["latest_invoice_date"]:
+                                product_weight_totals[key]["latest_invoice_date"] = inv_date
+                                product_weight_totals[key]["latest_variant_name"] = variant_name
+                                product_weight_totals[key]["latest_variant_id"] = variant_id
                 
-                if not product_variant_totals:
+                if not product_weight_totals:
                     logger.info(f"No invoice items for {retailer_name}, skipping")
                     continue
                 
                 # Calculate average and add 10% buffer
+                # Use the latest variant name for display (most recent invoice)
                 indent_items = []
-                for key, data in product_variant_totals.items():
+                for key, data in product_weight_totals.items():
                     days_count = len(data["dates"])
                     avg_qty = data["total_qty"] / days_count
                     recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
@@ -14907,8 +14962,8 @@ async def generate_auto_indents_for_tomorrow():
                         indent_items.append({
                             "product_id": data["product_id"],
                             "product_name": product.get("name", data["product_name"]),
-                            "variant_id": data["variant_id"],
-                            "variant_name": data["variant_name"],
+                            "variant_id": data["latest_variant_id"],
+                            "variant_name": data["latest_variant_name"],
                             "quantity": recommended_qty,
                             "status": "pending"
                         })
@@ -15057,13 +15112,16 @@ async def generate_single_auto_indent(
                 "message": f"No historical invoice data found for {retailer_name} on this weekday. The retailer needs to have at least one invoice for a {weekday_names[target_weekday]}."
             }
         
-        # Calculate average invoice quantity per product+variant combination
+        # Calculate average invoice quantity per product+weight combination
+        # Group by product_id + normalized weight to combine variants with same actual weight
         # Invoice quantity = Dispatch - Rejections (the net final number)
-        product_variant_totals = {}
+        product_weight_totals = {}
         dates_with_data = set()
         
         for inv in same_weekday_invoices:
             inv_date_str = inv.get("invoice_date", "")[:10]
+            inv_date = datetime.fromisoformat(inv.get("invoice_date", "").replace('Z', '+00:00'))
+            
             for item in inv.get("items", []):
                 product_id = item.get("product_id")
                 product_name = item.get("product_name", "")
@@ -15073,31 +15131,50 @@ async def generate_single_auto_indent(
                 invoice_qty = item.get("quantity", 0) or 0
                 
                 if product_id and invoice_qty > 0:
-                    # Create unique key for product+variant combination
-                    key = f"{product_id}_{variant_name}"
-                    if key not in product_variant_totals:
-                        product_variant_totals[key] = {
+                    # Extract normalized weight from variant name
+                    normalized_weight = extract_weight_from_variant(variant_name)
+                    
+                    # Key by product_id + normalized weight
+                    # If no weight found, fall back to variant_name to keep items separate
+                    if normalized_weight:
+                        key = f"{product_id}_{normalized_weight}"
+                    else:
+                        key = f"{product_id}_{variant_name}"
+                    
+                    if key not in product_weight_totals:
+                        product_weight_totals[key] = {
                             "product_id": product_id,
                             "product_name": product_name,
                             "variant_id": variant_id,
                             "variant_name": variant_name,
+                            "normalized_weight": normalized_weight,
                             "total_qty": 0,
-                            "dates": set()
+                            "dates": set(),
+                            "latest_invoice_date": inv_date,
+                            "latest_variant_name": variant_name,
+                            "latest_variant_id": variant_id
                         }
-                    product_variant_totals[key]["total_qty"] += invoice_qty
-                    product_variant_totals[key]["dates"].add(inv_date_str)
+                    
+                    product_weight_totals[key]["total_qty"] += invoice_qty
+                    product_weight_totals[key]["dates"].add(inv_date_str)
                     dates_with_data.add(inv_date_str)
+                    
+                    # Track the most recent variant name for display
+                    if inv_date > product_weight_totals[key]["latest_invoice_date"]:
+                        product_weight_totals[key]["latest_invoice_date"] = inv_date
+                        product_weight_totals[key]["latest_variant_name"] = variant_name
+                        product_weight_totals[key]["latest_variant_id"] = variant_id
         
-        if not product_variant_totals:
+        if not product_weight_totals:
             return {
                 "success": False,
                 "message": f"No invoice data found for {retailer_name} on this weekday"
             }
         
         # Create indent items with average + 10% buffer
-        # Average is calculated based on count of days that had data for that product+variant
+        # Use the latest variant name for display (most recent invoice)
         indent_items = []
-        for key, data in product_variant_totals.items():
+        for key, data in product_weight_totals.items():
             days_count = len(data["dates"])
             avg_qty = data["total_qty"] / days_count
             recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
@@ -15106,8 +15183,8 @@ async def generate_single_auto_indent(
                 indent_items.append({
                     "product_id": data["product_id"],
                     "product_name": data["product_name"],
-                    "variant_id": data["variant_id"],
-                    "variant_name": data["variant_name"],
+                    "variant_id": data["latest_variant_id"],
+                    "variant_name": data["latest_variant_name"],
                     "quantity": recommended_qty,
                     "status": "pending"
                 })

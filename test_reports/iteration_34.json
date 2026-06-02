@@ -1,0 +1,126 @@
+{
+  "summary": "Tested Auto Indent Generation Weight-Based Grouping Logic Fix. All 19 tests passed. The fix correctly extracts and normalizes weights from variant names (e.g., '500+ gm', '500 gm', '500gm' all → '500g') and groups products by product_id + normalized_weight instead of variant_name. This prevents duplicate line items for the same product with different variant name formats.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. extract_weight_from_variant: Basic gram formats (500g, 500gm, 500 gm) → 500g",
+    "2. extract_weight_from_variant: Plus sign variants (500+ gm, 500+gm) → 500g",
+    "3. extract_weight_from_variant: Kg to gram conversion (1kg, 1 kg) → 1000g",
+    "4. extract_weight_from_variant: 1kg equals 1000gm verification",
+    "5. extract_weight_from_variant: All 500g variants produce same normalized weight",
+    "6. extract_weight_from_variant: Different weights remain separate (400g ≠ 500g)",
+    "7. extract_weight_from_variant: Non-weight variants return empty string (Half Dozen, Pieces)",
+    "8. extract_weight_from_variant: Weight extracted from product names with weight",
+    "9. extract_weight_from_variant: Decimal weights (0.5kg → 500g, 2.5kg → 2500g)",
+    "10. API: Health check passed",
+    "11. API: Test retailer exists (Savtamali)",
+    "12. API: Auto-indent endpoint exists",
+    "13. API: Auto-indent requires retailer_id",
+    "14. API: Auto-indent generation creates indent with correct grouping",
+    "15. API: Auto-indent rejects duplicate for same date",
+    "16. Grouping Logic: Same weight variants grouped correctly",
+    "17. Grouping Logic: Different weight variants remain separate",
+    "18. Grouping Logic: Non-weight variants remain separate",
+    "19. Grouping Logic: 500+ gm grouped with 500 gm correctly"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_auto_indent_weight_grouping.py",
+    "/app/test_reports/pytest/pytest_auto_indent_weight.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "Backend server.py lines 14785-14814: extract_weight_from_variant function correctly uses regex to extract and normalize weights",
+    "Backend server.py lines 14916-14946: generate_auto_indents_for_tomorrow correctly groups by product_id + normalized_weight",
+    "Backend server.py lines 15135-15166: generate_single_auto_indent correctly implements same grouping logic",
+    "The regex pattern handles: 1kg, 1 kg, 500g, 500gm, 500 gm, 500+ gm, 2.5kg, etc.",
+    "Fallback to variant_name when no weight is extractable (e.g., 'Half Dozen', '1 Dozen', 'Pieces')",
+    "Latest variant name is tracked and used for display when combining items"
+  ],
+
+  "updated_files": [
+    "/app/backend/tests/test_auto_indent_weight_grouping.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (19/19 tests passed)",
+    "frontend": "N/A (backend only testing requested)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing invoice data - 101 invoices analyzed, 70 products found with multiple variant names that benefit from weight-based grouping",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "Auto Indent Weight-Based Grouping feature fully tested and working. Key implementation: 1) extract_weight_from_variant() function at line 14785 uses regex to extract weights from variant names, 2) Grouping key changed from product_id_variant_name to product_id_normalized_weight, 3) Items without detectable weights fall back to variant_name as key. Test file at /app/backend/tests/test_auto_indent_weight_grouping.py can be reused for regression testing. Real data analysis showed 70 products benefit from this fix (e.g., Tomato Hybrid with variants '500+ gm', '500 gm', '450-500 gm' all grouped together).",
+
+  "verified_features": {
+    "weight_extraction": {
+      "description": "Regex-based weight extraction from variant names",
+      "patterns_supported": ["500g", "500gm", "500 gm", "500+ gm", "1kg", "1 kg", "2.5kg", "450-500 gm"],
+      "status": "WORKING"
+    },
+    "weight_normalization": {
+      "description": "All weights normalized to grams (e.g., 1kg → 1000g)",
+      "status": "WORKING"
+    },
+    "weight_based_grouping": {
+      "description": "Products grouped by product_id + normalized_weight instead of variant_name",
+      "status": "WORKING"
+    },
+    "non_weight_variants_separate": {
+      "description": "Variants without extractable weights (Half Dozen, Pieces) remain separate",
+      "status": "WORKING"
+    },
+    "different_weights_separate": {
+      "description": "Different weights (500g vs 1000g) correctly kept as separate line items",
+      "status": "WORKING"
+    },
+    "latest_variant_name_used": {
+      "description": "Most recent variant name used for display when combining items",
+      "status": "WORKING"
+    }
+  },
+
+  "data_analysis": {
+    "total_invoices_analyzed": 101,
+    "products_benefiting_from_grouping": 70,
+    "example_groupings": [
+      {
+        "product": "Tomato Hybrid (500g)",
+        "variants_grouped": ["450-500 gm", "450-500gm", "500 gm", "500+ gm"]
+      },
+      {
+        "product": "Potato (1000g)",
+        "variants_grouped": ["1000+ gm", "950-1000 gm"]
+      },
+      {
+        "product": "Fresh Mint Leaves (80g)",
+        "variants_grouped": ["70 -80 gm", "70-80 gm", "70-80 gm ", "70-80gm", "Without Roots 70-80 gm (PCS)"]
+      }
+    ]
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

@@ -2,6 +2,23 @@
 
 ## Changelog (June 2025)
 
+### June 2, 2025 (Session 11) - Image Storage Migration & Bulk Payment
+- **MIGRATION**: Product Images - Base64 to Filesystem ✅
+  - Migrated 68 product images from MongoDB base64 to `/app/uploads/products/`
+  - Images auto-compressed and resized to max 800×800 pixels
+  - Converted to WebP format (85% quality) for optimal file size
+  - New upload endpoint accepts up to 10MB, outputs ~20-50KB WebP
+  - Migration API: `POST /api/products/migrate-images` (admin only)
+  - Files: `/app/backend/server.py` (compress_and_convert_image function, upload/delete/migrate endpoints)
+
+- **ENHANCEMENT**: Bulk Payment - Editable Amount & Auto-Allocation ✅
+  - Added editable payment amount field in Bulk Payment modal
+  - Payment auto-allocates to oldest entries first (sorted by date)
+  - Shows real-time allocation preview with partial/full payment indicators
+  - Transaction reference now mandatory for non-cash payments (UPI, Bank, Cheque)
+  - "Full Amount" button to quickly fill total pending
+  - Files: `/app/frontend/src/pages/admin/Procurement.js`
+
 ### June 2, 2025 (Session 10 Cont.) - Performance, Credit Notes & UI Updates
 - **OPTIMIZATION**: Retailer Create Order Page Load Time ✅
   - **Before**: Loaded all 85 products + 32MB of base64 images in one request

@@ -1541,16 +1541,48 @@ async def create_product(input: ProductCreate, current_user: dict = Depends(get_
     await db.products.insert_one(doc)
     return product
 
-# Product image upload endpoint - NOW STORES BASE64 IN MONGODB
+# Product image upload endpoint - NOW SAVES TO FILESYSTEM WITH COMPRESSION
 UPLOAD_DIR = "/app/uploads/products"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+def compress_and_convert_image(image_data: bytes, max_size: int = 800) -> bytes:
+    """Compress and resize image to max dimensions, convert to WebP"""
+    from PIL import Image
+    import io
+    
+    # Open image
+    img = Image.open(io.BytesIO(image_data))
+    
+    # Convert to RGB if necessary (for PNG with transparency)
+    if img.mode in ('RGBA', 'LA', 'P'):
+        # Create white background
+        background = Image.new('RGB', img.size, (255, 255, 255))
+        if img.mode == 'P':
+            img = img.convert('RGBA')
+        background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+        img = background
+    elif img.mode != 'RGB':
+        img = img.convert('RGB')
+    
+    # Resize if larger than max_size
+    if img.width > max_size or img.height > max_size:
+        # Calculate new dimensions maintaining aspect ratio
+        ratio = min(max_size / img.width, max_size / img.height)
+        new_width = int(img.width * ratio)
+        new_height = int(img.height * ratio)
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    # Save as WebP with compression
+    output = io.BytesIO()
+    img.save(output, format='WEBP', quality=85, optimize=True)
+    return output.getvalue()
 
 @api_router.post("/products/upload-image")
 async def upload_product_image(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-    """Upload a product image and return base64 data for MongoDB storage"""
+    """Upload a product image, compress/resize to 800x800, convert to WebP, save to filesystem"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -1559,46 +1591,142 @@ async def upload_product_image(
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are allowed")
     
-    # Validate file size (max 5MB)
+    # Validate file size (max 10MB for input, will be compressed)
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Image size must be less than 5MB")
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image size must be less than 10MB")
     
     try:
-        import base64
-        # Convert to base64 with proper data URL prefix
-        content_type = file.content_type or "image/jpeg"
-        base64_data = base64.b64encode(contents).decode('utf-8')
-        image_data = f"data:{content_type};base64,{base64_data}"
+        # Compress and convert to WebP
+        compressed_image = compress_and_convert_image(contents, max_size=800)
         
-        # Return base64 data URL (this will be stored in MongoDB with the product)
-        return {"image_url": image_data, "message": "Image uploaded successfully"}
+        # Generate unique filename
+        import uuid
+        filename = f"{uuid.uuid4().hex}.webp"
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        # Save to filesystem
+        with open(file_path, 'wb') as f:
+            f.write(compressed_image)
+        
+        # Return the URL path (will be served via static files mount)
+        image_url = f"/uploads/products/{filename}"
+        
+        logger.info(f"Product image uploaded: {filename} (original: {len(contents)} bytes, compressed: {len(compressed_image)} bytes)")
+        
+        return {"image_url": image_url, "message": "Image uploaded and optimized successfully"}
     except Exception as e:
         logger.error(f"Failed to upload product image: {e}")
-        raise HTTPException(status_code=500, detail="Failed to upload image")
+        raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
 
 @api_router.delete("/products/delete-image")
 async def delete_product_image(
     image_url: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Delete a product image"""
+    """Delete a product image from filesystem"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
-        # Extract filename from URL
-        filename = image_url.split('/')[-1]
-        file_path = os.path.join(UPLOAD_DIR, filename)
+        # Skip if it's a base64 image (legacy)
+        if image_url.startswith('data:'):
+            return {"message": "Base64 image cleared from database"}
         
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            return {"message": "Image deleted successfully"}
+        # Extract filename from URL path
+        if '/uploads/products/' in image_url:
+            filename = image_url.split('/uploads/products/')[-1]
+            file_path = os.path.join(UPLOAD_DIR, filename)
+            
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"Deleted product image: {filename}")
+                return {"message": "Image deleted successfully"}
+            else:
+                return {"message": "Image file not found, but continuing"}
         else:
-            return {"message": "Image not found, but continuing"}
+            return {"message": "Image URL not recognized, but continuing"}
     except Exception as e:
         logger.error(f"Failed to delete product image: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete image")
+
+
+@api_router.post("/products/migrate-images")
+async def migrate_product_images(
+    current_user: dict = Depends(get_current_user)
+):
+    """Migrate existing base64 images to filesystem with compression"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run migrations")
+    
+    try:
+        import base64
+        import uuid
+        
+        # Get all products with base64 images
+        products = await db.products.find(
+            {"image_url": {"$regex": "^data:"}},
+            {"_id": 0, "id": 1, "name": 1, "image_url": 1}
+        ).to_list(1000)
+        
+        migrated = 0
+        failed = 0
+        skipped = 0
+        
+        for product in products:
+            try:
+                image_url = product.get('image_url', '')
+                if not image_url.startswith('data:'):
+                    skipped += 1
+                    continue
+                
+                # Extract base64 data
+                # Format: data:image/jpeg;base64,/9j/4AAQ...
+                if ';base64,' in image_url:
+                    header, base64_data = image_url.split(';base64,', 1)
+                    image_bytes = base64.b64decode(base64_data)
+                    
+                    # Compress and convert to WebP
+                    compressed_image = compress_and_convert_image(image_bytes, max_size=800)
+                    
+                    # Generate filename and save
+                    filename = f"{uuid.uuid4().hex}.webp"
+                    file_path = os.path.join(UPLOAD_DIR, filename)
+                    
+                    with open(file_path, 'wb') as f:
+                        f.write(compressed_image)
+                    
+                    # Update product in database
+                    new_url = f"/uploads/products/{filename}"
+                    await db.products.update_one(
+                        {"id": product['id']},
+                        {"$set": {"image_url": new_url}}
+                    )
+                    
+                    # Also update retailer_catalogue if exists
+                    await db.retailer_catalogue.update_many(
+                        {"product_id": product['id']},
+                        {"$set": {"image_url": new_url}}
+                    )
+                    
+                    logger.info(f"Migrated image for product: {product.get('name', product['id'])}")
+                    migrated += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                logger.error(f"Failed to migrate image for product {product.get('id')}: {e}")
+                failed += 1
+        
+        return {
+            "message": "Migration completed",
+            "migrated": migrated,
+            "failed": failed,
+            "skipped": skipped,
+            "total_processed": len(products)
+        }
+    except Exception as e:
+        logger.error(f"Migration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
 
 
 @api_router.get("/products/duplicates")

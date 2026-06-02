@@ -1142,8 +1142,20 @@ export default function Products() {
     setFormData({ ...formData, image_url: '' });
   };
 
-  const handleEdit = (product) => {
+  const handleEdit = async (product) => {
     setEditProduct(product);
+    
+    // Fetch the product's image URL since list view doesn't include images
+    let imageUrl = product.image_url || '';
+    try {
+      const imageRes = await api.get(`/api/products/images?ids=${product.id}`);
+      if (imageRes.data && imageRes.data[product.id]) {
+        imageUrl = imageRes.data[product.id];
+      }
+    } catch (e) {
+      console.error('Failed to fetch product image:', e);
+    }
+    
     setFormData({
       name: product.name,
       name_hi: product.name_hi || '',
@@ -1156,10 +1168,10 @@ export default function Products() {
       price_per_packet: product.price_per_packet || 0,
       lifecycle_duration: product.lifecycle_duration || '',
       cost_alias_product_id: product.cost_alias_product_id || '',
-      image_url: product.image_url || ''
+      image_url: imageUrl
     });
     setImageFile(null);
-    setImagePreview(product.image_url || null);
+    setImagePreview(imageUrl || null);
     setOpen(true);
   };
 
@@ -1589,7 +1601,7 @@ export default function Products() {
                       />
                     </label>
                   )}
-                  <p className="text-xs text-gray-500 mt-2">Max 5MB. JPEG, PNG, or WebP</p>
+                  <p className="text-xs text-gray-500 mt-2">Max 10MB. Auto-compressed to WebP (800×800)</p>
                 </div>
               </div>
               

@@ -18,7 +18,6 @@ import Cashflow from './pages/admin/Cashflow';
 import LaborCosts from './pages/admin/LaborCosts';
 import UserManagement from './pages/admin/UserManagement';
 import Backup from './pages/admin/Backup';
-import ScrapedShops from './pages/admin/ScrapedShops';
 import RetailerDashboard from './pages/retailer/Dashboard';
 import StaffDashboard from './pages/staff/Dashboard';
 import StaffAttendance from './pages/staff/Attendance';
@@ -174,14 +173,6 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <Backup />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/scraped-shops"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <ScrapedShops />
               </ProtectedRoute>
             }
           />

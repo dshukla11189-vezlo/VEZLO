@@ -2,6 +2,27 @@
 
 ## Changelog (June 2025)
 
+### June 4, 2025 - Paid By Filter Fix for Legacy Data ✅
+- **BUG FIX**: Procurement Page "Paid By" Filter
+  - **Issue**: Filter only showed ~9 results for Devendra Shukla, but he had 29 payments
+  - **Root Cause**: Legacy data stored employee name (`paid_by`) but no `paid_by_employee_id`
+  - **Solution**: Updated filter logic to match by employee NAME as fallback for legacy data
+  - **Changes Made**:
+    1. Backend: Added `payments` array to procurement API response (includes all payments from `procurement_payments` collection)
+    2. Frontend: Filter now checks both procurement-level `paid_by_employee_id` AND individual payments array
+    3. Frontend: Filter uses employee name matching for legacy data without employee ID
+    4. Frontend: `paidByEmployees` dropdown now includes all employees who have ever paid (with/without ID)
+  - **Results**: Filter by "Devendra Shukla" now shows 29 results (was 9), including:
+    - 17 from Riva Vegetable
+    - 6 from Samsuddin  
+    - 4 from Shewalwadi Market
+    - 1 from Anand Gaikwad
+    - 1 from Shri Enterprises
+- Files Modified: 
+  - `/app/backend/models.py` - Added `ProcurementPaymentItem` model and `payments` field to `Procurement`
+  - `/app/backend/server.py` - Enhanced `GET /api/procurement` to include payments array
+  - `/app/frontend/src/pages/admin/Procurement.js` - Updated filter logic and employee extraction
+
 ### June 2, 2025 (Session 12) - Closing Inventory Enhancement & Auto Indent Fix
 
 #### Closing Inventory - New Entry Mode ✅

@@ -57,6 +57,7 @@ export default function Procurement() {
   const [farmers, setFarmers] = useState([]);
   const [products, setProducts] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [paidByEmployees, setPaidByEmployees] = useState([]); // Employees who have paid procurements
   const [loading, setLoading] = useState(true);
   const [openProcurement, setOpenProcurement] = useState(false);
   const [openFarmer, setOpenFarmer] = useState(false);
@@ -148,7 +149,8 @@ export default function Procurement() {
     toDate: today,
     farmerName: '',
     productName: '',
-    status: '' // '', 'paid', 'pending', 'partial'
+    status: '', // '', 'paid', 'pending', 'partial'
+    paidBy: '' // '', 'company', or employee_id
   });
 
   // Procurement form - farmer info is now stored per product
@@ -306,6 +308,20 @@ export default function Procurement() {
       setUnits(unitsRes.data || []);
       // Sync filters with applied range
       setFilters(prev => ({ ...prev, fromDate, toDate }));
+      
+      // Extract unique employees who have paid from current data
+      const uniqueEmps = [...new Map(
+        procRes.data
+          .filter(p => p.paid_by_type === 'employee' && p.paid_by_employee_id)
+          .map(p => [p.paid_by_employee_id, { id: p.paid_by_employee_id, name: p.paid_by }])
+      ).values()];
+      
+      // Merge with existing employees to avoid losing data on filter changes
+      setPaidByEmployees(prev => {
+        const merged = new Map(prev.map(e => [e.id, e]));
+        uniqueEmps.forEach(e => merged.set(e.id, e));
+        return [...merged.values()];
+      });
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
@@ -337,6 +353,32 @@ export default function Procurement() {
     setShowPreviousDayItems(true);
     setOpenProcurement(true);
   };
+  
+  // Load unique employees who have paid (one-time on mount)
+  const loadPaidByEmployees = async () => {
+    try {
+      // Get procurements from last 6 months to find employees who have paid
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      const fromDate = sixMonthsAgo.toISOString().split('T')[0];
+      const toDate = new Date().toISOString().split('T')[0];
+      
+      const res = await api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`);
+      const uniqueEmps = [...new Map(
+        res.data
+          .filter(p => p.paid_by_type === 'employee' && p.paid_by_employee_id)
+          .map(p => [p.paid_by_employee_id, { id: p.paid_by_employee_id, name: p.paid_by }])
+      ).values()];
+      setPaidByEmployees(uniqueEmps);
+    } catch (error) {
+      console.error('Error loading paid by employees:', error);
+    }
+  };
+  
+  // Load employees on mount
+  useEffect(() => {
+    loadPaidByEmployees();
+  }, []);
   
   // Handle reference date change for purchase template
   const handleReferenceDateChange = async (newDate) => {
@@ -389,6 +431,18 @@ export default function Procurement() {
       });
     }
 
+    // Apply Paid By filter
+    if (filters.paidBy) {
+      filtered = filtered.filter(p => {
+        if (filters.paidBy === 'company') {
+          return p.paid_by_type === 'company';
+        } else {
+          // Filter by employee ID
+          return p.paid_by_type === 'employee' && p.paid_by_employee_id === filters.paidBy;
+        }
+      });
+    }
+
     setFilteredProcurements(filtered);
   }, [filters, procurements]);
 
@@ -398,7 +452,8 @@ export default function Procurement() {
       toDate: '',
       farmerName: '',
       productName: '',
-      status: ''
+      status: '',
+      paidBy: ''
     });
   };
 
@@ -1866,21 +1921,21 @@ export default function Procurement() {
       farmerMap[p.farmer_id].paid_amount += p.paid_amount || 0;
       // Calculate actual pending as total - paid (don't use stale pending_amount from DB)
       const actualPending = (p.total_amount || 0) - (p.paid_amount || 0);
-      farmerMap[p.farmer_id].pending_amount += Math.max(0, actualPending);
       farmerMap[p.farmer_id].purchase_count += 1;
-      // Add to purchases list if has pending (total > paid)
-      if (actualPending > 0) {
-        farmerMap[p.farmer_id].purchases.push({
-          ...p,
-          // Override pending_amount with calculated value
-          pending_amount: actualPending
-        });
-      }
+      // Add ALL purchases to the list (not just those with pending > 0)
+      // This ensures Date-wise Purchase Summary shows all purchases in the range
+      farmerMap[p.farmer_id].purchases.push({
+        ...p,
+        // Override pending_amount with calculated value
+        pending_amount: actualPending
+      });
     });
 
     // Recalculate pending_amount for each farmer as total - paid
     Object.values(farmerMap).forEach(f => {
       f.pending_amount = Math.max(0, f.total_amount - f.paid_amount);
+      // Sort purchases by date descending (newest first)
+      f.purchases.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
 
     // Convert to array and filter only those with pending > 0
@@ -3298,6 +3353,23 @@ export default function Procurement() {
                     <option value="paid">Paid</option>
                     <option value="partial">Partial</option>
                     <option value="pending">Pending</option>
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="filter-paid-by" className="text-xs">Paid By</Label>
+                  <select
+                    id="filter-paid-by"
+                    value={filters.paidBy}
+                    onChange={(e) => setFilters({ ...filters, paidBy: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    data-testid="filter-paid-by"
+                  >
+                    <option value="">All</option>
+                    <option value="company">Company</option>
+                    {/* Employees who have paid procurements */}
+                    {paidByEmployees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>

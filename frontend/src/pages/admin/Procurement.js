@@ -1864,11 +1864,23 @@ export default function Procurement() {
       }
       farmerMap[p.farmer_id].total_amount += p.total_amount || 0;
       farmerMap[p.farmer_id].paid_amount += p.paid_amount || 0;
-      farmerMap[p.farmer_id].pending_amount += p.pending_amount || 0;
+      // Calculate actual pending as total - paid (don't use stale pending_amount from DB)
+      const actualPending = (p.total_amount || 0) - (p.paid_amount || 0);
+      farmerMap[p.farmer_id].pending_amount += Math.max(0, actualPending);
       farmerMap[p.farmer_id].purchase_count += 1;
-      if ((p.pending_amount || 0) > 0) {
-        farmerMap[p.farmer_id].purchases.push(p);
+      // Add to purchases list if has pending (total > paid)
+      if (actualPending > 0) {
+        farmerMap[p.farmer_id].purchases.push({
+          ...p,
+          // Override pending_amount with calculated value
+          pending_amount: actualPending
+        });
       }
+    });
+
+    // Recalculate pending_amount for each farmer as total - paid
+    Object.values(farmerMap).forEach(f => {
+      f.pending_amount = Math.max(0, f.total_amount - f.paid_amount);
     });
 
     // Convert to array and filter only those with pending > 0
@@ -3370,17 +3382,47 @@ export default function Procurement() {
                         <td>{formatDate(proc.date)}</td>
                         <td className="font-medium">{proc.farmer_name}</td>
                         <td>
-                          <div className="space-y-1">
-                            {proc.products?.map((p, i) => (
-                              <div key={i} className="text-xs">
-                                {getProductName(p)}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
+                          {proc.products?.length > 3 ? (
+                            <div className="space-y-1">
+                              <div className="text-xs text-gray-600">
+                                {proc.products.length} items
                               </div>
-                            ))}
-                          </div>
+                              <details className="cursor-pointer">
+                                <summary className="text-xs text-blue-600 hover:text-blue-800">View details</summary>
+                                <div className="mt-1 space-y-1 pl-2 border-l-2 border-blue-100">
+                                  {proc.products?.map((p, i) => (
+                                    <div key={i} className="text-xs">
+                                      {getProductName(p)}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              {proc.products?.map((p, i) => (
+                                <div key={i} className="text-xs">
+                                  {getProductName(p)}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="text-right font-semibold">₹{proc.total_amount?.toFixed(2)}</td>
                         <td className="text-right text-green-700">₹{(proc.paid_amount || 0).toFixed(2)}</td>
-                        <td className="text-right text-red-700">₹{(proc.pending_amount || 0).toFixed(2)}</td>
+                        <td className="text-right">
+                          {/* Calculate actual pending: total - paid. Show negative if overpaid */}
+                          {(() => {
+                            const actualPending = (proc.total_amount || 0) - (proc.paid_amount || 0);
+                            if (actualPending > 0) {
+                              return <span className="text-red-700">₹{actualPending.toFixed(2)}</span>;
+                            } else if (actualPending < 0) {
+                              return <span className="text-green-600">-₹{Math.abs(actualPending).toFixed(2)} (credit)</span>;
+                            } else {
+                              return <span className="text-gray-500">₹0.00</span>;
+                            }
+                          })()}
+                        </td>
                         <td>
                           <div className="flex flex-col gap-1">
                             <span className={`badge ${
@@ -3389,16 +3431,31 @@ export default function Procurement() {
                             }`}>
                               {proc.payment_status || 'pending'}
                             </span>
-                            {proc.paid_by_type === 'employee' && (proc.payment_status === 'paid' || proc.payment_status === 'partial') && (
+                            {/* Always show employee name if paid by employee, regardless of settlement status */}
+                            {proc.paid_by_type === 'employee' && proc.paid_by && (
                               <span className="text-xs text-purple-600">by {proc.paid_by}</span>
                             )}
                           </div>
                         </td>
                         <td>
-                          {(proc.payment_status === 'paid' || proc.payment_status === 'partial') && proc.paid_by_type === 'employee' ? (
+                          {/* Show settlement status for employee-paid procurements */}
+                          {proc.paid_by_type === 'employee' ? (
                             proc.settlement_status === 'settled' ? (
                               <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">Settled</span>
-                            ) : (
+                            ) : proc.settlement_status === 'partial_reimbursement' ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded">Partial</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-green-600 hover:bg-green-50"
+                                  onClick={() => openSettlementModal(proc)}
+                                  title="Record More Reimbursement"
+                                >
+                                  <IndianRupee size={12} />
+                                </Button>
+                              </div>
+                            ) : (proc.payment_status === 'paid' || proc.payment_status === 'partial') ? (
                               <div className="flex items-center gap-1">
                                 <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">Pending</span>
                                 <Button
@@ -3411,6 +3468,8 @@ export default function Procurement() {
                                   <IndianRupee size={12} />
                                 </Button>
                               </div>
+                            ) : (
+                              <span className="text-gray-400">-</span>
                             )
                           ) : (
                             <span className="text-gray-400">-</span>

@@ -149,6 +149,20 @@ class FarmerCreate(BaseModel):
     materials_supplied: Optional[str] = None
 
 # Procurement Models
+class ProcurementPaymentItem(BaseModel):
+    """Individual payment record for a procurement"""
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    amount: float
+    payment_date: str
+    payment_mode: str
+    payment_reference: Optional[str] = None
+    paid_by_type: str = "company"  # 'company' or 'employee'
+    paid_by: Optional[str] = None
+    paid_by_employee_id: Optional[str] = None
+    settlement_status: Optional[str] = None
+    is_reimbursement: Optional[bool] = False
+
 class Procurement(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -178,6 +192,8 @@ class Procurement(BaseModel):
     settlement_reference: Optional[str] = None
     settlement_remarks: Optional[str] = None
     is_settled: Optional[bool] = None
+    # Individual payments array (for filtering by who paid)
+    payments: Optional[List[ProcurementPaymentItem]] = None
 
 class ProcurementCreate(BaseModel):
     date: datetime

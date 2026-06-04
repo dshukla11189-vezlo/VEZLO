@@ -1,0 +1,111 @@
+{
+  "summary": "Tested Paid By filter fix in Procurement page Purchase History tab. All tests passed. The fix correctly filters procurements by employee name as fallback for legacy data that has paid_by name but no paid_by_employee_id.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "1. Paid By dropdown shows all employees who have ever paid: All, Company, Devendra Shukla, Ankush Kharat",
+    "2. Filter by 'Devendra Shukla' shows 29 results (matches expected count)",
+    "3. Filter by 'Company' shows 133 results",
+    "4. Filter by 'Ankush Kharat' shows 17 results",
+    "5. Clear Filters button resets Paid By filter to empty/All",
+    "6. After Clear Filters, all 298 purchases are shown",
+    "7. Filtered results show procurements from multiple farmers (Riva Vegetable, Samsuddin, Shewalwadi Market) where Devendra Shukla paid",
+    "8. Legacy data support: Filter matches by employee name (not just employee ID)"
+  ],
+
+  "test_report_links": [
+    "/app/test_reports/iteration_35.json"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "Frontend Procurement.js lines 485-525: Filter logic correctly handles both pseudo-IDs (name:XYZ) and real employee IDs",
+    "Frontend Procurement.js lines 383-427: loadPaidByEmployees function correctly extracts employees from both procurement-level AND individual payments",
+    "Frontend Procurement.js lines 313-349: loadData function correctly builds paidByEmployees list with name-based pseudo-IDs for legacy data",
+    "The fix uses Map keyed by employee name to combine entries with/without ID, preferring real IDs over pseudo-IDs"
+  ],
+
+  "updated_files": [],
+
+  "success_rate": {
+    "backend": "N/A (frontend only testing)",
+    "frontend": "100% (8/8 tests passed)"
+  },
+
+  "test_credentials": {
+    "admin_email": "admin@freshflow.com",
+    "admin_password": "admin123"
+  },
+
+  "seed_data_creation": "Used existing procurement data - 298 procurements in date range 2026-05-01 to 2026-06-04",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "Paid By filter fix fully tested and working. Key implementation: 1) Filter supports both real employee IDs and pseudo-IDs (name:XYZ) for legacy data, 2) Filter matches by employee name as fallback when paid_by_employee_id is NULL, 3) Dropdown shows all employees who have ever paid from last 6 months of data. Test date range: 2026-05-01 to 2026-06-04. Expected results: Devendra Shukla=29, Ankush Kharat=17, Company=133, Total=298.",
+
+  "verified_features": {
+    "paid_by_filter_legacy_support": {
+      "description": "Filter by employee name for legacy data without employee ID",
+      "status": "WORKING"
+    },
+    "paid_by_dropdown_population": {
+      "description": "Dropdown shows all employees who have paid (from last 6 months)",
+      "options_shown": ["All", "Company", "Devendra Shukla", "Ankush Kharat"],
+      "status": "WORKING"
+    },
+    "clear_filters_button": {
+      "description": "Clear Filters button resets Paid By filter",
+      "status": "WORKING"
+    },
+    "filter_by_company": {
+      "description": "Filter shows procurements paid by company",
+      "result_count": 133,
+      "status": "WORKING"
+    },
+    "filter_by_devendra_shukla": {
+      "description": "Filter shows all procurements where Devendra Shukla paid",
+      "result_count": 29,
+      "expected_count": 29,
+      "status": "WORKING"
+    },
+    "filter_by_ankush_kharat": {
+      "description": "Filter shows all procurements where Ankush Kharat paid",
+      "result_count": 17,
+      "status": "WORKING"
+    }
+  },
+
+  "data_analysis": {
+    "date_range": "2026-05-01 to 2026-06-04",
+    "total_procurements": 298,
+    "filter_results": {
+      "all": 298,
+      "company": 133,
+      "devendra_shukla": 29,
+      "ankush_kharat": 17
+    },
+    "farmers_in_devendra_shukla_filter": [
+      "Riva Vegetable (majority)",
+      "Samsuddin",
+      "Shewalwadi Market"
+    ]
+  },
+
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}

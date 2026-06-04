@@ -2378,11 +2378,44 @@ async def get_procurements(
         query[date_field] = date_filter
     
     procurements = await db.procurements.find(query, {"_id": 0}).sort("date", -1).to_list(limit)
+    
+    # Get all procurement IDs to fetch payments in bulk
+    proc_ids = [p.get('id') for p in procurements if p.get('id')]
+    
+    # Fetch all payments for these procurements in one query
+    all_payments = await db.procurement_payments.find(
+        {"procurement_id": {"$in": proc_ids}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    # Group payments by procurement_id
+    payments_by_proc = {}
+    for payment in all_payments:
+        proc_id = payment.get('procurement_id')
+        if proc_id not in payments_by_proc:
+            payments_by_proc[proc_id] = []
+        payments_by_proc[proc_id].append({
+            "id": payment.get("id"),
+            "amount": payment.get("amount", 0),
+            "payment_date": payment.get("payment_date", ""),
+            "payment_mode": payment.get("payment_mode", ""),
+            "payment_reference": payment.get("payment_reference"),
+            "paid_by_type": payment.get("paid_by_type", "company"),
+            "paid_by": payment.get("paid_by"),
+            "paid_by_employee_id": payment.get("paid_by_employee_id"),
+            "settlement_status": payment.get("settlement_status"),
+            "is_reimbursement": payment.get("is_reimbursement", False)
+        })
+    
+    # Add payments to each procurement
     for p in procurements:
         if isinstance(p['date'], str):
             p['date'] = datetime.fromisoformat(p['date'].replace('Z', '+00:00'))
         if isinstance(p['created_at'], str):
             p['created_at'] = datetime.fromisoformat(p['created_at'].replace('Z', '+00:00'))
+        # Attach payments array
+        p['payments'] = payments_by_proc.get(p.get('id'), [])
+    
     return [Procurement(**p) for p in procurements]
 
 

@@ -310,16 +310,41 @@ export default function Procurement() {
       setFilters(prev => ({ ...prev, fromDate, toDate }));
       
       // Extract unique employees who have paid from current data
-      const uniqueEmps = [...new Map(
-        procRes.data
-          .filter(p => p.paid_by_type === 'employee' && p.paid_by_employee_id)
-          .map(p => [p.paid_by_employee_id, { id: p.paid_by_employee_id, name: p.paid_by }])
-      ).values()];
+      // Check both procurement-level AND individual payments, including legacy (name-only) data
+      const employeeMap = new Map(); // Keyed by employee NAME to combine entries
+      procRes.data.forEach(p => {
+        // Check procurement-level
+        if (p.paid_by_type === 'employee' && p.paid_by) {
+          const name = p.paid_by;
+          const existing = employeeMap.get(name);
+          // Prefer entries with real IDs over pseudo-IDs
+          if (!existing || (p.paid_by_employee_id && existing.id.startsWith('name:'))) {
+            employeeMap.set(name, { id: p.paid_by_employee_id || `name:${name}`, name });
+          }
+        }
+        // Check individual payments
+        const payments = p.payments || [];
+        payments.forEach(payment => {
+          if (payment.paid_by_type === 'employee' && payment.paid_by && !payment.is_reimbursement) {
+            const name = payment.paid_by;
+            const existing = employeeMap.get(name);
+            if (!existing || (payment.paid_by_employee_id && existing.id.startsWith('name:'))) {
+              employeeMap.set(name, { id: payment.paid_by_employee_id || `name:${name}`, name });
+            }
+          }
+        });
+      });
       
       // Merge with existing employees to avoid losing data on filter changes
       setPaidByEmployees(prev => {
-        const merged = new Map(prev.map(e => [e.id, e]));
-        uniqueEmps.forEach(e => merged.set(e.id, e));
+        // Merge by NAME to keep best IDs
+        const merged = new Map(prev.map(e => [e.name, e]));
+        employeeMap.forEach((value, key) => {
+          const existing = merged.get(key);
+          if (!existing || (value.id && !value.id.startsWith('name:') && existing.id.startsWith('name:'))) {
+            merged.set(key, value);
+          }
+        });
         return [...merged.values()];
       });
     } catch (error) {
@@ -364,12 +389,38 @@ export default function Procurement() {
       const toDate = new Date().toISOString().split('T')[0];
       
       const res = await api.get(`/api/procurement?from_date=${fromDate}&to_date=${toDate}`);
-      const uniqueEmps = [...new Map(
-        res.data
-          .filter(p => p.paid_by_type === 'employee' && p.paid_by_employee_id)
-          .map(p => [p.paid_by_employee_id, { id: p.paid_by_employee_id, name: p.paid_by }])
-      ).values()];
-      setPaidByEmployees(uniqueEmps);
+      
+      // Extract employees from BOTH procurement-level AND individual payments
+      // Use Map keyed by employee name (to combine entries with/without ID)
+      const employeeMap = new Map();
+      
+      res.data.forEach(p => {
+        // Check procurement-level paid_by
+        if (p.paid_by_type === 'employee' && p.paid_by) {
+          const name = p.paid_by;
+          const id = p.paid_by_employee_id || `name:${name}`; // Use name as pseudo-ID for legacy
+          // Keep the real ID if we've seen one, otherwise use pseudo-ID
+          const existing = employeeMap.get(name);
+          if (!existing || (p.paid_by_employee_id && existing.id.startsWith('name:'))) {
+            employeeMap.set(name, { id: p.paid_by_employee_id || `name:${name}`, name });
+          }
+        }
+        
+        // Check individual payments array
+        const payments = p.payments || [];
+        payments.forEach(payment => {
+          if (payment.paid_by_type === 'employee' && payment.paid_by && !payment.is_reimbursement) {
+            const name = payment.paid_by;
+            const id = payment.paid_by_employee_id || `name:${name}`;
+            const existing = employeeMap.get(name);
+            if (!existing || (payment.paid_by_employee_id && existing.id.startsWith('name:'))) {
+              employeeMap.set(name, { id: payment.paid_by_employee_id || `name:${name}`, name });
+            }
+          }
+        });
+      });
+      
+      setPaidByEmployees([...employeeMap.values()]);
     } catch (error) {
       console.error('Error loading paid by employees:', error);
     }
@@ -431,20 +482,50 @@ export default function Procurement() {
       });
     }
 
-    // Apply Paid By filter
+    // Apply Paid By filter - check both procurement-level AND individual payments
+    // Also supports legacy data that has paid_by name but no paid_by_employee_id
     if (filters.paidBy) {
+      // Determine if this is a pseudo-ID (name:XYZ) or real ID
+      const isPseudoId = filters.paidBy.startsWith('name:');
+      const selectedEmpName = isPseudoId 
+        ? filters.paidBy.substring(5) // Extract name from "name:XYZ"
+        : (filters.paidBy !== 'company' 
+            ? paidByEmployees.find(e => e.id === filters.paidBy)?.name || null
+            : null);
+      
       filtered = filtered.filter(p => {
+        // Check procurement-level paid_by_type
+        let procLevelMatch = false;
         if (filters.paidBy === 'company') {
-          return p.paid_by_type === 'company';
+          procLevelMatch = p.paid_by_type === 'company';
         } else {
-          // Filter by employee ID
-          return p.paid_by_type === 'employee' && p.paid_by_employee_id === filters.paidBy;
+          // Match by employee ID (if present) OR by employee name (for legacy data)
+          procLevelMatch = p.paid_by_type === 'employee' && (
+            (!isPseudoId && p.paid_by_employee_id === filters.paidBy) ||
+            (selectedEmpName && p.paid_by === selectedEmpName)
+          );
         }
+        
+        // Also check individual payments array (if present)
+        const payments = p.payments || [];
+        const paymentMatch = payments.some(payment => {
+          if (filters.paidBy === 'company') {
+            return payment.paid_by_type === 'company' && !payment.is_reimbursement;
+          } else {
+            // Match by employee ID OR by name (for legacy payments)
+            return payment.paid_by_type === 'employee' && 
+                   !payment.is_reimbursement &&
+                   ((!isPseudoId && payment.paid_by_employee_id === filters.paidBy) ||
+                    (selectedEmpName && payment.paid_by === selectedEmpName));
+          }
+        });
+        
+        return procLevelMatch || paymentMatch;
       });
     }
 
     setFilteredProcurements(filtered);
-  }, [filters, procurements]);
+  }, [filters, procurements, paidByEmployees]);
 
   const clearFilters = () => {
     setFilters({

@@ -1835,6 +1835,45 @@ async def delete_product(product_id: str, current_user: dict = Depends(get_curre
     
     return {"message": "Product deleted successfully"}
 
+# Bulk update storage type for multiple products
+@api_router.post("/products/bulk-update-storage")
+async def bulk_update_product_storage(input: dict, current_user: dict = Depends(get_current_user)):
+    """Bulk update storage_type for multiple products"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    updates = input.get("updates", [])  # [{product_id: "xxx", storage_type: "Fridge"}, ...]
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates provided")
+    
+    updated_count = 0
+    for item in updates:
+        product_id = item.get("product_id")
+        storage_type = item.get("storage_type")
+        if product_id and storage_type in ["Outdoor", "Fridge"]:
+            result = await db.products.update_one(
+                {"id": product_id},
+                {"$set": {"storage_type": storage_type}}
+            )
+            if result.modified_count > 0:
+                updated_count += 1
+    
+    return {"message": f"Updated {updated_count} products", "updated_count": updated_count}
+
+# Set default storage type for all products without it
+@api_router.post("/products/set-default-storage")
+async def set_default_storage_type(current_user: dict = Depends(get_current_user)):
+    """Set storage_type='Outdoor' for all products that don't have this field"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.products.update_many(
+        {"$or": [{"storage_type": {"$exists": False}}, {"storage_type": None}]},
+        {"$set": {"storage_type": "Outdoor"}}
+    )
+    
+    return {"message": f"Set default storage type for {result.modified_count} products", "updated_count": result.modified_count}
+
 # Check if product has dependencies (purchases, sales, dispatches, etc.)
 @api_router.get("/products/{product_id}/dependencies")
 async def check_product_dependencies(product_id: str, current_user: dict = Depends(get_current_user)):

@@ -85,6 +85,7 @@ class Product(BaseModel):
     name_mr: Optional[str] = None  # Marathi translation of product name
     category: str
     product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
+    storage_type: Optional[str] = "Outdoor"  # "Outdoor", "Fridge" - where product should be stored
     unit: str
     current_stock: float = 0
     price_per_kg: Optional[float] = None
@@ -100,6 +101,7 @@ class ProductCreate(BaseModel):
     name_mr: Optional[str] = None  # Marathi translation
     category: str
     product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
+    storage_type: Optional[str] = "Outdoor"  # "Outdoor", "Fridge"
     unit: str
     current_stock: float = 0
     price_per_kg: Optional[float] = None
@@ -114,6 +116,7 @@ class ProductUpdate(BaseModel):
     name_mr: Optional[str] = None  # Marathi translation
     category: Optional[str] = None
     product_type: Optional[str] = None  # Fruits, Vegetables, Exotic, Leafy, etc.
+    storage_type: Optional[str] = None  # "Outdoor", "Fridge"
     unit: Optional[str] = None
     current_stock: Optional[float] = None
     price_per_kg: Optional[float] = None

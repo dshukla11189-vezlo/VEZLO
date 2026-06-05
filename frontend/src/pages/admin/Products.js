@@ -449,6 +449,11 @@ export default function Products() {
   const [catalogueSaving, setCatalogueSaving] = useState(false);
   const [autoTranslating, setAutoTranslating] = useState(false);
   
+  // Bulk Storage Type Edit state
+  const [showBulkStorageDialog, setShowBulkStorageDialog] = useState(false);
+  const [bulkStorageChanges, setBulkStorageChanges] = useState({}); // productId -> storage_type
+  const [bulkStorageSaving, setBulkStorageSaving] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     name_hi: '',  // Hindi translation
@@ -456,6 +461,7 @@ export default function Products() {
     category: '',
     unit: 'Kg',
     product_type: '',  // 'Fruits', 'Vegetables', 'Exotic', 'Leafy', etc.
+    storage_type: 'Outdoor',  // 'Outdoor', 'Fridge'
     current_stock: 0,
     price_per_kg: 0,
     price_per_packet: 0,
@@ -493,6 +499,55 @@ export default function Products() {
       toast.error('Failed to auto-translate products');
     } finally {
       setAutoTranslating(false);
+    }
+  };
+
+  // Initialize bulk storage dialog with current values
+  const openBulkStorageDialog = () => {
+    const initialChanges = {};
+    products.forEach(p => {
+      initialChanges[p.id] = p.storage_type || 'Outdoor';
+    });
+    setBulkStorageChanges(initialChanges);
+    setShowBulkStorageDialog(true);
+  };
+
+  // Set all products to a specific storage type
+  const setAllStorageType = (type) => {
+    const updated = {};
+    products.forEach(p => {
+      updated[p.id] = type;
+    });
+    setBulkStorageChanges(updated);
+  };
+
+  // Save bulk storage changes
+  const saveBulkStorageChanges = async () => {
+    setBulkStorageSaving(true);
+    try {
+      // Build list of products that actually changed
+      const updates = products
+        .filter(p => (p.storage_type || 'Outdoor') !== bulkStorageChanges[p.id])
+        .map(p => ({
+          product_id: p.id,
+          storage_type: bulkStorageChanges[p.id]
+        }));
+      
+      if (updates.length === 0) {
+        toast.info('No changes to save');
+        setShowBulkStorageDialog(false);
+        return;
+      }
+
+      const response = await api.post('/api/products/bulk-update-storage', { updates });
+      toast.success(`Updated storage type for ${response.data.updated_count} products`);
+      loadProducts();
+      setShowBulkStorageDialog(false);
+    } catch (error) {
+      console.error('Bulk storage update error:', error);
+      toast.error('Failed to update storage types');
+    } finally {
+      setBulkStorageSaving(false);
     }
   };
 
@@ -1066,7 +1121,7 @@ export default function Products() {
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+      setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', storage_type: 'Outdoor', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
       setImageFile(null);
       setImagePreview(null);
       loadProducts();
@@ -1163,6 +1218,7 @@ export default function Products() {
       category: product.category,
       unit: product.unit,
       product_type: product.product_type || '',
+      storage_type: product.storage_type || 'Outdoor',
       current_stock: product.current_stock,
       price_per_kg: product.price_per_kg || 0,
       price_per_packet: product.price_per_packet || 0,
@@ -1392,11 +1448,19 @@ export default function Products() {
               </>
             )}
           </Button>
+          <Button 
+            variant="outline" 
+            onClick={openBulkStorageDialog}
+            className="border-blue-300 text-blue-700 hover:bg-blue-50"
+          >
+            <Box size={16} className="mr-2" />
+            Bulk Edit Storage
+          </Button>
           <Dialog open={open} onOpenChange={(val) => {
           setOpen(val);
           if (!val) {
             setEditProduct(null);
-            setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+            setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', storage_type: 'Outdoor', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
             setImageFile(null);
             setImagePreview(null);
           }
@@ -1491,6 +1555,19 @@ export default function Products() {
                     {productTypes.map(type => (
                       <option key={type.id} value={type.name}>{type.name}</option>
                     ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="storage_type">Storage Type</Label>
+                  <select
+                    id="storage_type"
+                    data-testid="product-storage-type-input"
+                    value={formData.storage_type}
+                    onChange={(e) => setFormData({ ...formData, storage_type: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  >
+                    <option value="Outdoor">Outdoor</option>
+                    <option value="Fridge">Fridge</option>
                   </select>
                 </div>
               </div>
@@ -1630,6 +1707,7 @@ export default function Products() {
             <tr>
               <th>PRODUCT NAME</th>
               <th>TYPE</th>
+              <th>STORAGE</th>
               <th>CATEGORY</th>
               <th>LIFECYCLE</th>
               <th className="text-center">ACTIONS</th>
@@ -1670,6 +1748,13 @@ export default function Products() {
                   ) : (
                     <span className="text-gray-400 text-xs">-</span>
                   )}
+                </td>
+                <td>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    product.storage_type === 'Fridge' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {product.storage_type || 'Outdoor'}
+                  </span>
                 </td>
                 <td>{product.category}</td>
                 <td>
@@ -1849,6 +1934,104 @@ export default function Products() {
           </div>
         </div>
       )}
+      
+      {/* Bulk Storage Type Edit Dialog */}
+      <Dialog open={showBulkStorageDialog} onOpenChange={setShowBulkStorageDialog}>
+        <DialogContent className="sm:max-w-[700px] max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Bulk Edit Storage Type</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Quick Actions */}
+            <div className="flex gap-2 items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-600">Quick Set All:</span>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => setAllStorageType('Outdoor')}
+                className="border-amber-300 text-amber-700 hover:bg-amber-50"
+              >
+                All Outdoor
+              </Button>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => setAllStorageType('Fridge')}
+                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+              >
+                All Fridge
+              </Button>
+            </div>
+            
+            {/* Products List */}
+            <div className="max-h-[400px] overflow-y-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2">Product</th>
+                    <th className="text-left px-3 py-2">Type</th>
+                    <th className="text-center px-3 py-2 w-32">Storage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map(product => (
+                    <tr key={product.id} className="border-t hover:bg-gray-50">
+                      <td className="px-3 py-2 font-medium">{product.name}</td>
+                      <td className="px-3 py-2 text-gray-500">{product.product_type || '-'}</td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={bulkStorageChanges[product.id] || 'Outdoor'}
+                          onChange={(e) => setBulkStorageChanges(prev => ({
+                            ...prev,
+                            [product.id]: e.target.value
+                          }))}
+                          className={`w-full px-2 py-1 text-xs rounded border ${
+                            bulkStorageChanges[product.id] === 'Fridge' 
+                              ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                              : 'bg-amber-50 border-amber-200 text-amber-700'
+                          }`}
+                        >
+                          <option value="Outdoor">Outdoor</option>
+                          <option value="Fridge">Fridge</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Summary */}
+            <div className="flex items-center justify-between text-sm text-gray-600 p-2 bg-gray-50 rounded">
+              <span>
+                <span className="font-medium text-amber-600">
+                  {Object.values(bulkStorageChanges).filter(v => v === 'Outdoor').length}
+                </span> Outdoor, 
+                <span className="font-medium text-blue-600 ml-1">
+                  {Object.values(bulkStorageChanges).filter(v => v === 'Fridge').length}
+                </span> Fridge
+              </span>
+              <span className="text-xs">
+                {products.filter(p => (p.storage_type || 'Outdoor') !== bulkStorageChanges[p.id]).length} changes pending
+              </span>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowBulkStorageDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={saveBulkStorageChanges} 
+                disabled={bulkStorageSaving}
+                className="bg-[#14532D] hover:bg-[#166534]"
+              >
+                {bulkStorageSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
         </>
       )}
 

@@ -2,6 +2,23 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Storage Type Field for Products ✅
+- **NEW FEATURE**: Added Storage Type field to products
+  - Options: "Outdoor" (default), "Fridge"
+  - New column in Products table (after Type column)
+  - Field in Add/Edit Product form
+  - Outdoor = amber badge, Fridge = blue badge
+- **BULK EDIT**: Added "Bulk Edit Storage" dialog
+  - Quick Set All buttons: "All Outdoor" / "All Fridge"
+  - Individual dropdown for each product
+  - Summary showing count by type and pending changes
+  - Saves only changed products
+- **MIGRATION**: Set default storage_type="Outdoor" for all 91 existing products
+- **Files Modified**:
+  - `/app/backend/models.py` - Added storage_type field to Product, ProductCreate, ProductUpdate
+  - `/app/backend/server.py` - Added bulk-update-storage and set-default-storage endpoints
+  - `/app/frontend/src/pages/admin/Products.js` - Added column, form field, bulk edit dialog
+
 ### June 5, 2025 - Admin Credit Notes Retailer Filter Fix ✅
 - **BUG FIX**: Credit Notes section in Admin portal retailer filter not syncing
   - **Issue**: When selecting a retailer from the top dropdown, Credit Notes section had its own separate dropdown showing "All Retailers"

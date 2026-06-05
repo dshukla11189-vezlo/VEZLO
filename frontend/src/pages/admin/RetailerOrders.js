@@ -1443,7 +1443,15 @@ export default function RetailerOrders() {
       return payDate >= rejectionLossDateFrom && payDate <= rejectionLossDateTo;
     });
     const totalPaymentsReceived = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalRejections = rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    
+    // Filter rejections by date range for the Rejection Loss block
+    const filteredRejections = rejections.filter(r => {
+      const rejDate = r.rejection_date?.split('T')[0];
+      return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
+    });
+    const totalRejections = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    const totalRejectionCount = filteredRejections.length;
+    const totalRejectionItems = filteredRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
     
     // Net Receivable = Total invoiced amount (this is what retailer owes us)
     // Pending = Invoiced - Payments received
@@ -1500,6 +1508,8 @@ export default function RetailerOrders() {
       totalInvoiced: filteredTotalInvoiced,
       totalPayments: filteredTotalPayments,
       totalRejections,
+      totalRejectionCount,
+      totalRejectionItems,
       pendingAmount: filteredTotalInvoiced - filteredTotalPayments
     });
   }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer]);

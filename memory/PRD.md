@@ -2,6 +2,15 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Invoice Rejection Sync Fix ✅
+- **BUG FIX**: Rejections not syncing to invoice line items
+  - **Root Cause**: Invoice items had `variant_id: 'None'` (string) while rejections had proper variant IDs. The matching logic tried `variant_id` first but didn't find matches.
+  - **Fix Applied**: Updated `sync_invoice_rejection_amount()` to use dual-key matching:
+    1. First try exact match: `product_id + variant_id`
+    2. Fallback to: `product_id + variant_name`
+  - **Result**: 19 out of 20 Narang rejections now sync correctly to invoice items
+- **Files Modified**: `/app/backend/server.py` - Updated sync function
+
 ### June 5, 2025 - Rejection Delete Cascades to Credit Note ✅
 - **NEW FEATURE**: When a rejection is deleted, its linked credit note is automatically handled:
   - If credit note hasn't been adjusted (used) → Credit note is **deleted**

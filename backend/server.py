@@ -11167,20 +11167,34 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
         
         total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
         
-        # Group rejections by product_id + variant for item-level sync
-        # Try variant_id first, then fall back to variant_name
-        rejection_by_item = {}
+        # Group rejections by MULTIPLE keys for flexible matching
+        # Key 1: product_id + variant_id (exact match)
+        # Key 2: product_id + variant_name (fallback)
+        rejection_by_exact = {}  # product_id + variant_id
+        rejection_by_name = {}   # product_id + variant_name
+        
         for rej in rejections:
             product_id = rej.get('product_id', '') or ''
-            # Try variant_id first, then variant_name
             variant_id = rej.get('variant_id', '') or ''
-            if variant_id in ['N/A', 'None', 'null', '']:
-                variant_id = rej.get('variant_name', '') or ''
-            key = f"{product_id}_{variant_id}"
-            if key not in rejection_by_item:
-                rejection_by_item[key] = {"qty": 0, "value": 0}
-            rejection_by_item[key]["qty"] += rej.get("quantity", 0) or 0
-            rejection_by_item[key]["value"] += rej.get("rejection_value", 0) or 0
+            variant_name = rej.get('variant_name', '') or ''
+            
+            rej_data = {"qty": rej.get("quantity", 0) or 0, "value": rej.get("rejection_value", 0) or 0}
+            
+            # Store by exact variant_id if it's a valid ID
+            if variant_id and variant_id not in ['N/A', 'None', 'null', '', 'undefined']:
+                exact_key = f"{product_id}_{variant_id}"
+                if exact_key not in rejection_by_exact:
+                    rejection_by_exact[exact_key] = {"qty": 0, "value": 0}
+                rejection_by_exact[exact_key]["qty"] += rej_data["qty"]
+                rejection_by_exact[exact_key]["value"] += rej_data["value"]
+            
+            # Also store by variant_name for fallback matching
+            if variant_name:
+                name_key = f"{product_id}_{variant_name}"
+                if name_key not in rejection_by_name:
+                    rejection_by_name[name_key] = {"qty": 0, "value": 0}
+                rejection_by_name[name_key]["qty"] += rej_data["qty"]
+                rejection_by_name[name_key]["value"] += rej_data["value"]
         
         # Find the invoice for this date and retailer
         invoice = await db.retailer_invoices.find_one({
@@ -11201,12 +11215,22 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
             updated_items = []
             for item in invoice.get("items", []):
                 item_product_id = item.get('product_id', '') or ''
-                # Try variant_id first, then variant_name to match with rejections
-                item_variant = item.get('variant_id', '') or ''
-                if item_variant in ['N/A', 'None', 'null', '']:
-                    item_variant = item.get('variant_name', '') or ''
-                item_key = f"{item_product_id}_{item_variant}"
-                rej_data = rejection_by_item.get(item_key, {"qty": 0, "value": 0})
+                item_variant_id = item.get('variant_id', '') or ''
+                item_variant_name = item.get('variant_name', '') or ''
+                
+                rej_data = {"qty": 0, "value": 0}
+                
+                # Try to match by exact variant_id first (if invoice item has valid variant_id)
+                if item_variant_id and item_variant_id not in ['N/A', 'None', 'null', '', 'undefined']:
+                    exact_key = f"{item_product_id}_{item_variant_id}"
+                    if exact_key in rejection_by_exact:
+                        rej_data = rejection_by_exact[exact_key]
+                
+                # If no match by variant_id, try matching by variant_name
+                if rej_data["qty"] == 0 and item_variant_name:
+                    name_key = f"{item_product_id}_{item_variant_name}"
+                    if name_key in rejection_by_name:
+                        rej_data = rejection_by_name[name_key]
                 
                 # Update rejection_qty and recalculate billable_qty
                 supplied_qty = item.get("supplied_qty", item.get("quantity", 0)) or 0

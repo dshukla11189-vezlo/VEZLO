@@ -2,6 +2,16 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Credit Notes Product Details Fix Button ✅
+- **NEW FEATURE**: Added "Fix Product Details" button in Admin Credit Notes tab
+  - Located in Credit Notes tab header (orange button with wrench icon)
+  - Click to backfill missing product-level details (qty, rate, amount) for all credit notes
+  - Uses the linked rejection records to populate missing details
+  - Shows success message with count of fixed credit notes
+- **Files Modified**:
+  - `/app/backend/server.py` - Added `/api/retailer-credit-notes/backfill-rejection-details` endpoint
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added button and handler
+
 ### June 5, 2025 - Reimbursement Modal Bug Fix ✅
 - **BUG FIX**: Reimbursement popup was showing full purchase amount instead of employee's actual paid amount
   - **Issue**: For Riva Vegetable purchase (₹11,065.75 total), when Devendra paid only ₹8,000, the modal incorrectly showed "Employee Paid: ₹11,065.75" and pre-filled ₹11,065.75 as reimbursement amount

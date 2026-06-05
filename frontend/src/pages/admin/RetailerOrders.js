@@ -21,7 +21,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { 
   Plus, Package, Truck, AlertTriangle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -157,6 +157,9 @@ export default function RetailerOrders() {
   const [showPrintLanguageDialog, setShowPrintLanguageDialog] = useState(false);
   const [invoiceToPrint, setInvoiceToPrint] = useState(null);
   const [printLanguage, setPrintLanguage] = useState('en'); // 'en', 'hi', 'mr'
+  
+  // Credit Notes backfill state
+  const [isBackfillingCreditNotes, setIsBackfillingCreditNotes] = useState(false);
   
   // Payments state
   const [payments, setPayments] = useState([]);
@@ -527,7 +530,24 @@ export default function RetailerOrders() {
       loadCreditNotes();
     } catch (error) {
       console.error('Failed to delete credit note:', error);
-      toast.error(error.response?.data?.detail || 'Failed to delete credit note');
+      toast.error('Failed to delete credit note');
+    }
+  };
+
+  // Backfill missing rejection details in credit notes
+  const backfillCreditNoteDetails = async () => {
+    if (!window.confirm('This will update all credit notes to include product-level details from their linked rejections. Continue?')) return;
+    
+    setIsBackfillingCreditNotes(true);
+    try {
+      const response = await api.post('/api/retailer-credit-notes/backfill-rejection-details');
+      toast.success(`Fixed ${response.data.updated_count} credit notes! ${response.data.skipped_count} already had complete details.`);
+      loadCreditNotes(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to backfill credit notes:', error);
+      toast.error('Failed to fix credit notes: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsBackfillingCreditNotes(false);
     }
   };
 
@@ -7851,6 +7871,24 @@ export default function RetailerOrders() {
                   </select>
                   <Button size="sm" variant="outline" onClick={loadCreditNotes}>
                     <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={backfillCreditNoteDetails}
+                    disabled={isBackfillingCreditNotes}
+                    className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                    title="Fix credit notes that are missing product-level details"
+                  >
+                    {isBackfillingCreditNotes ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                      </>
+                    ) : (
+                      <>
+                        <Wrench className="h-3 w-3 mr-1" /> Fix Product Details
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

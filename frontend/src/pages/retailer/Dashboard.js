@@ -4633,7 +4633,7 @@ export default function RetailerDashboard() {
                   <CreditCard size={48} className="mx-auto mb-4 text-gray-300" />
                   <p>Loading credit notes...</p>
                 </div>
-              ) : creditNotesData.dates?.length === 0 ? (
+              ) : !creditNotesData?.invoices || creditNotesData.invoices.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <CreditCard size={48} className="mx-auto mb-4 text-gray-300" />
                   <p>No credit notes found</p>
@@ -4656,43 +4656,46 @@ export default function RetailerDashboard() {
                     </div>
                   </div>
                   
-                  {/* Date-wise Credit Notes List */}
+                  {/* Invoice-wise Credit Notes List */}
                   <div className="space-y-3">
-                    {creditNotesData.dates?.map((dateData) => (
-                      <div key={dateData.date} className="border rounded-lg overflow-hidden">
-                        {/* Date Header - Clickable */}
+                    {creditNotesData.invoices?.map((invoiceData) => (
+                      <div key={invoiceData.invoice_number} className="border rounded-lg overflow-hidden">
+                        {/* Invoice Header - Clickable */}
                         <div 
                           className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-                          onClick={() => setExpandedCreditDates(prev => ({ ...prev, [dateData.date]: !prev[dateData.date] }))}
-                          data-testid={`credit-date-${dateData.date}`}
+                          onClick={() => setExpandedCreditDates(prev => ({ ...prev, [invoiceData.invoice_number]: !prev[invoiceData.invoice_number] }))}
+                          data-testid={`credit-invoice-${invoiceData.invoice_number}`}
                         >
                           <div className="flex items-center gap-3">
-                            {expandedCreditDates[dateData.date] ? (
+                            {expandedCreditDates[invoiceData.invoice_number] ? (
                               <ChevronDown size={18} className="text-gray-500" />
                             ) : (
                               <ChevronRight size={18} className="text-gray-500" />
                             )}
                             <div>
                               <p className="font-semibold text-gray-800">
-                                {new Date(dateData.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                                {invoiceData.invoice_number}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {dateData.credit_note_count} credit note(s)
+                                {invoiceData.invoice_date 
+                                  ? new Date(invoiceData.invoice_date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                                  : 'Unknown Date'
+                                } • {invoiceData.credit_note_count} credit note(s)
                               </p>
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-lg font-bold text-purple-600">{formatCurrency(dateData.credit_amount)}</p>
+                            <p className="text-lg font-bold text-purple-600">{formatCurrency(invoiceData.credit_amount)}</p>
                           </div>
                         </div>
                         
                         {/* Expanded View - Credit Note Details */}
-                        {expandedCreditDates[dateData.date] && (
+                        {expandedCreditDates[invoiceData.invoice_number] && (
                           <div className="border-t bg-white p-3">
                             <table className="w-full text-xs">
                               <thead className="bg-gray-100">
                                 <tr>
-                                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">Invoice #</th>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">CN #</th>
                                   <th className="px-2 py-1.5 text-left font-medium text-gray-600">Product</th>
                                   <th className="px-2 py-1.5 text-center font-medium text-gray-600">Qty</th>
                                   <th className="px-2 py-1.5 text-left font-medium text-gray-600">Rejection Date</th>
@@ -4702,17 +4705,17 @@ export default function RetailerDashboard() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {dateData.credit_notes?.map((cn, cnIdx) => {
+                                {invoiceData.credit_notes?.map((cn, cnIdx) => {
                                   // If there are rejection details, show product-wise rows
                                   if (cn.rejection_details && cn.rejection_details.length > 0) {
                                     return cn.rejection_details.map((detail, detailIdx) => (
                                       <tr key={`${cnIdx}-${detailIdx}`} className="border-t border-gray-100">
                                         {detailIdx === 0 && (
                                           <td className="px-2 py-1.5 font-medium text-blue-600" rowSpan={cn.rejection_details.length}>
-                                            {cn.original_invoice_number}
+                                            {cn.credit_note_number}
                                           </td>
                                         )}
-                                        <td className="px-2 py-1.5 text-gray-700">{detail.product_name || '-'}</td>
+                                        <td className="px-2 py-1.5 text-gray-700">{detail.product_name || detail.variant_name || '-'}</td>
                                         <td className="px-2 py-1.5 text-center text-gray-600">{detail.rejected_qty || detail.quantity || '-'}</td>
                                         {detailIdx === 0 && (
                                           <>
@@ -4733,11 +4736,13 @@ export default function RetailerDashboard() {
                                       </tr>
                                     ));
                                   } else {
-                                    // No rejection details, show single row
+                                    // No rejection details (excess payment or legacy) - show single row with source
                                     return (
                                       <tr key={cnIdx} className="border-t border-gray-100">
-                                        <td className="px-2 py-1.5 font-medium text-blue-600">{cn.original_invoice_number}</td>
-                                        <td className="px-2 py-1.5 text-gray-500 italic">-</td>
+                                        <td className="px-2 py-1.5 font-medium text-blue-600">{cn.credit_note_number}</td>
+                                        <td className="px-2 py-1.5 text-gray-500 italic">
+                                          {cn.source === 'excess_payment' ? 'Excess Payment' : '-'}
+                                        </td>
                                         <td className="px-2 py-1.5 text-center text-gray-500">-</td>
                                         <td className="px-2 py-1.5 text-gray-600">
                                           {cn.rejection_date ? formatDate(cn.rejection_date) : formatDate(cn.created_at)}

@@ -11694,7 +11694,7 @@ async def get_pending_credit_notes(retailer_id: str, current_user: dict = Depend
 
 @api_router.get("/retailer-credit-notes/my-summary")
 async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_user)):
-    """Get credit notes summary for the logged-in retailer with date-wise grouping"""
+    """Get credit notes summary for the logged-in retailer grouped by INVOICE (supply date)"""
     if current_user["role"] != "retailer":
         raise HTTPException(status_code=403, detail="Only retailers can access this endpoint")
     
@@ -11711,30 +11711,42 @@ async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_u
     total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in credit_notes)
     total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in credit_notes)
     
-    # Group credit notes by date (using rejection_date or created_at)
+    # Group credit notes by INVOICE (original_invoice_number)
+    # This shows all rejections for a particular supply/invoice together
     from collections import defaultdict
-    date_groups = defaultdict(lambda: {"credit_notes": [], "total_credit": 0})
+    invoice_groups = defaultdict(lambda: {"credit_notes": [], "total_credit": 0, "invoice_date": None})
     
     for cn in credit_notes:
-        # Use rejection_date if available, otherwise created_at
-        cn_date = cn.get("rejection_date") or cn.get("created_at")
-        if cn_date:
-            if isinstance(cn_date, str):
-                date_key = cn_date[:10]  # Get YYYY-MM-DD part
-            else:
-                date_key = cn_date.strftime("%Y-%m-%d")
-        else:
-            date_key = "Unknown"
+        invoice_num = cn.get("original_invoice_number") or "Unknown Invoice"
+        invoice_groups[invoice_num]["credit_notes"].append(cn)
+        invoice_groups[invoice_num]["total_credit"] += cn.get("amount", 0)
         
-        date_groups[date_key]["credit_notes"].append(cn)
-        date_groups[date_key]["total_credit"] += cn.get("amount", 0)
+        # Extract invoice date from invoice number (format: XXX-INV-DDMMMYYYY-NNN)
+        # e.g., SAV-INV-01JUN2026-001 -> 2026-06-01
+        if not invoice_groups[invoice_num]["invoice_date"]:
+            try:
+                # Try to extract date from invoice number
+                parts = invoice_num.split('-')
+                if len(parts) >= 3:
+                    date_part = parts[2]  # e.g., "01JUN2026"
+                    if len(date_part) >= 9:
+                        day = date_part[:2]
+                        month_str = date_part[2:5].upper()
+                        year = date_part[5:9]
+                        month_map = {'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04', 
+                                     'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
+                                     'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'}
+                        month = month_map.get(month_str, '01')
+                        invoice_groups[invoice_num]["invoice_date"] = f"{year}-{month}-{day}"
+            except:
+                pass
     
-    # Convert to sorted list (newest first)
-    dates_list = []
-    for date_key in sorted(date_groups.keys(), reverse=True):
-        group = date_groups[date_key]
-        dates_list.append({
-            "date": date_key,
+    # Convert to sorted list (newest invoice first)
+    invoices_list = []
+    for invoice_num, group in sorted(invoice_groups.items(), key=lambda x: x[1].get("invoice_date") or "0000-00-00", reverse=True):
+        invoices_list.append({
+            "invoice_number": invoice_num,
+            "invoice_date": group["invoice_date"],
             "credit_amount": round(group["total_credit"], 2),
             "credit_note_count": len(group["credit_notes"]),
             "credit_notes": group["credit_notes"]
@@ -11747,7 +11759,7 @@ async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_u
             "total_pending": round(total_pending, 2),
             "total_count": len(credit_notes)
         },
-        "dates": dates_list
+        "invoices": invoices_list
     }
 
 

@@ -133,6 +133,7 @@ export default function RetailerOrders() {
   const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
   const [selectedRejectionForCN, setSelectedRejectionForCN] = useState(null);
   const [creditNoteFilter, setCreditNoteFilter] = useState({ retailer: '', status: '' });
+  const [expandedCreditNoteDates, setExpandedCreditNoteDates] = useState({});
   
   // Credit Note Edit state
   const [showEditCreditNoteModal, setShowEditCreditNoteModal] = useState(false);
@@ -7759,7 +7760,18 @@ export default function RetailerOrders() {
                     Track credit notes from rejections and their adjustments against invoices
                   </p>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center flex-wrap">
+                  {/* Retailer Filter */}
+                  <select
+                    value={creditNoteFilter.retailer}
+                    onChange={(e) => setCreditNoteFilter(prev => ({ ...prev, retailer: e.target.value }))}
+                    className="text-xs border rounded px-2 py-1 min-w-[150px]"
+                  >
+                    <option value="">All Retailers</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
+                    ))}
+                  </select>
                   {/* Status Filter */}
                   <select
                     value={creditNoteFilter.status}
@@ -7779,117 +7791,195 @@ export default function RetailerOrders() {
             </CardHeader>
             <CardContent className="p-3">
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="bg-purple-50 rounded-lg p-3 border border-purple-100">
-                  <div className="text-xs text-purple-600">Total Credit Issued</div>
-                  <div className="text-lg font-bold text-purple-700">
-                    ₹{creditNotes.reduce((sum, cn) => sum + (cn.amount || 0), 0).toLocaleString()}
-                  </div>
-                </div>
-                <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
-                  <div className="text-xs text-amber-600">Pending Credit</div>
-                  <div className="text-lg font-bold text-amber-700">
-                    ₹{creditNotes.filter(cn => cn.status !== 'adjusted').reduce((sum, cn) => sum + (cn.pending_amount || 0), 0).toLocaleString()}
-                  </div>
-                </div>
-                <div className="bg-green-50 rounded-lg p-3 border border-green-100">
-                  <div className="text-xs text-green-600">Adjusted</div>
-                  <div className="text-lg font-bold text-green-700">
-                    ₹{creditNotes.reduce((sum, cn) => sum + (cn.adjusted_amount || 0), 0).toLocaleString()}
-                  </div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                  <div className="text-xs text-gray-600">Total Notes</div>
-                  <div className="text-lg font-bold text-gray-700">{creditNotes.length}</div>
-                </div>
-              </div>
+              {(() => {
+                const filteredCNs = creditNotes.filter(cn => {
+                  if (creditNoteFilter.retailer && cn.retailer_id !== creditNoteFilter.retailer) return false;
+                  if (creditNoteFilter.status && cn.status !== creditNoteFilter.status) return false;
+                  return true;
+                });
+                
+                // Group by invoice date
+                const dateGroups = {};
+                filteredCNs.forEach(cn => {
+                  // Extract date from invoice_number or use rejection_date
+                  let dateKey = 'Unknown';
+                  if (cn.original_invoice_number) {
+                    const match = cn.original_invoice_number.match(/(\d{2})([A-Z]{3})(\d{4})/);
+                    if (match) {
+                      const monthMap = {'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};
+                      dateKey = `${match[3]}-${monthMap[match[2]] || '01'}-${match[1]}`;
+                    }
+                  }
+                  if (!dateGroups[dateKey]) {
+                    dateGroups[dateKey] = { creditNotes: [], totalAmount: 0, totalPending: 0, totalAdjusted: 0 };
+                  }
+                  dateGroups[dateKey].creditNotes.push(cn);
+                  dateGroups[dateKey].totalAmount += cn.amount || 0;
+                  dateGroups[dateKey].totalPending += cn.pending_amount || 0;
+                  dateGroups[dateKey].totalAdjusted += cn.adjusted_amount || 0;
+                });
+                
+                const sortedDates = Object.keys(dateGroups).sort((a, b) => b.localeCompare(a));
+                
+                return (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="bg-purple-50 rounded-lg p-3 border border-purple-100">
+                        <div className="text-xs text-purple-600">Total Credit Issued</div>
+                        <div className="text-lg font-bold text-purple-700">
+                          ₹{filteredCNs.reduce((sum, cn) => sum + (cn.amount || 0), 0).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+                        <div className="text-xs text-amber-600">Pending Credit</div>
+                        <div className="text-lg font-bold text-amber-700">
+                          ₹{filteredCNs.filter(cn => cn.status !== 'adjusted').reduce((sum, cn) => sum + (cn.pending_amount || 0), 0).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-3 border border-green-100">
+                        <div className="text-xs text-green-600">Adjusted</div>
+                        <div className="text-lg font-bold text-green-700">
+                          ₹{filteredCNs.reduce((sum, cn) => sum + (cn.adjusted_amount || 0), 0).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="text-xs text-gray-600">Total Notes</div>
+                        <div className="text-lg font-bold text-gray-700">{filteredCNs.length}</div>
+                      </div>
+                    </div>
 
-              {/* Credit Notes Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="p-2 text-left">CN #</th>
-                      <th className="p-2 text-left">Retailer</th>
-                      <th className="p-2 text-left">Original Invoice</th>
-                      <th className="p-2 text-right">Amount</th>
-                      <th className="p-2 text-right">Adjusted</th>
-                      <th className="p-2 text-right">Pending</th>
-                      <th className="p-2 text-center">Status</th>
-                      <th className="p-2 text-left">Created</th>
-                      <th className="p-2 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {creditNotes.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="p-4 text-center text-gray-500">
-                          No credit notes found. Create credit notes from the Rejections tab.
-                        </td>
-                      </tr>
-                    ) : (
-                      creditNotes.map(cn => (
-                        <tr key={cn.id} className="border-t hover:bg-gray-50">
-                          <td className="p-2 font-medium text-purple-700">{cn.credit_note_number}</td>
-                          <td className="p-2">{cn.retailer_name}</td>
-                          <td className="p-2 text-blue-600">{cn.original_invoice_number}</td>
-                          <td className="p-2 text-right">
-                            <div className="font-medium">₹{cn.amount?.toLocaleString()}</div>
-                            {cn.commission_deducted > 0 && (
-                              <div className="text-[10px] text-gray-500">
-                                (MRP ₹{cn.rejection_value?.toLocaleString()} - {cn.commission_percentage}% comm)
+                    {/* Date-wise Credit Notes List */}
+                    <div className="space-y-3">
+                      {sortedDates.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <CreditCard size={40} className="mx-auto mb-2 text-gray-300" />
+                          <p>No credit notes found</p>
+                        </div>
+                      ) : (
+                        sortedDates.map(dateKey => {
+                          const group = dateGroups[dateKey];
+                          const isExpanded = expandedCreditNoteDates[dateKey];
+                          
+                          return (
+                            <div key={dateKey} className="border rounded-lg overflow-hidden">
+                              {/* Date Header - Clickable */}
+                              <div
+                                className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                                onClick={() => setExpandedCreditNoteDates(prev => ({ ...prev, [dateKey]: !prev[dateKey] }))}
+                              >
+                                <div className="flex items-center gap-3">
+                                  {isExpanded ? (
+                                    <ChevronDown size={18} className="text-gray-500" />
+                                  ) : (
+                                    <ChevronRight size={18} className="text-gray-500" />
+                                  )}
+                                  <div>
+                                    <p className="font-semibold text-gray-800">
+                                      {dateKey !== 'Unknown' 
+                                        ? new Date(dateKey).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                                        : 'Unknown Date'
+                                      }
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      {group.creditNotes.length} credit note(s) • 
+                                      {creditNoteFilter.retailer ? '' : ` ${[...new Set(group.creditNotes.map(cn => cn.retailer_name))].length} retailer(s)`}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-lg font-bold text-purple-600">₹{group.totalAmount.toLocaleString()}</p>
+                                  {group.totalPending > 0 && (
+                                    <p className="text-xs text-amber-600">Pending: ₹{group.totalPending.toLocaleString()}</p>
+                                  )}
+                                </div>
                               </div>
-                            )}
-                          </td>
-                          <td className="p-2 text-right text-green-600">₹{(cn.adjusted_amount || 0).toLocaleString()}</td>
-                          <td className="p-2 text-right text-amber-600">₹{(cn.pending_amount || 0).toLocaleString()}</td>
-                          <td className="p-2 text-center">
-                            <span className={`px-2 py-0.5 rounded text-xs ${
-                              cn.status === 'adjusted' ? 'bg-green-100 text-green-700' :
-                              cn.status === 'partial' ? 'bg-amber-100 text-amber-700' :
-                              'bg-purple-100 text-purple-700'
-                            }`}>
-                              {cn.status}
-                            </span>
-                          </td>
-                          <td className="p-2">{formatDate(cn.created_at)}</td>
-                          <td className="p-2 text-center">
-                            {cn.status !== 'adjusted' && (
-                              <div className="flex items-center justify-center gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 text-blue-500 hover:text-blue-700"
-                                  onClick={() => openEditCreditNoteModal(cn)}
-                                  title="Edit Credit Note"
-                                >
-                                  <Edit2 size={14} />
-                                </Button>
-                                {cn.status === 'pending' && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                                    onClick={() => deleteCreditNote(cn.id)}
-                                    title="Delete Credit Note"
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                )}
-                              </div>
-                            )}
-                            {cn.adjusted_against_invoices?.length > 0 && (
-                              <span className="text-xs text-gray-500" title={cn.adjusted_against_invoices.map(a => a.invoice_number).join(', ')}>
-                                ({cn.adjusted_against_invoices.length} adj)
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                              
+                              {/* Expanded Details */}
+                              {isExpanded && (
+                                <div className="border-t bg-white">
+                                  <table className="w-full text-xs">
+                                    <thead className="bg-gray-100">
+                                      <tr>
+                                        <th className="p-2 text-left">CN #</th>
+                                        <th className="p-2 text-left">Retailer</th>
+                                        <th className="p-2 text-left">Product</th>
+                                        <th className="p-2 text-center">Qty</th>
+                                        <th className="p-2 text-right">Amount</th>
+                                        <th className="p-2 text-right text-green-600">Adjusted</th>
+                                        <th className="p-2 text-right text-amber-600">Pending</th>
+                                        <th className="p-2 text-center">Status</th>
+                                        <th className="p-2 text-center">Actions</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {group.creditNotes.map(cn => {
+                                        const details = cn.rejection_details?.[0] || {};
+                                        return (
+                                          <tr key={cn.id} className="border-t hover:bg-gray-50">
+                                            <td className="p-2 font-medium text-purple-700">{cn.credit_note_number}</td>
+                                            <td className="p-2">{cn.retailer_name}</td>
+                                            <td className="p-2">{details.product_name || '-'}</td>
+                                            <td className="p-2 text-center">{details.quantity || '-'}</td>
+                                            <td className="p-2 text-right">
+                                              <div className="font-medium">₹{cn.amount?.toLocaleString()}</div>
+                                              {cn.commission_deducted > 0 && (
+                                                <div className="text-[10px] text-gray-500">
+                                                  (MRP ₹{cn.rejection_value?.toLocaleString()} - {cn.commission_percentage}%)
+                                                </div>
+                                              )}
+                                            </td>
+                                            <td className="p-2 text-right text-green-600">₹{(cn.adjusted_amount || 0).toLocaleString()}</td>
+                                            <td className="p-2 text-right text-amber-600">₹{(cn.pending_amount || 0).toLocaleString()}</td>
+                                            <td className="p-2 text-center">
+                                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                                cn.status === 'adjusted' ? 'bg-green-100 text-green-700' :
+                                                cn.status === 'partial' ? 'bg-amber-100 text-amber-700' :
+                                                'bg-purple-100 text-purple-700'
+                                              }`}>
+                                                {cn.status}
+                                              </span>
+                                            </td>
+                                            <td className="p-2 text-center">
+                                              {cn.status !== 'adjusted' && (
+                                                <div className="flex items-center justify-center gap-1">
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 w-6 p-0 text-blue-500 hover:text-blue-700"
+                                                    onClick={(e) => { e.stopPropagation(); openEditCreditNoteModal(cn); }}
+                                                    title="Edit Credit Note"
+                                                  >
+                                                    <Edit2 size={14} />
+                                                  </Button>
+                                                  {cn.status === 'pending' && (
+                                                    <Button
+                                                      size="sm"
+                                                      variant="ghost"
+                                                      className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                                                      onClick={(e) => { e.stopPropagation(); deleteCreditNote(cn.id); }}
+                                                      title="Delete Credit Note"
+                                                    >
+                                                      <Trash2 size={14} />
+                                                    </Button>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         )}

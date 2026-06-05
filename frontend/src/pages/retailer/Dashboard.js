@@ -4674,13 +4674,13 @@ export default function RetailerDashboard() {
                             )}
                             <div>
                               <p className="font-semibold text-gray-800">
-                                {invoiceData.invoice_number}
-                              </p>
-                              <p className="text-xs text-gray-500">
                                 {invoiceData.invoice_date 
                                   ? new Date(invoiceData.invoice_date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
                                   : 'Unknown Date'
-                                } • {invoiceData.credit_note_count} credit note(s)
+                                }
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {invoiceData.invoice_number} • {invoiceData.credit_note_count} credit note(s)
                               </p>
                             </div>
                           </div>

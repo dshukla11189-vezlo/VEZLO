@@ -2,6 +2,17 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Rejection Delete Cascades to Credit Note ✅
+- **NEW FEATURE**: When a rejection is deleted, its linked credit note is automatically handled:
+  - If credit note hasn't been adjusted (used) → Credit note is **deleted**
+  - If credit note has been partially/fully adjusted → Credit note is **voided** (amount set to 0)
+  - Confirmation dialog updated to warn about linked credit note
+  - Success message shows credit note action taken
+  - Credit notes list auto-refreshes after rejection deletion
+- **Files Modified**:
+  - `/app/backend/server.py` - Updated `delete_retailer_rejection` endpoint
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Updated confirmation and refresh
+
 ### June 5, 2025 - Credit Notes Product Details Fix Button ✅
 - **NEW FEATURE**: Added "Fix Product Details" button in Admin Credit Notes tab
   - Located in Credit Notes tab header (orange button with wrench icon)

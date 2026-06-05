@@ -11290,19 +11290,50 @@ async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depe
     
     # Get the rejection first to know which invoice to re-sync
     rejection = await db.retailer_rejections.find_one({"id": rejection_id}, {"_id": 0})
+    if not rejection:
+        raise HTTPException(status_code=404, detail="Rejection not found")
     
+    # Find and delete any credit note linked to this rejection
+    credit_note = await db.retailer_credit_notes.find_one({"rejection_id": rejection_id}, {"_id": 0})
+    credit_note_deleted = False
+    if credit_note:
+        # Check if credit note has been adjusted (used against invoices)
+        if credit_note.get("adjusted_amount", 0) > 0:
+            # Credit note has been partially/fully adjusted - we can't delete it
+            # Instead, mark it as void or reduce its amount
+            await db.retailer_credit_notes.update_one(
+                {"id": credit_note["id"]},
+                {"$set": {
+                    "status": "voided",
+                    "voided_reason": f"Source rejection {rejection_id} was deleted",
+                    "amount": 0,
+                    "pending_amount": 0
+                }}
+            )
+        else:
+            # Credit note hasn't been used - safe to delete
+            await db.retailer_credit_notes.delete_one({"id": credit_note["id"]})
+            credit_note_deleted = True
+    
+    # Delete the rejection
     result = await db.retailer_rejections.delete_one({"id": rejection_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Rejection not found")
     
     # Re-sync the invoice for this rejection's date/retailer
-    if rejection:
-        rej_date = rejection.get("rejection_date", "")[:10]
-        retailer_id = rejection.get("retailer_id")
-        if rej_date and retailer_id:
-            await sync_invoice_rejection_amount(retailer_id, rej_date)
+    rej_date = rejection.get("rejection_date", "")[:10]
+    retailer_id = rejection.get("retailer_id")
+    if rej_date and retailer_id:
+        await sync_invoice_rejection_amount(retailer_id, rej_date)
     
-    return {"message": "Rejection deleted successfully"}
+    message = "Rejection deleted successfully"
+    if credit_note:
+        if credit_note_deleted:
+            message += f". Credit note {credit_note.get('credit_note_number')} also deleted."
+        else:
+            message += f". Credit note {credit_note.get('credit_note_number')} voided (was partially adjusted)."
+    
+    return {"message": message, "credit_note_deleted": credit_note_deleted}
 
 @api_router.get("/retailer-rejections/history")
 async def get_rejection_history(

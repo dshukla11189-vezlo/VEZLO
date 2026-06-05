@@ -4954,11 +4954,12 @@ export default function RetailerOrders() {
   };
 
   const handleDeleteRejection = async (rejectionId) => {
-    if (!window.confirm('Are you sure you want to delete this rejection?')) return;
+    if (!window.confirm('Are you sure you want to delete this rejection? Any linked credit note will also be deleted/voided.')) return;
     try {
-      await api.delete(`/api/retailer-rejections/${rejectionId}`);
-      toast.success('Rejection deleted');
+      const response = await api.delete(`/api/retailer-rejections/${rejectionId}`);
+      toast.success(response.data.message || 'Rejection deleted');
       loadRejections();
+      loadCreditNotes(); // Refresh credit notes too since one may have been deleted
     } catch (error) {
       toast.error('Failed to delete rejection');
     }

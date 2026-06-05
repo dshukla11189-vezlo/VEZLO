@@ -1525,6 +1525,8 @@ export default function RetailerOrders() {
     // Filter rejections by date range
     const filtered = rejections.filter(r => {
       const rejDate = r.rejection_date?.split('T')[0];
+      if (!rejDate) return false;
+      // Ensure proper date comparison
       return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
     });
     
@@ -5503,7 +5505,7 @@ export default function RetailerOrders() {
         </div>
         
         {/* Rejection Loss Block */}
-        <div className="bg-red-50 rounded-lg border border-red-200 p-4 mb-4">
+        <div key={`rejection-loss-${rejectionLossDateFrom}-${rejectionLossDateTo}`} className="bg-red-50 rounded-lg border border-red-200 p-4 mb-4">
           {/* Header Row */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -5531,7 +5533,10 @@ export default function RetailerOrders() {
               <input
                 type="date"
                 value={rejectionLossDateFrom}
-                onChange={(e) => setRejectionLossDateFrom(e.target.value)}
+                onChange={(e) => {
+                  console.log('Date From changed to:', e.target.value);
+                  setRejectionLossDateFrom(e.target.value);
+                }}
                 className="h-7 text-xs border-0 focus:ring-0 focus:outline-none bg-transparent"
                 style={{ colorScheme: 'light' }}
               />
@@ -5541,11 +5546,17 @@ export default function RetailerOrders() {
               <input
                 type="date"
                 value={rejectionLossDateTo}
-                onChange={(e) => setRejectionLossDateTo(e.target.value)}
+                onChange={(e) => {
+                  console.log('Date To changed to:', e.target.value);
+                  setRejectionLossDateTo(e.target.value);
+                }}
                 className="h-7 text-xs border-0 focus:ring-0 focus:outline-none bg-transparent"
                 style={{ colorScheme: 'light' }}
               />
             </div>
+            <span className="text-[10px] text-gray-400 ml-2">
+              ({rejectionLossDateFrom} → {rejectionLossDateTo})
+            </span>
           </div>
           
           {/* Stats Row */}
@@ -5556,6 +5567,7 @@ export default function RetailerOrders() {
               </p>
               <p className="text-xs text-red-500 mt-1">
                 {rejectionAnalytics.count} rejection(s) • {rejectionAnalytics.totalQty} items
+                <span className="text-gray-400 ml-2">(of {rejections.length} total)</span>
               </p>
             </div>
             {rejectionAnalytics.topProductByQty && (

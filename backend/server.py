@@ -11021,8 +11021,12 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
     auto_credit_note = None
     upfront_pct = retailer.get("upfront_collection_percentage", 50)
-    # Create credit note for ALL rejections (regardless of upfront %)
-    # Credit note captures the rejected product details and commission calculation
+    
+    # Credit note logic:
+    # - For 100% upfront retailers: Always create credit note (they already paid everything)
+    # - For other retailers: Only create credit note if invoice is ALREADY FULLY PAID
+    #   (if not fully paid, they'll adjust rejection when making payment)
+    
     if rejection_value > 0:
         # Find the invoice for this date to link the credit note
         invoice = await db.retailer_invoices.find_one({
@@ -11030,7 +11034,27 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
             "invoice_date": {"$regex": f"^{rejection_date_str}"}
         }, {"_id": 0})
         
+        should_create_credit_note = False
+        
         if invoice:
+            if upfront_pct == 100:
+                # 100% upfront retailer - always create credit note
+                should_create_credit_note = True
+                logger.info(f"Creating credit note for 100% upfront retailer")
+            else:
+                # Check if invoice is already fully paid
+                invoice_paid = invoice.get("total_paid", 0) or 0
+                invoice_net_payable = invoice.get("net_payable", 0) or 0
+                
+                # If they've paid >= net_payable, they've already settled
+                # Any new rejection means they overpaid and need credit
+                if invoice_paid >= invoice_net_payable and invoice_net_payable > 0:
+                    should_create_credit_note = True
+                    logger.info(f"Creating credit note - invoice already fully paid (paid: {invoice_paid}, net_payable: {invoice_net_payable})")
+                else:
+                    logger.info(f"Skipping credit note - invoice not fully paid yet (paid: {invoice_paid}, net_payable: {invoice_net_payable}). Retailer will adjust when paying.")
+        
+        if should_create_credit_note and invoice:
             # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
             retailer_name = retailer.get("company_name", retailer.get("name", ""))
             retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
@@ -11068,7 +11092,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 "adjusted_amount": 0,
                 "pending_amount": round(credit_amount, 2),
                 "adjusted_against_invoices": [],
-                "remarks": f"Auto-generated from rejection on {rejection_date_str}",
+                "remarks": f"Auto-generated from rejection on {rejection_date_str} (invoice already paid)",
                 "created_by": current_user["user_id"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "auto_generated": True

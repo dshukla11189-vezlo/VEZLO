@@ -161,6 +161,14 @@ export default function RetailerOrders() {
   // Credit Notes backfill state
   const [isBackfillingCreditNotes, setIsBackfillingCreditNotes] = useState(false);
   
+  // Rejection Analytics state (for the Rejection Loss block)
+  const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
+    totalValue: 0,
+    count: 0,
+    totalQty: 0,
+    topProductByQty: null
+  });
+  
   // Payments state
   const [payments, setPayments] = useState([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -478,6 +486,53 @@ export default function RetailerOrders() {
   useEffect(() => {
     loadDispatchesForRejection();
   }, [rejectionLossDateFrom, rejectionLossDateTo, loadDispatchesForRejection]);
+
+  // Update rejection analytics when dates or rejections change
+  useEffect(() => {
+    // Filter rejections by date range
+    const filtered = rejections.filter(r => {
+      const rejDate = r.rejection_date?.split('T')[0];
+      if (!rejDate) return false;
+      return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
+    });
+    
+    const totalValue = filtered.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    const totalQty = filtered.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    
+    // Find top rejected product
+    const productTotals = {};
+    filtered.forEach(r => {
+      const name = r.product_name || 'Unknown';
+      if (!productTotals[name]) productTotals[name] = { qty: 0, value: 0 };
+      productTotals[name].qty += r.quantity || 0;
+      productTotals[name].value += r.rejection_value || 0;
+    });
+    
+    let topProduct = null;
+    let maxQty = 0;
+    Object.entries(productTotals).forEach(([name, data]) => {
+      if (data.qty > maxQty) {
+        maxQty = data.qty;
+        topProduct = { name, ...data };
+      }
+    });
+    
+    console.log('Rejection Analytics Updated:', {
+      dateFrom: rejectionLossDateFrom,
+      dateTo: rejectionLossDateTo,
+      totalRejections: rejections.length,
+      filteredCount: filtered.length,
+      totalValue,
+      totalQty
+    });
+    
+    setRejectionAnalyticsState({
+      totalValue,
+      count: filtered.length,
+      totalQty,
+      topProductByQty: topProduct
+    });
+  }, [rejections, rejectionLossDateFrom, rejectionLossDateTo]);
 
   // Sync rejection amounts to invoices
   const [syncingRejections, setSyncingRejections] = useState(false);
@@ -5563,18 +5618,18 @@ export default function RetailerOrders() {
           <div className="flex items-end justify-between">
             <div>
               <p className="text-3xl font-bold text-red-600">
-                {formatCurrency(rejectionAnalytics.totalValue)}
+                {formatCurrency(rejectionAnalyticsState.totalValue)}
               </p>
               <p className="text-xs text-red-500 mt-1">
-                {rejectionAnalytics.count} rejection(s) • {rejectionAnalytics.totalQty} items
+                {rejectionAnalyticsState.count} rejection(s) • {rejectionAnalyticsState.totalQty} items
                 <span className="text-gray-400 ml-2">(of {rejections.length} total)</span>
               </p>
             </div>
-            {rejectionAnalytics.topProductByQty && (
+            {rejectionAnalyticsState.topProductByQty && (
               <div className="text-right">
                 <p className="text-[10px] text-red-400 uppercase">Top Rejected Product</p>
-                <p className="text-xs font-medium text-red-700">{rejectionAnalytics.topProductByQty.name}</p>
-                <p className="text-[10px] text-red-500">{formatCurrency(rejectionAnalytics.topProductByQty.value)}</p>
+                <p className="text-xs font-medium text-red-700">{rejectionAnalyticsState.topProductByQty.name}</p>
+                <p className="text-[10px] text-red-500">{formatCurrency(rejectionAnalyticsState.topProductByQty.value)}</p>
               </div>
             )}
           </div>

@@ -14504,7 +14504,7 @@ async def sync_from_production_full(
             date_range_endpoints = {
                 'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
                 'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
-                'labour_costs': f'/api/labour-costs?from_date={from_date}&to_date={to_date}',
+                'labour_attendance': f'/api/labour-attendance?from_date={from_date}&to_date={to_date}',
             }
             
             sync_results = {}

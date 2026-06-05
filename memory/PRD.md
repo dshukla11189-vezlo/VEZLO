@@ -2,6 +2,18 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Reimbursement Modal Bug Fix ✅
+- **BUG FIX**: Reimbursement popup was showing full purchase amount instead of employee's actual paid amount
+  - **Issue**: For Riva Vegetable purchase (₹11,065.75 total), when Devendra paid only ₹8,000, the modal incorrectly showed "Employee Paid: ₹11,065.75" and pre-filled ₹11,065.75 as reimbursement amount
+  - **Root Cause**: Modal used `total_amount` instead of `paid_amount`
+  - **Fix Applied**:
+    1. `openSettlementModal()` now uses `paid_amount` (what employee actually paid)
+    2. Modal "Employee Paid" display shows `paid_amount`
+    3. Added "Pending (to farmer)" line when there's remaining balance
+    4. "Full Amount" button now sets to `paid_amount` not `total_amount`
+  - **Files Modified**: `/app/frontend/src/pages/admin/Procurement.js`
+  - **Result**: Modal now correctly shows ₹8,000 for Employee Paid and pre-fills ₹8,000 as reimbursement amount
+
 ### June 5, 2025 - Invoice Print Enhancements ✅
 - **NEW FEATURE**: Storage Type shown on Invoice Print
   - Each product line now shows "(Storage - Outdoor)" or "(Storage - Fridge)" below the item name

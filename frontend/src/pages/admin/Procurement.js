@@ -1135,12 +1135,14 @@ export default function Procurement() {
   // Settlement functions for employee-paid procurements
   const openSettlementModal = (procurement) => {
     setSettlementProcurement(procurement);
+    // Use paid_amount (what employee actually paid) instead of total_amount
+    const employeePaidAmount = procurement.paid_amount || procurement.total_amount || 0;
     setSettlementForm({
       payment_date: new Date().toISOString().split('T')[0],
       payment_mode: 'bank_transfer',
       payment_reference: '',
       remarks: '',
-      reimbursement_amount: procurement.total_amount || 0  // Default to full amount
+      reimbursement_amount: employeePaidAmount  // Default to what employee paid
     });
     setShowSettlementModal(true);
   };
@@ -1148,7 +1150,8 @@ export default function Procurement() {
   const handleSettlementSubmit = async () => {
     if (!settlementProcurement) return;
     
-    const employeePaidAmount = settlementProcurement.total_amount || 0;
+    // Use paid_amount (what employee actually paid) for comparison
+    const employeePaidAmount = settlementProcurement.paid_amount || settlementProcurement.total_amount || 0;
     const reimbursementAmount = settlementForm.reimbursement_amount || employeePaidAmount;
     
     // Validate reimbursement amount
@@ -4906,13 +4909,19 @@ export default function Procurement() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Employee Paid:</span>
-                <span className="font-medium text-blue-700">₹{(settlementProcurement.total_amount || 0).toLocaleString('en-IN')}</span>
+                <span className="font-medium text-blue-700">₹{(settlementProcurement.paid_amount || settlementProcurement.total_amount || 0).toLocaleString('en-IN')}</span>
               </div>
-              {settlementForm.reimbursement_amount > settlementProcurement.total_amount && (
+              {(settlementProcurement.paid_amount || settlementProcurement.total_amount || 0) < settlementProcurement.total_amount && (
+                <div className="flex justify-between text-sm text-amber-600">
+                  <span>Pending (to farmer):</span>
+                  <span className="font-medium">₹{((settlementProcurement.total_amount || 0) - (settlementProcurement.paid_amount || settlementProcurement.total_amount || 0)).toLocaleString('en-IN')}</span>
+                </div>
+              )}
+              {settlementForm.reimbursement_amount > (settlementProcurement.paid_amount || settlementProcurement.total_amount || 0) && (
                 <div className="flex justify-between text-sm pt-2 border-t">
                   <span className="text-green-700 font-medium">Employee Credit:</span>
                   <span className="font-bold text-green-700">
-                    ₹{(settlementForm.reimbursement_amount - settlementProcurement.total_amount).toLocaleString('en-IN')}
+                    ₹{(settlementForm.reimbursement_amount - (settlementProcurement.paid_amount || settlementProcurement.total_amount || 0)).toLocaleString('en-IN')}
                   </span>
                 </div>
               )}
@@ -4940,7 +4949,7 @@ export default function Procurement() {
                     size="sm"
                     onClick={() => setSettlementForm(prev => ({ 
                       ...prev, 
-                      reimbursement_amount: settlementProcurement.total_amount || 0 
+                      reimbursement_amount: settlementProcurement.paid_amount || settlementProcurement.total_amount || 0 
                     }))}
                     className="text-xs whitespace-nowrap"
                   >
@@ -5014,7 +5023,7 @@ export default function Procurement() {
                 disabled={settlementForm.reimbursement_amount <= 0}
               >
                 <Check size={14} className="mr-1" /> 
-                {settlementForm.reimbursement_amount < settlementProcurement.total_amount 
+                {settlementForm.reimbursement_amount < (settlementProcurement.paid_amount || settlementProcurement.total_amount || 0) 
                   ? 'Record Partial' 
                   : 'Record Reimbursement'}
               </Button>

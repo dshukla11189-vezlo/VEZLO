@@ -11020,15 +11020,13 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     
     # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
     auto_credit_note = None
-    upfront_pct = retailer.get("upfront_collection_percentage", 50)
     
-    # Credit note logic:
-    # - For 100% upfront retailers: Always create credit note (they already paid everything)
-    # - For other retailers: Only create credit note if invoice is ALREADY FULLY PAID
-    #   (if not fully paid, they'll adjust rejection when making payment)
+    # Credit note logic (universal - not based on retailer type):
+    # - If retailer has ALREADY PAID >= payable amount, create credit note for rejection
+    # - If retailer has paid less than payable, no credit note (rejection reduces payable)
     
     if rejection_value > 0:
-        # Find the invoice for this date to link the credit note
+        # Find the invoice for this date
         invoice = await db.retailer_invoices.find_one({
             "retailer_id": input.retailer_id,
             "invoice_date": {"$regex": f"^{rejection_date_str}"}
@@ -11037,22 +11035,25 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
         should_create_credit_note = False
         
         if invoice:
-            if upfront_pct == 100:
-                # 100% upfront retailer - always create credit note
+            invoice_id = invoice.get("id")
+            net_payable = invoice.get("net_payable", 0) or 0
+            
+            # Calculate total paid from retailer_payments for this invoice
+            payments = await db.retailer_payments.find(
+                {"invoice_id": invoice_id},
+                {"_id": 0, "amount": 1}
+            ).to_list(100)
+            total_paid = sum(p.get("amount", 0) or 0 for p in payments)
+            
+            # If paid >= payable (before this rejection), retailer has already settled
+            # This rejection means they overpaid, so create credit note
+            if total_paid >= net_payable and net_payable > 0:
                 should_create_credit_note = True
-                logger.info(f"Creating credit note for 100% upfront retailer")
+                logger.info(f"Creating credit note - paid ({total_paid}) >= payable ({net_payable}). Rejection creates excess payment.")
             else:
-                # Check if invoice is already fully paid
-                invoice_paid = invoice.get("total_paid", 0) or 0
-                invoice_net_payable = invoice.get("net_payable", 0) or 0
-                
-                # If they've paid >= net_payable, they've already settled
-                # Any new rejection means they overpaid and need credit
-                if invoice_paid >= invoice_net_payable and invoice_net_payable > 0:
-                    should_create_credit_note = True
-                    logger.info(f"Creating credit note - invoice already fully paid (paid: {invoice_paid}, net_payable: {invoice_net_payable})")
-                else:
-                    logger.info(f"Skipping credit note - invoice not fully paid yet (paid: {invoice_paid}, net_payable: {invoice_net_payable}). Retailer will adjust when paying.")
+                # Paid < Payable: No credit note needed
+                # Rejection will reduce the payable, retailer pays the reduced amount
+                logger.info(f"Skipping credit note - paid ({total_paid}) < payable ({net_payable}). Rejection will reduce pending amount.")
         
         if should_create_credit_note and invoice:
             # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
@@ -11092,7 +11093,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 "adjusted_amount": 0,
                 "pending_amount": round(credit_amount, 2),
                 "adjusted_against_invoices": [],
-                "remarks": f"Auto-generated from rejection on {rejection_date_str} (invoice already paid)",
+                "remarks": f"Auto-generated: Rejection on {rejection_date_str} after invoice was fully paid",
                 "created_by": current_user["user_id"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "auto_generated": True

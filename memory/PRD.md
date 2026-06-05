@@ -2,6 +2,20 @@
 
 ## Changelog (June 2025)
 
+### June 4, 2025 - Credit Notes on Retailer Portal ✅
+- **NEW FEATURE**: Credit Notes Tab for Retailer Portal
+  - Added "Credit Notes" menu item in hamburger menu (below Payment Ledger)
+  - Summary blocks showing: Total Issued, Adjusted, Pending amounts
+  - Date-wise collapsible list showing credit amount per date
+  - Expandable details showing: Invoice #, Product, Qty, Rejection Date, Amount, Adjusted, Pending
+  - Handles both detailed rejection items and simple credit notes
+- **API Added**: `GET /api/retailer-credit-notes/my-summary`
+  - Returns summary totals and date-wise grouped credit notes
+  - Automatically filters by logged-in retailer's ID
+- Files Modified:
+  - `/app/backend/server.py` - Added `my-summary` endpoint
+  - `/app/frontend/src/pages/retailer/Dashboard.js` - Added Credit Notes tab
+
 ### June 4, 2025 - Paid By Filter Fix for Legacy Data ✅
 - **BUG FIX**: Procurement Page "Paid By" Filter
   - **Issue**: Filter only showed ~9 results for Devendra Shukla, but he had 29 payments

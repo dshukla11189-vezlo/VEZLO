@@ -11624,6 +11624,66 @@ async def get_pending_credit_notes(retailer_id: str, current_user: dict = Depend
         "count": len(credit_notes)
     }
 
+
+@api_router.get("/retailer-credit-notes/my-summary")
+async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_user)):
+    """Get credit notes summary for the logged-in retailer with date-wise grouping"""
+    if current_user["role"] != "retailer":
+        raise HTTPException(status_code=403, detail="Only retailers can access this endpoint")
+    
+    retailer_id = current_user["user_id"]
+    
+    # Fetch all credit notes for this retailer
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    # Calculate summary totals
+    total_issued = sum(cn.get("amount", 0) for cn in credit_notes)
+    total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in credit_notes)
+    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in credit_notes)
+    
+    # Group credit notes by date (using rejection_date or created_at)
+    from collections import defaultdict
+    date_groups = defaultdict(lambda: {"credit_notes": [], "total_credit": 0})
+    
+    for cn in credit_notes:
+        # Use rejection_date if available, otherwise created_at
+        cn_date = cn.get("rejection_date") or cn.get("created_at")
+        if cn_date:
+            if isinstance(cn_date, str):
+                date_key = cn_date[:10]  # Get YYYY-MM-DD part
+            else:
+                date_key = cn_date.strftime("%Y-%m-%d")
+        else:
+            date_key = "Unknown"
+        
+        date_groups[date_key]["credit_notes"].append(cn)
+        date_groups[date_key]["total_credit"] += cn.get("amount", 0)
+    
+    # Convert to sorted list (newest first)
+    dates_list = []
+    for date_key in sorted(date_groups.keys(), reverse=True):
+        group = date_groups[date_key]
+        dates_list.append({
+            "date": date_key,
+            "credit_amount": round(group["total_credit"], 2),
+            "credit_note_count": len(group["credit_notes"]),
+            "credit_notes": group["credit_notes"]
+        })
+    
+    return {
+        "summary": {
+            "total_issued": round(total_issued, 2),
+            "total_adjusted": round(total_adjusted, 2),
+            "total_pending": round(total_pending, 2),
+            "total_count": len(credit_notes)
+        },
+        "dates": dates_list
+    }
+
+
 @api_router.post("/retailer-credit-notes")
 async def create_retailer_credit_note(
     input: dict,

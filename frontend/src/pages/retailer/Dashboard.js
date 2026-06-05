@@ -273,6 +273,11 @@ export default function RetailerDashboard() {
   const [ledgerEndDate, setLedgerEndDate] = useState('');
   const [expandedLedgerDates, setExpandedLedgerDates] = useState({});
   
+  // Credit Notes state
+  const [creditNotesData, setCreditNotesData] = useState(null);
+  const [creditNotesLoading, setCreditNotesLoading] = useState(false);
+  const [expandedCreditDates, setExpandedCreditDates] = useState({});
+  
   // Create a product lookup map for fast translations
   const productMap = useMemo(() => {
     const map = new Map();
@@ -592,6 +597,27 @@ export default function RetailerDashboard() {
       loadLedgerData(sixtyDaysAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
     }
   }, [activeTab, dashboardData?.retailer?.id]);
+
+  // Load Credit Notes Data
+  const loadCreditNotesData = async () => {
+    setCreditNotesLoading(true);
+    try {
+      const response = await api.get('/api/retailer-credit-notes/my-summary');
+      setCreditNotesData(response.data);
+    } catch (error) {
+      console.error('Failed to load credit notes:', error);
+      toast.error('Failed to load credit notes');
+    } finally {
+      setCreditNotesLoading(false);
+    }
+  };
+
+  // Initialize credit notes when tab becomes active
+  useEffect(() => {
+    if (activeTab === 'creditnotes' && !creditNotesData) {
+      loadCreditNotesData();
+    }
+  }, [activeTab]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -2349,6 +2375,7 @@ export default function RetailerDashboard() {
     { id: 'dashboard', label: t('retailer.home') || 'Home', icon: TrendingUp },
     { id: 'orders', label: t('retailer.myOrders') || 'My Orders', icon: Truck },
     { id: 'ledger', label: 'Payment Ledger', icon: FileText },
+    { id: 'creditnotes', label: 'Credit Notes', icon: CreditCard },
     { id: 'closing', label: t('retailer.closing') || 'Closing', icon: ClipboardList },
     { id: 'account', label: t('retailer.myAccount') || 'My Account', icon: User }
   ];
@@ -4562,6 +4589,168 @@ export default function RetailerDashboard() {
                                 </div>
                               </div>
                             )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+
+        {/* ==================== CREDIT NOTES TAB ==================== */}
+        {activeTab === 'creditnotes' && (
+          <Card>
+            <CardHeader className="border-b py-3 px-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CreditCard className="text-purple-600" size={18} />
+                  Credit Notes
+                </CardTitle>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={loadCreditNotesData}
+                  className="h-8 px-3 text-xs"
+                  disabled={creditNotesLoading}
+                >
+                  <RefreshCw size={14} className={`mr-1.5 ${creditNotesLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            
+            <CardContent className="p-4">
+              {creditNotesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600" />
+                </div>
+              ) : !creditNotesData ? (
+                <div className="text-center py-12 text-gray-500">
+                  <CreditCard size={48} className="mx-auto mb-4 text-gray-300" />
+                  <p>Loading credit notes...</p>
+                </div>
+              ) : creditNotesData.dates?.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <CreditCard size={48} className="mx-auto mb-4 text-gray-300" />
+                  <p>No credit notes found</p>
+                </div>
+              ) : (
+                <>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-purple-50 rounded-lg p-3 text-center">
+                      <p className="text-xs text-purple-600 font-medium">Total Issued</p>
+                      <p className="text-lg sm:text-xl font-bold text-purple-700">{formatCurrency(creditNotesData.summary?.total_issued || 0)}</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 text-center">
+                      <p className="text-xs text-green-600 font-medium">Adjusted</p>
+                      <p className="text-lg sm:text-xl font-bold text-green-700">{formatCurrency(creditNotesData.summary?.total_adjusted || 0)}</p>
+                    </div>
+                    <div className="bg-orange-50 rounded-lg p-3 text-center">
+                      <p className="text-xs text-orange-600 font-medium">Pending</p>
+                      <p className="text-lg sm:text-xl font-bold text-orange-700">{formatCurrency(creditNotesData.summary?.total_pending || 0)}</p>
+                    </div>
+                  </div>
+                  
+                  {/* Date-wise Credit Notes List */}
+                  <div className="space-y-3">
+                    {creditNotesData.dates?.map((dateData) => (
+                      <div key={dateData.date} className="border rounded-lg overflow-hidden">
+                        {/* Date Header - Clickable */}
+                        <div 
+                          className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                          onClick={() => setExpandedCreditDates(prev => ({ ...prev, [dateData.date]: !prev[dateData.date] }))}
+                          data-testid={`credit-date-${dateData.date}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {expandedCreditDates[dateData.date] ? (
+                              <ChevronDown size={18} className="text-gray-500" />
+                            ) : (
+                              <ChevronRight size={18} className="text-gray-500" />
+                            )}
+                            <div>
+                              <p className="font-semibold text-gray-800">
+                                {new Date(dateData.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {dateData.credit_note_count} credit note(s)
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-purple-600">{formatCurrency(dateData.credit_amount)}</p>
+                          </div>
+                        </div>
+                        
+                        {/* Expanded View - Credit Note Details */}
+                        {expandedCreditDates[dateData.date] && (
+                          <div className="border-t bg-white p-3">
+                            <table className="w-full text-xs">
+                              <thead className="bg-gray-100">
+                                <tr>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">Invoice #</th>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">Product</th>
+                                  <th className="px-2 py-1.5 text-center font-medium text-gray-600">Qty</th>
+                                  <th className="px-2 py-1.5 text-left font-medium text-gray-600">Rejection Date</th>
+                                  <th className="px-2 py-1.5 text-right font-medium text-gray-600">Amount</th>
+                                  <th className="px-2 py-1.5 text-right font-medium text-green-600">Adjusted</th>
+                                  <th className="px-2 py-1.5 text-right font-medium text-orange-600">Pending</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {dateData.credit_notes?.map((cn, cnIdx) => {
+                                  // If there are rejection details, show product-wise rows
+                                  if (cn.rejection_details && cn.rejection_details.length > 0) {
+                                    return cn.rejection_details.map((detail, detailIdx) => (
+                                      <tr key={`${cnIdx}-${detailIdx}`} className="border-t border-gray-100">
+                                        {detailIdx === 0 && (
+                                          <td className="px-2 py-1.5 font-medium text-blue-600" rowSpan={cn.rejection_details.length}>
+                                            {cn.original_invoice_number}
+                                          </td>
+                                        )}
+                                        <td className="px-2 py-1.5 text-gray-700">{detail.product_name || '-'}</td>
+                                        <td className="px-2 py-1.5 text-center text-gray-600">{detail.rejected_qty || detail.quantity || '-'}</td>
+                                        {detailIdx === 0 && (
+                                          <>
+                                            <td className="px-2 py-1.5 text-gray-600" rowSpan={cn.rejection_details.length}>
+                                              {cn.rejection_date ? formatDate(cn.rejection_date) : formatDate(cn.created_at)}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-right font-medium text-gray-700" rowSpan={cn.rejection_details.length}>
+                                              {formatCurrency(cn.amount)}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-right font-medium text-green-600" rowSpan={cn.rejection_details.length}>
+                                              {formatCurrency(cn.adjusted_amount || 0)}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-right font-medium text-orange-600" rowSpan={cn.rejection_details.length}>
+                                              {formatCurrency(cn.pending_amount || cn.amount)}
+                                            </td>
+                                          </>
+                                        )}
+                                      </tr>
+                                    ));
+                                  } else {
+                                    // No rejection details, show single row
+                                    return (
+                                      <tr key={cnIdx} className="border-t border-gray-100">
+                                        <td className="px-2 py-1.5 font-medium text-blue-600">{cn.original_invoice_number}</td>
+                                        <td className="px-2 py-1.5 text-gray-500 italic">-</td>
+                                        <td className="px-2 py-1.5 text-center text-gray-500">-</td>
+                                        <td className="px-2 py-1.5 text-gray-600">
+                                          {cn.rejection_date ? formatDate(cn.rejection_date) : formatDate(cn.created_at)}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-right font-medium text-gray-700">{formatCurrency(cn.amount)}</td>
+                                        <td className="px-2 py-1.5 text-right font-medium text-green-600">{formatCurrency(cn.adjusted_amount || 0)}</td>
+                                        <td className="px-2 py-1.5 text-right font-medium text-orange-600">{formatCurrency(cn.pending_amount || cn.amount)}</td>
+                                      </tr>
+                                    );
+                                  }
+                                })}
+                              </tbody>
+                            </table>
                           </div>
                         )}
                       </div>

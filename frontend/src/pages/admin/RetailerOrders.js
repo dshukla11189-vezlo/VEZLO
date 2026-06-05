@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../../components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../../components/ui/command';
 import { 
@@ -151,6 +152,11 @@ export default function RetailerOrders() {
     title: '',
     message: ''
   });
+  
+  // Invoice Print Language Selection state
+  const [showPrintLanguageDialog, setShowPrintLanguageDialog] = useState(false);
+  const [invoiceToPrint, setInvoiceToPrint] = useState(null);
+  const [printLanguage, setPrintLanguage] = useState('en'); // 'en', 'hi', 'mr'
   
   // Payments state
   const [payments, setPayments] = useState([]);
@@ -1215,6 +1221,26 @@ export default function RetailerOrders() {
     if (lang === 'mr' && (item.name_mr || item.productNameMr)) return item.name_mr || item.productNameMr;
     
     return item.product_name || item.productName || item.name || '';
+  }, [productMap]);
+
+  // Helper to get storage type for a product/item
+  const getProductStorageType = useCallback((item) => {
+    if (!item) return 'Outdoor';
+    
+    const productId = item.product_id || item.productId;
+    let product = null;
+    
+    if (productId) {
+      product = productMap.get(productId);
+    }
+    if (!product) {
+      const itemName = item.product_name || item.productName || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    return product?.storage_type || 'Outdoor';
   }, [productMap]);
 
   // Helper to get enhanced variant display for indent items
@@ -4439,11 +4465,40 @@ export default function RetailerOrders() {
     return result + ' Only';
   };
 
-  const downloadInvoicePdf = (invoice) => {
+  const downloadInvoicePdf = (invoice, lang = 'en') => {
     // Create a printable invoice using standard format with borders
     const printWindow = window.open('', '_blank');
     const retailer = retailers.find(r => r.id === invoice.retailer_id) || {};
     const retailerDisplayName = retailer.company_name || invoice.retailer_name;
+    
+    // Helper to get product name based on selected language
+    const getItemDisplayName = (item) => {
+      const productId = item.product_id || item.productId;
+      let product = productMap.get(productId);
+      if (!product) {
+        const itemName = item.product_name || item.productName || item.name;
+        product = productMap.get(itemName);
+      }
+      
+      // Get translated name
+      let displayName = item.product_name || item.name || '';
+      if (product) {
+        if (lang === 'hi' && product.name_hi) displayName = product.name_hi;
+        else if (lang === 'mr' && product.name_mr) displayName = product.name_mr;
+        else displayName = product.name;
+      }
+      
+      // Add variant name if exists
+      if (item.variant_name) {
+        displayName += ` (${item.variant_name})`;
+      }
+      
+      // Get storage type
+      const storageType = product?.storage_type || 'Outdoor';
+      displayName += `<br/><span style="font-size: 9px; color: ${storageType === 'Fridge' ? '#1d4ed8' : '#b45309'}; font-style: italic;">(Storage - ${storageType})</span>`;
+      
+      return displayName;
+    };
     
     // Calculate totals with rejection breakdown
     const totals = invoice.items.reduce((acc, item) => {
@@ -4554,7 +4609,7 @@ export default function RetailerOrders() {
                 return `
                   <tr>
                     <td>${idx + 1}</td>
-                    <td class="text-left">${item.product_name}${item.variant_name ? ' (' + item.variant_name + ')' : ''}</td>
+                    <td class="text-left">${getItemDisplayName(item)}</td>
                     <td>${suppliedQty}</td>
                     <td class="rejection">${rejectedQty > 0 ? '-' + rejectedQty : '-'}</td>
                     <td class="billable">${billableQty}</td>
@@ -4613,6 +4668,22 @@ export default function RetailerOrders() {
       </html>
     `);
     printWindow.document.close();
+  };
+
+  // Open language selection dialog before printing invoice
+  const openPrintLanguageDialog = (invoice) => {
+    setInvoiceToPrint(invoice);
+    setPrintLanguage('en');
+    setShowPrintLanguageDialog(true);
+  };
+
+  // Confirm print with selected language
+  const confirmPrintInvoice = () => {
+    if (invoiceToPrint) {
+      downloadInvoicePdf(invoiceToPrint, printLanguage);
+    }
+    setShowPrintLanguageDialog(false);
+    setInvoiceToPrint(null);
   };
 
   // ==================== REJECTION HANDLERS ====================
@@ -7381,7 +7452,7 @@ export default function RetailerOrders() {
                                     <IndianRupee size={14} className="mr-1" /> Pay
                                   </Button>
                                 )}
-                                <Button size="sm" variant="ghost" onClick={() => downloadInvoicePdf(invoice)}>
+                                <Button size="sm" variant="ghost" onClick={() => openPrintLanguageDialog(invoice)}>
                                   <Download size={14} className="text-blue-600" />
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)}>
@@ -12580,6 +12651,78 @@ export default function RetailerOrders() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Invoice Print Language Selection Dialog */}
+      <Dialog open={showPrintLanguageDialog} onOpenChange={setShowPrintLanguageDialog}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download size={20} className="text-blue-600" />
+              Print Invoice
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-3 block">
+                Select language for product names:
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPrintLanguage('en')}
+                  className={`p-3 rounded-lg border-2 text-center transition-all ${
+                    printLanguage === 'en' 
+                      ? 'border-green-600 bg-green-50 text-green-700' 
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="text-lg font-bold">EN</div>
+                  <div className="text-xs text-gray-500">English</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintLanguage('hi')}
+                  className={`p-3 rounded-lg border-2 text-center transition-all ${
+                    printLanguage === 'hi' 
+                      ? 'border-orange-600 bg-orange-50 text-orange-700' 
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="text-lg font-bold">हिं</div>
+                  <div className="text-xs text-gray-500">Hindi</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintLanguage('mr')}
+                  className={`p-3 rounded-lg border-2 text-center transition-all ${
+                    printLanguage === 'mr' 
+                      ? 'border-purple-600 bg-purple-50 text-purple-700' 
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="text-lg font-bold">मरा</div>
+                  <div className="text-xs text-gray-500">Marathi</div>
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+              Note: Only product names will be translated. Invoice details, amounts, and other text will remain in English.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowPrintLanguageDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={confirmPrintInvoice}
+              className="bg-[#14532D] hover:bg-[#166534]"
+            >
+              <Download size={16} className="mr-2" />
+              Print Invoice
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

@@ -2,6 +2,20 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Invoice Print Enhancements ✅
+- **NEW FEATURE**: Storage Type shown on Invoice Print
+  - Each product line now shows "(Storage - Outdoor)" or "(Storage - Fridge)" below the item name
+  - Color coded: Fridge = blue text, Outdoor = amber text
+  - Applied to both Admin and Retailer portal invoice printing
+- **NEW FEATURE**: Language Selection for Invoice Print (Admin Portal)
+  - When clicking download/print button, a dialog appears to select language
+  - Options: English, Hindi (हिं), Marathi (मरा)
+  - Only product names are translated, rest remains in English
+  - Note displayed explaining translation scope
+- **Files Modified**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added language dialog, storage type display
+  - `/app/frontend/src/pages/retailer/Dashboard.js` - Added storage type display, Marathi support
+
 ### June 5, 2025 - Storage Type Field for Products ✅
 - **NEW FEATURE**: Added Storage Type field to products
   - Options: "Outdoor" (default), "Fridge"

@@ -1293,13 +1293,17 @@ export default function RetailerDashboard() {
               const billableQty = suppliedQty - rejectedQty;
               const rate = item.mrp || 0;
               const amount = billableQty * rate;
-              // Get translated product name for PDF
+              // Get translated product name and storage type for PDF
               const productMatch = products.find(p => p.id === item.product_id);
-              const displayName = (i18n.language === 'hi' && productMatch?.name_hi) ? productMatch.name_hi : (item.product_name || productMatch?.name || '');
+              const displayName = (i18n.language === 'hi' && productMatch?.name_hi) ? productMatch.name_hi : 
+                                  (i18n.language === 'mr' && productMatch?.name_mr) ? productMatch.name_mr :
+                                  (item.product_name || productMatch?.name || '');
+              const storageType = productMatch?.storage_type || 'Outdoor';
+              const storageColor = storageType === 'Fridge' ? '#1d4ed8' : '#b45309';
               return `
                 <tr>
                   <td>${idx + 1}</td>
-                  <td class="text-left">${displayName}${item.variant_name ? ' (' + item.variant_name + ')' : ''}</td>
+                  <td class="text-left">${displayName}${item.variant_name ? ' (' + item.variant_name + ')' : ''}<br/><span style="font-size: 9px; color: ${storageColor}; font-style: italic;">(Storage - ${storageType})</span></td>
                   <td>${suppliedQty}</td>
                   <td class="rejection">${rejectedQty > 0 ? '-' + rejectedQty : '-'}</td>
                   <td class="billable">${billableQty}</td>

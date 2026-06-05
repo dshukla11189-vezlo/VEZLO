@@ -12197,6 +12197,71 @@ async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Dep
 class RemoveCreditAdjustmentInput(BaseModel):
     invoice_id: str
 
+@api_router.post("/retailer-credit-notes/backfill-rejection-details")
+async def backfill_credit_note_rejection_details(current_user: dict = Depends(get_current_user)):
+    """Backfill rejection_details for credit notes that have linked rejections but missing details"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    updated_count = 0
+    skipped_count = 0
+    no_rejection_link = 0
+    
+    # Find all credit notes
+    credit_notes = await db.retailer_credit_notes.find({}, {"_id": 0}).to_list(1000)
+    
+    for cn in credit_notes:
+        # Check if rejection_details are complete
+        existing_details = cn.get("rejection_details", [])
+        first_detail = existing_details[0] if existing_details else {}
+        
+        # If details are already complete, skip
+        qty = first_detail.get("quantity") or first_detail.get("rejected_qty")
+        rate = first_detail.get("mrp") or first_detail.get("rate")
+        if qty and rate:
+            skipped_count += 1
+            continue
+        
+        # Try to find the linked rejection
+        rejection_id = cn.get("rejection_id")
+        if not rejection_id:
+            no_rejection_link += 1
+            continue
+        
+        rejection = await db.retailer_rejections.find_one({"id": rejection_id}, {"_id": 0})
+        if not rejection:
+            no_rejection_link += 1
+            continue
+        
+        # Build proper rejection_details from the rejection record
+        new_details = [{
+            "product_id": rejection.get("product_id"),
+            "product_name": rejection.get("product_name"),
+            "variant_id": rejection.get("variant_id"),
+            "variant_name": rejection.get("variant_name"),
+            "rejected_qty": rejection.get("quantity"),
+            "quantity": rejection.get("quantity"),
+            "rate": rejection.get("mrp"),
+            "mrp": rejection.get("mrp"),
+            "rejected_amount": rejection.get("quantity", 0) * (rejection.get("mrp") or 0),
+            "value": rejection.get("quantity", 0) * (rejection.get("mrp") or 0),
+            "reason": rejection.get("reason")
+        }]
+        
+        # Update the credit note
+        await db.retailer_credit_notes.update_one(
+            {"id": cn.get("id")},
+            {"$set": {"rejection_details": new_details}}
+        )
+        updated_count += 1
+    
+    return {
+        "message": f"Backfill completed. Updated: {updated_count}, Skipped (complete): {skipped_count}, No rejection link: {no_rejection_link}",
+        "updated_count": updated_count,
+        "skipped_count": skipped_count,
+        "no_rejection_link": no_rejection_link
+    }
+
 @api_router.post("/retailer-credit-notes/{credit_note_id}/remove-adjustment")
 async def remove_credit_adjustment(
     credit_note_id: str,

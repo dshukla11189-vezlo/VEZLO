@@ -11021,7 +11021,9 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
     auto_credit_note = None
     upfront_pct = retailer.get("upfront_collection_percentage", 50)
-    if upfront_pct == 100 and rejection_value > 0:
+    # Create credit note for ALL rejections (regardless of upfront %)
+    # Credit note captures the rejected product details and commission calculation
+    if rejection_value > 0:
         # Find the invoice for this date to link the credit note
         invoice = await db.retailer_invoices.find_one({
             "retailer_id": input.retailer_id,
@@ -11078,7 +11080,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 "credit_note_number": credit_note_number,
                 "amount": credit_note["amount"]
             }
-            logger.info(f"Auto-created credit note {credit_note_number} for 100% upfront retailer {retailer.get('company_name', retailer.get('name'))}")
+            logger.info(f"Auto-created credit note {credit_note_number} for retailer {retailer.get('company_name', retailer.get('name'))} - Rejection: {rejection_value}, Commission: {commission_pct}%, Credit: {credit_amount}")
     
     response = {"id": rejection.id, "message": "Rejection recorded successfully"}
     if auto_credit_note:

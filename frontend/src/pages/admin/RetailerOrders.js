@@ -7761,17 +7761,12 @@ export default function RetailerOrders() {
                   </p>
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
-                  {/* Retailer Filter */}
-                  <select
-                    value={creditNoteFilter.retailer}
-                    onChange={(e) => setCreditNoteFilter(prev => ({ ...prev, retailer: e.target.value }))}
-                    className="text-xs border rounded px-2 py-1 min-w-[150px]"
-                  >
-                    <option value="">All Retailers</option>
-                    {retailers.map(r => (
-                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
-                    ))}
-                  </select>
+                  {/* Show selected retailer info */}
+                  {selectedRetailer && (
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                      {retailers.find(r => r.id === selectedRetailer)?.company_name || 'Selected Retailer'}
+                    </span>
+                  )}
                   {/* Status Filter */}
                   <select
                     value={creditNoteFilter.status}
@@ -7792,8 +7787,8 @@ export default function RetailerOrders() {
             <CardContent className="p-3">
               {/* Summary Cards */}
               {(() => {
+                // Filter only by status (retailer filter is applied at API level via selectedRetailer)
                 const filteredCNs = creditNotes.filter(cn => {
-                  if (creditNoteFilter.retailer && cn.retailer_id !== creditNoteFilter.retailer) return false;
                   if (creditNoteFilter.status && cn.status !== creditNoteFilter.status) return false;
                   return true;
                 });
@@ -7881,8 +7876,11 @@ export default function RetailerOrders() {
                                       }
                                     </p>
                                     <p className="text-xs text-gray-500">
-                                      {group.creditNotes.length} credit note(s) • 
-                                      {creditNoteFilter.retailer ? '' : ` ${[...new Set(group.creditNotes.map(cn => cn.retailer_name))].length} retailer(s)`}
+                                      {group.creditNotes.length} credit note(s)
+                                      {!selectedRetailer && (() => {
+                                        const uniqueRetailers = [...new Set(group.creditNotes.map(cn => cn.retailer_id).filter(id => id))];
+                                        return uniqueRetailers.length > 0 ? ` • ${uniqueRetailers.length} retailer(s)` : '';
+                                      })()}
                                     </p>
                                   </div>
                                 </div>

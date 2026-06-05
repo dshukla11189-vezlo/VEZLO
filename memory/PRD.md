@@ -2,6 +2,19 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Admin Credit Notes Retailer Filter Fix ✅
+- **BUG FIX**: Credit Notes section in Admin portal retailer filter not syncing
+  - **Issue**: When selecting a retailer from the top dropdown, Credit Notes section had its own separate dropdown showing "All Retailers"
+  - **Root Cause**: Credit Notes section used `creditNoteFilter.retailer` state separate from page-level `selectedRetailer`
+  - **Fix Applied**:
+    1. Removed duplicate retailer dropdown from Credit Notes section
+    2. Now uses page-level `selectedRetailer` which triggers API call with `retailer_id` filter
+    3. Shows selected retailer as a purple tag when filtered
+    4. Fixed retailer count display to use `retailer_id` instead of `retailer_name`
+  - **Files Modified**:
+    - `/app/frontend/src/pages/admin/RetailerOrders.js`
+  - **Result**: Selecting "Savtamali" from top dropdown now correctly shows only 18 credit notes (was showing all 129)
+
 ### June 5, 2025 - Critical Fix: Rejection Qty Validation ✅
 - **BUG FIX**: Rejection quantity was exceeding supplied quantity
   - **Root Cause 1**: Frontend history lookup used only `product_id`, not `product_id+variant_id` - caused wrong "already rejected" calculation for products with variants

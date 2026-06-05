@@ -715,6 +715,7 @@ class RetailerRejection(BaseModel):
     rejection_date: datetime
     product_id: str
     product_name: str
+    variant_id: Optional[str] = None
     variant_name: Optional[str] = None
     quantity: float  # Rejected quantity
     reason: str  # e.g., "Rotten", "Damaged", "Quality issue"
@@ -730,6 +731,7 @@ class RetailerRejectionCreate(BaseModel):
     rejection_date: datetime
     product_id: str
     product_name: str
+    variant_id: Optional[str] = None
     variant_name: Optional[str] = None
     quantity: float
     reason: str

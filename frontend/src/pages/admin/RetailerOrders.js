@@ -4696,7 +4696,9 @@ export default function RetailerOrders() {
           }
           
           // Get rejection history from the batch response (only for THIS date)
-          const rejectionHistory = rejectionHistoryMap[item.product_id] || { rejections: [], total_quantity: 0, total_value: 0 };
+          // Use composite key (product_id + variant_id) for more precise tracking
+          const compositeKey = item.variant_id ? `${item.product_id}|${item.variant_id}` : item.product_id;
+          const rejectionHistory = rejectionHistoryMap[compositeKey] || rejectionHistoryMap[item.product_id] || { rejections: [], total_quantity: 0, total_value: 0 };
           
           items.push({
             dispatch_id: dispatch.id,

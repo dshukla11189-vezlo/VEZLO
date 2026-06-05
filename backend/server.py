@@ -10946,6 +10946,49 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     if not retailer:
         raise HTTPException(status_code=404, detail="Retailer not found")
     
+    # CRITICAL VALIDATION: Ensure rejection qty doesn't exceed supplied qty
+    rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
+    
+    # Find dispatches for this retailer and date to get supplied quantity
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": input.retailer_id,
+        "dispatch_date": {"$regex": f"^{rejection_date_str}"}
+    }, {"_id": 0, "items": 1}).to_list(100)
+    
+    # Find supplied quantity for this specific product + variant
+    supplied_qty = 0
+    for dispatch in dispatches:
+        for item in (dispatch.get("items") or []):
+            # Match by product_id
+            if item.get("product_id") == input.product_id:
+                # Also match by variant_id if specified
+                if input.variant_id:
+                    if item.get("variant_id") == input.variant_id:
+                        supplied_qty += float(item.get("supplied_qty", 0) or 0)
+                else:
+                    # No variant specified, just match by product
+                    supplied_qty += float(item.get("supplied_qty", 0) or 0)
+    
+    # Get existing rejections for this product+variant on this date
+    existing_query = {
+        "retailer_id": input.retailer_id,
+        "product_id": input.product_id,
+        "rejection_date": {"$regex": f"^{rejection_date_str}"}
+    }
+    if input.variant_id:
+        existing_query["variant_id"] = input.variant_id
+    
+    existing_rejections = await db.retailer_rejections.find(existing_query, {"_id": 0, "quantity": 1}).to_list(500)
+    already_rejected_qty = sum(r.get("quantity", 0) or 0 for r in existing_rejections)
+    
+    # Validate: new rejection + already rejected cannot exceed supplied
+    max_allowed = supplied_qty - already_rejected_qty
+    if input.quantity > max_allowed:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Rejection qty ({input.quantity}) exceeds maximum allowed ({max_allowed}). Supplied: {supplied_qty}, Already rejected: {already_rejected_qty}"
+        )
+    
     rejection_value = input.quantity * input.mrp
     
     rejection = RetailerRejection(
@@ -10954,6 +10997,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
         rejection_date=input.rejection_date,
         product_id=input.product_id,
         product_name=input.product_name,
+        variant_id=input.variant_id,
         variant_name=input.variant_name,
         quantity=input.quantity,
         reason=input.reason,
@@ -11245,24 +11289,27 @@ async def get_rejection_history_batch(
     Input: { 
         "retailer_id": "...", 
         "product_ids": ["prod1", "prod2", ...],
+        "variant_ids": ["var1", "var2", ...],  # Optional - for variant-level tracking
         "rejection_date": "YYYY-MM-DD" (optional - if provided, filters to only this date)
     }
     
     Returns: {
         "history": {
             "product_id_1": { "rejections": [...], "total_quantity": 0, "total_value": 0 },
-            "product_id_2": { "rejections": [...], "total_quantity": 0, "total_value": 0 }
+            "product_id_1|variant_id_1": { "rejections": [...], "total_quantity": 0, "total_value": 0 },
+            ...
         }
     }
     
-    Note: Previous rejection should ONLY show rejections for the SAME dispatch date,
-    not all historical rejections across all dates.
+    Note: Returns BOTH product-level and product+variant level aggregations.
+    Frontend should prefer the more specific product+variant key when available.
     """
     if current_user["role"] not in ["admin", "staff", "retailer"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     retailer_id = input.get("retailer_id")
     product_ids = input.get("product_ids", [])
+    variant_ids = input.get("variant_ids", [])  # NEW: variant IDs for precise tracking
     rejection_date = input.get("rejection_date")  # The dispatch date we're recording rejections for
     
     if not retailer_id or not product_ids:
@@ -11282,8 +11329,10 @@ async def get_rejection_history_batch(
     
     all_rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("created_at", 1).to_list(500)
     
-    # Group by product_id
+    # Initialize history - both product-level and product+variant level
     history = {}
+    
+    # Initialize product-level entries
     for product_id in product_ids:
         history[product_id] = {
             "rejections": [],
@@ -11291,17 +11340,35 @@ async def get_rejection_history_batch(
             "total_value": 0
         }
     
+    # Process rejections and group by BOTH product_id AND product_id+variant_id
     for rej in all_rejections:
         pid = rej.get("product_id")
+        vid = rej.get("variant_id") or ""
+        qty = rej.get("quantity", 0) or 0
+        val = rej.get("rejection_value", 0) or 0
+        
+        # Add to product-level aggregation
         if pid in history:
             history[pid]["rejections"].append(rej)
-            history[pid]["total_quantity"] += rej.get("quantity", 0) or 0
-            history[pid]["total_value"] += rej.get("rejection_value", 0) or 0
+            history[pid]["total_quantity"] += qty
+            history[pid]["total_value"] += val
+        
+        # Also add to product+variant-level aggregation (more specific key)
+        composite_key = f"{pid}|{vid}" if vid else pid
+        if composite_key not in history:
+            history[composite_key] = {
+                "rejections": [],
+                "total_quantity": 0,
+                "total_value": 0
+            }
+        history[composite_key]["rejections"].append(rej)
+        history[composite_key]["total_quantity"] += qty
+        history[composite_key]["total_value"] += val
     
     # Round the totals
-    for pid in history:
-        history[pid]["total_quantity"] = round(history[pid]["total_quantity"], 2)
-        history[pid]["total_value"] = round(history[pid]["total_value"], 2)
+    for key in history:
+        history[key]["total_quantity"] = round(history[key]["total_quantity"], 2)
+        history[key]["total_value"] = round(history[key]["total_value"], 2)
     
     return {"history": history}
 

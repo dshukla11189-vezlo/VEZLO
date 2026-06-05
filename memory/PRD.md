@@ -2,6 +2,31 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Critical Fix: Rejection Qty Validation ✅
+- **BUG FIX**: Rejection quantity was exceeding supplied quantity
+  - **Root Cause 1**: Frontend history lookup used only `product_id`, not `product_id+variant_id` - caused wrong "already rejected" calculation for products with variants
+  - **Root Cause 2**: Backend had NO validation - allowed any rejection qty regardless of supplied qty
+  - **Fix Applied**:
+    1. **Backend**: Added validation in `POST /api/retailer-rejections` that:
+       - Fetches supplied qty from `retailer_dispatches` for the specific product+variant+date
+       - Fetches existing rejections for the same product+variant+date  
+       - Rejects if `new_qty + already_rejected > supplied_qty`
+       - Returns clear error message: "Rejection qty (X) exceeds maximum allowed (Y). Supplied: Z, Already rejected: W"
+    2. **Backend**: Updated `POST /api/retailer-rejections/history-batch` to return both:
+       - Product-level aggregation (by product_id)
+       - Product+Variant-level aggregation (by "product_id|variant_id")
+    3. **Frontend**: Updated history lookup to use composite key "product_id|variant_id" for precise tracking
+    4. **Models**: Added `variant_id` field to `RetailerRejection` and `RetailerRejectionCreate`
+  - **Files Modified**:
+    - `/app/backend/server.py` - Validation in create endpoint, history-batch update
+    - `/app/backend/models.py` - Added variant_id field
+    - `/app/frontend/src/pages/admin/RetailerOrders.js` - Composite key lookup
+  - **Data Cleanup**: Deleted 38 duplicate rejection records for Narang Super Mart (Jun 3)
+  - **Test Results**: 
+    - Reject > supplied → BLOCKED ✅
+    - Reject within limit → ALLOWED ✅
+    - Reject again exceeding remaining → BLOCKED ✅
+
 ### June 4, 2025 - Credit Notes on Retailer Portal ✅
 - **NEW FEATURE**: Credit Notes Tab for Retailer Portal
   - Added "Credit Notes" menu item in hamburger menu (below Payment Ledger)

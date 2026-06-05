@@ -2,6 +2,13 @@
 
 ## Changelog (June 2025)
 
+### June 5, 2025 - Rejection Loss Date Filter Fix ✅
+- **BUG FIX**: Rejection Loss block amount not updating when date range changed
+  - **Root Cause**: The dispatches data (`allDispatchesForRejection`) was only loaded when the modal opened, not when dates changed on the main block
+  - **Fix Applied**: Added a new useEffect that loads dispatches whenever `rejectionLossDateFrom` or `rejectionLossDateTo` changes, even when the modal is closed
+  - **Result**: Now changing dates on the Rejection Loss block will properly update the displayed values
+- **Files Modified**: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 ### June 5, 2025 - Invoice Rejection Sync Fix ✅
 - **BUG FIX**: Rejections not syncing to invoice line items
   - **Root Cause**: Invoice items had `variant_id: 'None'` (string) while rejections had proper variant IDs. The matching logic tried `variant_id` first but didn't find matches.

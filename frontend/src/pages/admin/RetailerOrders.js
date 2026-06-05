@@ -473,6 +473,12 @@ export default function RetailerOrders() {
     }
   }, [showRejectionAnalyticsModal, loadDispatchesForRejection]);
 
+  // Also load dispatches when date range changes (even if modal is closed)
+  // This ensures the Rejection Loss block updates properly
+  useEffect(() => {
+    loadDispatchesForRejection();
+  }, [rejectionLossDateFrom, rejectionLossDateTo, loadDispatchesForRejection]);
+
   // Sync rejection amounts to invoices
   const [syncingRejections, setSyncingRejections] = useState(false);
   const syncRejectionsToInvoices = async () => {

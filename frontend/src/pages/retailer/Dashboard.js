@@ -16,7 +16,7 @@ import {
   ShoppingCart
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 
 // Lazy loading image component - only loads image when visible in viewport
 // Optimized for performance: only loads images when they enter the viewport
@@ -2586,7 +2586,7 @@ export default function RetailerDashboard() {
                   </div>
                 </div>
                 
-                {/* Daily Trend Charts */}
+                {/* Weekly Trend Charts */}
                 {(() => {
                   // Prepare chart data from filtered dispatches
                   const filteredDispatches = dispatches.filter(d => {
@@ -2599,128 +2599,148 @@ export default function RetailerDashboard() {
                   });
                   const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
                   
-                  // Group by date
-                  const dailyData = {};
+                  // Helper to get week start (Monday) for a date
+                  const getWeekStart = (dateStr) => {
+                    const date = new Date(dateStr);
+                    const day = date.getDay();
+                    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+                    const weekStart = new Date(date.setDate(diff));
+                    return weekStart.toISOString().split('T')[0];
+                  };
+                  
+                  // Helper to format week label
+                  const formatWeekLabel = (weekStartStr) => {
+                    const start = new Date(weekStartStr);
+                    const end = new Date(start);
+                    end.setDate(end.getDate() + 6);
+                    const formatDate = (d) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                    return `${formatDate(start)} - ${formatDate(end)}`;
+                  };
+                  
+                  // Group by week
+                  const weeklyData = {};
                   filteredDispatches.forEach(d => {
                     const date = d.dispatch_date?.split('T')[0];
                     if (!date) return;
-                    if (!dailyData[date]) {
-                      dailyData[date] = { date, orders: 0, mrpValue: 0, rejectionValue: 0 };
+                    const weekStart = getWeekStart(date);
+                    if (!weeklyData[weekStart]) {
+                      weeklyData[weekStart] = { weekStart, orders: 0, mrpValue: 0, rejectionValue: 0 };
                     }
-                    dailyData[date].orders += 1;
+                    weeklyData[weekStart].orders += 1;
                     const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
                       (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
-                    dailyData[date].mrpValue += mrp;
+                    weeklyData[weekStart].mrpValue += mrp;
                   });
                   
                   // Subtract rejections
                   filteredRejections.forEach(r => {
                     const date = r.rejection_date?.split('T')[0];
-                    if (date && dailyData[date]) {
-                      dailyData[date].rejectionValue += (r.rejection_value || 0);
+                    if (!date) return;
+                    const weekStart = getWeekStart(date);
+                    if (weeklyData[weekStart]) {
+                      weeklyData[weekStart].rejectionValue += (r.rejection_value || 0);
                     }
                   });
                   
                   // Calculate earnings and format for chart
-                  const chartData = Object.values(dailyData)
-                    .map(d => ({
-                      date: d.date,
-                      displayDate: new Date(d.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-                      orders: d.orders,
-                      earnings: Math.round((d.mrpValue - d.rejectionValue) * retailerCommPct / 100)
+                  const chartData = Object.values(weeklyData)
+                    .map(w => ({
+                      weekStart: w.weekStart,
+                      weekLabel: formatWeekLabel(w.weekStart),
+                      shortLabel: new Date(w.weekStart).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+                      orders: w.orders,
+                      earnings: Math.round((w.mrpValue - w.rejectionValue) * retailerCommPct / 100)
                     }))
-                    .sort((a, b) => a.date.localeCompare(b.date));
+                    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
                   
-                  if (chartData.length < 2) return null;
+                  if (chartData.length < 1) return null;
+                  
+                  // Colors for bars
+                  const orderColors = ['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe'];
+                  const earningColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5'];
                   
                   return (
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Daily Orders Chart */}
+                      {/* Weekly Orders Chart */}
                       <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
                         <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
                           <ShoppingCart size={14} className="text-blue-500" />
-                          Daily Orders Trend
+                          Weekly Orders
                         </p>
-                        <div className="h-24">
+                        <div className="h-32">
                           <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                              <defs>
-                                <linearGradient id="ordersGradient" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                </linearGradient>
-                              </defs>
+                            <BarChart data={chartData} margin={{ top: 20, right: 10, left: -15, bottom: 5 }}>
                               <XAxis 
-                                dataKey="displayDate" 
-                                tick={{ fontSize: 9, fill: '#9ca3af' }}
+                                dataKey="shortLabel" 
+                                tick={{ fontSize: 9, fill: '#6b7280' }}
                                 axisLine={false}
                                 tickLine={false}
-                                interval="preserveStartEnd"
                               />
                               <YAxis 
                                 tick={{ fontSize: 9, fill: '#9ca3af' }}
                                 axisLine={false}
                                 tickLine={false}
                                 allowDecimals={false}
+                                hide={true}
                               />
                               <Tooltip 
                                 contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                                 formatter={(value) => [`${value} orders`, 'Orders']}
-                                labelFormatter={(label) => label}
+                                labelFormatter={(_, payload) => payload?.[0]?.payload?.weekLabel || ''}
                               />
-                              <Area 
-                                type="monotone" 
-                                dataKey="orders" 
-                                stroke="#3b82f6" 
-                                strokeWidth={2}
-                                fill="url(#ordersGradient)" 
-                              />
-                            </AreaChart>
+                              <Bar dataKey="orders" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                                {chartData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
+                                ))}
+                                <LabelList 
+                                  dataKey="orders" 
+                                  position="top" 
+                                  style={{ fontSize: 11, fontWeight: 600, fill: '#3b82f6' }}
+                                />
+                              </Bar>
+                            </BarChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
                       
-                      {/* Daily Earnings Chart */}
+                      {/* Weekly Earnings Chart */}
                       <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
                         <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
                           <TrendingUp size={14} className="text-emerald-500" />
-                          Daily Earnings Trend
+                          Weekly Earnings
                         </p>
-                        <div className="h-24">
+                        <div className="h-32">
                           <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                              <defs>
-                                <linearGradient id="earningsGradient" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                </linearGradient>
-                              </defs>
+                            <BarChart data={chartData} margin={{ top: 20, right: 10, left: -15, bottom: 5 }}>
                               <XAxis 
-                                dataKey="displayDate" 
-                                tick={{ fontSize: 9, fill: '#9ca3af' }}
+                                dataKey="shortLabel" 
+                                tick={{ fontSize: 9, fill: '#6b7280' }}
                                 axisLine={false}
                                 tickLine={false}
-                                interval="preserveStartEnd"
                               />
                               <YAxis 
                                 tick={{ fontSize: 9, fill: '#9ca3af' }}
                                 axisLine={false}
                                 tickLine={false}
-                                tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
+                                hide={true}
                               />
                               <Tooltip 
                                 contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                                 formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
-                                labelFormatter={(label) => label}
+                                labelFormatter={(_, payload) => payload?.[0]?.payload?.weekLabel || ''}
                               />
-                              <Area 
-                                type="monotone" 
-                                dataKey="earnings" 
-                                stroke="#10b981" 
-                                strokeWidth={2}
-                                fill="url(#earningsGradient)" 
-                              />
-                            </AreaChart>
+                              <Bar dataKey="earnings" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                                {chartData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={earningColors[index % earningColors.length]} />
+                                ))}
+                                <LabelList 
+                                  dataKey="earnings" 
+                                  position="top" 
+                                  style={{ fontSize: 10, fontWeight: 600, fill: '#10b981' }}
+                                  formatter={(value) => `₹${value >= 1000 ? (value/1000).toFixed(1) + 'k' : value}`}
+                                />
+                              </Bar>
+                            </BarChart>
                           </ResponsiveContainer>
                         </div>
                       </div>

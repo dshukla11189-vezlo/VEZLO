@@ -441,6 +441,7 @@ export default function RetailerDashboard() {
   }, []);
 
   // Set dashboard date range to first order till today once dispatches are loaded
+  // Also set default chart view based on retailer tenure (>2 months = monthly, <2 months = weekly)
   useEffect(() => {
     if (!firstOrderDateInitialized && dispatches.length > 0) {
       // Find the earliest dispatch date
@@ -450,7 +451,22 @@ export default function RetailerDashboard() {
         .sort();
       
       if (sortedDates.length > 0) {
-        setDashboardDateFrom(sortedDates[0]); // First order date
+        const firstOrderDate = sortedDates[0];
+        setDashboardDateFrom(firstOrderDate); // First order date
+        
+        // Calculate tenure in months
+        const firstDate = new Date(firstOrderDate);
+        const today = new Date();
+        const monthsDiff = (today.getFullYear() - firstDate.getFullYear()) * 12 + 
+                          (today.getMonth() - firstDate.getMonth());
+        
+        // Set default view: >2 months = monthly, otherwise weekly
+        if (monthsDiff >= 2) {
+          setChartViewMode('monthly');
+        } else {
+          setChartViewMode('weekly');
+        }
+        
         setFirstOrderDateInitialized(true);
       }
     }
@@ -2653,11 +2669,12 @@ export default function RetailerDashboard() {
                     }
                     
                     if (!groupedData[key]) {
-                      groupedData[key] = { key, label, shortLabel, orderValue: 0, rejectionValue: 0 };
+                      groupedData[key] = { key, label, shortLabel, orderValue: 0, rejectionValue: 0, orderDays: new Set() };
                     }
                     const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
                       (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
                     groupedData[key].orderValue += mrp;
+                    groupedData[key].orderDays.add(date); // Track unique order days
                   });
                   
                   // Subtract rejections
@@ -2679,13 +2696,20 @@ export default function RetailerDashboard() {
                     }
                   });
                   
-                  // Calculate net order value and earnings
+                  // Calculate net order value, earnings, and average earnings per day
                   const chartData = Object.values(groupedData)
-                    .map(d => ({
-                      ...d,
-                      netOrderValue: Math.round(d.orderValue - d.rejectionValue),
-                      earnings: Math.round((d.orderValue - d.rejectionValue) * retailerCommPct / 100)
-                    }))
+                    .map(d => {
+                      const netValue = d.orderValue - d.rejectionValue;
+                      const earnings = Math.round(netValue * retailerCommPct / 100);
+                      const daysCount = d.orderDays.size || 1;
+                      return {
+                        ...d,
+                        netOrderValue: Math.round(netValue),
+                        earnings: earnings,
+                        avgEarningsPerDay: Math.round(earnings / daysCount),
+                        daysCount: daysCount
+                      };
+                    })
                     .sort((a, b) => a.key.localeCompare(b.key));
                   
                   if (chartData.length < 1) return null;
@@ -2693,6 +2717,7 @@ export default function RetailerDashboard() {
                   // Colors for bars
                   const orderColors = ['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#3b82f6', '#60a5fa'];
                   const earningColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#10b981', '#34d399'];
+                  const avgColors = ['#f59e0b', '#fbbf24', '#fcd34d', '#fde68a', '#fef3c7', '#f59e0b', '#fbbf24'];
                   
                   const formatValue = (value) => {
                     if (value >= 100000) return `₹${(value/100000).toFixed(1)}L`;
@@ -2722,25 +2747,25 @@ export default function RetailerDashboard() {
                         ))}
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         {/* Order Value Chart */}
                         <div className="bg-white/80 rounded-xl p-3 border border-blue-100">
                           <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
                             <ShoppingCart size={14} className="text-blue-500" />
                             {viewModeLabel} Order Value
                           </p>
-                          <div className="h-36">
+                          <div className="h-32">
                             <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={chartData} margin={{ top: 25, right: 10, left: -15, bottom: 5 }}>
+                              <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                                 <XAxis 
                                   dataKey="shortLabel" 
-                                  tick={{ fontSize: 9, fill: '#6b7280' }}
+                                  tick={{ fontSize: 8, fill: '#6b7280' }}
                                   axisLine={false}
                                   tickLine={false}
                                   interval={0}
-                                  angle={chartData.length > 7 ? -45 : 0}
-                                  textAnchor={chartData.length > 7 ? 'end' : 'middle'}
-                                  height={chartData.length > 7 ? 40 : 20}
+                                  angle={chartData.length > 5 ? -45 : 0}
+                                  textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                                  height={chartData.length > 5 ? 35 : 18}
                                 />
                                 <YAxis hide={true} />
                                 <Tooltip 
@@ -2748,14 +2773,14 @@ export default function RetailerDashboard() {
                                   formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
                                   labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                                 />
-                                <Bar dataKey="netOrderValue" radius={[4, 4, 0, 0]} maxBarSize={45}>
+                                <Bar dataKey="netOrderValue" radius={[4, 4, 0, 0]} maxBarSize={35}>
                                   {chartData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
                                   ))}
                                   <LabelList 
                                     dataKey="netOrderValue" 
                                     position="top" 
-                                    style={{ fontSize: 9, fontWeight: 600, fill: '#3b82f6' }}
+                                    style={{ fontSize: 8, fontWeight: 600, fill: '#3b82f6' }}
                                     formatter={formatValue}
                                   />
                                 </Bar>
@@ -2768,20 +2793,20 @@ export default function RetailerDashboard() {
                         <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
                           <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
                             <TrendingUp size={14} className="text-emerald-500" />
-                            {viewModeLabel} Earnings (Profit)
+                            {viewModeLabel} Earnings
                           </p>
-                          <div className="h-36">
+                          <div className="h-32">
                             <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={chartData} margin={{ top: 25, right: 10, left: -15, bottom: 5 }}>
+                              <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                                 <XAxis 
                                   dataKey="shortLabel" 
-                                  tick={{ fontSize: 9, fill: '#6b7280' }}
+                                  tick={{ fontSize: 8, fill: '#6b7280' }}
                                   axisLine={false}
                                   tickLine={false}
                                   interval={0}
-                                  angle={chartData.length > 7 ? -45 : 0}
-                                  textAnchor={chartData.length > 7 ? 'end' : 'middle'}
-                                  height={chartData.length > 7 ? 40 : 20}
+                                  angle={chartData.length > 5 ? -45 : 0}
+                                  textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                                  height={chartData.length > 5 ? 35 : 18}
                                 />
                                 <YAxis hide={true} />
                                 <Tooltip 
@@ -2789,14 +2814,58 @@ export default function RetailerDashboard() {
                                   formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
                                   labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                                 />
-                                <Bar dataKey="earnings" radius={[4, 4, 0, 0]} maxBarSize={45}>
+                                <Bar dataKey="earnings" radius={[4, 4, 0, 0]} maxBarSize={35}>
                                   {chartData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={earningColors[index % earningColors.length]} />
                                   ))}
                                   <LabelList 
                                     dataKey="earnings" 
                                     position="top" 
-                                    style={{ fontSize: 9, fontWeight: 600, fill: '#10b981' }}
+                                    style={{ fontSize: 8, fontWeight: 600, fill: '#10b981' }}
+                                    formatter={formatValue}
+                                  />
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                        
+                        {/* Average Earnings Per Day Chart */}
+                        <div className="bg-white/80 rounded-xl p-3 border border-amber-100">
+                          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                            <DollarSign size={14} className="text-amber-500" />
+                            Avg. Earning/Day
+                          </p>
+                          <div className="h-32">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
+                                <XAxis 
+                                  dataKey="shortLabel" 
+                                  tick={{ fontSize: 8, fill: '#6b7280' }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  interval={0}
+                                  angle={chartData.length > 5 ? -45 : 0}
+                                  textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                                  height={chartData.length > 5 ? 35 : 18}
+                                />
+                                <YAxis hide={true} />
+                                <Tooltip 
+                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                  formatter={(value, name, props) => [
+                                    `₹${value.toLocaleString()} (${props.payload.daysCount} days)`, 
+                                    'Avg/Day'
+                                  ]}
+                                  labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                                />
+                                <Bar dataKey="avgEarningsPerDay" radius={[4, 4, 0, 0]} maxBarSize={35}>
+                                  {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={avgColors[index % avgColors.length]} />
+                                  ))}
+                                  <LabelList 
+                                    dataKey="avgEarningsPerDay" 
+                                    position="top" 
+                                    style={{ fontSize: 8, fontWeight: 600, fill: '#d97706' }}
                                     formatter={formatValue}
                                   />
                                 </Bar>

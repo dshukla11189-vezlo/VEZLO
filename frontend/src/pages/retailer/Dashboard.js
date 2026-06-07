@@ -333,6 +333,7 @@ export default function RetailerDashboard() {
   const [dashboardDateFrom, setDashboardDateFrom] = useState('');
   const [dashboardDateTo, setDashboardDateTo] = useState(getLocalDateString());
   const [firstOrderDateInitialized, setFirstOrderDateInitialized] = useState(false);
+  const [chartViewMode, setChartViewMode] = useState('weekly'); // 'daily', 'weekly', 'monthly'
   
   // Indent form
   const [showIndentModal, setShowIndentModal] = useState(false);
@@ -2586,7 +2587,7 @@ export default function RetailerDashboard() {
                   </div>
                 </div>
                 
-                {/* Weekly Trend Charts */}
+                {/* Trend Charts with Daily/Weekly/Monthly Tabs */}
                 {(() => {
                   // Prepare chart data from filtered dispatches
                   const filteredDispatches = dispatches.filter(d => {
@@ -2603,145 +2604,205 @@ export default function RetailerDashboard() {
                   const getWeekStart = (dateStr) => {
                     const date = new Date(dateStr);
                     const day = date.getDay();
-                    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+                    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
                     const weekStart = new Date(date.setDate(diff));
                     return weekStart.toISOString().split('T')[0];
                   };
                   
-                  // Helper to format week label
+                  // Helper to get month key
+                  const getMonthKey = (dateStr) => {
+                    const date = new Date(dateStr);
+                    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                  };
+                  
+                  // Helper to format labels
                   const formatWeekLabel = (weekStartStr) => {
                     const start = new Date(weekStartStr);
                     const end = new Date(start);
                     end.setDate(end.getDate() + 6);
-                    const formatDate = (d) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-                    return `${formatDate(start)} - ${formatDate(end)}`;
+                    const fmt = (d) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                    return `${fmt(start)} - ${fmt(end)}`;
                   };
                   
-                  // Group by week
-                  const weeklyData = {};
+                  const formatMonthLabel = (monthKey) => {
+                    const [year, month] = monthKey.split('-');
+                    const date = new Date(year, parseInt(month) - 1, 1);
+                    return date.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+                  };
+                  
+                  // Group data based on view mode
+                  const groupedData = {};
+                  
                   filteredDispatches.forEach(d => {
                     const date = d.dispatch_date?.split('T')[0];
                     if (!date) return;
-                    const weekStart = getWeekStart(date);
-                    if (!weeklyData[weekStart]) {
-                      weeklyData[weekStart] = { weekStart, orders: 0, mrpValue: 0, rejectionValue: 0 };
+                    
+                    let key, label, shortLabel;
+                    if (chartViewMode === 'daily') {
+                      key = date;
+                      label = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+                      shortLabel = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                    } else if (chartViewMode === 'weekly') {
+                      key = getWeekStart(date);
+                      label = formatWeekLabel(key);
+                      shortLabel = new Date(key).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                    } else {
+                      key = getMonthKey(date);
+                      label = formatMonthLabel(key);
+                      shortLabel = label;
                     }
-                    weeklyData[weekStart].orders += 1;
+                    
+                    if (!groupedData[key]) {
+                      groupedData[key] = { key, label, shortLabel, orderValue: 0, rejectionValue: 0 };
+                    }
                     const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
                       (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
-                    weeklyData[weekStart].mrpValue += mrp;
+                    groupedData[key].orderValue += mrp;
                   });
                   
                   // Subtract rejections
                   filteredRejections.forEach(r => {
                     const date = r.rejection_date?.split('T')[0];
                     if (!date) return;
-                    const weekStart = getWeekStart(date);
-                    if (weeklyData[weekStart]) {
-                      weeklyData[weekStart].rejectionValue += (r.rejection_value || 0);
+                    
+                    let key;
+                    if (chartViewMode === 'daily') {
+                      key = date;
+                    } else if (chartViewMode === 'weekly') {
+                      key = getWeekStart(date);
+                    } else {
+                      key = getMonthKey(date);
+                    }
+                    
+                    if (groupedData[key]) {
+                      groupedData[key].rejectionValue += (r.rejection_value || 0);
                     }
                   });
                   
-                  // Calculate earnings and format for chart
-                  const chartData = Object.values(weeklyData)
-                    .map(w => ({
-                      weekStart: w.weekStart,
-                      weekLabel: formatWeekLabel(w.weekStart),
-                      shortLabel: new Date(w.weekStart).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-                      orders: w.orders,
-                      earnings: Math.round((w.mrpValue - w.rejectionValue) * retailerCommPct / 100)
+                  // Calculate net order value and earnings
+                  const chartData = Object.values(groupedData)
+                    .map(d => ({
+                      ...d,
+                      netOrderValue: Math.round(d.orderValue - d.rejectionValue),
+                      earnings: Math.round((d.orderValue - d.rejectionValue) * retailerCommPct / 100)
                     }))
-                    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+                    .sort((a, b) => a.key.localeCompare(b.key));
                   
                   if (chartData.length < 1) return null;
                   
                   // Colors for bars
-                  const orderColors = ['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe'];
-                  const earningColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5'];
+                  const orderColors = ['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#3b82f6', '#60a5fa'];
+                  const earningColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#10b981', '#34d399'];
+                  
+                  const formatValue = (value) => {
+                    if (value >= 100000) return `₹${(value/100000).toFixed(1)}L`;
+                    if (value >= 1000) return `₹${(value/1000).toFixed(1)}k`;
+                    return `₹${value}`;
+                  };
+                  
+                  const viewModeLabel = chartViewMode === 'daily' ? 'Daily' : chartViewMode === 'weekly' ? 'Weekly' : 'Monthly';
                   
                   return (
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Weekly Orders Chart */}
-                      <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
-                        <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
-                          <ShoppingCart size={14} className="text-blue-500" />
-                          Weekly Orders
-                        </p>
-                        <div className="h-32">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 20, right: 10, left: -15, bottom: 5 }}>
-                              <XAxis 
-                                dataKey="shortLabel" 
-                                tick={{ fontSize: 9, fill: '#6b7280' }}
-                                axisLine={false}
-                                tickLine={false}
-                              />
-                              <YAxis 
-                                tick={{ fontSize: 9, fill: '#9ca3af' }}
-                                axisLine={false}
-                                tickLine={false}
-                                allowDecimals={false}
-                                hide={true}
-                              />
-                              <Tooltip 
-                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                                formatter={(value) => [`${value} orders`, 'Orders']}
-                                labelFormatter={(_, payload) => payload?.[0]?.payload?.weekLabel || ''}
-                              />
-                              <Bar dataKey="orders" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                                {chartData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
-                                ))}
-                                <LabelList 
-                                  dataKey="orders" 
-                                  position="top" 
-                                  style={{ fontSize: 11, fontWeight: 600, fill: '#3b82f6' }}
-                                />
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
+                    <div className="mt-4">
+                      {/* View Mode Tabs */}
+                      <div className="flex items-center gap-1 mb-3">
+                        <span className="text-xs text-gray-500 mr-2">View:</span>
+                        {['daily', 'weekly', 'monthly'].map((mode) => (
+                          <button
+                            key={mode}
+                            onClick={() => setChartViewMode(mode)}
+                            className={`px-3 py-1 text-xs font-medium rounded-full transition-all ${
+                              chartViewMode === mode
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                          </button>
+                        ))}
                       </div>
                       
-                      {/* Weekly Earnings Chart */}
-                      <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
-                        <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
-                          <TrendingUp size={14} className="text-emerald-500" />
-                          Weekly Earnings
-                        </p>
-                        <div className="h-32">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 20, right: 10, left: -15, bottom: 5 }}>
-                              <XAxis 
-                                dataKey="shortLabel" 
-                                tick={{ fontSize: 9, fill: '#6b7280' }}
-                                axisLine={false}
-                                tickLine={false}
-                              />
-                              <YAxis 
-                                tick={{ fontSize: 9, fill: '#9ca3af' }}
-                                axisLine={false}
-                                tickLine={false}
-                                hide={true}
-                              />
-                              <Tooltip 
-                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                                formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
-                                labelFormatter={(_, payload) => payload?.[0]?.payload?.weekLabel || ''}
-                              />
-                              <Bar dataKey="earnings" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                                {chartData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={earningColors[index % earningColors.length]} />
-                                ))}
-                                <LabelList 
-                                  dataKey="earnings" 
-                                  position="top" 
-                                  style={{ fontSize: 10, fontWeight: 600, fill: '#10b981' }}
-                                  formatter={(value) => `₹${value >= 1000 ? (value/1000).toFixed(1) + 'k' : value}`}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Order Value Chart */}
+                        <div className="bg-white/80 rounded-xl p-3 border border-blue-100">
+                          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                            <ShoppingCart size={14} className="text-blue-500" />
+                            {viewModeLabel} Order Value
+                          </p>
+                          <div className="h-36">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={chartData} margin={{ top: 25, right: 10, left: -15, bottom: 5 }}>
+                                <XAxis 
+                                  dataKey="shortLabel" 
+                                  tick={{ fontSize: 9, fill: '#6b7280' }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  interval={0}
+                                  angle={chartData.length > 7 ? -45 : 0}
+                                  textAnchor={chartData.length > 7 ? 'end' : 'middle'}
+                                  height={chartData.length > 7 ? 40 : 20}
                                 />
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
+                                <YAxis hide={true} />
+                                <Tooltip 
+                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                  formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
+                                  labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                                />
+                                <Bar dataKey="netOrderValue" radius={[4, 4, 0, 0]} maxBarSize={45}>
+                                  {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
+                                  ))}
+                                  <LabelList 
+                                    dataKey="netOrderValue" 
+                                    position="top" 
+                                    style={{ fontSize: 9, fontWeight: 600, fill: '#3b82f6' }}
+                                    formatter={formatValue}
+                                  />
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                        
+                        {/* Earnings/Profit Chart */}
+                        <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
+                          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                            <TrendingUp size={14} className="text-emerald-500" />
+                            {viewModeLabel} Earnings (Profit)
+                          </p>
+                          <div className="h-36">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={chartData} margin={{ top: 25, right: 10, left: -15, bottom: 5 }}>
+                                <XAxis 
+                                  dataKey="shortLabel" 
+                                  tick={{ fontSize: 9, fill: '#6b7280' }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  interval={0}
+                                  angle={chartData.length > 7 ? -45 : 0}
+                                  textAnchor={chartData.length > 7 ? 'end' : 'middle'}
+                                  height={chartData.length > 7 ? 40 : 20}
+                                />
+                                <YAxis hide={true} />
+                                <Tooltip 
+                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                  formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
+                                  labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                                />
+                                <Bar dataKey="earnings" radius={[4, 4, 0, 0]} maxBarSize={45}>
+                                  {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={earningColors[index % earningColors.length]} />
+                                  ))}
+                                  <LabelList 
+                                    dataKey="earnings" 
+                                    position="top" 
+                                    style={{ fontSize: 9, fontWeight: 600, fill: '#10b981' }}
+                                    formatter={formatValue}
+                                  />
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
                         </div>
                       </div>
                     </div>

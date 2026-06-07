@@ -7,8 +7,13 @@
   - **Default Date Range**: Now defaults from first order date to today (instead of last 30 days)
   - **Average Earnings Per Day**: Added new metric showing total earnings divided by number of days with orders
   - **UI Display**: Shows "Avg. Per Day: ₹X (Y days with orders)"
-  - **Date Pickers**: Still available for custom filtering
+  - **Trend Charts**: Added 2 area charts:
+    1. **Daily Orders Trend** - Blue gradient showing order count per day
+    2. **Daily Earnings Trend** - Green gradient showing earnings per day
+  - Charts update based on selected date range
+  - Date Pickers still available for custom filtering
 - **Files Modified**: `/app/frontend/src/pages/retailer/Dashboard.js`
+- **Library Used**: recharts (already installed)
 
 ### June 7, 2025 - Admin Indent "Piece" Variant Dropdown Fix ✅
 - **BUG FIX**: Admin/Staff Indent Form was missing "Piece" variants (e.g., Bottle Gourd, Cauliflower, Cabbage)

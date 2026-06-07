@@ -16,6 +16,7 @@ import {
   ShoppingCart
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 // Lazy loading image component - only loads image when visible in viewport
 // Optimized for performance: only loads images when they enter the viewport
@@ -2584,6 +2585,148 @@ export default function RetailerDashboard() {
                     </div>
                   </div>
                 </div>
+                
+                {/* Daily Trend Charts */}
+                {(() => {
+                  // Prepare chart data from filtered dispatches
+                  const filteredDispatches = dispatches.filter(d => {
+                    const dispDate = d.dispatch_date?.split('T')[0];
+                    return dashboardDateFrom && dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
+                  });
+                  const filteredRejections = rejections.filter(r => {
+                    const rejDate = r.rejection_date?.split('T')[0];
+                    return dashboardDateFrom && rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
+                  });
+                  const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
+                  
+                  // Group by date
+                  const dailyData = {};
+                  filteredDispatches.forEach(d => {
+                    const date = d.dispatch_date?.split('T')[0];
+                    if (!date) return;
+                    if (!dailyData[date]) {
+                      dailyData[date] = { date, orders: 0, mrpValue: 0, rejectionValue: 0 };
+                    }
+                    dailyData[date].orders += 1;
+                    const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
+                      (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
+                    dailyData[date].mrpValue += mrp;
+                  });
+                  
+                  // Subtract rejections
+                  filteredRejections.forEach(r => {
+                    const date = r.rejection_date?.split('T')[0];
+                    if (date && dailyData[date]) {
+                      dailyData[date].rejectionValue += (r.rejection_value || 0);
+                    }
+                  });
+                  
+                  // Calculate earnings and format for chart
+                  const chartData = Object.values(dailyData)
+                    .map(d => ({
+                      date: d.date,
+                      displayDate: new Date(d.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+                      orders: d.orders,
+                      earnings: Math.round((d.mrpValue - d.rejectionValue) * retailerCommPct / 100)
+                    }))
+                    .sort((a, b) => a.date.localeCompare(b.date));
+                  
+                  if (chartData.length < 2) return null;
+                  
+                  return (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Daily Orders Chart */}
+                      <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                          <ShoppingCart size={14} className="text-blue-500" />
+                          Daily Orders Trend
+                        </p>
+                        <div className="h-24">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="ordersGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <XAxis 
+                                dataKey="displayDate" 
+                                tick={{ fontSize: 9, fill: '#9ca3af' }}
+                                axisLine={false}
+                                tickLine={false}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis 
+                                tick={{ fontSize: 9, fill: '#9ca3af' }}
+                                axisLine={false}
+                                tickLine={false}
+                                allowDecimals={false}
+                              />
+                              <Tooltip 
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                formatter={(value) => [`${value} orders`, 'Orders']}
+                                labelFormatter={(label) => label}
+                              />
+                              <Area 
+                                type="monotone" 
+                                dataKey="orders" 
+                                stroke="#3b82f6" 
+                                strokeWidth={2}
+                                fill="url(#ordersGradient)" 
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      
+                      {/* Daily Earnings Chart */}
+                      <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                          <TrendingUp size={14} className="text-emerald-500" />
+                          Daily Earnings Trend
+                        </p>
+                        <div className="h-24">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="earningsGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <XAxis 
+                                dataKey="displayDate" 
+                                tick={{ fontSize: 9, fill: '#9ca3af' }}
+                                axisLine={false}
+                                tickLine={false}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis 
+                                tick={{ fontSize: 9, fill: '#9ca3af' }}
+                                axisLine={false}
+                                tickLine={false}
+                                tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
+                              />
+                              <Tooltip 
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
+                                labelFormatter={(label) => label}
+                              />
+                              <Area 
+                                type="monotone" 
+                                dataKey="earnings" 
+                                stroke="#10b981" 
+                                strokeWidth={2}
+                                fill="url(#earningsGradient)" 
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
 

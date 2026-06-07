@@ -328,13 +328,10 @@ export default function RetailerDashboard() {
     return item.product_name || item.name || '';
   }, [productMap, i18n.language]);
   
-  // Date filter for dashboard
-  const [dashboardDateFrom, setDashboardDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return getLocalDateString(d);
-  });
+  // Date filter for dashboard - will be updated to first order date once data loads
+  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
   const [dashboardDateTo, setDashboardDateTo] = useState(getLocalDateString());
+  const [firstOrderDateInitialized, setFirstOrderDateInitialized] = useState(false);
   
   // Indent form
   const [showIndentModal, setShowIndentModal] = useState(false);
@@ -440,6 +437,22 @@ export default function RetailerDashboard() {
       setLoading(false);
     }
   }, []);
+
+  // Set dashboard date range to first order till today once dispatches are loaded
+  useEffect(() => {
+    if (!firstOrderDateInitialized && dispatches.length > 0) {
+      // Find the earliest dispatch date
+      const sortedDates = dispatches
+        .map(d => d.dispatch_date?.split('T')[0])
+        .filter(Boolean)
+        .sort();
+      
+      if (sortedDates.length > 0) {
+        setDashboardDateFrom(sortedDates[0]); // First order date
+        setFirstOrderDateInitialized(true);
+      }
+    }
+  }, [dispatches, firstOrderDateInitialized]);
 
   // Load images for products in a specific category (called when category is expanded)
   const loadCategoryImages = useCallback(async (category) => {
@@ -2501,8 +2514,8 @@ export default function RetailerDashboard() {
             {/* Your Earnings - Big Card with Date Picker */}
             <Card className="mb-6 border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50 shadow-lg">
               <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                  <div className="flex items-start gap-4">
                     <div className="p-4 bg-emerald-100 rounded-xl">
                       <DollarSign size={36} className="text-emerald-600" />
                     </div>
@@ -2511,11 +2524,11 @@ export default function RetailerDashboard() {
                       {(() => {
                         const filteredDispatches = dispatches.filter(d => {
                           const dispDate = d.dispatch_date?.split('T')[0];
-                          return dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
+                          return dashboardDateFrom && dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
                         });
                         const filteredRejections = rejections.filter(r => {
                           const rejDate = r.rejection_date?.split('T')[0];
-                          return rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
+                          return dashboardDateFrom && rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
                         });
                         const retailerCommPct = dashboardData?.retailer?.commission_percentage || 0;
                         const grossMrpValue = filteredDispatches.reduce((sum, d) => {
@@ -2525,18 +2538,36 @@ export default function RetailerDashboard() {
                         const totalRejectionValue = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
                         const netMrpValue = grossMrpValue - totalRejectionValue;
                         const totalCommission = netMrpValue * retailerCommPct / 100;
+                        
+                        // Calculate unique days with orders
+                        const uniqueOrderDays = new Set(
+                          filteredDispatches.map(d => d.dispatch_date?.split('T')[0]).filter(Boolean)
+                        ).size;
+                        
+                        // Average earnings per day (only days with orders)
+                        const avgEarningsPerDay = uniqueOrderDays > 0 ? totalCommission / uniqueOrderDays : 0;
+                        
                         return (
-                          <p className="text-4xl md:text-5xl font-bold text-emerald-700">{formatCurrency(totalCommission)}</p>
+                          <div>
+                            <p className="text-4xl md:text-5xl font-bold text-emerald-700">{formatCurrency(totalCommission)}</p>
+                            {uniqueOrderDays > 0 && (
+                              <div className="mt-2 flex items-center gap-2">
+                                <span className="text-xs text-emerald-600 font-medium">Avg. Per Day:</span>
+                                <span className="text-sm font-bold text-emerald-600">{formatCurrency(avgEarningsPerDay)}</span>
+                                <span className="text-xs text-gray-500">({uniqueOrderDays} days with orders)</span>
+                              </div>
+                            )}
+                          </div>
                         );
                       })()}
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-white/70 p-3 rounded-xl border border-emerald-200">
+                  <div className="flex flex-col items-start gap-3 bg-white/70 p-3 rounded-xl border border-emerald-200">
                     <div className="flex items-center gap-2">
                       <Calendar size={18} className="text-emerald-600" />
                       <span className="text-sm font-medium text-gray-600">{t('retailer.period') || 'Period'}:</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Input
                         type="date"
                         value={dashboardDateFrom}
@@ -2876,11 +2907,11 @@ export default function RetailerDashboard() {
             {(() => {
               const filteredDispatches = dispatches.filter(d => {
                 const dispDate = d.dispatch_date?.split('T')[0];
-                return dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
+                return dashboardDateFrom && dispDate >= dashboardDateFrom && dispDate <= dashboardDateTo;
               });
               const filteredRejections = rejections.filter(r => {
                 const rejDate = r.rejection_date?.split('T')[0];
-                return rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
+                return dashboardDateFrom && rejDate >= dashboardDateFrom && rejDate <= dashboardDateTo;
               });
               
               const totalItemsReceived = filteredDispatches.reduce((sum, d) => 
@@ -2901,7 +2932,7 @@ export default function RetailerDashboard() {
               // Filter payments by date range
               const filteredPayments = payments.filter(p => {
                 const payDate = p.payment_date?.split('T')[0];
-                return payDate >= dashboardDateFrom && payDate <= dashboardDateTo;
+                return dashboardDateFrom && payDate >= dashboardDateFrom && payDate <= dashboardDateTo;
               });
               const totalPaidInPeriod = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
               const pendingAmount = Math.max(0, payableByRetailer - totalPaidInPeriod);

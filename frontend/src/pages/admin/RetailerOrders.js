@@ -5458,6 +5458,66 @@ export default function RetailerOrders() {
     (!p.verticals || p.verticals.length === 0 || p.verticals.includes('retail'))
   );
 
+  // Get variants for a specific product (includes unit-based variants like Piece/Packet from catalogue)
+  const getVariantsForProduct = (productId) => {
+    if (!productId) return filteredVariants;
+    
+    // Find catalogue entry for this product
+    const catalogueEntry = retailerCatalogue.find(c => c.product_id === productId);
+    
+    // Build list of available variants
+    let variants = [];
+    
+    // Parse catalogue variants - handle both array and string formats
+    let catalogueVariants = [];
+    if (catalogueEntry?.variants) {
+      if (Array.isArray(catalogueEntry.variants)) {
+        catalogueVariants = catalogueEntry.variants;
+      } else if (typeof catalogueEntry.variants === 'string') {
+        // Handle string representation of array like "['unit_piece', 'uuid']"
+        try {
+          // Try to parse as JSON after converting single quotes to double
+          const jsonStr = catalogueEntry.variants.replace(/'/g, '"');
+          catalogueVariants = JSON.parse(jsonStr);
+        } catch (e) {
+          // If parsing fails, treat as single value
+          catalogueVariants = [catalogueEntry.variants];
+        }
+      }
+    }
+    
+    if (catalogueVariants.length > 0) {
+      // Add unit_piece variant if present in catalogue
+      if (catalogueVariants.includes('unit_piece')) {
+        variants.push({ id: 'unit_piece', name: 'Pieces' });
+      }
+      // Add unit_packet variant if present in catalogue
+      if (catalogueVariants.includes('unit_packet')) {
+        variants.push({ id: 'unit_packet', name: 'Packets' });
+      }
+      
+      // Add standard packagings that are in the catalogue variants
+      catalogueVariants.forEach(variantId => {
+        if (variantId && !variantId.startsWith('unit_')) {
+          const packaging = packagings.find(p => p.id === variantId);
+          if (packaging) {
+            variants.push({ id: packaging.id, name: packaging.name });
+          }
+        }
+      });
+    }
+    
+    // If no catalogue entry found or no variants defined, fall back to filtered packagings
+    if (variants.length === 0) {
+      variants = filteredVariants;
+    }
+    
+    // Filter by search term
+    return variants.filter(v => 
+      v.name?.toLowerCase().includes(variantSearch.toLowerCase())
+    );
+  };
+
   // Filtered retailers for search-based selection
   const filteredRetailers = retailers.filter(r => 
     (r.company_name || r.name || '').toLowerCase().includes(retailerSearch.toLowerCase())
@@ -10643,12 +10703,15 @@ export default function RetailerOrders() {
                             placeholder="Variant"
                             className="h-9 text-sm"
                           />
-                          {showVariantDropdown === index && (
+                          {showVariantDropdown === index && (() => {
+                            // Get variants specific to the selected product (includes unit-based variants)
+                            const productVariants = getVariantsForProduct(item.product_id);
+                            return (
                             <div className="absolute z-20 w-48 mt-1 bg-white border rounded-md shadow-lg max-h-72 overflow-y-auto">
-                              {filteredVariants.length === 0 ? (
+                              {productVariants.length === 0 ? (
                                 <div className="p-3 text-sm text-gray-500">No variants found</div>
                               ) : (
-                                filteredVariants.slice(0, 12).map(p => (
+                                productVariants.slice(0, 12).map(p => (
                                   <div
                                     key={p.id}
                                     className="p-3 hover:bg-gray-100 cursor-pointer text-sm border-b last:border-b-0"
@@ -10668,7 +10731,7 @@ export default function RetailerOrders() {
                                 ))
                               )}
                             </div>
-                          )}
+                          );})()}
                         </div>
                         <Input
                           type="number"

@@ -2,6 +2,21 @@
 
 ## Changelog (June 2025)
 
+
+### June 7, 2025 - Admin Indent "Piece" Variant Dropdown Fix ✅
+- **BUG FIX**: Admin/Staff Indent Form was missing "Piece" variants (e.g., Bottle Gourd, Cauliflower, Cabbage)
+  - **Issue**: When Admin/Staff created an indent on behalf of a retailer, products with "Piece" unit type (like Bottle Gourd) were not showing their variants in the dropdown
+  - **Root Cause**: The variant dropdown filtered from `packagings` (QC packaging) which only contains weight-based variants. Piece products use synthetic variants like `unit_piece` stored in the retailer catalogue's `variants` array
+  - **Fix Applied**:
+    1. Created `getVariantsForProduct()` function that looks up the product's catalogue entry
+    2. Parses catalogue variants (handles both array and string-encoded array formats)
+    3. Adds `unit_piece`/`unit_packet` synthetic variants when present
+    4. Includes standard weight-based packagings from the catalogue
+    5. Falls back to filtered packagings if no catalogue entry found
+  - **Files Modified**: `/app/frontend/src/pages/admin/RetailerOrders.js`
+  - **Result**: Selecting Bottle Gourd now shows "Pieces" and "500+ gm" in the variant dropdown
+
+
 ### June 5, 2025 - Rejection Loss Date Filter Fix ✅
 - **BUG FIX**: Rejection Loss block amount not updating when date range changed
   - **Root Cause**: The dispatches data (`allDispatchesForRejection`) was only loaded when the modal opened, not when dates changed on the main block

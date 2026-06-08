@@ -528,7 +528,9 @@ export default function RetailerOrders() {
   // This ensures the Rejection Loss block updates properly
   useEffect(() => {
     loadDispatchesForRejection();
-  }, [rejectionLossDateFrom, rejectionLossDateTo, loadDispatchesForRejection]);
+    // Also reload rejections to ensure we have fresh data
+    loadRejections();
+  }, [rejectionLossDateFrom, rejectionLossDateTo, loadDispatchesForRejection, loadRejections]);
 
   // Update rejection analytics when dates or rejections change
   useEffect(() => {
@@ -8303,7 +8305,7 @@ export default function RetailerOrders() {
                                             {cn.source !== 'excess_payment' && cn.rejection_details?.length > 0 && (
                                               <div className="mt-1 text-gray-600">
                                                 <span className="text-gray-500">Rejected:</span>{' '}
-                                                {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.unit})`).join(', ')}
+                                                {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.variant_name || r.unit || ''})`).join(', ')}
                                               </div>
                                             )}
                                             {cn.pending_amount > 0 && cn.pending_amount !== cn.amount && (
@@ -8726,7 +8728,7 @@ export default function RetailerOrders() {
                                           <tr key={cn.id} className="border-t hover:bg-gray-50">
                                             <td className="p-2 font-medium text-purple-700">{cn.credit_note_number}</td>
                                             <td className="p-2">{cn.retailer_name}</td>
-                                            <td className="p-2">{details.product_name || '-'}</td>
+                                            <td className="p-2">{details.product_name || '-'} {details.variant_name ? `(${details.variant_name})` : ''}</td>
                                             <td className="p-2 text-center">{details.quantity || '-'}</td>
                                             <td className="p-2 text-right">
                                               <div className="font-medium">₹{cn.amount?.toLocaleString()}</div>
@@ -12472,7 +12474,7 @@ export default function RetailerOrders() {
                               <div className="col-span-2">
                                 <span className="text-gray-500">Rejected Items:</span>{' '}
                                 <span className="font-medium">
-                                  {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.unit})`).join(', ')}
+                                  {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.variant_name || r.unit || ''})`).join(', ')}
                                 </span>
                               </div>
                             )}

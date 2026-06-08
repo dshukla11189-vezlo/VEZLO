@@ -3,6 +3,17 @@
 ## Changelog (June 2025)
 
 
+### June 8, 2025 - Retail Plans Matrix Improvements (P0) ✅
+- **FIXES Applied** (5 issues reported by user):
+  1. **Saved Quantities Not Visible** - Fixed by properly resetting `hasChanges` flag after loadData and ensuring planProducts map rebuilds correctly from API response
+  2. **Customer Display Variants** - Now shows ALL variants from catalogue (matching what's shown in Products > Retailer Catalogue) with proper names from packagings lookup
+  3. **Variant Names** - Added `getVariantDisplayName` function that looks up variant names from `qc-packaging` API (e.g., "250+ gm", "200 gm Packet" instead of truncated UUIDs)
+  4. **Users Icon Too Small** - Increased icon size from 10px to 14px and added hover styling for better visibility
+  5. **Backspace Not Working** - Changed from `<Input type="number">` to native `<input type="text" inputMode="decimal">` with proper onChange/onBlur handlers that allow empty strings and backspace
+  
+- **Files Modified**:
+  - `/app/frontend/src/pages/admin/RetailPlans.js` - Major update to load packagings, display all variants, fix input handling
+
 ### June 8, 2025 - Catalogue Variants Parsing Fix (P0) ✅
 - **BUG FIX**: Retailer Catalogue category expansion error and multiple variants in Retail Plans
   - **Root Cause**: The backend stores `variants` and `purchase_weights` as **string representations** of arrays (e.g., `"['unit_packet', 'e185c5d8-...']"`) instead of actual arrays. Frontend code was trying to call array methods (`.filter()`, `.reduce()`) on these strings, causing crashes.

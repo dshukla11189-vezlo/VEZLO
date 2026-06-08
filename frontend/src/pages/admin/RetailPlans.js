@@ -13,6 +13,7 @@ import {
 export default function RetailPlans() {
   const [plans, setPlans] = useState([]);
   const [catalogue, setCatalogue] = useState([]); // Retailer catalogue products
+  const [packagings, setPackagings] = useState([]); // QC Packagings for variant names
   const [retailers, setRetailers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,13 +39,15 @@ export default function RetailPlans() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [plansRes, catalogueRes, retailersRes] = await Promise.all([
+      const [plansRes, catalogueRes, retailersRes, packagingsRes] = await Promise.all([
         api.get('/api/retail-plans'),
         api.get('/api/retailer-catalogue'),
-        api.get('/api/retail-plans/subscribed-retailers')
+        api.get('/api/retail-plans/subscribed-retailers'),
+        api.get('/api/qc-packaging')
       ]);
       
       setPlans(plansRes.data);
+      setPackagings(packagingsRes.data || []);
       
       // Parse variants and purchase_weights from string to array if needed
       const parsedCatalogue = (catalogueRes.data || []).map(item => {
@@ -89,6 +92,7 @@ export default function RetailPlans() {
         });
       });
       setPlanProducts(productsMap);
+      setHasChanges(false); // Reset changes flag after loading
       
       // Auto-expand first category
       const categories = [...new Set(parsedCatalogue.map(c => c.category || 'Uncategorized'))];
@@ -309,13 +313,19 @@ export default function RetailPlans() {
     }
   };
 
-  // Get variant display name
-  const getVariantName = (item, variantId) => {
+  // Get variant display name from packagings
+  const getVariantDisplayName = useCallback((variantId) => {
+    if (!variantId) return '';
     if (variantId === 'unit_piece') return 'Pieces';
     if (variantId === 'unit_packet') return 'Packets';
-    // For weight variants, try to find from purchase_weights
-    return variantId.substring(0, 8) + '...'; // Truncate UUID
-  };
+    if (variantId.startsWith('unit_')) {
+      const unitName = variantId.replace('unit_', '');
+      return unitName.charAt(0).toUpperCase() + unitName.slice(1);
+    }
+    // Find from packagings
+    const pkg = packagings.find(p => p.id === variantId);
+    return pkg ? pkg.name : variantId.substring(0, 8) + '...';
+  }, [packagings]);
 
   // Available retailers for assignment (not subscribed to any plan)
   const availableRetailers = retailers.filter(r => 
@@ -394,15 +404,15 @@ export default function RetailPlans() {
                           )}
                           <div className="flex items-center gap-2 text-[10px] text-gray-500">
                             <span>{productCount} SKUs</span>
-                            <span 
-                              className="flex items-center gap-0.5 cursor-pointer hover:text-emerald-600"
+                            <button 
+                              className="flex items-center gap-1 cursor-pointer hover:text-emerald-600 hover:bg-emerald-50 px-1.5 py-0.5 rounded transition-colors"
                               onClick={() => {
                                 setSelectedPlanForAssign(plan);
                                 setShowAssignDialog(true);
                               }}
                             >
-                              <Users size={10} /> {subscribedCount}
-                            </span>
+                              <Users size={14} /> <span className="text-xs">{subscribedCount}</span>
+                            </button>
                           </div>
                           {!plan.is_default && (
                             <button
@@ -446,37 +456,13 @@ export default function RetailPlans() {
                       </td>
                     </tr>
                     
-                    {/* Product Rows */}
+                    {/* Product Rows - Show all Customer Display Variants */}
                     {expandedCategories[category] && catalogueByCategory[category].map(item => {
-                      // Determine the correct variant based on purchase_unit
-                      // If purchase_unit is Piece/Packet, use unit_piece/unit_packet
-                      // Otherwise, use the first weight-based variant (UUID)
-                      let variantId = '';
-                      let variantName = '';
-                      
-                      const purchaseUnit = item.purchase_unit;
-                      
-                      // Variants are already parsed as arrays from loadData
+                      // Get all variants from catalogue (these are Customer Display Variants)
                       const itemVariants = Array.isArray(item.variants) ? item.variants : [];
                       
-                      if (purchaseUnit === 'Piece') {
-                        variantId = 'unit_piece';
-                        variantName = 'Pieces';
-                      } else if (purchaseUnit === 'Packet') {
-                        variantId = 'unit_packet';
-                        variantName = 'Packets';
-                      } else {
-                        // Find the first non-unit variant (weight-based UUID)
-                        const weightVariant = itemVariants.find(v => v && !v.startsWith('unit_'));
-                        if (weightVariant) {
-                          variantId = weightVariant;
-                          // Try to find variant name from purchase_weights or show truncated ID
-                          variantName = weightVariant.substring(0, 8) + '...';
-                        }
-                      }
-                      
-                      // If no valid variant found, skip this product
-                      if (!variantId) {
+                      // If no variants, show a placeholder row
+                      if (itemVariants.length === 0) {
                         return (
                           <tr key={item.product_id} className="border-b hover:bg-gray-50">
                             <td className="sticky left-0 bg-white px-4 py-2 border-r">
@@ -492,46 +478,66 @@ export default function RetailPlans() {
                         );
                       }
                       
-                      // Show single row for this product with its primary variant
-                      return (
-                        <tr key={`${item.product_id}_${variantId}`} className="border-b hover:bg-gray-50">
-                          <td className="sticky left-0 bg-white px-4 py-2 border-r">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">{item.product_name}</span>
-                              <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
-                                {variantName}
-                              </span>
-                            </div>
-                          </td>
-                          {plans.map(plan => {
-                            const checked = isInPlan(plan.id, item.product_id, variantId);
-                            const qty = getQuantity(plan.id, item.product_id, variantId);
-                            
-                            return (
-                              <td key={plan.id} className="px-2 py-1.5 text-center border-r last:border-r-0">
-                                <div className="flex items-center justify-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleProductInPlan(plan.id, item, variantId, variantName)}
-                                    className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                                  />
-                                  {checked && (
-                                    <Input
-                                      type="number"
-                                      value={qty}
-                                      onChange={(e) => updateQuantity(plan.id, item.product_id, variantId, e.target.value)}
-                                      className="w-14 h-7 text-xs text-center p-1"
-                                      min="0.5"
-                                      step="0.5"
+                      // Show one row per variant (matching Customer Display Variants from catalogue)
+                      return itemVariants.map(variantId => {
+                        const variantName = getVariantDisplayName(variantId);
+                        
+                        return (
+                          <tr key={`${item.product_id}_${variantId}`} className="border-b hover:bg-gray-50">
+                            <td className="sticky left-0 bg-white px-4 py-2 border-r">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{item.product_name}</span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                  variantId.startsWith('unit_') 
+                                    ? 'bg-blue-100 text-blue-700' 
+                                    : 'bg-teal-100 text-teal-700'
+                                }`}>
+                                  {variantName}
+                                </span>
+                              </div>
+                            </td>
+                            {plans.map(plan => {
+                              const checked = isInPlan(plan.id, item.product_id, variantId);
+                              const qty = getQuantity(plan.id, item.product_id, variantId);
+                              
+                              return (
+                                <td key={plan.id} className="px-2 py-1.5 text-center border-r last:border-r-0">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleProductInPlan(plan.id, item, variantId, variantName)}
+                                      className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                                     />
-                                  )}
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
+                                    {checked && (
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={qty}
+                                        onChange={(e) => {
+                                          // Allow empty string for typing, numbers, and decimals
+                                          const val = e.target.value;
+                                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            updateQuantity(plan.id, item.product_id, variantId, val);
+                                          }
+                                        }}
+                                        onBlur={(e) => {
+                                          // On blur, set minimum to 0.5 if empty or invalid
+                                          const val = parseFloat(e.target.value);
+                                          if (isNaN(val) || val <= 0) {
+                                            updateQuantity(plan.id, item.product_id, variantId, '0.5');
+                                          }
+                                        }}
+                                        className="w-14 h-7 text-xs text-center p-1 border rounded focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                      />
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      });
                     })}
                   </React.Fragment>
                 ))}

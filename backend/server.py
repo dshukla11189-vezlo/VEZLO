@@ -11260,7 +11260,7 @@ async def get_retailer_rejections(
     retailer_id: str = None,
     start_date: str = None,
     end_date: str = None,
-    limit: int = 500,
+    limit: int = 2000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}

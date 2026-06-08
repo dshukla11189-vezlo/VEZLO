@@ -479,13 +479,18 @@ export default function RetailerOrders() {
 
   const loadRejections = useCallback(async () => {
     try {
-      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
-      const response = await api.get(`/api/retailer-rejections${params}`);
+      const params = new URLSearchParams();
+      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
+      // Include date range for proper filtering
+      params.append('start_date', rejectionLossDateFrom);
+      params.append('end_date', rejectionLossDateTo);
+      params.append('limit', '2000'); // Increase limit to get all rejections in range
+      const response = await api.get(`/api/retailer-rejections?${params.toString()}`);
       setRejections(response.data);
     } catch (error) {
       console.error('Failed to load rejections:', error);
     }
-  }, [selectedRetailer]);
+  }, [selectedRetailer, rejectionLossDateFrom, rejectionLossDateTo]);
 
   // Load credit notes
   const loadCreditNotes = useCallback(async () => {

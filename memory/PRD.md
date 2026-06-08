@@ -3,6 +3,33 @@
 ## Changelog (June 2025)
 
 
+### June 8, 2025 - Stock Closing Matrix UI (Phase 2 of Automated Order System) ✅
+- **NEW FEATURE**: Replaced the old complex Closing Inventory tab with a new matrix-style UI (like Retail Plans)
+  - Shows ALL products from Retailer Catalogue grouped by category (collapsible)
+  - User selects retailer and date, then clicks "Load" to view/enter stock closing
+  - Shows Opening qty (from previous day's closing) and Closing qty input
+  - Today's entries are editable, historical entries are view-only with "Items Sold" calculation
+  - Save button appears only when there are changes and date is today
+  - Summary footer shows total products, entries filled, and total closing stock
+  
+- **State Variables Added**:
+  - `stockClosingCatalogue` - Parsed retailer catalogue for stock closing
+  - `stockClosingData` - Map of { productId_variantId: closingQty }
+  - `stockClosingOpeningData` - Map of opening quantities
+  - `stockClosingExpandedCats` - Expanded categories
+  - `stockClosingHasChanges` - Track unsaved changes
+  - `stockClosingSaving` - Loading state for save
+  
+- **Functions Added**:
+  - `loadStockClosingData()` - Loads catalogue and existing closing data
+  - `saveStockClosing()` - Saves closing entries to backend
+  - `getStockClosingVariantName()` - Resolves variant names from packagings
+  - `stockClosingCategories` - Computed memo for category list
+  - `stockClosingCatalogueByCategory` - Computed memo for grouped catalogue
+  
+- **Files Modified**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Replaced Closing Inventory tab with new matrix UI
+
 ### June 8, 2025 - Retail Plans Matrix Improvements (P0) ✅
 - **FIXES Applied** (5 issues reported by user):
   1. **Saved Quantities Not Visible** - Fixed by properly resetting `hasChanges` flag after loadData and ensuring planProducts map rebuilds correctly from API response

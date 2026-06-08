@@ -289,6 +289,14 @@ export default function RetailerOrders() {
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [closingRetailerCatalogue, setClosingRetailerCatalogue] = useState([]); // Retailer-specific catalogue for closing entry
   
+  // New Stock Closing Matrix State (Like Retail Plans)
+  const [stockClosingCatalogue, setStockClosingCatalogue] = useState([]); // Parsed catalogue for stock closing
+  const [stockClosingData, setStockClosingData] = useState({}); // { productId_variantId: closingQty }
+  const [stockClosingOpeningData, setStockClosingOpeningData] = useState({}); // { productId_variantId: openingQty }
+  const [stockClosingExpandedCats, setStockClosingExpandedCats] = useState({}); // Expanded categories
+  const [stockClosingHasChanges, setStockClosingHasChanges] = useState(false);
+  const [stockClosingSaving, setStockClosingSaving] = useState(false);
+  
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
   const [showPaymentSummaryPreview, setShowPaymentSummaryPreview] = useState(false); // Preview popup
@@ -1114,6 +1122,159 @@ export default function RetailerOrders() {
     } catch (error) {
       console.error('Failed to save closing:', error);
       toast.error('Failed to save closing inventory');
+    }
+  };
+
+  // ==================== NEW STOCK CLOSING MATRIX FUNCTIONS ====================
+  
+  // Computed: Categories from stock closing catalogue
+  const stockClosingCategories = useMemo(() => {
+    return [...new Set(stockClosingCatalogue.map(c => c.category || 'Uncategorized'))].sort();
+  }, [stockClosingCatalogue]);
+  
+  // Computed: Catalogue grouped by category
+  const stockClosingCatalogueByCategory = useMemo(() => {
+    const grouped = {};
+    stockClosingCatalogue.forEach(item => {
+      const cat = item.category || 'Uncategorized';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(item);
+    });
+    return grouped;
+  }, [stockClosingCatalogue]);
+  
+  // Get variant display name from packagings
+  const getStockClosingVariantName = useCallback((variantId) => {
+    if (!variantId) return '';
+    if (variantId === 'unit_piece') return 'Pieces';
+    if (variantId === 'unit_packet') return 'Packets';
+    if (variantId.startsWith('unit_')) {
+      const unitName = variantId.replace('unit_', '');
+      return unitName.charAt(0).toUpperCase() + unitName.slice(1);
+    }
+    // Find from packagings
+    const pkg = packagings.find(p => p.id === variantId);
+    return pkg ? pkg.name : variantId.substring(0, 8) + '...';
+  }, [packagings]);
+  
+  // Load stock closing data for selected retailer and date
+  const loadStockClosingData = useCallback(async () => {
+    if (!closingInventoryRetailer) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    
+    try {
+      // Load retailer catalogue and parse variants
+      const catalogueRes = await api.get(`/api/retailer-catalogue?retailer_id=${closingInventoryRetailer}`);
+      const parsedCatalogue = (catalogueRes.data || []).map(item => {
+        let parsedVariants = [];
+        if (item.variants) {
+          try {
+            parsedVariants = typeof item.variants === 'string' 
+              ? JSON.parse(item.variants.replace(/'/g, '"'))
+              : item.variants;
+            if (!Array.isArray(parsedVariants)) parsedVariants = [];
+          } catch (e) {
+            parsedVariants = [];
+          }
+        }
+        return {
+          ...item,
+          variants: parsedVariants
+        };
+      });
+      setStockClosingCatalogue(parsedCatalogue);
+      
+      // Auto-expand first category
+      const categories = [...new Set(parsedCatalogue.map(c => c.category || 'Uncategorized'))];
+      if (categories.length > 0) {
+        setStockClosingExpandedCats({ [categories[0]]: true });
+      }
+      
+      // Load existing closing data for this date
+      try {
+        const closingRes = await api.get(`/api/retailer-closing-inventory/summary/${closingInventoryRetailer}?date=${closingInventoryDate}`);
+        
+        // Build opening data from yesterday's closing
+        const openingMap = {};
+        const closingMap = {};
+        
+        // API returns { items: [...], closing_date: ..., has_closing_data: ... }
+        const items = closingRes.data?.items || closingRes.data || [];
+        
+        items.forEach(item => {
+          // Create key matching our format
+          const key = `${item.product_id}_${item.variant_id || 'default'}`;
+          openingMap[key] = item.opening_qty || 0;
+          if (item.closing_qty !== null && item.closing_qty !== undefined) {
+            closingMap[key] = item.closing_qty.toString();
+          }
+        });
+        
+        setStockClosingOpeningData(openingMap);
+        setStockClosingData(closingMap);
+        setStockClosingHasChanges(false);
+      } catch (error) {
+        console.error('Failed to load closing data:', error);
+        setStockClosingOpeningData({});
+        setStockClosingData({});
+      }
+      
+    } catch (error) {
+      console.error('Failed to load stock closing data:', error);
+      toast.error('Failed to load catalogue');
+    }
+  }, [closingInventoryRetailer, closingInventoryDate]);
+  
+  // Save stock closing data
+  const saveStockClosing = async () => {
+    if (!closingInventoryRetailer) {
+      toast.error('Please select a retailer');
+      return;
+    }
+    
+    // Build items to save
+    const itemsToSave = [];
+    Object.entries(stockClosingData).forEach(([key, value]) => {
+      if (value !== '' && value !== null) {
+        const [productId, variantId] = key.split('_');
+        const catalogueItem = stockClosingCatalogue.find(c => c.product_id === productId);
+        const variantName = getStockClosingVariantName(variantId);
+        
+        itemsToSave.push({
+          product_id: productId,
+          product_name: catalogueItem?.product_name || 'Unknown',
+          variant_id: variantId === 'default' ? null : variantId,
+          variant_name: variantName,
+          closing_qty: parseFloat(value) || 0
+        });
+      }
+    });
+    
+    if (itemsToSave.length === 0) {
+      toast.error('No closing data to save');
+      return;
+    }
+    
+    setStockClosingSaving(true);
+    try {
+      await api.post('/api/retailer-closing-inventory/record', {
+        retailer_id: closingInventoryRetailer,
+        closing_date: closingInventoryDate,
+        items: itemsToSave
+      });
+      
+      toast.success(`Saved closing for ${itemsToSave.length} items`);
+      setStockClosingHasChanges(false);
+      
+      // Reload data to refresh
+      loadStockClosingData();
+    } catch (error) {
+      console.error('Failed to save stock closing:', error);
+      toast.error('Failed to save closing data');
+    } finally {
+      setStockClosingSaving(false);
     }
   };
 
@@ -8631,30 +8792,28 @@ export default function RetailerOrders() {
           </Card>
         )}
 
-        {/* ==================== CLOSING INVENTORY TAB (Admin - Full Inventory View) ==================== */}
+        {/* ==================== STOCK CLOSING TAB (Matrix Style - Like Retail Plans) ==================== */}
         {activeTab === 'closingInventory' && (
           <Card>
             <CardHeader className="py-3">
               <CardTitle className="text-sm flex items-center gap-2">
                 <ClipboardList size={18} className="text-green-600" />
-                Retailer Daily Inventory (Admin View)
+                Stock Closing
               </CardTitle>
-              <p className="text-xs text-gray-500 mt-1">View and manage retailer inventory for any date</p>
+              <p className="text-xs text-gray-500 mt-1">Record daily closing stock for retailers</p>
             </CardHeader>
             <CardContent>
-              {/* Filters */}
-              <div className="flex flex-wrap gap-4 mb-4">
+              {/* Filters Row */}
+              <div className="flex flex-wrap gap-4 mb-4 items-end">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Select Retailer</label>
                   <select
                     value={closingInventoryRetailer}
                     onChange={(e) => {
                       setClosingInventoryRetailer(e.target.value);
-                      setClosingEntryMode(false);
-                      setClosingEntryItems([]);
+                      setStockClosingData({});
                     }}
                     className="w-full h-9 border rounded px-3 text-sm"
-                    disabled={closingEntryMode}
                   >
                     <option value="">-- Select Retailer --</option>
                     {retailers.map(r => (
@@ -8669,629 +8828,237 @@ export default function RetailerOrders() {
                     value={closingInventoryDate}
                     onChange={(e) => setClosingInventoryDate(e.target.value)}
                     className="h-9"
-                    disabled={closingEntryMode}
                   />
                 </div>
                 <div className="flex items-end gap-2">
-                  {!closingEntryMode ? (
-                    <>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={loadClosingInventory}
-                        className="h-9"
-                      >
-                        <Search size={14} className="mr-1" /> Load
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        onClick={startClosingEntry}
-                        className="h-9 bg-green-600 hover:bg-green-700 text-white"
-                        disabled={!closingInventoryRetailer}
-                      >
-                        <Plus size={14} className="mr-1" /> New Entry
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={cancelClosingEntry}
-                        className="h-9 border-red-300 text-red-600 hover:bg-red-50"
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        onClick={saveClosingEntry}
-                        className="h-9 bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        <Save size={14} className="mr-1" /> Save Closing
-                      </Button>
-                    </>
-                  )}
-                </div>
-                {!closingEntryMode && (
-                  <div className="flex items-end">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={loadStockClosingData}
+                    className="h-9"
+                    disabled={!closingInventoryRetailer}
+                  >
+                    <Search size={14} className="mr-1" /> Load
+                  </Button>
+                  {closingInventoryDate === new Date().toISOString().split('T')[0] && stockClosingHasChanges && (
                     <Button 
                       size="sm" 
-                      variant="outline"
-                      onClick={() => {
-                        if (closingInventoryData.length === 0) {
-                          toast.error('No inventory data to export');
-                          return;
-                        }
-                        
-                        // Build export data
-                        const exportData = closingInventoryData.map(item => ({
-                          'Product Name': item.product_name || '',
-                          'Variant': item.variant_name || 'Kg',
-                          'Opening': item.opening_qty || 0,
-                          'Received': item.received_qty || 0,
-                          'Rejection': item.rejection_qty || 0,
-                          'Items Sold': Math.max(0, (item.opening_qty || 0) + (item.received_qty || 0) - (item.rejection_qty || 0) - (item.closing_qty || 0)),
-                          'Closing': item.closing_qty ?? 0
-                        }));
-                        
-                        // Create CSV content
-                        const headers = ['Product Name', 'Variant', 'Opening', 'Received', 'Rejection', 'Items Sold', 'Closing'];
-                        const csvRows = [
-                          headers.join(','),
-                          ...exportData.map(row => 
-                            headers.map(h => {
-                              const val = row[h];
-                              if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
-                                return `"${val.replace(/"/g, '""')}"`;
-                              }
-                              return val;
-                            }).join(',')
-                          )
-                        ];
-                        const csvContent = csvRows.join('\n');
-                        
-                        // Download as CSV
-                        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                        const url = window.URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        link.href = url;
-                        const retailerName = retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer';
-                        link.setAttribute('download', `Inventory_${retailerName}_${closingInventoryDate}.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        link.remove();
-                        window.URL.revokeObjectURL(url);
-                        
-                        toast.success('Inventory exported successfully');
-                      }}
-                      className="h-9 text-green-700 border-green-300 hover:bg-green-50"
-                      disabled={closingInventoryData.length === 0}
+                      onClick={saveStockClosing}
+                      className="h-9 bg-green-600 hover:bg-green-700 text-white"
+                      disabled={stockClosingSaving}
                     >
-                      <Download size={14} className="mr-1" /> Export
+                      <Save size={14} className="mr-1" /> {stockClosingSaving ? 'Saving...' : 'Save Closing'}
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
-              {/* New Closing Entry Mode */}
-              {closingEntryMode && (
-                <div className="space-y-4">
-                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <ClipboardList className="text-blue-600" size={20} />
-                        <div>
-                          <p className="font-medium text-blue-800">
-                            Entering Closing Inventory for {retailers.find(r => r.id === closingInventoryRetailer)?.company_name || 'Retailer'}
-                          </p>
-                          <p className="text-sm text-blue-700">
-                            Date: {closingInventoryDate} | Pre-populated from last supply{lastSupplyDate ? ` (${lastSupplyDate})` : ''}
-                          </p>
-                        </div>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => setShowAddProductModal(true)}
-                        className="border-blue-300 text-blue-700 hover:bg-blue-100"
-                      >
-                        <Plus size={14} className="mr-1" /> Add Product
-                      </Button>
-                    </div>
-                  </div>
-
-                  {closingEntryItems.length > 0 ? (
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="p-3 text-left font-medium text-gray-600 w-8">#</th>
-                            <th className="p-3 text-left font-medium text-gray-600">Product</th>
-                            <th className="p-3 text-left font-medium text-gray-500">Variant</th>
-                            <th className="p-3 text-center font-medium text-amber-600 w-32">Closing Qty</th>
-                            <th className="p-3 text-center font-medium text-gray-500 w-16">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {closingEntryItems.map((item, index) => (
-                            <tr key={`${item.product_id}-${item.variant_name}-${index}`} className="border-t hover:bg-gray-50">
-                              <td className="p-3 text-gray-500">{index + 1}</td>
-                              <td className="p-3 font-medium">{item.product_name}</td>
-                              <td className="p-3 text-gray-600">{item.variant_name}</td>
-                              <td className="p-3 text-center">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="0.5"
-                                  value={item.closing_qty}
-                                  onChange={(e) => updateClosingEntryQty(index, e.target.value)}
-                                  className="w-24 h-8 text-center mx-auto"
-                                  placeholder="0"
-                                />
-                              </td>
-                              <td className="p-3 text-center">
-                                <Button 
-                                  size="sm" 
-                                  variant="ghost"
-                                  onClick={() => removeFromClosingEntry(index)}
-                                  className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                                  title="Remove"
-                                >
-                                  <Trash2 size={12} />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-gray-100 font-semibold text-sm">
-                          <tr>
-                            <td colSpan={3} className="p-3 text-right">Total Items:</td>
-                            <td className="p-3 text-center text-amber-600">
-                              {closingEntryItems.filter(i => i.closing_qty !== '' && i.closing_qty !== null).length} entered
-                            </td>
-                            <td className="p-3 text-center text-gray-500">
-                              {closingEntryItems.length} items
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+              {/* Date indicator - Today vs Historical */}
+              {closingInventoryRetailer && closingInventoryDate && (
+                <div className={`mb-4 px-4 py-2 rounded-lg text-sm flex items-center gap-2 ${
+                  closingInventoryDate === new Date().toISOString().split('T')[0]
+                    ? 'bg-green-50 border border-green-200 text-green-800'
+                    : 'bg-gray-100 border border-gray-200 text-gray-600'
+                }`}>
+                  {closingInventoryDate === new Date().toISOString().split('T')[0] ? (
+                    <>
+                      <Edit size={14} />
+                      <span>Today's closing - You can edit and save</span>
+                    </>
                   ) : (
-                    <div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">
-                      <ClipboardList size={40} className="mx-auto mb-2 text-gray-300" />
-                      <p>No products from last supply found.</p>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => setShowAddProductModal(true)}
-                        className="mt-2"
-                      >
-                        <Plus size={14} className="mr-1" /> Add Products
-                      </Button>
-                    </div>
+                    <>
+                      <Eye size={14} />
+                      <span>Historical data - View only</span>
+                    </>
                   )}
                 </div>
               )}
 
-              {/* Add Product Modal */}
-              {showAddProductModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                  <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[80vh] overflow-auto">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold">Add Product to Closing Inventory</h3>
-                      <Button 
-                        size="sm" 
-                        variant="ghost"
-                        onClick={() => { setShowAddProductModal(false); setProductSearchTerm(''); }}
-                        className="h-8 w-8 p-0"
-                      >
-                        <X size={16} />
-                      </Button>
-                    </div>
-                    
-                    <Input
-                      type="text"
-                      placeholder="Search products..."
-                      value={productSearchTerm}
-                      onChange={(e) => setProductSearchTerm(e.target.value)}
-                      className="mb-4"
-                    />
-                    
-                    <div className="max-h-96 overflow-y-auto space-y-2">
-                      {/* Filter to only show products in retailer's catalogue */}
-                      {closingRetailerCatalogue
-                        .filter(catItem => {
-                          const product = products.find(p => p.id === catItem.product_id);
-                          if (!product) return false;
-                          return product.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-                            (product.name_hi && product.name_hi.includes(productSearchTerm));
-                        })
-                        .slice(0, 20)
-                        .map(catItem => {
-                          const product = products.find(p => p.id === catItem.product_id);
-                          if (!product) return null;
-                          
-                          // Get variants from catalogue for this product
-                          const catalogueVariantIds = catItem.variants || [];
-                          const catalogueVariants = packagings.filter(pkg => 
-                            catalogueVariantIds.includes(pkg.id)
-                          );
-                          
-                          return (
-                            <div key={product.id} className="border rounded p-3 hover:bg-gray-50">
-                              <p className="font-medium text-sm">{product.name}</p>
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {/* Default Kg variant - always available */}
-                                {!closingEntryItems.some(item => item.product_id === product.id && item.variant_name === 'Kg') && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => addProductToClosingEntry(product, { id: '', name: 'Kg' })}
-                                    className="text-xs h-7"
-                                  >
-                                    Kg
-                                  </Button>
-                                )}
-                                {/* Only show variants that are in the retailer's catalogue for this product */}
-                                {catalogueVariants
-                                  .filter(pkg => !closingEntryItems.some(
-                                    item => item.product_id === product.id && item.variant_name === pkg.name
-                                  ))
-                                  .map(pkg => (
-                                    <Button
-                                      key={pkg.id}
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => addProductToClosingEntry(product, { id: pkg.id, name: pkg.name })}
-                                      className="text-xs h-7"
-                                    >
-                                      {pkg.name}
-                                    </Button>
-                                  ))
-                                }
-                                {catalogueVariants.length === 0 && closingEntryItems.some(item => item.product_id === product.id && item.variant_name === 'Kg') && (
-                                  <span className="text-xs text-gray-400">All variants added</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      }
-                      {closingRetailerCatalogue.filter(catItem => {
-                        const product = products.find(p => p.id === catItem.product_id);
-                        if (!product) return false;
-                        return product.name.toLowerCase().includes(productSearchTerm.toLowerCase());
-                      }).length === 0 && (
-                        <p className="text-center text-gray-500 py-4">No products found in retailer catalogue</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Full Inventory Table - Only show when not in entry mode */}
-              {!closingEntryMode && closingInventoryRetailer && closingInventoryDate ? (
-                closingHasData ? (
-                  /* Normal view - has closing data recorded */
-                  <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="p-3 text-left font-medium text-gray-600">Product</th>
-                          <th className="p-3 text-left font-medium text-gray-500">Variant</th>
-                          <th className="p-3 text-center font-medium text-blue-600">Opening</th>
-                          <th className="p-3 text-center font-medium text-green-600">Received</th>
-                          <th className="p-3 text-center font-medium text-red-600">Rejection</th>
-                          <th className="p-3 text-center font-medium text-purple-600">Items Sold</th>
-                          <th className="p-3 text-center font-medium text-amber-600">Closing</th>
-                          <th className="p-3 text-center font-medium text-gray-600">Actions</th>
+              {/* Matrix Table */}
+              {closingInventoryRetailer && stockClosingCatalogue.length > 0 ? (
+                <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b">
+                          <th className="sticky left-0 bg-gray-50 px-4 py-3 text-left font-semibold text-gray-700 min-w-[250px] border-r">
+                            Products / Variants
+                          </th>
+                          <th className="px-4 py-3 text-center font-medium text-blue-600 min-w-[100px]">
+                            Opening
+                          </th>
+                          <th className="px-4 py-3 text-center font-medium text-amber-600 min-w-[120px]">
+                            Closing
+                          </th>
+                          {closingInventoryDate !== new Date().toISOString().split('T')[0] && (
+                            <th className="px-4 py-3 text-center font-medium text-purple-600 min-w-[100px]">
+                              Items Sold
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
-                        {closingInventoryData
-                          .filter(item => item.closing_qty !== null && item.closing_qty !== undefined)
-                          // Two-step sorting: non-zero closing first (by descending qty), then zero closing
-                          .sort((a, b) => {
-                            const aClosing = typeof a.closing_qty === 'number' ? a.closing_qty : 0;
-                            const bClosing = typeof b.closing_qty === 'number' ? b.closing_qty : 0;
-                            const aHasClosing = aClosing > 0;
-                            const bHasClosing = bClosing > 0;
+                        {stockClosingCategories.map(category => (
+                          <React.Fragment key={category}>
+                            {/* Category Row */}
+                            <tr 
+                              className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors"
+                              onClick={() => setStockClosingExpandedCats(prev => ({
+                                ...prev,
+                                [category]: !prev[category]
+                              }))}
+                            >
+                              <td 
+                                colSpan={closingInventoryDate === new Date().toISOString().split('T')[0] ? 3 : 4}
+                                className="px-4 py-2 font-medium text-gray-700"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {stockClosingExpandedCats[category] ? (
+                                    <ChevronDown size={16} />
+                                  ) : (
+                                    <ChevronRight size={16} />
+                                  )}
+                                  {category}
+                                  <span className="text-xs text-gray-500">
+                                    ({stockClosingCatalogueByCategory[category]?.length || 0} items)
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
                             
-                            // Non-zero closing comes first
-                            if (aHasClosing && !bHasClosing) return -1;
-                            if (!aHasClosing && bHasClosing) return 1;
-                            
-                            // Within same group, sort by descending closing qty
-                            return bClosing - aClosing;
-                          })
-                          .map(item => {
-                            // Calculate items sold: Opening + Received - Rejection - Closing
-                            const openingQty = item.opening_qty || 0;
-                            const receivedQty = item.received_qty || 0;
-                            const rejectionQty = item.rejection_qty || 0;
-                            const closingQty = item.closing_qty || 0;
-                            // Default to 0 if calculated items sold is negative
-                            const itemsSold = Math.max(0, openingQty + receivedQty - rejectionQty - closingQty);
-                            
-                            return (
-                              <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
-                                <td className="p-3 font-medium">{item.product_name}</td>
-                                <td className="p-3 text-gray-500 text-xs">
-                                  {editingClosingItem === item.id ? (
-                                    <div className="relative">
-                                      <Input
-                                        type="text"
-                                        value={variantSearchTerm}
-                                        onChange={(e) => setVariantSearchTerm(e.target.value)}
-                                        placeholder="Search variant..."
-                                        className="w-32 h-7 text-xs"
-                                      />
-                                      {variantSearchTerm && (
-                                        <div className="absolute z-10 w-48 max-h-40 overflow-y-auto bg-white border rounded shadow-lg mt-1">
-                                          {packagings
-                                            .filter(p => p.name.toLowerCase().includes(variantSearchTerm.toLowerCase()))
-                                            .slice(0, 10)
-                                            .map(p => (
-                                              <div
-                                                key={p.id}
-                                                onClick={() => {
-                                                  setEditingClosingVariant(p.name);
-                                                  setVariantSearchTerm(p.name);
-                                                }}
-                                                className="px-2 py-1 text-xs hover:bg-blue-50 cursor-pointer"
-                                              >
-                                                {p.name}
-                                              </div>
-                                            ))}
-                                          {packagings.filter(p => p.name.toLowerCase().includes(variantSearchTerm.toLowerCase())).length === 0 && (
-                                            <div className="px-2 py-1 text-xs text-gray-400">No matches</div>
-                                          )}
-                                        </div>
+                            {/* Product Rows */}
+                            {stockClosingExpandedCats[category] && stockClosingCatalogueByCategory[category]?.map(item => {
+                              // Get all display variants from catalogue
+                              const itemVariants = Array.isArray(item.variants) ? item.variants : [];
+                              const hasWeightVariants = itemVariants.some(v => v && !v.startsWith('unit_'));
+                              const displayVariants = hasWeightVariants 
+                                ? itemVariants.filter(v => v && !v.startsWith('unit_'))
+                                : itemVariants;
+                              
+                              if (displayVariants.length === 0) {
+                                return (
+                                  <tr key={item.product_id} className="border-b hover:bg-gray-50">
+                                    <td className="sticky left-0 bg-white px-4 py-2 border-r">
+                                      <span className="text-sm">{item.product_name}</span>
+                                      <span className="text-xs text-gray-400 ml-2">(No variant)</span>
+                                    </td>
+                                    <td className="px-4 py-2 text-center text-gray-300">-</td>
+                                    <td className="px-4 py-2 text-center text-gray-300">-</td>
+                                    {closingInventoryDate !== new Date().toISOString().split('T')[0] && (
+                                      <td className="px-4 py-2 text-center text-gray-300">-</td>
+                                    )}
+                                  </tr>
+                                );
+                              }
+                              
+                              return displayVariants.map(variantId => {
+                                const variantName = getStockClosingVariantName(variantId);
+                                const key = `${item.product_id}_${variantId}`;
+                                const openingQty = stockClosingOpeningData[key] || 0;
+                                const closingQty = stockClosingData[key] ?? '';
+                                const isToday = closingInventoryDate === new Date().toISOString().split('T')[0];
+                                const itemsSold = closingQty !== '' ? Math.max(0, openingQty - parseFloat(closingQty || 0)) : '-';
+                                
+                                return (
+                                  <tr key={key} className="border-b hover:bg-gray-50">
+                                    <td className="sticky left-0 bg-white px-4 py-2 border-r">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium">{item.product_name}</span>
+                                        <span className="text-xs px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">
+                                          {variantName}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-2 text-center">
+                                      <span className={`font-medium ${openingQty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                                        {openingQty}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2 text-center">
+                                      {isToday ? (
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          value={closingQty}
+                                          onFocus={(e) => e.target.select()}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                              setStockClosingData(prev => ({
+                                                ...prev,
+                                                [key]: val
+                                              }));
+                                              setStockClosingHasChanges(true);
+                                            }
+                                          }}
+                                          placeholder="0"
+                                          className="w-16 h-7 text-xs text-center p-1 border rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                        />
+                                      ) : (
+                                        <span className={`font-semibold ${closingQty !== '' ? 'text-amber-600' : 'text-gray-300'}`}>
+                                          {closingQty !== '' ? closingQty : '-'}
+                                        </span>
                                       )}
-                                    </div>
-                                  ) : (
-                                    item.variant_name || 'Kg'
-                                  )}
-                                </td>
-                                <td className="p-3 text-center">
-                                  <span className={`font-semibold ${openingQty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                                    {openingQty}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-center">
-                                  <span className={`font-semibold ${receivedQty > 0 ? 'text-green-600' : 'text-gray-300'}`}>
-                                    {receivedQty > 0 ? `+${receivedQty}` : '0'}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-center">
-                                  <span className={`font-semibold ${rejectionQty > 0 ? 'text-red-600' : 'text-gray-300'}`}>
-                                    {rejectionQty > 0 ? `-${rejectionQty}` : '0'}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-center">
-                                  <span className={`font-semibold ${itemsSold !== 0 ? 'text-purple-600' : 'text-gray-300'}`}>
-                                    {itemsSold}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-center">
-                                  {editingClosingItem === item.id ? (
-                                    <div className="flex items-center justify-center gap-1">
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        step="0.1"
-                                        value={editingClosingQty}
-                                        onChange={(e) => setEditingClosingQty(e.target.value)}
-                                        className="w-16 h-7 text-center text-sm"
-                                        autoFocus
-                                      />
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost"
-                                        onClick={() => updateClosingItem(item.id, editingClosingQty, editingClosingVariant || null)}
-                                        className="h-7 w-7 p-0 text-green-600 hover:bg-green-50"
-                                      >
-                                        <Check size={14} />
-                                      </Button>
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost"
-                                        onClick={() => { setEditingClosingItem(null); setEditingClosingQty(''); setEditingClosingVariant(''); setVariantSearchTerm(''); }}
-                                        className="h-7 w-7 p-0 text-gray-600 hover:bg-gray-100"
-                                      >
-                                        <X size={14} />
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <span className="text-lg font-semibold text-amber-600">{closingQty}</span>
-                                  )}
-                                </td>
-                                <td className="p-3 text-center">
-                                  {editingClosingItem !== item.id && (
-                                    <div className="flex items-center justify-center gap-1">
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost"
-                                        onClick={() => { 
-                                          setEditingClosingItem(item.id); 
-                                          setEditingClosingQty(item.closing_qty?.toString() || ''); 
-                                          setEditingClosingVariant(item.variant_name || 'Kg');
-                                          setVariantSearchTerm(item.variant_name || 'Kg');
-                                        }}
-                                        className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
-                                        title="Edit Closing Qty & Variant"
-                                        disabled={!item.id}
-                                      >
-                                        <Pencil size={12} />
-                                      </Button>
-                                      <Button 
-                                        size="sm" 
-                                        variant="ghost"
-                                        onClick={() => adminDeleteClosingItem(item)}
-                                        className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                                        title="Delete"
-                                      >
-                                        <Trash2 size={12} />
-                                      </Button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                    </td>
+                                    {!isToday && (
+                                      <td className="px-4 py-2 text-center">
+                                        <span className={`font-medium ${itemsSold !== '-' && itemsSold > 0 ? 'text-purple-600' : 'text-gray-300'}`}>
+                                          {itemsSold}
+                                        </span>
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              });
+                            })}
+                          </React.Fragment>
+                        ))}
                       </tbody>
-                      <tfoot className="bg-gray-100 font-semibold text-sm">
-                        <tr>
-                          <td colSpan={2} className="p-3 text-right">Totals:</td>
-                          <td className="p-3 text-center text-blue-600">
-                            {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.opening_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-green-600">
-                            +{closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.received_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-red-600">
-                            -{closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.rejection_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-purple-600">
-                            {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => {
-                              const open = i.opening_qty || 0;
-                              const recv = i.received_qty || 0;
-                              const rej = i.rejection_qty || 0;
-                              const close = i.closing_qty || 0;
-                              // Items Sold = Opening + Received - Rejection - Closing
-                              return sum + Math.max(0, open + recv - rej - close);
-                            }, 0)}
-                          </td>
-                          <td className="p-3 text-center text-amber-600">
-                            {closingInventoryData.filter(i => i.closing_qty != null).reduce((sum, i) => sum + (i.closing_qty || 0), 0)}
-                          </td>
-                          <td className="p-3 text-center text-gray-500 text-xs">
-                            {closingInventoryData.filter(i => i.closing_qty != null).length} items
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
-                ) : closingInventoryData.length > 0 ? (
-                  /* No closing recorded but has opening data - show with admin entry option */
-                  <div className="space-y-4">
-                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <AlertTriangle className="text-amber-600" size={20} />
-                        <div>
-                          <p className="font-medium text-amber-800">No closing recorded for {closingInventoryDate}</p>
-                          <p className="text-sm text-amber-700">Showing opening data from previous day's closing. You can enter closing values below.</p>
-                        </div>
-                      </div>
-                      {!adminEnteringClosing ? (
-                        <Button 
-                          size="sm" 
-                          onClick={() => setAdminEnteringClosing(true)}
-                          className="bg-amber-600 hover:bg-amber-700 text-white"
-                        >
-                          <Edit size={14} className="mr-1" />
-                          Enter Closing
-                        </Button>
-                      ) : (
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => { setAdminEnteringClosing(false); setAdminClosingInputs({}); }}
-                            className="border-amber-300 text-amber-700"
-                          >
-                            Cancel
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            onClick={handleAdminSaveClosing}
-                            className="bg-green-600 hover:bg-green-700 text-white"
-                          >
-                            <Save size={14} className="mr-1" />
-                            Save Closing
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-gray-100 border-b">
-                            <th className="p-3 text-left w-8">#</th>
-                            <th className="p-3 text-left">Product</th>
-                            <th className="p-3 text-left">Variant</th>
-                            <th className="p-3 text-center">Opening</th>
-                            <th className="p-3 text-center">Received</th>
-                            <th className="p-3 text-center">Rejection</th>
-                            {adminEnteringClosing && <th className="p-3 text-center bg-amber-50">Enter Closing</th>}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {closingInventoryData
-                            .filter(item => (item.opening_qty || 0) > 0 || (item.received_qty || 0) > 0)
-                            .map((item, idx) => (
-                            <tr key={item.product_id + (item.variant_id || '')} className="border-b hover:bg-gray-50">
-                              <td className="p-3 text-center text-gray-500">{idx + 1}</td>
-                              <td className="p-3 font-medium">{item.product_name}</td>
-                              <td className="p-3 text-gray-600">{item.variant_name || 'Kg'}</td>
-                              <td className="p-3 text-center text-blue-600">{item.opening_qty || 0}</td>
-                              <td className="p-3 text-center text-green-600">+{item.received_qty || 0}</td>
-                              <td className="p-3 text-center text-red-600">-{item.rejection_qty || 0}</td>
-                              {adminEnteringClosing && (
-                                <td className="p-3 text-center bg-amber-50">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.1"
-                                    value={adminClosingInputs[item.product_id] || ''}
-                                    onChange={(e) => setAdminClosingInputs(prev => ({
-                                      ...prev,
-                                      [item.product_id]: e.target.value
-                                    }))}
-                                    placeholder="0"
-                                    className="w-20 px-2 py-1 border rounded text-center focus:ring-2 focus:ring-amber-300 focus:border-amber-400"
-                                  />
-                                </td>
-                              )}
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="bg-gray-100 font-semibold">
-                            <td colSpan={3} className="p-3 text-right">TOTAL</td>
-                            <td className="p-3 text-center text-blue-600">
-                              {closingInventoryData.filter(i => (i.opening_qty || 0) > 0 || (i.received_qty || 0) > 0).reduce((sum, i) => sum + (i.opening_qty || 0), 0)}
-                            </td>
-                            <td className="p-3 text-center text-green-600">
-                              +{closingInventoryData.filter(i => (i.opening_qty || 0) > 0 || (i.received_qty || 0) > 0).reduce((sum, i) => sum + (i.received_qty || 0), 0)}
-                            </td>
-                            <td className="p-3 text-center text-red-600">
-                              -{closingInventoryData.filter(i => (i.opening_qty || 0) > 0 || (i.received_qty || 0) > 0).reduce((sum, i) => sum + (i.rejection_qty || 0), 0)}
-                            </td>
-                            {adminEnteringClosing && <td className="p-3 bg-amber-50"></td>}
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
-                    <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
-                    <p>No closing inventory recorded for this date</p>
-                    <p className="text-sm mt-2">No opening or received data available for this date.</p>
-                  </div>
-                )
+                </div>
+              ) : closingInventoryRetailer ? (
+                <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
+                  <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
+                  <p>Click "Load" to view stock closing data</p>
+                  <p className="text-sm mt-2">Or no products found in retailer catalogue</p>
+                </div>
               ) : (
                 <div className="text-center py-12 text-gray-400 border rounded-lg bg-gray-50">
                   <ClipboardList size={40} className="mx-auto mb-3 opacity-50" />
-                  <p>Select a retailer and date to view inventory</p>
+                  <p>Select a retailer to view stock closing</p>
+                </div>
+              )}
+
+              {/* Summary footer when data is present */}
+              {closingInventoryRetailer && Object.keys(stockClosingData).length > 0 && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+                  <div className="flex flex-wrap gap-6 text-sm">
+                    <div>
+                      <span className="text-gray-500">Total Products:</span>
+                      <span className="ml-2 font-semibold">{stockClosingCatalogue.length}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Entries Filled:</span>
+                      <span className="ml-2 font-semibold text-amber-600">
+                        {Object.values(stockClosingData).filter(v => v !== '' && v !== null).length}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Total Closing Stock:</span>
+                      <span className="ml-2 font-semibold text-green-600">
+                        {Object.values(stockClosingData)
+                          .filter(v => v !== '' && v !== null)
+                          .reduce((sum, v) => sum + (parseFloat(v) || 0), 0)
+                          .toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
         )}
-
         {/* ==================== DISPATCH-LINKED ITEM INFO MODAL ==================== */}
         {dispatchLinkedItemInfo && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

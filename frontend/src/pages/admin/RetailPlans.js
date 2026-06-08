@@ -456,13 +456,20 @@ export default function RetailPlans() {
                       </td>
                     </tr>
                     
-                    {/* Product Rows - Show all Customer Display Variants */}
+                    {/* Product Rows - Show Customer Display Variants */}
                     {expandedCategories[category] && catalogueByCategory[category].map(item => {
                       // Get all variants from catalogue (these are Customer Display Variants)
                       const itemVariants = Array.isArray(item.variants) ? item.variants : [];
                       
-                      // If no variants, show a placeholder row
-                      if (itemVariants.length === 0) {
+                      // Filter variants: If there are weight-based variants (UUIDs), hide unit_piece/unit_packet
+                      // This matches what's shown in Retailer Catalogue - only the actual sale variant
+                      const hasWeightVariants = itemVariants.some(v => v && !v.startsWith('unit_'));
+                      const displayVariants = hasWeightVariants 
+                        ? itemVariants.filter(v => v && !v.startsWith('unit_'))  // Only show weight variants
+                        : itemVariants;  // If no weight variants, show unit variants
+                      
+                      // If no variants to display, show a placeholder row
+                      if (displayVariants.length === 0) {
                         return (
                           <tr key={item.product_id} className="border-b hover:bg-gray-50">
                             <td className="sticky left-0 bg-white px-4 py-2 border-r">
@@ -478,8 +485,8 @@ export default function RetailPlans() {
                         );
                       }
                       
-                      // Show one row per variant (matching Customer Display Variants from catalogue)
-                      return itemVariants.map(variantId => {
+                      // Show one row per display variant
+                      return displayVariants.map(variantId => {
                         const variantName = getVariantDisplayName(variantId);
                         
                         return (
@@ -487,11 +494,7 @@ export default function RetailPlans() {
                             <td className="sticky left-0 bg-white px-4 py-2 border-r">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium">{item.product_name}</span>
-                                <span className={`text-xs px-1.5 py-0.5 rounded ${
-                                  variantId.startsWith('unit_') 
-                                    ? 'bg-blue-100 text-blue-700' 
-                                    : 'bg-teal-100 text-teal-700'
-                                }`}>
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">
                                   {variantName}
                                 </span>
                               </div>
@@ -514,6 +517,7 @@ export default function RetailPlans() {
                                         type="text"
                                         inputMode="decimal"
                                         value={qty}
+                                        onFocus={(e) => e.target.select()}
                                         onChange={(e) => {
                                           // Allow empty string for typing, numbers, and decimals
                                           const val = e.target.value;
@@ -522,10 +526,10 @@ export default function RetailPlans() {
                                           }
                                         }}
                                         onBlur={(e) => {
-                                          // On blur, set minimum to 0.5 if empty or invalid
+                                          // On blur, set minimum to 1 if empty or invalid
                                           const val = parseFloat(e.target.value);
                                           if (isNaN(val) || val <= 0) {
-                                            updateQuantity(plan.id, item.product_id, variantId, '0.5');
+                                            updateQuantity(plan.id, item.product_id, variantId, '1');
                                           }
                                         }}
                                         className="w-14 h-7 text-xs text-center p-1 border rounded focus:outline-none focus:ring-1 focus:ring-emerald-500"

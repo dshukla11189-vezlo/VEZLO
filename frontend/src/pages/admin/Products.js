@@ -699,7 +699,37 @@ export default function Products() {
     setCatalogueLoading(true);
     try {
       const response = await api.get('/api/retailer-catalogue');
-      setCatalogueItems(response.data);
+      // Parse variants and purchase_weights from string to array if needed
+      const parsedCatalogue = (response.data || []).map(item => {
+        let parsedVariants = [];
+        if (item.variants) {
+          try {
+            parsedVariants = typeof item.variants === 'string' 
+              ? JSON.parse(item.variants.replace(/'/g, '"'))
+              : item.variants;
+            if (!Array.isArray(parsedVariants)) parsedVariants = [];
+          } catch (e) {
+            parsedVariants = [];
+          }
+        }
+        let parsedPurchaseWeights = [];
+        if (item.purchase_weights) {
+          try {
+            parsedPurchaseWeights = typeof item.purchase_weights === 'string' 
+              ? JSON.parse(item.purchase_weights.replace(/'/g, '"'))
+              : item.purchase_weights;
+            if (!Array.isArray(parsedPurchaseWeights)) parsedPurchaseWeights = [];
+          } catch (e) {
+            parsedPurchaseWeights = [];
+          }
+        }
+        return {
+          ...item,
+          variants: parsedVariants,
+          purchase_weights: parsedPurchaseWeights
+        };
+      });
+      setCatalogueItems(parsedCatalogue);
     } catch (error) {
       console.error('Failed to load catalogue:', error);
     } finally {

@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/admin/Dashboard';
 import Products from './pages/admin/Products';
+import RetailPlans from './pages/admin/RetailPlans';
 import StockStatus from './pages/admin/StockStatus';
 import WastageDashboard from './pages/admin/WastageDashboard';
 import Procurement from './pages/admin/Procurement';
@@ -77,6 +78,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin', 'staff']}>
                 <Products />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/retail-plans"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <RetailPlans />
               </ProtectedRoute>
             }
           />

@@ -956,3 +956,47 @@ class LabourAttendanceUpdate(BaseModel):
     daily_rate: Optional[float] = None
     overtime_rate: Optional[float] = None
     remarks: Optional[str] = None
+
+
+# Retail Plans Models
+class PlanProduct(BaseModel):
+    product_id: str
+    product_name: str
+    variant_id: str
+    variant_name: str
+    quantity: float  # Standard quantity for this plan
+
+class RetailPlan(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    description: Optional[str] = None
+    is_default: bool = False  # True for Starter, Medium, High, Advanced
+    products: List[PlanProduct] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RetailPlanCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RetailPlanUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+class PlanProductAdd(BaseModel):
+    product_id: str
+    product_name: str
+    variant_id: str
+    variant_name: str
+    quantity: float
+
+class PlanProductUpdate(BaseModel):
+    quantity: float
+
+class RetailerPlanAssignment(BaseModel):
+    retailer_id: str
+    plan_id: str
+
+class GenerateOrdersRequest(BaseModel):
+    retailer_ids: Optional[List[str]] = None  # If None, generate for all subscribed retailers

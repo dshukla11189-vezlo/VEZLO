@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
-import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator, Users, Database, Leaf, UserCheck, Wallet } from 'lucide-react';
+import { Home, Package, ShoppingCart, TruckIcon, FileText, DollarSign, BarChart3, Trash2, LogOut, User, X, ClipboardList, Receipt, Calculator, Users, Database, Leaf, UserCheck, Wallet, Boxes } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose, isMobile }) {
   const { t } = useTranslation();
@@ -13,6 +13,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
   const adminLinks = [
     { path: '/admin/dashboard', icon: Home, labelKey: 'app.dashboard' },
     { path: '/admin/products', icon: Leaf, labelKey: 'app.products' },
+    { path: '/admin/retail-plans', icon: Boxes, labelKey: 'app.retailPlans' },
     { path: '/admin/stock-status', icon: ClipboardList, labelKey: 'app.stockStatus' },
     { path: '/admin/procurement', icon: TruckIcon, labelKey: 'app.procurement' },
     { path: '/admin/quick-commerce', icon: ShoppingCart, labelKey: 'app.quickCommerce' },

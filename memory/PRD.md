@@ -2,6 +2,22 @@
 
 ## Changelog (June 2025)
 
+
+### June 8, 2025 - Catalogue Variants Parsing Fix (P0) ✅
+- **BUG FIX**: Retailer Catalogue category expansion error and multiple variants in Retail Plans
+  - **Root Cause**: The backend stores `variants` and `purchase_weights` as **string representations** of arrays (e.g., `"['unit_packet', 'e185c5d8-...']"`) instead of actual arrays. Frontend code was trying to call array methods (`.filter()`, `.reduce()`) on these strings, causing crashes.
+  - **Fix Applied**: Added parsing logic in 4 locations to convert string variants to proper arrays:
+    1. `/app/frontend/src/pages/retailer/Dashboard.js` - loadData function parses catalogue variants
+    2. `/app/frontend/src/pages/admin/RetailerOrders.js` - loadBaseData function parses catalogue variants
+    3. `/app/frontend/src/pages/admin/RetailerOrders.js` - startClosingEntry function parses closing catalogue variants
+    4. `/app/frontend/src/pages/admin/RetailPlans.js` - loadData function parses catalogue variants
+  - **Files Modified**: 
+    - `/app/frontend/src/pages/retailer/Dashboard.js`
+    - `/app/frontend/src/pages/admin/RetailerOrders.js`
+    - `/app/frontend/src/pages/admin/RetailPlans.js`
+  - **Result**: Category expansion now works correctly, and Retail Plans matrix shows proper single variant per product based on `purchase_unit`
+
+
 ### June 7, 2025 - Retailer Earnings Dashboard Enhancement ✅
 - **ENHANCEMENT**: Improved "Your Earnings" section in Retailer Portal
   - **Default Date Range**: Now defaults from first order date to today (instead of last 30 days)

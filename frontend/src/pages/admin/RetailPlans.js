@@ -45,7 +45,38 @@ export default function RetailPlans() {
       ]);
       
       setPlans(plansRes.data);
-      setCatalogue(catalogueRes.data);
+      
+      // Parse variants and purchase_weights from string to array if needed
+      const parsedCatalogue = (catalogueRes.data || []).map(item => {
+        let parsedVariants = [];
+        if (item.variants) {
+          try {
+            parsedVariants = typeof item.variants === 'string' 
+              ? JSON.parse(item.variants.replace(/'/g, '"'))
+              : item.variants;
+            if (!Array.isArray(parsedVariants)) parsedVariants = [];
+          } catch (e) {
+            parsedVariants = [];
+          }
+        }
+        let parsedPurchaseWeights = [];
+        if (item.purchase_weights) {
+          try {
+            parsedPurchaseWeights = typeof item.purchase_weights === 'string' 
+              ? JSON.parse(item.purchase_weights.replace(/'/g, '"'))
+              : item.purchase_weights;
+            if (!Array.isArray(parsedPurchaseWeights)) parsedPurchaseWeights = [];
+          } catch (e) {
+            parsedPurchaseWeights = [];
+          }
+        }
+        return {
+          ...item,
+          variants: parsedVariants,
+          purchase_weights: parsedPurchaseWeights
+        };
+      });
+      setCatalogue(parsedCatalogue);
       setRetailers(retailersRes.data);
       
       // Build planProducts map from existing plan data
@@ -60,7 +91,7 @@ export default function RetailPlans() {
       setPlanProducts(productsMap);
       
       // Auto-expand first category
-      const categories = [...new Set(catalogueRes.data.map(c => c.category || 'Uncategorized'))];
+      const categories = [...new Set(parsedCatalogue.map(c => c.category || 'Uncategorized'))];
       if (categories.length > 0) {
         setExpandedCategories({ [categories[0]]: true });
       }
@@ -417,26 +448,40 @@ export default function RetailPlans() {
                     
                     {/* Product Rows */}
                     {expandedCategories[category] && catalogueByCategory[category].map(item => {
-                      // Parse variants from catalogue item
-                      let itemVariants = [];
-                      if (item.variants) {
-                        try {
-                          const parsed = typeof item.variants === 'string' 
-                            ? JSON.parse(item.variants.replace(/'/g, '"'))
-                            : item.variants;
-                          itemVariants = Array.isArray(parsed) ? parsed : [];
-                        } catch (e) {
-                          itemVariants = [];
+                      // Determine the correct variant based on purchase_unit
+                      // If purchase_unit is Piece/Packet, use unit_piece/unit_packet
+                      // Otherwise, use the first weight-based variant (UUID)
+                      let variantId = '';
+                      let variantName = '';
+                      
+                      const purchaseUnit = item.purchase_unit;
+                      
+                      // Variants are already parsed as arrays from loadData
+                      const itemVariants = Array.isArray(item.variants) ? item.variants : [];
+                      
+                      if (purchaseUnit === 'Piece') {
+                        variantId = 'unit_piece';
+                        variantName = 'Pieces';
+                      } else if (purchaseUnit === 'Packet') {
+                        variantId = 'unit_packet';
+                        variantName = 'Packets';
+                      } else {
+                        // Find the first non-unit variant (weight-based UUID)
+                        const weightVariant = itemVariants.find(v => v && !v.startsWith('unit_'));
+                        if (weightVariant) {
+                          variantId = weightVariant;
+                          // Try to find variant name from purchase_weights or show truncated ID
+                          variantName = weightVariant.substring(0, 8) + '...';
                         }
                       }
                       
-                      // If no variants, show just the product
-                      if (itemVariants.length === 0) {
+                      // If no valid variant found, skip this product
+                      if (!variantId) {
                         return (
                           <tr key={item.product_id} className="border-b hover:bg-gray-50">
                             <td className="sticky left-0 bg-white px-4 py-2 border-r">
                               <span className="text-sm">{item.product_name}</span>
-                              <span className="text-xs text-gray-400 ml-2">(No variants)</span>
+                              <span className="text-xs text-gray-400 ml-2">(No variant)</span>
                             </td>
                             {plans.map(plan => (
                               <td key={plan.id} className="px-3 py-2 text-center border-r last:border-r-0">
@@ -447,52 +492,46 @@ export default function RetailPlans() {
                         );
                       }
                       
-                      // Show each variant as a row
-                      return itemVariants.map((variantId, idx) => {
-                        const variantName = variantId === 'unit_piece' ? 'Pieces' 
-                          : variantId === 'unit_packet' ? 'Packets' 
-                          : variantId.substring(0, 6);
-                        
-                        return (
-                          <tr key={`${item.product_id}_${variantId}`} className="border-b hover:bg-gray-50">
-                            <td className="sticky left-0 bg-white px-4 py-2 border-r">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">{item.product_name}</span>
-                                <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
-                                  {variantName}
-                                </span>
-                              </div>
-                            </td>
-                            {plans.map(plan => {
-                              const checked = isInPlan(plan.id, item.product_id, variantId);
-                              const qty = getQuantity(plan.id, item.product_id, variantId);
-                              
-                              return (
-                                <td key={plan.id} className="px-2 py-1.5 text-center border-r last:border-r-0">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => toggleProductInPlan(plan.id, item, variantId, variantName)}
-                                      className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      // Show single row for this product with its primary variant
+                      return (
+                        <tr key={`${item.product_id}_${variantId}`} className="border-b hover:bg-gray-50">
+                          <td className="sticky left-0 bg-white px-4 py-2 border-r">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">{item.product_name}</span>
+                              <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                                {variantName}
+                              </span>
+                            </div>
+                          </td>
+                          {plans.map(plan => {
+                            const checked = isInPlan(plan.id, item.product_id, variantId);
+                            const qty = getQuantity(plan.id, item.product_id, variantId);
+                            
+                            return (
+                              <td key={plan.id} className="px-2 py-1.5 text-center border-r last:border-r-0">
+                                <div className="flex items-center justify-center gap-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleProductInPlan(plan.id, item, variantId, variantName)}
+                                    className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                  />
+                                  {checked && (
+                                    <Input
+                                      type="number"
+                                      value={qty}
+                                      onChange={(e) => updateQuantity(plan.id, item.product_id, variantId, e.target.value)}
+                                      className="w-14 h-7 text-xs text-center p-1"
+                                      min="0.5"
+                                      step="0.5"
                                     />
-                                    {checked && (
-                                      <Input
-                                        type="number"
-                                        value={qty}
-                                        onChange={(e) => updateQuantity(plan.id, item.product_id, variantId, e.target.value)}
-                                        className="w-14 h-7 text-xs text-center p-1"
-                                        min="0.5"
-                                        step="0.5"
-                                      />
-                                    )}
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      });
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
                     })}
                   </React.Fragment>
                 ))}

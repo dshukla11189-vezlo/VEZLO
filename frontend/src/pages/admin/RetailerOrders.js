@@ -8325,12 +8325,16 @@ export default function RetailerOrders() {
                                               </div>
                                               <span className="font-bold text-blue-700">{formatCurrency(cn.amount)}</span>
                                             </div>
-                                            {cn.source !== 'excess_payment' && cn.rejection_details?.length > 0 && (
+                                            {cn.source === 'excess_payment' ? (
+                                              <div className="mt-1 text-blue-600 italic text-sm">
+                                                Excess Payment Credit
+                                              </div>
+                                            ) : cn.rejection_details?.length > 0 ? (
                                               <div className="mt-1 text-gray-600">
                                                 <span className="text-gray-500">Rejected:</span>{' '}
                                                 {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.variant_name || r.unit || ''})`).join(', ')}
                                               </div>
-                                            )}
+                                            ) : null}
                                             {cn.pending_amount > 0 && cn.pending_amount !== cn.amount && (
                                               <div className="mt-1">
                                                 <span className="text-gray-500">Pending:</span>{' '}
@@ -8751,8 +8755,18 @@ export default function RetailerOrders() {
                                           <tr key={cn.id} className="border-t hover:bg-gray-50">
                                             <td className="p-2 font-medium text-purple-700">{cn.credit_note_number}</td>
                                             <td className="p-2">{cn.retailer_name}</td>
-                                            <td className="p-2">{details.product_name || '-'} {details.variant_name ? `(${details.variant_name})` : ''}</td>
-                                            <td className="p-2 text-center">{details.quantity || '-'}</td>
+                                            <td className="p-2">
+                                              {cn.source === 'excess_payment' ? (
+                                                <span className="text-blue-600 italic">Excess Payment Credit</span>
+                                              ) : (
+                                                <>
+                                                  {details.product_name || '-'} {details.variant_name ? `(${details.variant_name})` : ''}
+                                                </>
+                                              )}
+                                            </td>
+                                            <td className="p-2 text-center">
+                                              {cn.source === 'excess_payment' ? '-' : (details.quantity || '-')}
+                                            </td>
                                             <td className="p-2 text-right">
                                               <div className="font-medium">₹{cn.amount?.toLocaleString()}</div>
                                               {cn.commission_deducted > 0 && (
@@ -12493,14 +12507,18 @@ export default function RetailerOrders() {
                                 {new Date(cn.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                               </span>
                             </div>
-                            {cn.source !== 'excess_payment' && cn.rejection_details?.length > 0 && (
+                            {cn.source === 'excess_payment' ? (
+                              <div className="col-span-2">
+                                <span className="text-blue-600 italic">Excess Payment Credit</span>
+                              </div>
+                            ) : cn.rejection_details?.length > 0 ? (
                               <div className="col-span-2">
                                 <span className="text-gray-500">Rejected Items:</span>{' '}
                                 <span className="font-medium">
                                   {cn.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.variant_name || r.unit || ''})`).join(', ')}
                                 </span>
                               </div>
-                            )}
+                            ) : null}
                             {cn.pending_amount > 0 && cn.pending_amount < cn.amount && (
                               <div className="col-span-2">
                                 <span className="text-gray-500">Pending Amount:</span>{' '}

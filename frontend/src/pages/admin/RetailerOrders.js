@@ -5033,11 +5033,18 @@ export default function RetailerOrders() {
               const rejDateStr = rejDateTime ? rejDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
               const rejTimeStr = rejDateTime ? rejDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
               
+              // Calculate total rejection amount for this invoice group
+              const groupTotal = group.creditNotes.reduce((sum, cn) => sum + (cn.adjusted_amount || 0), 0);
+              
               return '<div style="border: 1px solid #1565c0; margin: 10px 0; border-radius: 6px; overflow: hidden;">' +
-                '<div style="background: #1565c0; color: white; padding: 8px 12px; font-size: 11px;">' +
+                '<div style="background: #1565c0; color: white; padding: 10px 12px; font-size: 11px;">' +
                   '<div style="display: flex; justify-content: space-between; align-items: center;">' +
-                    '<div><strong>Original Invoice:</strong> ' + group.invoiceNumber + '</div>' +
-                    '<div><strong>Rejection Date:</strong> ' + rejDateStr + (rejTimeStr ? ' at ' + rejTimeStr : '') + '</div>' +
+                    '<div style="display: flex; align-items: center; gap: 20px;">' +
+                      '<div><strong>' + rejDateStr + (rejTimeStr ? ' at ' + rejTimeStr : '') + '</strong></div>' +
+                      '<div style="color: #bbdefb;">|</div>' +
+                      '<div>' + group.invoiceNumber + '</div>' +
+                    '</div>' +
+                    '<div style="font-weight: bold; font-size: 13px; color: #ffcdd2;">Total: -₹' + groupTotal.toFixed(2) + '</div>' +
                   '</div>' +
                 '</div>' +
                 group.creditNotes.map(adj => {

@@ -225,8 +225,86 @@ Place Of Supply: {COMPANY_STATE}</font>"""
     story.append(items_table)
     story.append(Spacer(1, 10))
     
+    # ========== CREDIT NOTE ADJUSTMENTS (if any) ==========
+    credit_adjustments = invoice.get("credit_note_adjustments", [])
+    total_credit_adjusted = invoice.get("total_credit_adjusted", 0)
+    final_payable = invoice.get("final_payable", total_amount)
+    
+    if credit_adjustments and total_credit_adjusted > 0:
+        story.append(Spacer(1, 5))
+        
+        # Summary box with breakdown
+        summary_data = [
+            ['Invoice Total', '', f'₹{total_amount:.2f}'],
+            ['Credit Notes Adjusted', f'({len(credit_adjustments)} CN)', f'- ₹{total_credit_adjusted:.2f}'],
+            ['Final Payable Amount', '', f'₹{final_payable:.2f}'],
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[3*inch, 1.5*inch, 1.5*inch])
+        summary_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e8f5e9')),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TEXTCOLOR', (0, 1), (-1, 1), colors.HexColor('#c62828')),  # Red for credit deduction
+            ('TEXTCOLOR', (0, -1), (-1, -1), colors.HexColor('#2e7d32')),  # Green for final amount
+        ]))
+        story.append(summary_table)
+        story.append(Spacer(1, 15))
+        
+        # Credit Notes Details Section
+        story.append(Paragraph("<b>Credit Notes Adjusted in this Invoice:</b>", small_style))
+        story.append(Spacer(1, 5))
+        
+        cn_header = ['CN Number', 'Type', 'Product Details', 'Amount']
+        cn_data = [cn_header]
+        
+        for adj in credit_adjustments:
+            cn_number = adj.get("credit_note_number", "-")
+            source = adj.get("source", "rejection")
+            source_label = "Excess Payment" if source == "excess_payment" else "Rejection"
+            
+            # Get product details
+            rejection_details = adj.get("rejection_details", [])
+            if rejection_details:
+                product_text = ", ".join([
+                    f"{d.get('product_name', '')} ({d.get('quantity', '')} {d.get('variant_name', '')})"
+                    for d in rejection_details[:3]  # Limit to 3 products
+                ])
+                if len(rejection_details) > 3:
+                    product_text += f" +{len(rejection_details) - 3} more"
+            else:
+                product_text = source_label
+            
+            amount = adj.get("adjusted_amount", 0)
+            cn_data.append([cn_number, source_label, product_text, f'₹{amount:.2f}'])
+        
+        cn_table = Table(cn_data, colWidths=[1.2*inch, 1*inch, 3.3*inch, 1*inch])
+        cn_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e3f2fd')),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.black),
+            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(cn_table)
+        story.append(Spacer(1, 10))
+    
     # ========== TOTAL IN WORDS ==========
-    total_in_words = number_to_words(total_amount)
+    # Use final_payable if credit notes were adjusted, otherwise use total_amount
+    amount_for_words = final_payable if (credit_adjustments and total_credit_adjusted > 0) else total_amount
+    total_in_words = number_to_words(amount_for_words)
     story.append(Paragraph(f"<b>Total Amount in words:</b> {total_in_words}", small_style))
     story.append(Spacer(1, 30))
     

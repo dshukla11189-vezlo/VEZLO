@@ -8092,7 +8092,9 @@ export default function RetailerOrders() {
                       <tr><td colSpan={11} className="p-8 text-center text-gray-400">No invoices found</td></tr>
                     ) : filteredInvoices.map((invoice, invoiceIdx) => {
                       const paidAmount = invoice.paid_amount || 0;
-                      const pendingAmount = (invoice.net_payable || 0) - paidAmount;
+                      // Use final_payable if credit notes were adjusted, otherwise net_payable
+                      const invoicePayable = invoice.final_payable || invoice.net_payable || 0;
+                      const pendingAmount = invoicePayable - paidAmount;
                       const status = invoice.status || 'pending';
                       
                       return (
@@ -8106,7 +8108,17 @@ export default function RetailerOrders() {
                             <td className="p-3">{formatDate(invoice.invoice_date)}</td>
                             <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
                             <td className="p-3 text-center">{invoice.items?.length || 0}</td>
-                            <td className="p-3 text-right font-semibold">{formatCurrency(invoice.net_payable)}</td>
+                            <td className="p-3 text-right">
+                              {invoice.credit_note_adjustments?.length > 0 ? (
+                                <div className="text-xs">
+                                  <div className="text-gray-500 line-through">{formatCurrency(invoice.net_payable)}</div>
+                                  <div className="text-red-500">- {formatCurrency(invoice.total_credit_adjusted || 0)} CN</div>
+                                  <div className="font-semibold text-green-700">{formatCurrency(invoice.final_payable || invoice.net_payable)}</div>
+                                </div>
+                              ) : (
+                                <span className="font-semibold">{formatCurrency(invoice.net_payable)}</span>
+                              )}
+                            </td>
                             <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(paidAmount)}</td>
                             <td className="p-3 text-right text-amber-600 font-medium">
                               {pendingAmount > 0 ? formatCurrency(pendingAmount) : pendingAmount < 0 ? <span className="text-purple-600">{formatCurrency(Math.abs(pendingAmount))} excess</span> : '-'}
@@ -8233,9 +8245,21 @@ export default function RetailerOrders() {
                                       <p className="font-medium text-green-600">-{formatCurrency(invoice.commission_amount)}</p>
                                     </div>
                                     <div>
-                                      <span className="text-gray-700 font-semibold">Final Payable:</span>
+                                      <span className="text-gray-700 font-semibold">Invoice Amount:</span>
                                       <p className="font-bold text-blue-700">{formatCurrency(invoice.net_payable)}</p>
                                     </div>
+                                    {invoice.credit_note_adjustments?.length > 0 && (
+                                      <>
+                                        <div>
+                                          <span className="text-gray-500">Credit Notes Adjusted:</span>
+                                          <p className="font-medium text-red-600">-{formatCurrency(invoice.total_credit_adjusted || 0)}</p>
+                                        </div>
+                                        <div className="border-t pt-1">
+                                          <span className="text-green-700 font-semibold">Final Payable:</span>
+                                          <p className="font-bold text-green-700 text-lg">{formatCurrency(invoice.final_payable || invoice.net_payable)}</p>
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                                 <table className="w-full text-xs">
@@ -8289,6 +8313,49 @@ export default function RetailerOrders() {
                                     </tr>
                                   </tbody>
                                 </table>
+                                
+                                {/* Credit Notes Adjusted IN this Invoice */}
+                                {invoice.credit_note_adjustments?.length > 0 && (
+                                  <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                                    <h4 className="text-xs font-semibold text-green-700 mb-2 flex items-center gap-2">
+                                      <FileText size={14} />
+                                      Credit Notes Adjusted in this Invoice
+                                    </h4>
+                                    <div className="space-y-2">
+                                      {invoice.credit_note_adjustments.map((adj, adjIdx) => (
+                                        <div key={adjIdx} className="bg-white rounded border p-2 text-xs">
+                                          <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-semibold text-green-700">{adj.credit_note_number}</span>
+                                              <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                                adj.source === 'excess_payment' 
+                                                  ? 'bg-amber-100 text-amber-700' 
+                                                  : 'bg-red-100 text-red-700'
+                                              }`}>
+                                                {adj.source === 'excess_payment' ? 'EXCESS PAYMENT' : 'REJECTION'}
+                                              </span>
+                                            </div>
+                                            <span className="font-bold text-red-600">- {formatCurrency(adj.adjusted_amount)}</span>
+                                          </div>
+                                          {adj.source === 'excess_payment' ? (
+                                            <div className="mt-1 text-blue-600 italic text-sm">
+                                              Excess Payment Credit
+                                            </div>
+                                          ) : adj.rejection_details?.length > 0 ? (
+                                            <div className="mt-1 text-gray-600">
+                                              <span className="text-gray-500">Rejected:</span>{' '}
+                                              {adj.rejection_details.map(r => `${r.product_name} (${r.quantity} ${r.variant_name || r.unit || ''})`).join(', ')}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                      <div className="flex justify-between items-center pt-2 border-t border-green-200">
+                                        <span className="font-semibold text-green-700">Total Adjusted:</span>
+                                        <span className="font-bold text-red-600">- {formatCurrency(invoice.total_credit_adjusted || 0)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
                                 
                                 {/* Credit Notes Section - show if any credit notes exist for this invoice */}
                                 {(() => {

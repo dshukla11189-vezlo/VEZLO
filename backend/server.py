@@ -13020,9 +13020,71 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
         remarks=input.remarks
     )
     
-    doc = invoice.model_dump()
-    doc["invoice_date"] = doc["invoice_date"].isoformat()
-    doc["created_at"] = doc["created_at"].isoformat()
+    # Auto-adjust pending credit notes for this retailer
+    pending_credit_notes = await db.retailer_credit_notes.find({
+        "retailer_id": input.retailer_id,
+        "status": {"$in": ["pending", "partial"]}
+    }, {"_id": 0}).to_list(100)
+    
+    credit_note_adjustments = []
+    total_credit_adjusted = 0
+    
+    for cn in pending_credit_notes:
+        if total_credit_adjusted >= net_payable:
+            break  # Don't adjust more than the invoice amount
+            
+        pending_amount = cn.get("pending_amount", cn.get("amount", 0))
+        if pending_amount <= 0:
+            continue
+            
+        # Calculate how much to adjust
+        remaining_payable = net_payable - total_credit_adjusted
+        adjust_amount = min(pending_amount, remaining_payable)
+        
+        if adjust_amount > 0:
+            # Record the adjustment
+            adjustment = {
+                "credit_note_id": cn.get("id"),
+                "credit_note_number": cn.get("credit_note_number"),
+                "original_amount": cn.get("amount", 0),
+                "adjusted_amount": adjust_amount,
+                "rejection_details": cn.get("rejection_details", []),
+                "source": cn.get("source", "rejection")
+            }
+            credit_note_adjustments.append(adjustment)
+            total_credit_adjusted += adjust_amount
+            
+            # Update the credit note
+            new_pending = pending_amount - adjust_amount
+            new_status = "adjusted" if new_pending <= 0 else "partial"
+            
+            # Add to adjusted_in_invoices array
+            adjusted_invoices = cn.get("adjusted_in_invoices", [])
+            adjusted_invoices.append({
+                "invoice_id": invoice.id,
+                "invoice_number": invoice_number,
+                "adjusted_amount": adjust_amount,
+                "adjusted_at": datetime.now(timezone.utc).isoformat()
+            })
+            
+            await db.retailer_credit_notes.update_one(
+                {"id": cn.get("id")},
+                {"$set": {
+                    "pending_amount": round(new_pending, 2),
+                    "status": new_status,
+                    "adjusted_in_invoices": adjusted_invoices
+                }}
+            )
+    
+    # Add credit note adjustments to invoice
+    invoice_dict = invoice.model_dump()
+    invoice_dict["credit_note_adjustments"] = credit_note_adjustments
+    invoice_dict["total_credit_adjusted"] = round(total_credit_adjusted, 2)
+    invoice_dict["final_payable"] = round(net_payable - total_credit_adjusted, 2)
+    
+    doc = invoice_dict
+    doc["invoice_date"] = invoice.invoice_date.isoformat()
+    doc["created_at"] = invoice.created_at.isoformat()
     
     await db.retailer_invoices.insert_one(doc)
     
@@ -13032,7 +13094,15 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
         {"$set": {"invoice_number": invoice_number, "invoice_id": invoice.id}}
     )
     
-    return {"id": invoice.id, "invoice_number": invoice_number, "message": "Invoice created successfully"}
+    return {
+        "id": invoice.id, 
+        "invoice_number": invoice_number, 
+        "message": "Invoice created successfully",
+        "net_payable": round(net_payable, 2),
+        "credit_note_adjustments": credit_note_adjustments,
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "final_payable": round(net_payable - total_credit_adjusted, 2)
+    }
 
 
 @api_router.put("/retailer-invoices/{invoice_id}")

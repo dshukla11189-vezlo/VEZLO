@@ -13042,11 +13042,13 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
         adjust_amount = min(pending_amount, remaining_payable)
         
         if adjust_amount > 0:
-            # Record the adjustment with full details
+            # Record the adjustment with full details including original invoice
             adjustment = {
                 "credit_note_id": cn.get("id"),
                 "credit_note_number": cn.get("credit_note_number"),
                 "credit_note_date": cn.get("created_at", ""),  # When CN was created
+                "original_invoice_id": cn.get("original_invoice_id", ""),
+                "original_invoice_number": cn.get("original_invoice_number", ""),
                 "original_amount": cn.get("amount", 0),
                 "adjusted_amount": adjust_amount,
                 "rejection_details": cn.get("rejection_details", []),

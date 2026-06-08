@@ -4998,55 +4998,96 @@ export default function RetailerOrders() {
             Credit Notes Adjusted in this Invoice
           </div>
           
-          ${invoice.credit_note_adjustments.map(adj => {
-            const cnNumber = adj.credit_note_number || '-';
-            // Look up dates from creditNotes state if not present in adjustment
-            const matchingCN = creditNotes.find(cn => cn.id === adj.credit_note_id || cn.credit_note_number === adj.credit_note_number);
-            const cnDateRaw = adj.credit_note_date || (matchingCN ? matchingCN.created_at : null);
-            const rejDateRaw = adj.rejection_date || (matchingCN ? matchingCN.rejection_date : null);
-            const cnDate = cnDateRaw ? new Date(cnDateRaw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-            const amount = adj.adjusted_amount || 0;
-            const sourceLabel = adj.source === 'excess_payment' ? 'Excess Payment' : 'Rejection';
-            const rejectionDate = rejDateRaw ? new Date(rejDateRaw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-            const rejectionDetails = adj.rejection_details || [];
+          ${(() => {
+            // Group credit notes by original invoice
+            const groupedByInvoice = {};
+            invoice.credit_note_adjustments.forEach(adj => {
+              // Look up additional info from creditNotes state
+              const matchingCN = creditNotes.find(cn => cn.id === adj.credit_note_id || cn.credit_note_number === adj.credit_note_number);
+              const origInvNum = adj.original_invoice_number || (matchingCN ? matchingCN.original_invoice_number : null) || 'Unknown Invoice';
+              const rejDateRaw = adj.rejection_date || (matchingCN ? matchingCN.rejection_date : null);
+              
+              if (!groupedByInvoice[origInvNum]) {
+                groupedByInvoice[origInvNum] = {
+                  invoiceNumber: origInvNum,
+                  rejectionDate: rejDateRaw,
+                  creditNotes: []
+                };
+              }
+              groupedByInvoice[origInvNum].creditNotes.push({
+                ...adj,
+                credit_note_date: adj.credit_note_date || (matchingCN ? matchingCN.created_at : null),
+                rejection_date: rejDateRaw
+              });
+            });
             
-            return '<div style="border: 1px solid #ddd; margin: 10px 0; border-radius: 4px; overflow: hidden;">' +
-              '<div style="background: #f5f5f5; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd;">' +
-                '<div>' +
-                  '<span style="font-weight: bold; color: #1565c0; font-size: 13px;">' + cnNumber + '</span>' +
-                  '<span style="margin-left: 15px; color: #666; font-size: 11px;">Date: ' + cnDate + '</span>' +
-                  '<span style="margin-left: 15px; padding: 2px 8px; border-radius: 3px; font-size: 10px; background: ' + (adj.source === 'excess_payment' ? '#fff3e0; color: #e65100;' : '#ffebee; color: #c62828;') + '">' + sourceLabel + '</span>' +
+            // Sort by rejection date
+            const sortedGroups = Object.values(groupedByInvoice).sort((a, b) => {
+              const dateA = a.rejectionDate ? new Date(a.rejectionDate) : new Date(0);
+              const dateB = b.rejectionDate ? new Date(b.rejectionDate) : new Date(0);
+              return dateA - dateB;
+            });
+            
+            return sortedGroups.map(group => {
+              const rejDateTime = group.rejectionDate ? new Date(group.rejectionDate) : null;
+              const rejDateStr = rejDateTime ? rejDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+              const rejTimeStr = rejDateTime ? rejDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+              
+              return '<div style="border: 1px solid #1565c0; margin: 10px 0; border-radius: 6px; overflow: hidden;">' +
+                '<div style="background: #1565c0; color: white; padding: 8px 12px; font-size: 11px;">' +
+                  '<div style="display: flex; justify-content: space-between; align-items: center;">' +
+                    '<div><strong>Original Invoice:</strong> ' + group.invoiceNumber + '</div>' +
+                    '<div><strong>Rejection Date:</strong> ' + rejDateStr + (rejTimeStr ? ' at ' + rejTimeStr : '') + '</div>' +
+                  '</div>' +
                 '</div>' +
-                '<div style="font-weight: bold; color: #c62828; font-size: 13px;">-₹' + amount.toFixed(2) + '</div>' +
-              '</div>' +
-              (adj.source === 'excess_payment' ? 
-                '<div style="padding: 10px 12px; color: #1565c0; font-style: italic; font-size: 11px;">Excess payment received from retailer adjusted against this invoice.</div>' :
-                (rejectionDetails.length > 0 ? 
-                  '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">' +
-                    '<thead><tr style="background: #fafafa;">' +
-                      '<th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee;">Product</th>' +
-                      '<th style="padding: 6px 10px; text-align: center; border-bottom: 1px solid #eee;">Qty</th>' +
-                      '<th style="padding: 6px 10px; text-align: center; border-bottom: 1px solid #eee;">Variant</th>' +
-                      '<th style="padding: 6px 10px; text-align: center; border-bottom: 1px solid #eee;">Reason</th>' +
-                      '<th style="padding: 6px 10px; text-align: right; border-bottom: 1px solid #eee;">Value</th>' +
-                    '</tr></thead>' +
-                    '<tbody>' +
-                      rejectionDetails.map(d => 
-                        '<tr>' +
-                          '<td style="padding: 5px 10px; border-bottom: 1px solid #f0f0f0;">' + (d.product_name || '-') + '</td>' +
-                          '<td style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #f0f0f0;">' + (d.quantity || '-') + '</td>' +
-                          '<td style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #f0f0f0;">' + (d.variant_name || '-') + '</td>' +
-                          '<td style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #c62828;">' + (d.reason || '-') + '</td>' +
-                          '<td style="padding: 5px 10px; text-align: right; border-bottom: 1px solid #f0f0f0;">₹' + ((d.value || d.mrp || 0).toFixed ? (d.value || d.mrp || 0).toFixed(2) : (d.value || d.mrp || 0)) + '</td>' +
-                        '</tr>'
-                      ).join('') +
-                    '</tbody>' +
-                  '</table>' +
-                  (rejectionDate ? '<div style="padding: 5px 12px; font-size: 9px; color: #888; background: #fafafa; border-top: 1px solid #eee;">Rejection recorded on: ' + rejectionDate + '</div>' : '')
-                : '<div style="padding: 10px 12px; color: #888; font-size: 11px;">No product details available</div>')
-              ) +
-            '</div>';
-          }).join('')}
+                group.creditNotes.map(adj => {
+                  const cnNumber = adj.credit_note_number || '-';
+                  const cnDateRaw = adj.credit_note_date;
+                  const cnDate = cnDateRaw ? new Date(cnDateRaw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+                  const cnTime = cnDateRaw ? new Date(cnDateRaw).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+                  const amount = adj.adjusted_amount || 0;
+                  const sourceLabel = adj.source === 'excess_payment' ? 'Excess Payment' : 'Rejection';
+                  const rejectionDetails = adj.rejection_details || [];
+                  
+                  return '<div style="border-top: 1px solid #ddd;">' +
+                    '<div style="background: #f5f5f5; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">' +
+                      '<div>' +
+                        '<span style="font-weight: bold; color: #1565c0; font-size: 12px;">' + cnNumber + '</span>' +
+                        '<span style="margin-left: 15px; color: #666; font-size: 10px;">Created: ' + cnDate + (cnTime ? ' ' + cnTime : '') + '</span>' +
+                        '<span style="margin-left: 15px; padding: 2px 8px; border-radius: 3px; font-size: 9px; background: ' + (adj.source === 'excess_payment' ? '#fff3e0; color: #e65100;' : '#ffebee; color: #c62828;') + '">' + sourceLabel + '</span>' +
+                      '</div>' +
+                      '<div style="font-weight: bold; color: #c62828; font-size: 12px;">-₹' + amount.toFixed(2) + '</div>' +
+                    '</div>' +
+                    (adj.source === 'excess_payment' ? 
+                      '<div style="padding: 8px 12px; color: #1565c0; font-style: italic; font-size: 10px; background: #fafafa;">Excess payment received from retailer.</div>' :
+                      (rejectionDetails.length > 0 ? 
+                        '<table style="width: 100%; border-collapse: collapse; font-size: 9px;">' +
+                          '<thead><tr style="background: #fafafa;">' +
+                            '<th style="padding: 5px 10px; text-align: left; border-bottom: 1px solid #eee;">Product</th>' +
+                            '<th style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #eee;">Qty</th>' +
+                            '<th style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #eee;">Variant</th>' +
+                            '<th style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #eee;">Reason</th>' +
+                            '<th style="padding: 5px 10px; text-align: right; border-bottom: 1px solid #eee;">Value</th>' +
+                          '</tr></thead>' +
+                          '<tbody>' +
+                            rejectionDetails.map(d => 
+                              '<tr>' +
+                                '<td style="padding: 4px 10px; border-bottom: 1px solid #f0f0f0;">' + (d.product_name || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: center; border-bottom: 1px solid #f0f0f0;">' + (d.quantity || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: center; border-bottom: 1px solid #f0f0f0;">' + (d.variant_name || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #c62828;">' + (d.reason || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: right; border-bottom: 1px solid #f0f0f0;">₹' + ((d.value || d.mrp || 0).toFixed ? (d.value || d.mrp || 0).toFixed(2) : (d.value || d.mrp || 0)) + '</td>' +
+                              '</tr>'
+                            ).join('') +
+                          '</tbody>' +
+                        '</table>'
+                      : '<div style="padding: 8px 12px; color: #888; font-size: 10px; background: #fafafa;">No product details available</div>')
+                    ) +
+                  '</div>';
+                }).join('') +
+              '</div>';
+            }).join('');
+          })()}
           
           <div style="display: flex; justify-content: flex-end; padding: 10px; background: #e8f5e9; border-top: 2px solid #4caf50;">
             <div style="text-align: right;">

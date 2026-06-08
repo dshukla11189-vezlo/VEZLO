@@ -24,6 +24,7 @@ import {
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
@@ -262,6 +263,9 @@ export default function RetailerOrders() {
   const [rejectionProductDrilldown, setRejectionProductDrilldown] = useState(null); // Product drilldown modal data
   const [productCountTab, setProductCountTab] = useState('high'); // 'high' or 'low' selling tab for count block
   const [productValueTab, setProductValueTab] = useState('high'); // 'high' or 'low' selling tab for value block
+  
+  // Earnings Analytics state (uses same date filter as rejection loss)
+  const [earningsChartViewMode, setEarningsChartViewMode] = useState('weekly'); // 'daily', 'weekly', 'monthly'
   
   // Closing Inventory Management (Admin)
   const [closingInventoryData, setClosingInventoryData] = useState([]);
@@ -5693,6 +5697,338 @@ export default function RetailerOrders() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Retailer Earnings Block - Uses same date filter as Rejection Loss */}
+        <div className="bg-emerald-50 rounded-lg border border-emerald-200 p-4 mb-4">
+          {/* Header Row */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-emerald-100 rounded-lg">
+                <TrendingUp size={18} className="text-emerald-600" />
+              </div>
+              <span className="text-sm font-semibold text-emerald-800">
+                Retailer Earnings {selectedRetailer ? `(${retailers.find(r => r.id === selectedRetailer)?.company_name || 'Selected'})` : '(All Retailers)'}
+              </span>
+            </div>
+            {/* View Mode Tabs */}
+            <div className="flex items-center gap-1">
+              {['daily', 'weekly', 'monthly'].map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setEarningsChartViewMode(mode)}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all ${
+                    earningsChartViewMode === mode
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
+                  }`}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Earnings Charts */}
+          {(() => {
+            // Filter dispatches by date range and optionally by retailer
+            // Filter dispatches by date range and optionally by retailer
+            // Using allDispatchesForRejection which has full date range data
+            const filteredDispatches = allDispatchesForRejection.filter(d => {
+              const dispDate = d.dispatch_date?.split('T')[0];
+              if (!dispDate || dispDate < rejectionLossDateFrom || dispDate > rejectionLossDateTo) return false;
+              if (selectedRetailer && d.retailer_id !== selectedRetailer) return false;
+              return true;
+            });
+            
+            // Filter rejections by date range and optionally by retailer
+            const filteredRejs = rejections.filter(r => {
+              const rejDate = r.rejection_date?.split('T')[0];
+              if (!rejDate || rejDate < rejectionLossDateFrom || rejDate > rejectionLossDateTo) return false;
+              if (selectedRetailer && r.retailer_id !== selectedRetailer) return false;
+              return true;
+            });
+            
+            // Helper functions
+            const getWeekStart = (dateStr) => {
+              const date = new Date(dateStr);
+              const day = date.getDay();
+              const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+              const weekStart = new Date(date.setDate(diff));
+              return weekStart.toISOString().split('T')[0];
+            };
+            
+            const getMonthKey = (dateStr) => {
+              const date = new Date(dateStr);
+              return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            };
+            
+            const formatWeekLabel = (weekStartStr) => {
+              const start = new Date(weekStartStr);
+              const end = new Date(start);
+              end.setDate(end.getDate() + 6);
+              const fmt = (d) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+              return `${fmt(start)} - ${fmt(end)}`;
+            };
+            
+            const formatMonthLabel = (monthKey) => {
+              const [year, month] = monthKey.split('-');
+              const date = new Date(year, parseInt(month) - 1, 1);
+              return date.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+            };
+            
+            // Group data based on view mode
+            const groupedData = {};
+            
+            filteredDispatches.forEach(d => {
+              const date = d.dispatch_date?.split('T')[0];
+              if (!date) return;
+              
+              // Get retailer's commission percentage
+              const retailer = retailers.find(r => r.id === d.retailer_id);
+              const commPct = retailer?.commission_percentage || 0;
+              
+              let key, label, shortLabel;
+              if (earningsChartViewMode === 'daily') {
+                key = date;
+                label = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+                shortLabel = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+              } else if (earningsChartViewMode === 'weekly') {
+                key = getWeekStart(date);
+                label = formatWeekLabel(key);
+                shortLabel = new Date(key).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+              } else {
+                key = getMonthKey(date);
+                label = formatMonthLabel(key);
+                shortLabel = label;
+              }
+              
+              if (!groupedData[key]) {
+                groupedData[key] = { key, label, shortLabel, orderValue: 0, totalCommission: 0, orderDays: new Set() };
+              }
+              
+              const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
+                (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
+              groupedData[key].orderValue += mrp;
+              groupedData[key].totalCommission += mrp * commPct / 100;
+              groupedData[key].orderDays.add(date);
+            });
+            
+            // Subtract rejections from order value and commission
+            filteredRejs.forEach(r => {
+              const date = r.rejection_date?.split('T')[0];
+              if (!date) return;
+              
+              const retailer = retailers.find(ret => ret.id === r.retailer_id);
+              const commPct = retailer?.commission_percentage || 0;
+              const rejValue = r.rejection_value || 0;
+              
+              let key;
+              if (earningsChartViewMode === 'daily') {
+                key = date;
+              } else if (earningsChartViewMode === 'weekly') {
+                key = getWeekStart(date);
+              } else {
+                key = getMonthKey(date);
+              }
+              
+              if (groupedData[key]) {
+                groupedData[key].orderValue -= rejValue;
+                groupedData[key].totalCommission -= rejValue * commPct / 100;
+              }
+            });
+            
+            // Calculate final values
+            const chartData = Object.values(groupedData)
+              .map(d => {
+                const daysCount = d.orderDays.size || 1;
+                return {
+                  ...d,
+                  netOrderValue: Math.round(Math.max(0, d.orderValue)),
+                  earnings: Math.round(Math.max(0, d.totalCommission)),
+                  avgEarningsPerDay: Math.round(Math.max(0, d.totalCommission) / daysCount),
+                  daysCount
+                };
+              })
+              .sort((a, b) => a.key.localeCompare(b.key));
+            
+            // Calculate totals for summary
+            const totalOrderValue = chartData.reduce((sum, d) => sum + d.netOrderValue, 0);
+            const totalEarnings = chartData.reduce((sum, d) => sum + d.earnings, 0);
+            const totalDays = new Set(filteredDispatches.map(d => d.dispatch_date?.split('T')[0]).filter(Boolean)).size;
+            const avgEarningsPerDay = totalDays > 0 ? Math.round(totalEarnings / totalDays) : 0;
+            
+            if (chartData.length === 0) {
+              return (
+                <div className="text-center py-4 text-gray-500 text-sm">
+                  No dispatch data available for the selected period
+                </div>
+              );
+            }
+            
+            // Colors for bars
+            const orderColors = ['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#3b82f6', '#60a5fa'];
+            const earningColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#10b981', '#34d399'];
+            const avgColors = ['#f59e0b', '#fbbf24', '#fcd34d', '#fde68a', '#fef3c7', '#f59e0b', '#fbbf24'];
+            
+            const formatValue = (value) => {
+              if (value >= 100000) return `₹${(value/100000).toFixed(1)}L`;
+              if (value >= 1000) return `₹${(value/1000).toFixed(1)}k`;
+              return `₹${value}`;
+            };
+            
+            const viewModeLabel = earningsChartViewMode === 'daily' ? 'Daily' : earningsChartViewMode === 'weekly' ? 'Weekly' : 'Monthly';
+            
+            return (
+              <>
+                {/* Summary Row */}
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="bg-white/70 rounded-lg p-2 border border-blue-100">
+                    <p className="text-[10px] text-blue-600 uppercase font-medium">Total Order Value</p>
+                    <p className="text-lg font-bold text-blue-700">{formatCurrency(totalOrderValue)}</p>
+                  </div>
+                  <div className="bg-white/70 rounded-lg p-2 border border-emerald-100">
+                    <p className="text-[10px] text-emerald-600 uppercase font-medium">Total Earnings</p>
+                    <p className="text-lg font-bold text-emerald-700">{formatCurrency(totalEarnings)}</p>
+                  </div>
+                  <div className="bg-white/70 rounded-lg p-2 border border-amber-100">
+                    <p className="text-[10px] text-amber-600 uppercase font-medium">Avg. Earning/Day</p>
+                    <p className="text-lg font-bold text-amber-700">{formatCurrency(avgEarningsPerDay)}</p>
+                    <p className="text-[9px] text-gray-500">({totalDays} days)</p>
+                  </div>
+                </div>
+                
+                {/* Charts Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Order Value Chart */}
+                  <div className="bg-white/80 rounded-xl p-2 border border-blue-100">
+                    <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1">
+                      <ShoppingCart size={12} className="text-blue-500" />
+                      {viewModeLabel} Order Value
+                    </p>
+                    <div className="h-28">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} margin={{ top: 18, right: 5, left: -20, bottom: 5 }}>
+                          <XAxis 
+                            dataKey="shortLabel" 
+                            tick={{ fontSize: 7, fill: '#6b7280' }}
+                            axisLine={false}
+                            tickLine={false}
+                            interval={0}
+                            angle={chartData.length > 5 ? -45 : 0}
+                            textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                            height={chartData.length > 5 ? 30 : 15}
+                          />
+                          <YAxis hide={true} />
+                          <Tooltip 
+                            contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
+                            labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                          />
+                          <Bar dataKey="netOrderValue" radius={[3, 3, 0, 0]} maxBarSize={30}>
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
+                            ))}
+                            <LabelList 
+                              dataKey="netOrderValue" 
+                              position="top" 
+                              style={{ fontSize: 7, fontWeight: 600, fill: '#3b82f6' }}
+                              formatter={formatValue}
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  
+                  {/* Earnings Chart */}
+                  <div className="bg-white/80 rounded-xl p-2 border border-emerald-100">
+                    <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1">
+                      <TrendingUp size={12} className="text-emerald-500" />
+                      {viewModeLabel} Earnings
+                    </p>
+                    <div className="h-28">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} margin={{ top: 18, right: 5, left: -20, bottom: 5 }}>
+                          <XAxis 
+                            dataKey="shortLabel" 
+                            tick={{ fontSize: 7, fill: '#6b7280' }}
+                            axisLine={false}
+                            tickLine={false}
+                            interval={0}
+                            angle={chartData.length > 5 ? -45 : 0}
+                            textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                            height={chartData.length > 5 ? 30 : 15}
+                          />
+                          <YAxis hide={true} />
+                          <Tooltip 
+                            contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
+                            labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                          />
+                          <Bar dataKey="earnings" radius={[3, 3, 0, 0]} maxBarSize={30}>
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={earningColors[index % earningColors.length]} />
+                            ))}
+                            <LabelList 
+                              dataKey="earnings" 
+                              position="top" 
+                              style={{ fontSize: 7, fontWeight: 600, fill: '#10b981' }}
+                              formatter={formatValue}
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  
+                  {/* Avg Earnings/Day Chart */}
+                  <div className="bg-white/80 rounded-xl p-2 border border-amber-100">
+                    <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1">
+                      <DollarSign size={12} className="text-amber-500" />
+                      Avg. Earning/Day
+                    </p>
+                    <div className="h-28">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} margin={{ top: 18, right: 5, left: -20, bottom: 5 }}>
+                          <XAxis 
+                            dataKey="shortLabel" 
+                            tick={{ fontSize: 7, fill: '#6b7280' }}
+                            axisLine={false}
+                            tickLine={false}
+                            interval={0}
+                            angle={chartData.length > 5 ? -45 : 0}
+                            textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                            height={chartData.length > 5 ? 30 : 15}
+                          />
+                          <YAxis hide={true} />
+                          <Tooltip 
+                            contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            formatter={(value, name, props) => [
+                              `₹${value.toLocaleString()} (${props.payload.daysCount} days)`, 
+                              'Avg/Day'
+                            ]}
+                            labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                          />
+                          <Bar dataKey="avgEarningsPerDay" radius={[3, 3, 0, 0]} maxBarSize={30}>
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={avgColors[index % avgColors.length]} />
+                            ))}
+                            <LabelList 
+                              dataKey="avgEarningsPerDay" 
+                              position="top" 
+                              style={{ fontSize: 7, fontWeight: 600, fill: '#d97706' }}
+                              formatter={formatValue}
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Immediately Payable Block (5-Day Credit) */}

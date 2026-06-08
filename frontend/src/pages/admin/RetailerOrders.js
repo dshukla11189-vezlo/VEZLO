@@ -5000,10 +5000,14 @@ export default function RetailerOrders() {
           
           ${invoice.credit_note_adjustments.map(adj => {
             const cnNumber = adj.credit_note_number || '-';
-            const cnDate = adj.credit_note_date ? new Date(adj.credit_note_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+            // Look up dates from creditNotes state if not present in adjustment
+            const matchingCN = creditNotes.find(cn => cn.id === adj.credit_note_id || cn.credit_note_number === adj.credit_note_number);
+            const cnDateRaw = adj.credit_note_date || (matchingCN ? matchingCN.created_at : null);
+            const rejDateRaw = adj.rejection_date || (matchingCN ? matchingCN.rejection_date : null);
+            const cnDate = cnDateRaw ? new Date(cnDateRaw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
             const amount = adj.adjusted_amount || 0;
             const sourceLabel = adj.source === 'excess_payment' ? 'Excess Payment' : 'Rejection';
-            const rejectionDate = adj.rejection_date ? new Date(adj.rejection_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+            const rejectionDate = rejDateRaw ? new Date(rejDateRaw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
             const rejectionDetails = adj.rejection_details || [];
             
             return '<div style="border: 1px solid #ddd; margin: 10px 0; border-radius: 4px; overflow: hidden;">' +

@@ -13046,12 +13046,12 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
             adjustment = {
                 "credit_note_id": cn.get("id"),
                 "credit_note_number": cn.get("credit_note_number"),
-                "credit_note_date": cn.get("created_at", cn.get("credit_note_date", "")),
+                "credit_note_date": cn.get("created_at", ""),  # When CN was created
                 "original_amount": cn.get("amount", 0),
                 "adjusted_amount": adjust_amount,
                 "rejection_details": cn.get("rejection_details", []),
                 "rejection_id": cn.get("rejection_id"),
-                "rejection_date": cn.get("rejection_date", ""),
+                "rejection_date": cn.get("rejection_date", ""),  # When rejection was recorded
                 "source": cn.get("source", "rejection")
             }
             credit_note_adjustments.append(adjustment)

@@ -2,6 +2,17 @@
 
 ## Changelog (June 2025)
 
+### June 8, 2025 - Credit Notes Grouped by Invoice Date in PDF (Verified) ✅
+- **FEATURE VERIFIED**: Invoice PDF now displays credit note adjustments grouped by Original Invoice Date
+  - Credit notes are organized under date headers (e.g., "30 May 2026", "29 May 2026")
+  - Each group shows the Original Invoice Number (e.g., "SAV-INV-30MAY2026-001")
+  - Rejection credit notes display product details: Product, Qty, Variant, Reason, Value
+  - Excess Payment credit notes are clearly labeled and distinguished
+  - Total adjustment amount shown per group and overall
+- **Files Involved**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - `downloadInvoicePdf()` function with grouping logic
+  - `/app/backend/server.py` - `/api/retailer-invoices` endpoint passes `original_invoice_number` in adjustments
+- **Status**: Visually verified via PDF generation test
 
 ### June 8, 2025 - Stock Closing Matrix UI (Phase 2 of Automated Order System) ✅
 - **NEW FEATURE**: Replaced the old complex Closing Inventory tab with a new matrix-style UI (like Retail Plans)

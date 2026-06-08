@@ -5028,10 +5028,35 @@ export default function RetailerOrders() {
               return dateA - dateB;
             });
             
+            // Helper to extract date from invoice number like SAV-INV-30MAY2026-001
+            const extractDateFromInvoiceNum = (invNum) => {
+              if (!invNum) return null;
+              const match = invNum.match(/(\d{1,2})([A-Z]{3})(\d{4})/i);
+              if (match) {
+                const months = {JAN:'Jan',FEB:'Feb',MAR:'Mar',APR:'Apr',MAY:'May',JUN:'Jun',JUL:'Jul',AUG:'Aug',SEP:'Sep',OCT:'Oct',NOV:'Nov',DEC:'Dec'};
+                const day = match[1];
+                const month = months[match[2].toUpperCase()] || match[2];
+                const year = match[3];
+                return day + ' ' + month + ' ' + year;
+              }
+              return null;
+            };
+            
             return sortedGroups.map(group => {
               const rejDateTime = group.rejectionDate ? new Date(group.rejectionDate) : null;
-              const rejDateStr = rejDateTime ? rejDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-              const rejTimeStr = rejDateTime ? rejDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+              // Try rejection date first, then extract from invoice number
+              let displayDate = '-';
+              let displayTime = '';
+              if (rejDateTime && !isNaN(rejDateTime.getTime())) {
+                displayDate = rejDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                displayTime = rejDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+              } else {
+                // Extract date from invoice number
+                const extractedDate = extractDateFromInvoiceNum(group.invoiceNumber);
+                if (extractedDate) {
+                  displayDate = extractedDate;
+                }
+              }
               
               // Calculate total rejection amount for this invoice group
               const groupTotal = group.creditNotes.reduce((sum, cn) => sum + (cn.adjusted_amount || 0), 0);
@@ -5040,7 +5065,7 @@ export default function RetailerOrders() {
                 '<div style="background: #1565c0; color: white; padding: 10px 12px; font-size: 11px;">' +
                   '<div style="display: flex; justify-content: space-between; align-items: center;">' +
                     '<div style="display: flex; align-items: center; gap: 20px;">' +
-                      '<div><strong>' + rejDateStr + (rejTimeStr ? ' at ' + rejTimeStr : '') + '</strong></div>' +
+                      '<div><strong>' + displayDate + (displayTime ? ' at ' + displayTime : '') + '</strong></div>' +
                       '<div style="color: #bbdefb;">|</div>' +
                       '<div>' + group.invoiceNumber + '</div>' +
                     '</div>' +

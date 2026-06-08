@@ -2789,10 +2789,10 @@ export default function RetailerDashboard() {
                           </p>
                           <div className="h-32">
                             <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
+                              <BarChart data={chartData} margin={{ top: 25, right: 5, left: -20, bottom: 5 }}>
                                 <XAxis 
                                   dataKey="shortLabel" 
-                                  tick={{ fontSize: 8, fill: '#6b7280' }}
+                                  tick={{ fontSize: 10, fill: '#6b7280' }}
                                   axisLine={false}
                                   tickLine={false}
                                   interval={0}
@@ -2802,7 +2802,7 @@ export default function RetailerDashboard() {
                                 />
                                 <YAxis hide={true} />
                                 <Tooltip 
-                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                                   formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
                                   labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                                 />
@@ -2813,7 +2813,7 @@ export default function RetailerDashboard() {
                                   <LabelList 
                                     dataKey="netOrderValue" 
                                     position="top" 
-                                    style={{ fontSize: 8, fontWeight: 600, fill: '#3b82f6' }}
+                                    style={{ fontSize: 11, fontWeight: 600, fill: '#3b82f6' }}
                                     formatter={formatValue}
                                   />
                                 </Bar>
@@ -2830,10 +2830,10 @@ export default function RetailerDashboard() {
                           </p>
                           <div className="h-32">
                             <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
+                              <BarChart data={chartData} margin={{ top: 25, right: 5, left: -20, bottom: 5 }}>
                                 <XAxis 
                                   dataKey="shortLabel" 
-                                  tick={{ fontSize: 8, fill: '#6b7280' }}
+                                  tick={{ fontSize: 10, fill: '#6b7280' }}
                                   axisLine={false}
                                   tickLine={false}
                                   interval={0}
@@ -2843,7 +2843,7 @@ export default function RetailerDashboard() {
                                 />
                                 <YAxis hide={true} />
                                 <Tooltip 
-                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                                   formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
                                   labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                                 />
@@ -2854,7 +2854,7 @@ export default function RetailerDashboard() {
                                   <LabelList 
                                     dataKey="earnings" 
                                     position="top" 
-                                    style={{ fontSize: 8, fontWeight: 600, fill: '#10b981' }}
+                                    style={{ fontSize: 11, fontWeight: 600, fill: '#10b981' }}
                                     formatter={formatValue}
                                   />
                                 </Bar>
@@ -2871,10 +2871,10 @@ export default function RetailerDashboard() {
                           </p>
                           <div className="h-32">
                             <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
+                              <BarChart data={chartData} margin={{ top: 25, right: 5, left: -20, bottom: 5 }}>
                                 <XAxis 
                                   dataKey="shortLabel" 
-                                  tick={{ fontSize: 8, fill: '#6b7280' }}
+                                  tick={{ fontSize: 10, fill: '#6b7280' }}
                                   axisLine={false}
                                   tickLine={false}
                                   interval={0}
@@ -2884,7 +2884,7 @@ export default function RetailerDashboard() {
                                 />
                                 <YAxis hide={true} />
                                 <Tooltip 
-                                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                                   formatter={(value, name, props) => [
                                     `₹${value.toLocaleString()} (${props.payload.daysCount} days)`, 
                                     'Avg/Day'
@@ -2898,7 +2898,7 @@ export default function RetailerDashboard() {
                                   <LabelList 
                                     dataKey="avgEarningsPerDay" 
                                     position="top" 
-                                    style={{ fontSize: 8, fontWeight: 600, fill: '#d97706' }}
+                                    style={{ fontSize: 11, fontWeight: 600, fill: '#d97706' }}
                                     formatter={formatValue}
                                   />
                                 </Bar>

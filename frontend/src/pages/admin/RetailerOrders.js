@@ -6129,10 +6129,10 @@ export default function RetailerOrders() {
                     </p>
                     <div className="h-28">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 18, right: 5, left: -20, bottom: 5 }}>
+                        <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
                             dataKey="shortLabel" 
-                            tick={{ fontSize: 7, fill: '#6b7280' }}
+                            tick={{ fontSize: 9, fill: '#6b7280' }}
                             axisLine={false}
                             tickLine={false}
                             interval={0}
@@ -6142,7 +6142,7 @@ export default function RetailerOrders() {
                           />
                           <YAxis hide={true} />
                           <Tooltip 
-                            contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                             formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                           />
@@ -6153,7 +6153,7 @@ export default function RetailerOrders() {
                             <LabelList 
                               dataKey="netOrderValue" 
                               position="top" 
-                              style={{ fontSize: 7, fontWeight: 600, fill: '#3b82f6' }}
+                              style={{ fontSize: 10, fontWeight: 600, fill: '#3b82f6' }}
                               formatter={formatValue}
                             />
                           </Bar>
@@ -6170,10 +6170,10 @@ export default function RetailerOrders() {
                     </p>
                     <div className="h-28">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 18, right: 5, left: -20, bottom: 5 }}>
+                        <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
                             dataKey="shortLabel" 
-                            tick={{ fontSize: 7, fill: '#6b7280' }}
+                            tick={{ fontSize: 9, fill: '#6b7280' }}
                             axisLine={false}
                             tickLine={false}
                             interval={0}
@@ -6183,7 +6183,7 @@ export default function RetailerOrders() {
                           />
                           <YAxis hide={true} />
                           <Tooltip 
-                            contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                             formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                           />
@@ -6194,7 +6194,7 @@ export default function RetailerOrders() {
                             <LabelList 
                               dataKey="earnings" 
                               position="top" 
-                              style={{ fontSize: 7, fontWeight: 600, fill: '#10b981' }}
+                              style={{ fontSize: 10, fontWeight: 600, fill: '#10b981' }}
                               formatter={formatValue}
                             />
                           </Bar>
@@ -6211,10 +6211,10 @@ export default function RetailerOrders() {
                     </p>
                     <div className="h-28">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 18, right: 5, left: -20, bottom: 5 }}>
+                        <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
                             dataKey="shortLabel" 
-                            tick={{ fontSize: 7, fill: '#6b7280' }}
+                            tick={{ fontSize: 9, fill: '#6b7280' }}
                             axisLine={false}
                             tickLine={false}
                             interval={0}
@@ -6224,7 +6224,7 @@ export default function RetailerOrders() {
                           />
                           <YAxis hide={true} />
                           <Tooltip 
-                            contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                             formatter={(value, name, props) => [
                               `₹${value.toLocaleString()} (${props.payload.daysCount} days)`, 
                               'Avg/Day'
@@ -6238,7 +6238,7 @@ export default function RetailerOrders() {
                             <LabelList 
                               dataKey="avgEarningsPerDay" 
                               position="top" 
-                              style={{ fontSize: 7, fontWeight: 600, fill: '#d97706' }}
+                              style={{ fontSize: 10, fontWeight: 600, fill: '#d97706' }}
                               formatter={formatValue}
                             />
                           </Bar>

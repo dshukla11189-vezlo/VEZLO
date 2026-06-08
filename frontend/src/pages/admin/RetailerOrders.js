@@ -4981,13 +4981,58 @@ export default function RetailerOrders() {
               ${rejectionAmount > 0 ? `<div style="margin-bottom: 5px; color: #dc2626;">(-) Rejections: <strong>-₹${rejectionAmount.toFixed(2)}</strong></div>` : ''}
               <div style="margin-bottom: 5px;">Total MRP Value: <strong>₹${totalMrpValue.toFixed(2)}</strong></div>
               <div style="margin-bottom: 5px; color: #15803d;">Commission (${invoice.commission_percentage}%): <strong>-₹${invoice.commission_amount.toFixed(2)}</strong></div>
-              <div style="font-size: 14px; font-weight: bold; border-top: 2px solid #14532D; padding-top: 5px;">Amount Payable by Retailer: ₹${invoice.net_payable.toFixed(2)}</div>
+              <div style="font-size: 14px; font-weight: bold; border-top: 2px solid #14532D; padding-top: 5px;">Invoice Amount: ₹${invoice.net_payable.toFixed(2)}</div>
+              ${(invoice.credit_note_adjustments?.length > 0 && invoice.total_credit_adjusted > 0) ? `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #999;">
+                  <div style="margin-bottom: 5px; color: #c62828; font-weight: bold;">(-) Credit Notes Adjusted: <strong>-₹${invoice.total_credit_adjusted.toFixed(2)}</strong></div>
+                  <div style="font-size: 16px; font-weight: bold; color: #2e7d32; background: #e8f5e9; padding: 8px; border-radius: 4px;">FINAL PAYABLE: ₹${(invoice.final_payable || invoice.net_payable).toFixed(2)}</div>
+                </div>
+              ` : ''}
             </div>
           </div>
         </div>
         
+        ${(invoice.credit_note_adjustments?.length > 0 && invoice.total_credit_adjusted > 0) ? `
+        <div class="items-section" style="margin-top: 15px;">
+          <div style="background: #e3f2fd; padding: 8px 10px; font-weight: bold; font-size: 12px; border-bottom: 1px solid #000;">
+            Credit Notes Adjusted in this Invoice
+          </div>
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th style="width: 100px;">CN Number</th>
+                <th style="width: 100px;">Type</th>
+                <th>Product Details</th>
+                <th style="width: 100px;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${invoice.credit_note_adjustments.map(adj => {
+                const cnNumber = adj.credit_note_number || '-';
+                const sourceLabel = adj.source === 'excess_payment' ? 'Excess Payment' : 'Rejection';
+                let productText = sourceLabel;
+                if (adj.rejection_details?.length > 0) {
+                  productText = adj.rejection_details.slice(0, 3).map(d => 
+                    d.product_name + ' (' + d.quantity + ' ' + (d.variant_name || '') + ')'
+                  ).join(', ');
+                  if (adj.rejection_details.length > 3) {
+                    productText += ' +' + (adj.rejection_details.length - 3) + ' more';
+                  }
+                }
+                const amount = adj.adjusted_amount || 0;
+                return '<tr><td style="text-align: center;">' + cnNumber + '</td><td style="text-align: center; color: ' + (adj.source === 'excess_payment' ? '#b45309' : '#dc2626') + ';">' + sourceLabel + '</td><td class="text-left">' + productText + '</td><td class="text-right" style="color: #dc2626;">-₹' + amount.toFixed(2) + '</td></tr>';
+              }).join('')}
+              <tr class="total-row">
+                <td colspan="3" style="text-align: right; padding-right: 20px;"><strong>Total Credit Adjusted:</strong></td>
+                <td class="text-right" style="color: #dc2626;"><strong>-₹${invoice.total_credit_adjusted.toFixed(2)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
+        
         <div class="amount-words-section">
-          <strong>Total Amount in words:</strong> ${numberToWords(invoice.net_payable)}
+          <strong>Total Amount in words:</strong> ${numberToWords(invoice.final_payable || invoice.net_payable)}
         </div>
         
         <div class="footer-section">

@@ -579,6 +579,24 @@ export default function RetailerOrders() {
     });
   }, [rejections, rejectionLossDateFrom, rejectionLossDateTo]);
 
+  // Set date range from first invoice to today once invoices are loaded
+  const [hasSetInitialDateRange, setHasSetInitialDateRange] = useState(false);
+  useEffect(() => {
+    if (invoices.length > 0 && !hasSetInitialDateRange) {
+      // Find the earliest invoice date
+      const invoiceDates = invoices
+        .map(inv => inv.invoice_date?.split('T')[0])
+        .filter(d => d)
+        .sort();
+      
+      if (invoiceDates.length > 0) {
+        const earliestDate = invoiceDates[0];
+        setRejectionLossDateFrom(earliestDate);
+        setHasSetInitialDateRange(true);
+      }
+    }
+  }, [invoices, hasSetInitialDateRange]);
+
   // Sync rejection amounts to invoices
   const [syncingRejections, setSyncingRejections] = useState(false);
   const syncRejectionsToInvoices = async () => {

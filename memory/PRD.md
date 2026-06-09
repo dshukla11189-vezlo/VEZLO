@@ -2,6 +2,15 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Rejection Chart Added to Retailer Earnings Block ✅
+- **NEW FEATURE**: Added rejection trend chart to the Retailer Earnings section
+  - Summary row now shows 4 metrics: Total Order Value, Total Earnings, Avg. Earning/Day, **Total Rejections** (with item count)
+  - New **Rejections chart** (red) added alongside existing 3 charts
+  - Uses the same date filter (Period) and view mode toggle (Daily/Weekly/Monthly)
+  - Filters by selected retailer when one is chosen
+  - Tooltip shows rejection value and item count per period
+- **Files Modified**: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 ### June 9, 2025 - Enhanced Auto Indent with Order Basis Selection ✅
 - **NEW FEATURE**: Auto Indent modal now supports two generation modes:
   1. **Historical Sales Based** (default) - Calculates from last 7 identical weekdays + 10% buffer

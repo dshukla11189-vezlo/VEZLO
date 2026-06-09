@@ -6197,7 +6197,7 @@ export default function RetailerOrders() {
               }
               
               if (!groupedData[key]) {
-                groupedData[key] = { key, label, shortLabel, orderValue: 0, totalCommission: 0, orderDays: new Set() };
+                groupedData[key] = { key, label, shortLabel, orderValue: 0, totalCommission: 0, orderDays: new Set(), rejectionValue: 0, rejectionCount: 0 };
               }
               
               const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
@@ -6207,7 +6207,7 @@ export default function RetailerOrders() {
               groupedData[key].orderDays.add(date);
             });
             
-            // Subtract rejections from order value and commission
+            // Subtract rejections from order value and commission, and track rejection values
             filteredRejs.forEach(r => {
               const date = r.rejection_date?.split('T')[0];
               if (!date) return;
@@ -6228,6 +6228,26 @@ export default function RetailerOrders() {
               if (groupedData[key]) {
                 groupedData[key].orderValue -= rejValue;
                 groupedData[key].totalCommission -= rejValue * commPct / 100;
+                groupedData[key].rejectionValue += rejValue;
+                groupedData[key].rejectionCount += 1;
+              } else {
+                // Create entry for periods with only rejections (no dispatches)
+                let label, shortLabel;
+                if (earningsChartViewMode === 'daily') {
+                  label = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+                  shortLabel = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                } else if (earningsChartViewMode === 'weekly') {
+                  label = formatWeekLabel(key);
+                  shortLabel = new Date(key).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+                } else {
+                  label = formatMonthLabel(key);
+                  shortLabel = label;
+                }
+                groupedData[key] = { 
+                  key, label, shortLabel, 
+                  orderValue: 0, totalCommission: 0, orderDays: new Set(),
+                  rejectionValue: rejValue, rejectionCount: 1 
+                };
               }
             });
             
@@ -6240,6 +6260,8 @@ export default function RetailerOrders() {
                   netOrderValue: Math.round(Math.max(0, d.orderValue)),
                   earnings: Math.round(Math.max(0, d.totalCommission)),
                   avgEarningsPerDay: Math.round(Math.max(0, d.totalCommission) / daysCount),
+                  rejectionValue: Math.round(d.rejectionValue || 0),
+                  rejectionCount: d.rejectionCount || 0,
                   daysCount
                 };
               })
@@ -6248,6 +6270,8 @@ export default function RetailerOrders() {
             // Calculate totals for summary
             const totalOrderValue = chartData.reduce((sum, d) => sum + d.netOrderValue, 0);
             const totalEarnings = chartData.reduce((sum, d) => sum + d.earnings, 0);
+            const totalRejections = chartData.reduce((sum, d) => sum + d.rejectionValue, 0);
+            const totalRejectionCount = chartData.reduce((sum, d) => sum + d.rejectionCount, 0);
             const totalDays = new Set(filteredDispatches.map(d => d.dispatch_date?.split('T')[0]).filter(Boolean)).size;
             const avgEarningsPerDay = totalDays > 0 ? Math.round(totalEarnings / totalDays) : 0;
             
@@ -6263,6 +6287,7 @@ export default function RetailerOrders() {
             const orderColors = ['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#3b82f6', '#60a5fa'];
             const earningColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#10b981', '#34d399'];
             const avgColors = ['#f59e0b', '#fbbf24', '#fcd34d', '#fde68a', '#fef3c7', '#f59e0b', '#fbbf24'];
+            const rejectionColors = ['#ef4444', '#f87171', '#fca5a5', '#fecaca', '#fee2e2', '#ef4444', '#f87171'];
             
             const formatValue = (value) => {
               if (value >= 100000) return `₹${(value/100000).toFixed(1)}L`;
@@ -6275,7 +6300,7 @@ export default function RetailerOrders() {
             return (
               <>
                 {/* Summary Row */}
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="grid grid-cols-4 gap-3 mb-3">
                   <div className="bg-white/70 rounded-lg p-2 border border-blue-100">
                     <p className="text-[10px] text-blue-600 uppercase font-medium">Total Order Value</p>
                     <p className="text-lg font-bold text-blue-700">{formatCurrency(totalOrderValue)}</p>
@@ -6289,10 +6314,15 @@ export default function RetailerOrders() {
                     <p className="text-lg font-bold text-amber-700">{formatCurrency(avgEarningsPerDay)}</p>
                     <p className="text-[9px] text-gray-500">({totalDays} days)</p>
                   </div>
+                  <div className="bg-white/70 rounded-lg p-2 border border-red-100">
+                    <p className="text-[10px] text-red-600 uppercase font-medium">Total Rejections</p>
+                    <p className="text-lg font-bold text-red-700">{formatCurrency(totalRejections)}</p>
+                    <p className="text-[9px] text-gray-500">({totalRejectionCount} items)</p>
+                  </div>
                 </div>
                 
                 {/* Charts Row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   {/* Order Value Chart */}
                   <div className="bg-white/80 rounded-xl p-2 border border-blue-100">
                     <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1">
@@ -6318,14 +6348,14 @@ export default function RetailerOrders() {
                             formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                           />
-                          <Bar dataKey="netOrderValue" radius={[3, 3, 0, 0]} maxBarSize={30}>
+                          <Bar dataKey="netOrderValue" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
                             ))}
                             <LabelList 
                               dataKey="netOrderValue" 
                               position="top" 
-                              style={{ fontSize: 10, fontWeight: 600, fill: '#3b82f6' }}
+                              style={{ fontSize: 9, fontWeight: 600, fill: '#3b82f6' }}
                               formatter={formatValue}
                             />
                           </Bar>
@@ -6359,14 +6389,14 @@ export default function RetailerOrders() {
                             formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                           />
-                          <Bar dataKey="earnings" radius={[3, 3, 0, 0]} maxBarSize={30}>
+                          <Bar dataKey="earnings" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={earningColors[index % earningColors.length]} />
                             ))}
                             <LabelList 
                               dataKey="earnings" 
                               position="top" 
-                              style={{ fontSize: 10, fontWeight: 600, fill: '#10b981' }}
+                              style={{ fontSize: 9, fontWeight: 600, fill: '#10b981' }}
                               formatter={formatValue}
                             />
                           </Bar>
@@ -6403,14 +6433,58 @@ export default function RetailerOrders() {
                             ]}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                           />
-                          <Bar dataKey="avgEarningsPerDay" radius={[3, 3, 0, 0]} maxBarSize={30}>
+                          <Bar dataKey="avgEarningsPerDay" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={avgColors[index % avgColors.length]} />
                             ))}
                             <LabelList 
                               dataKey="avgEarningsPerDay" 
                               position="top" 
-                              style={{ fontSize: 10, fontWeight: 600, fill: '#d97706' }}
+                              style={{ fontSize: 9, fontWeight: 600, fill: '#d97706' }}
+                              formatter={formatValue}
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  
+                  {/* Rejections Chart */}
+                  <div className="bg-white/80 rounded-xl p-2 border border-red-100">
+                    <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1">
+                      <AlertTriangle size={12} className="text-red-500" />
+                      {viewModeLabel} Rejections
+                    </p>
+                    <div className="h-28">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
+                          <XAxis 
+                            dataKey="shortLabel" 
+                            tick={{ fontSize: 9, fill: '#6b7280' }}
+                            axisLine={false}
+                            tickLine={false}
+                            interval={0}
+                            angle={chartData.length > 5 ? -45 : 0}
+                            textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                            height={chartData.length > 5 ? 30 : 15}
+                          />
+                          <YAxis hide={true} />
+                          <Tooltip 
+                            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                            formatter={(value, name, props) => [
+                              `₹${value.toLocaleString()} (${props.payload.rejectionCount} items)`, 
+                              'Rejections'
+                            ]}
+                            labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                          />
+                          <Bar dataKey="rejectionValue" radius={[3, 3, 0, 0]} maxBarSize={25}>
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={rejectionColors[index % rejectionColors.length]} />
+                            ))}
+                            <LabelList 
+                              dataKey="rejectionValue" 
+                              position="top" 
+                              style={{ fontSize: 9, fontWeight: 600, fill: '#dc2626' }}
                               formatter={formatValue}
                             />
                           </Bar>

@@ -333,6 +333,7 @@ export default function RetailerOrders() {
   const [autoIndentDate, setAutoIndentDate] = useState(new Date(Date.now() + 86400000).toISOString().split('T')[0]); // Tomorrow by default
   const [autoIndentRetailerId, setAutoIndentRetailerId] = useState('');
   const [autoIndentLoading, setAutoIndentLoading] = useState(false);
+  const [autoIndentBasis, setAutoIndentBasis] = useState('sales'); // 'sales' or 'plan'
 
   // Daily Requirement state
   const [dailyReqDate, setDailyReqDate] = useState(new Date().toISOString().split('T')[0]);
@@ -2754,20 +2755,22 @@ export default function RetailerOrders() {
     try {
       const response = await api.post('/api/admin/generate-auto-indent', {
         retailer_id: autoIndentRetailerId,
-        target_date: autoIndentDate
+        target_date: autoIndentDate,
+        basis: autoIndentBasis // 'sales' or 'plan'
       });
       
       if (response.data.success) {
         toast.success(response.data.message || `Auto indent created successfully for ${response.data.retailer_name}`);
         setShowAutoIndentModal(false);
         setAutoIndentRetailerId('');
+        setAutoIndentBasis('sales');
         loadIndents();
       } else {
         toast.error(response.data.message || 'Failed to create auto indent');
       }
     } catch (error) {
       console.error('Auto indent creation error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to create auto indent. Check if retailer has sales history.');
+      toast.error(error.response?.data?.detail || 'Failed to create auto indent. Check if retailer has required data.');
     } finally {
       setAutoIndentLoading(false);
     }
@@ -7772,9 +7775,20 @@ export default function RetailerOrders() {
                               </span>
                             )}
                             {indent.is_auto_generated && (
-                              <span className="ml-2 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
-                                Auto Generated
-                              </span>
+                              <>
+                                <span className="ml-2 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] rounded font-medium">
+                                  Auto Generated
+                                </span>
+                                {indent.generation_basis === 'plan' ? (
+                                  <span className="ml-1 px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded font-medium">
+                                    Plan Based
+                                  </span>
+                                ) : (
+                                  <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] rounded font-medium">
+                                    Sales Based
+                                  </span>
+                                )}
+                              </>
                             )}
                           </td>
                           <td className="p-3 text-center">{indent.items?.length || 0}</td>
@@ -12885,10 +12899,6 @@ export default function RetailerOrders() {
                 </button>
               </div>
               <div className="p-4 space-y-4">
-                <p className="text-sm text-gray-600 bg-purple-50 p-3 rounded-lg">
-                  This will create an auto-generated indent based on the retailer's average sales from the last 7 identical weekdays + 10% buffer.
-                </p>
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Select Retailer *
@@ -12921,6 +12931,62 @@ export default function RetailerOrders() {
                     Select the date for which the indent should be created
                   </p>
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Order Basis *
+                  </label>
+                  <div className="flex gap-4">
+                    <label className={`flex-1 flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      autoIndentBasis === 'sales' 
+                        ? 'border-purple-500 bg-purple-50' 
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="orderBasis"
+                        value="sales"
+                        checked={autoIndentBasis === 'sales'}
+                        onChange={(e) => setAutoIndentBasis(e.target.value)}
+                        className="w-4 h-4 text-purple-600"
+                      />
+                      <div>
+                        <div className="font-medium text-sm">Historical Sales</div>
+                        <div className="text-xs text-gray-500">7 weekday avg + 10%</div>
+                      </div>
+                    </label>
+                    <label className={`flex-1 flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      autoIndentBasis === 'plan' 
+                        ? 'border-green-500 bg-green-50' 
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="orderBasis"
+                        value="plan"
+                        checked={autoIndentBasis === 'plan'}
+                        onChange={(e) => setAutoIndentBasis(e.target.value)}
+                        className="w-4 h-4 text-green-600"
+                      />
+                      <div>
+                        <div className="font-medium text-sm">Retail Plan</div>
+                        <div className="text-xs text-gray-500">Plan qty - Closing</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                
+                <div className={`text-sm p-3 rounded-lg ${
+                  autoIndentBasis === 'sales' 
+                    ? 'bg-purple-50 text-purple-700' 
+                    : 'bg-green-50 text-green-700'
+                }`}>
+                  {autoIndentBasis === 'sales' ? (
+                    <>This will create an indent based on the retailer's <strong>average sales from the last 7 identical weekdays + 10% buffer</strong>.</>
+                  ) : (
+                    <>This will create an indent based on the <strong>subscribed Retail Plan quantities minus yesterday's closing inventory</strong>. Closing inventory is required.</>
+                  )}
+                </div>
 
                 <div className="flex gap-2 pt-4">
                   <Button 
@@ -12935,7 +13001,7 @@ export default function RetailerOrders() {
                   <Button 
                     type="button" 
                     onClick={handleAutoIndentCreation}
-                    className="flex-1 bg-purple-600 hover:bg-purple-700"
+                    className={`flex-1 ${autoIndentBasis === 'sales' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700'}`}
                     disabled={autoIndentLoading || !autoIndentRetailerId}
                   >
                     {autoIndentLoading ? (

@@ -2,6 +2,26 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Enhanced Auto Indent with Order Basis Selection ✅
+- **NEW FEATURE**: Auto Indent modal now supports two generation modes:
+  1. **Historical Sales Based** (default) - Calculates from last 7 identical weekdays + 10% buffer
+  2. **Retail Plan Based** - Plan qty minus yesterday's closing inventory
+- **UI Changes**:
+  - Added "Order Basis" radio button selector in Auto Indent modal
+  - Dynamic description text changes based on selected option
+  - Color-coded: Purple for Sales-based, Green for Plan-based
+- **Indent Tags**: Auto-generated indents now show two tags:
+  - "Auto Generated" (purple) + "Sales Based" (amber) OR "Plan Based" (green)
+- **Plan-based Logic**:
+  - Validates retailer has subscribed plan with products
+  - Requires closing inventory for previous day (mandatory)
+  - Calculates pending qty = Plan qty - Closing qty
+  - Only creates items with positive pending quantities
+- **Backend**: New `generate_plan_based_indent()` function added
+- **Files Modified**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Modal UI and state
+  - `/app/backend/server.py` - `generate_single_auto_indent()` and new helper function
+
 ### June 8, 2025 - Credit Notes Grouped by Invoice Date in PDF (Verified) ✅
 - **FEATURE VERIFIED**: Invoice PDF now displays credit note adjustments grouped by Original Invoice Date
   - Credit notes are organized under date headers (e.g., "30 May 2026", "29 May 2026")

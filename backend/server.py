@@ -15948,12 +15948,13 @@ async def generate_single_auto_indent(
     request: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Generate auto-indent for a single retailer for a specific date based on invoice history"""
+    """Generate auto-indent for a single retailer based on sales history OR retail plan"""
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can generate auto indents")
     
     retailer_id = request.get("retailer_id")
     target_date_str = request.get("target_date")
+    basis = request.get("basis", "sales")  # 'sales' or 'plan'
     
     if not retailer_id:
         raise HTTPException(status_code=400, detail="retailer_id is required")
@@ -15972,15 +15973,6 @@ async def generate_single_auto_indent(
         
         retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
         
-        # Get packaging variants for weight lookup
-        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
-        packaging_weight_map = {}
-        for p in packaging_variants:
-            name = p.get('name', '').strip().lower()
-            weight = p.get('weight_gm', 0)
-            if name and weight:
-                packaging_weight_map[name] = weight
-        
         # Check if indent already exists for this retailer and date
         existing_indent = await db.retailer_indents.find_one({
             "retailer_id": retailer_id,
@@ -15992,6 +15984,21 @@ async def generate_single_auto_indent(
                 "success": False,
                 "message": f"An indent already exists for {retailer_name} on {target_date.isoformat()}. Delete it first to regenerate."
             }
+        
+        # Handle Plan-based generation
+        if basis == "plan":
+            return await generate_plan_based_indent(retailer, retailer_name, target_date, current_user)
+        
+        # Otherwise, proceed with Sales-based generation (existing logic)
+        
+        # Get packaging variants for weight lookup
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        packaging_weight_map = {}
+        for p in packaging_variants:
+            name = p.get('name', '').strip().lower()
+            weight = p.get('weight_gm', 0)
+            if name and weight:
+                packaging_weight_map[name] = weight
         
         # Get the target weekday (0=Monday, 6=Sunday)
         target_weekday = target_date.weekday()
@@ -16149,6 +16156,7 @@ async def generate_single_auto_indent(
             "status": "pending",
             "remarks": f"Auto-generated based on {len(same_weekday_invoices)} weeks of {weekday_names[target_weekday]} invoice data",
             "is_auto_generated": True,
+            "generation_basis": "sales",  # Historical sales based
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
@@ -16157,7 +16165,7 @@ async def generate_single_auto_indent(
         
         return {
             "success": True,
-            "message": f"Auto indent created for {retailer_name} with {len(indent_items)} products",
+            "message": f"Auto indent created for {retailer_name} with {len(indent_items)} products (Sales Based)",
             "retailer_name": retailer_name,
             "indent_id": new_indent["id"],
             "products_count": len(indent_items),
@@ -16171,6 +16179,124 @@ async def generate_single_auto_indent(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_date, current_user: dict):
+    """Generate indent based on retailer's subscribed plan minus closing inventory"""
+    retailer_id = retailer.get("id")
+    
+    # Check if retailer has a subscribed plan
+    subscribed_plan_id = retailer.get("subscribed_plan_id")
+    if not subscribed_plan_id:
+        return {
+            "success": False,
+            "message": f"{retailer_name} is not subscribed to any Retail Plan. Please assign a plan first."
+        }
+    
+    # Get the subscribed plan
+    plan = await db.retail_plans.find_one({"id": subscribed_plan_id}, {"_id": 0})
+    if not plan:
+        return {
+            "success": False,
+            "message": f"Subscribed plan not found. Please reassign a plan to {retailer_name}."
+        }
+    
+    plan_products = plan.get("products", [])
+    if not plan_products:
+        return {
+            "success": False,
+            "message": f"Plan '{plan.get('name')}' has no products configured."
+        }
+    
+    # Get yesterday's closing inventory
+    yesterday = (target_date - timedelta(days=1)).isoformat()
+    closing_records = await db.retailer_closing_inventory.find({
+        "retailer_id": retailer_id,
+        "closing_date": yesterday
+    }, {"_id": 0}).to_list(500)
+    
+    if not closing_records:
+        return {
+            "success": False,
+            "message": f"No closing inventory found for {retailer_name} on {yesterday}. Closing inventory is mandatory for Plan-based orders."
+        }
+    
+    # Create a map of closing inventory by product_id + variant_id
+    closing_map = {}
+    for record in closing_records:
+        product_id = record.get("product_id")
+        variant_id = record.get("variant_id") or ""
+        closing_qty = record.get("closing_qty", 0)
+        key = f"{product_id}_{variant_id}"
+        closing_map[key] = closing_qty
+    
+    # Calculate pending quantities
+    indent_items = []
+    for plan_item in plan_products:
+        product_id = plan_item.get("product_id")
+        product_name = plan_item.get("product_name", "Unknown")
+        variant_id = plan_item.get("variant_id") or ""
+        variant_name = plan_item.get("variant_name") or ""
+        plan_qty = plan_item.get("quantity", 0)
+        
+        # Get closing inventory for this product+variant
+        key = f"{product_id}_{variant_id}"
+        closing_qty = closing_map.get(key, 0)
+        
+        # Calculate pending qty (Plan qty - Closing qty)
+        pending_qty = max(0, plan_qty - closing_qty)
+        
+        if pending_qty > 0:
+            indent_items.append({
+                "product_id": product_id,
+                "product_name": product_name,
+                "variant_id": variant_id,
+                "variant_name": variant_name,
+                "quantity": round(pending_qty),
+                "plan_qty": plan_qty,
+                "closing_qty": closing_qty,
+                "status": "pending"
+            })
+    
+    if not indent_items:
+        return {
+            "success": False,
+            "message": "All products in plan are fully stocked (closing inventory >= plan qty). No indent needed."
+        }
+    
+    # Sort by product name
+    indent_items.sort(key=lambda x: x["product_name"])
+    
+    # Create the indent
+    new_indent = {
+        "id": str(uuid.uuid4()),
+        "retailer_id": retailer_id,
+        "retailer_name": retailer_name,
+        "indent_date": target_date.isoformat(),
+        "items": indent_items,
+        "total_qty": sum(item["quantity"] for item in indent_items),
+        "status": "pending",
+        "remarks": f"Plan-based indent from '{plan.get('name')}' (Closing date: {yesterday})",
+        "is_auto_generated": True,
+        "generation_basis": "plan",  # Plan based
+        "plan_id": subscribed_plan_id,
+        "plan_name": plan.get("name"),
+        "closing_date_used": yesterday,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.retailer_indents.insert_one(new_indent)
+    
+    return {
+        "success": True,
+        "message": f"Plan-based indent created for {retailer_name} with {len(indent_items)} products",
+        "retailer_name": retailer_name,
+        "indent_id": new_indent["id"],
+        "products_count": len(indent_items),
+        "total_qty": new_indent["total_qty"],
+        "plan_name": plan.get("name")
+    }
 
 
 @api_router.post("/admin/populate-hindi-names")

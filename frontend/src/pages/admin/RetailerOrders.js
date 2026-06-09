@@ -5026,7 +5026,7 @@ export default function RetailerOrders() {
           
           itemsHtml += `
             <tr class="category-header ${categoryClass}">
-              <td colspan="6" style="background: #000000; color: white; font-weight: bold; padding: 8px;">
+              <td colspan="6" style="background: #166534; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000; font-weight: bold; padding: 8px; border-top: 2px solid #000;">
                 ${categoryLabel} - ${typeLabel} | ${items.length} items | Qty: ${typeTotal}
               </td>
             </tr>
@@ -5064,7 +5064,7 @@ export default function RetailerOrders() {
         
         itemsHtml += `
           <tr class="category-header ${categoryClass}">
-            <td colspan="6" style="background: #000000; color: white; font-weight: bold; padding: 8px;">
+            <td colspan="6" style="background: #166534; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000; font-weight: bold; padding: 8px; border-top: 2px solid #000;">
               ${categoryLabel} | ${items.length} items | Qty: ${categoryTotal}
             </td>
           </tr>
@@ -8397,10 +8397,10 @@ export default function RetailerOrders() {
                                 };
                                 
                                 const typeColors = {
-                                  'Hard': 'bg-green-800 text-white',
-                                  'Semi-hard': 'bg-amber-500 text-white',
-                                  'Leafy': 'bg-emerald-700 text-white',
-                                  'Others': 'bg-green-600 text-white'
+                                  'Hard': 'bg-green-600 text-white',
+                                  'Semi-hard': 'bg-green-300 text-green-900',
+                                  'Leafy': 'bg-green-500 text-white',
+                                  'Others': 'bg-green-400 text-white'
                                 };
                                 
                                 let globalIdx = 0;
@@ -8750,10 +8750,10 @@ export default function RetailerOrders() {
                                   };
                                   
                                   const typeColors = {
-                                    'Hard': 'bg-green-800 text-white',
-                                    'Semi-hard': 'bg-amber-500 text-white',
-                                    'Leafy': 'bg-emerald-700 text-white',
-                                    'Others': 'bg-green-600 text-white'
+                                    'Hard': 'bg-green-600 text-white',
+                                    'Semi-hard': 'bg-green-300 text-green-900',
+                                    'Leafy': 'bg-green-500 text-white',
+                                    'Others': 'bg-green-400 text-white'
                                   };
                                   
                                   let globalIdx = 0;

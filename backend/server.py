@@ -10784,11 +10784,30 @@ async def get_retailer_indents(
 
 @api_router.post("/retailer-indents")
 async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict = Depends(get_current_user)):
-    # Validate items have variants
+    # Get packagings for variant lookup
+    all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+    packaging_map = {p.get("name", "").strip().lower(): p.get("id", "") for p in all_packagings}
+    
+    # Validate and resolve variant_ids from variant_names if needed
+    resolved_items = []
     missing_variants = []
     for item in input.items:
-        if not item.variant_id:
-            missing_variants.append(item.product_name or 'Unknown product')
+        item_dict = item.model_dump()
+        variant_id = item_dict.get("variant_id") or ""
+        variant_name = item_dict.get("variant_name") or ""
+        
+        # If no variant_id but have variant_name, try to look it up
+        if not variant_id and variant_name:
+            variant_name_lower = variant_name.strip().lower()
+            variant_id = packaging_map.get(variant_name_lower, "")
+            if variant_id:
+                item_dict["variant_id"] = variant_id
+        
+        # Still no variant_id? Add to missing list
+        if not item_dict.get("variant_id"):
+            missing_variants.append(item_dict.get("product_name") or 'Unknown product')
+        
+        resolved_items.append(item_dict)
     
     if missing_variants:
         detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
@@ -10806,11 +10825,12 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
     if not retailer:
         raise HTTPException(status_code=404, detail="Retailer not found")
     
+    # Use resolved items instead of raw input items
     indent = RetailerIndent(
         retailer_id=retailer_id,
         retailer_name=retailer.get("name", "Unknown"),
         indent_date=input.indent_date,
-        items=input.items,
+        items=[RetailerIndentItem(**item) for item in resolved_items],
         remarks=input.remarks,
         created_by=current_user["user_id"],
         created_by_role=current_user["role"]
@@ -10837,11 +10857,30 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
     if not existing:
         raise HTTPException(status_code=404, detail="Indent not found")
     
-    # Validate items have variants
+    # Get packagings for variant lookup
+    all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+    packaging_map = {p.get("name", "").strip().lower(): p.get("id", "") for p in all_packagings}
+    
+    # Validate and resolve variant_ids from variant_names if needed
+    resolved_items = []
     missing_variants = []
     for item in input.items:
-        if not item.variant_id:
-            missing_variants.append(item.product_name or 'Unknown product')
+        item_dict = item.model_dump()
+        variant_id = item_dict.get("variant_id") or ""
+        variant_name = item_dict.get("variant_name") or ""
+        
+        # If no variant_id but have variant_name, try to look it up
+        if not variant_id and variant_name:
+            variant_name_lower = variant_name.strip().lower()
+            variant_id = packaging_map.get(variant_name_lower, "")
+            if variant_id:
+                item_dict["variant_id"] = variant_id
+        
+        # Still no variant_id? Add to missing list
+        if not item_dict.get("variant_id"):
+            missing_variants.append(item_dict.get("product_name") or 'Unknown product')
+        
+        resolved_items.append(item_dict)
     
     if missing_variants:
         detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
@@ -10868,7 +10907,7 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
             total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
     
     # Check if all new items are fully dispatched
-    new_items = [item.model_dump() for item in input.items]
+    new_items = resolved_items  # Use resolved items with variant_ids looked up
     fully_dispatched = True
     has_any_dispatch = len(all_dispatches) > 0
     
@@ -16233,6 +16272,7 @@ async def generate_single_auto_indent(
         
         # Create indent items with average + 10% buffer
         # Use the latest variant name for display (most recent invoice)
+        # Look up variant_id from variant_name if not available
         indent_items = []
         for key, data in product_weight_totals.items():
             days_count = len(data["dates"])
@@ -16240,11 +16280,22 @@ async def generate_single_auto_indent(
             recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
             
             if recommended_qty > 0:
+                variant_id = data["latest_variant_id"] or ""
+                variant_name = data["latest_variant_name"] or ""
+                
+                # If no variant_id but have variant_name, look it up
+                if not variant_id and variant_name:
+                    variant_name_lower = variant_name.strip().lower()
+                    for pkg in packaging_variants:
+                        if pkg.get("name", "").strip().lower() == variant_name_lower:
+                            variant_id = pkg.get("id", "")
+                            break
+                
                 indent_items.append({
                     "product_id": data["product_id"],
                     "product_name": data["product_name"],
-                    "variant_id": data["latest_variant_id"],
-                    "variant_name": data["latest_variant_name"],
+                    "variant_id": variant_id,
+                    "variant_name": variant_name,
                     "quantity": recommended_qty,
                     "status": "pending"
                 })

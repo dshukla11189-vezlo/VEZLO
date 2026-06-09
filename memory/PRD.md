@@ -2,6 +2,18 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Auto Indent Edit: Missing Variant Fix ✅
+- **BUG FIX**: Editing auto-generated indents no longer shows "Missing variant" error
+  - Root cause: Sales-based auto indents stored `variant_name` but empty `variant_id`
+  - Invoices (source data for sales-based indents) have `variant_name` but no `variant_id`
+  - Fix: Backend now looks up `variant_id` from `variant_name` using qc_packaging table
+- **Backend Changes**:
+  - `POST /api/retailer-indents`: Resolves variant_id from variant_name before validation
+  - `PUT /api/retailer-indents/{id}`: Same resolution logic applied
+  - Sales-based auto indent generation: Looks up variant_id when creating indent items
+- **Files Modified**:
+  - `/app/backend/server.py` (create_retailer_indent, update_retailer_indent, generate_single_auto_indent)
+
 ### June 9, 2025 - Daily Purchase Requirement: Product Grouping & Dozen Math ✅
 - **BUG FIX**: Daily Purchase Requirement now groups indents by PRODUCT (not variant)
   - Products with multiple variants (Onion 500g & 1kg, Bottle Gourd Pieces & 500g) appear as SINGLE rows

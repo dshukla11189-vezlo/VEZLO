@@ -1515,39 +1515,130 @@ export default function RetailerDashboard() {
         </div>
         `}
         
-        ${creditNotesApplied.length > 0 ? `
-        <div style="margin-top: 15px; padding: 15px; border: 2px solid #a855f7; border-radius: 8px; background: #faf5ff;">
-          <h3 style="color: #7c3aed; margin-bottom: 10px; font-size: 14px; border-bottom: 1px solid #e9d5ff; padding-bottom: 8px;">🎫 Credit Notes Applied</h3>
-          <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-            <thead>
-              <tr style="background: #f3e8ff;">
-                <th style="padding: 6px; text-align: left; border: 1px solid #e9d5ff;">Credit Note #</th>
-                <th style="padding: 6px; text-align: left; border: 1px solid #e9d5ff;">Original Invoice</th>
-                <th style="padding: 6px; text-align: left; border: 1px solid #e9d5ff;">Applied Date</th>
-                <th style="padding: 6px; text-align: right; border: 1px solid #e9d5ff;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${creditNotesApplied.map(cn => {
-                const adjustment = cn.adjusted_against_invoices?.find(adj => adj.invoice_id === invoice.id);
-                return `
-                <tr>
-                  <td style="padding: 6px; border: 1px solid #e9d5ff; font-weight: bold; color: #7c3aed;">${cn.credit_note_number}</td>
-                  <td style="padding: 6px; border: 1px solid #e9d5ff;">${cn.original_invoice_number || '-'}</td>
-                  <td style="padding: 6px; border: 1px solid #e9d5ff;">${adjustment?.adjusted_at ? new Date(adjustment.adjusted_at).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : '-'}</td>
-                  <td style="padding: 6px; border: 1px solid #e9d5ff; text-align: right; font-weight: bold; color: #7c3aed;">₹${(adjustment?.amount || cn.amount || 0).toFixed(2)}</td>
-                </tr>
-                `;
-              }).join('')}
-              <tr style="background: #f3e8ff; font-weight: bold;">
-                <td colspan="3" style="padding: 6px; border: 1px solid #e9d5ff; text-align: right;">Total Credit Applied:</td>
-                <td style="padding: 6px; border: 1px solid #e9d5ff; text-align: right; color: #7c3aed;">₹${creditNotesApplied.reduce((sum, cn) => {
-                  const adj = cn.adjusted_against_invoices?.find(a => a.invoice_id === invoice.id);
-                  return sum + (adj?.amount || cn.amount || 0);
-                }, 0).toFixed(2)}</td>
-              </tr>
-            </tbody>
-          </table>
+        ${(invoice.credit_note_adjustments?.length > 0 && invoice.total_credit_adjusted > 0) ? `
+        <div style="margin-top: 15px; border: 1px solid #1565c0; border-radius: 8px; overflow: hidden;">
+          <div style="background: #e3f2fd; padding: 8px 10px; font-weight: bold; font-size: 12px; border-bottom: 1px solid #1565c0;">
+            Credit Notes Adjusted in this Invoice
+          </div>
+          
+          ${(() => {
+            // Group credit notes by original invoice
+            const groupedByInvoice = {};
+            invoice.credit_note_adjustments.forEach(adj => {
+              const origInvNum = adj.original_invoice_number || 'Unknown Invoice';
+              const rejDateRaw = adj.rejection_date;
+              
+              if (!groupedByInvoice[origInvNum]) {
+                groupedByInvoice[origInvNum] = {
+                  invoiceNumber: origInvNum,
+                  rejectionDate: rejDateRaw,
+                  creditNotes: []
+                };
+              }
+              groupedByInvoice[origInvNum].creditNotes.push({
+                ...adj,
+                credit_note_date: adj.credit_note_date,
+                rejection_date: rejDateRaw
+              });
+            });
+            
+            // Sort by rejection date
+            const sortedGroups = Object.values(groupedByInvoice).sort((a, b) => {
+              const dateA = a.rejectionDate ? new Date(a.rejectionDate) : new Date(0);
+              const dateB = b.rejectionDate ? new Date(b.rejectionDate) : new Date(0);
+              return dateA - dateB;
+            });
+            
+            // Helper to extract date from invoice number like SAV-INV-30MAY2026-001
+            const extractDateFromInvoiceNum = (invNum) => {
+              if (!invNum) return null;
+              const match = invNum.match(/(\d{1,2})([A-Z]{3})(\d{4})/i);
+              if (match) {
+                const months = {JAN:'Jan',FEB:'Feb',MAR:'Mar',APR:'Apr',MAY:'May',JUN:'Jun',JUL:'Jul',AUG:'Aug',SEP:'Sep',OCT:'Oct',NOV:'Nov',DEC:'Dec'};
+                const day = match[1];
+                const month = months[match[2].toUpperCase()] || match[2];
+                const year = match[3];
+                return day + ' ' + month + ' ' + year;
+              }
+              return null;
+            };
+            
+            return sortedGroups.map(group => {
+              const rejDateTime = group.rejectionDate ? new Date(group.rejectionDate) : null;
+              let displayDate = '-';
+              if (rejDateTime && !isNaN(rejDateTime.getTime())) {
+                displayDate = rejDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+              } else {
+                const extractedDate = extractDateFromInvoiceNum(group.invoiceNumber);
+                if (extractedDate) displayDate = extractedDate;
+              }
+              
+              const groupTotal = group.creditNotes.reduce((sum, cn) => sum + (cn.adjusted_amount || 0), 0);
+              
+              return '<div style="border-bottom: 1px solid #ddd;">' +
+                '<div style="background: #1565c0; color: white; padding: 10px 12px; font-size: 11px;">' +
+                  '<div style="display: flex; justify-content: space-between; align-items: center;">' +
+                    '<div style="display: flex; align-items: center; gap: 20px;">' +
+                      '<div><strong>' + displayDate + '</strong></div>' +
+                      '<div style="color: #bbdefb;">|</div>' +
+                      '<div>' + group.invoiceNumber + '</div>' +
+                    '</div>' +
+                    '<div style="font-weight: bold; font-size: 13px; color: #ffcdd2;">Total: -₹' + groupTotal.toFixed(2) + '</div>' +
+                  '</div>' +
+                '</div>' +
+                group.creditNotes.map(adj => {
+                  const cnNumber = adj.credit_note_number || '-';
+                  const cnDateRaw = adj.credit_note_date;
+                  const cnDate = cnDateRaw ? new Date(cnDateRaw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+                  const cnTime = cnDateRaw ? new Date(cnDateRaw).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+                  const amount = adj.adjusted_amount || 0;
+                  const sourceLabel = adj.source === 'excess_payment' ? 'Excess Payment' : 'Rejection';
+                  const rejectionDetails = adj.rejection_details || [];
+                  
+                  return '<div style="border-top: 1px solid #eee;">' +
+                    '<div style="background: #f5f5f5; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">' +
+                      '<div>' +
+                        '<span style="font-weight: bold; color: #1565c0; font-size: 12px;">' + cnNumber + '</span>' +
+                        '<span style="margin-left: 15px; color: #666; font-size: 10px;">Created: ' + cnDate + (cnTime ? ' ' + cnTime : '') + '</span>' +
+                        '<span style="margin-left: 15px; padding: 2px 8px; border-radius: 3px; font-size: 9px; background: ' + (adj.source === 'excess_payment' ? '#fff3e0; color: #e65100;' : '#ffebee; color: #c62828;') + '">' + sourceLabel + '</span>' +
+                      '</div>' +
+                      '<div style="font-weight: bold; color: #c62828; font-size: 12px;">-₹' + amount.toFixed(2) + '</div>' +
+                    '</div>' +
+                    (adj.source === 'excess_payment' ? 
+                      '<div style="padding: 8px 12px; color: #1565c0; font-style: italic; font-size: 10px; background: #fafafa;">Excess payment received from retailer.</div>' :
+                      (rejectionDetails.length > 0 ? 
+                        '<table style="width: 100%; border-collapse: collapse; font-size: 9px;">' +
+                          '<thead><tr style="background: #fafafa;">' +
+                            '<th style="padding: 5px 10px; text-align: left; border-bottom: 1px solid #eee;">Product</th>' +
+                            '<th style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #eee;">Qty</th>' +
+                            '<th style="padding: 5px 10px; text-align: center; border-bottom: 1px solid #eee;">Reason</th>' +
+                            '<th style="padding: 5px 10px; text-align: right; border-bottom: 1px solid #eee;">Value</th>' +
+                          '</tr></thead>' +
+                          '<tbody>' +
+                            rejectionDetails.map(d => 
+                              '<tr>' +
+                                '<td style="padding: 4px 10px; border-bottom: 1px solid #f0f0f0;">' + (d.product_name || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: center; border-bottom: 1px solid #f0f0f0;">' + (d.quantity || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #c62828;">' + (d.reason || '-') + '</td>' +
+                                '<td style="padding: 4px 10px; text-align: right; border-bottom: 1px solid #f0f0f0;">₹' + ((d.value || d.mrp || 0).toFixed ? (d.value || d.mrp || 0).toFixed(2) : (d.value || d.mrp || 0)) + '</td>' +
+                              '</tr>'
+                            ).join('') +
+                          '</tbody>' +
+                        '</table>'
+                      : '<div style="padding: 8px 12px; color: #888; font-size: 10px; background: #fafafa;">No product details available</div>')
+                    ) +
+                  '</div>';
+                }).join('') +
+              '</div>';
+            }).join('');
+          })()}
+          
+          <div style="display: flex; justify-content: flex-end; padding: 10px; background: #e8f5e9; border-top: 2px solid #4caf50;">
+            <div style="text-align: right;">
+              <span style="font-weight: bold; margin-right: 20px;">Total Credit Adjusted:</span>
+              <span style="font-weight: bold; color: #c62828; font-size: 14px;">-₹${invoice.total_credit_adjusted.toFixed(2)}</span>
+            </div>
+          </div>
         </div>
         ` : ''}
         

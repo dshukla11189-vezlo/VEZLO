@@ -55,9 +55,17 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
   }, [location.pathname]);
 
   // Sidebar should be visible on desktop, hideable on mobile
+  // Use inline style for mobile to ensure the sidebar stays hidden
   const sidebarClasses = isMobile 
     ? `sidebar ${!isOpen ? 'mobile-hidden' : ''}`
     : 'sidebar';
+    
+  // Explicit inline styles for mobile to guarantee hidden state
+  const mobileHiddenStyle = isMobile && !isOpen ? {
+    transform: 'translateY(-100%)',
+    opacity: 0,
+    pointerEvents: 'none'
+  } : {};
 
   return (
     <>
@@ -66,12 +74,16 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
         <div 
           className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
           onClick={onClose}
+          onTouchEnd={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
           data-testid="sidebar-overlay"
         />
       )}
       
       {/* Sidebar */}
-      <div className={sidebarClasses} data-testid="sidebar">
+      <div className={sidebarClasses} style={mobileHiddenStyle} data-testid="sidebar">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">{t('app.title')}</h1>

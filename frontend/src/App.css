@@ -72,11 +72,18 @@
   align-items: center;
   gap: 1rem;
   height: 48px;
+  /* Prevent touch events from bubbling through */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 
 .mobile-header button {
   padding: 0.5rem;
   flex-shrink: 0;
+  /* Prevent accidental double-tap zoom and ghost clicks on mobile */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 .mobile-header h1 {

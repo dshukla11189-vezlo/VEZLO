@@ -58,10 +58,19 @@ export default function Layout({ children, title, hideTitle, hideSidebar, status
       {isMobile && !hideSidebar && (
         <div className="mobile-header flex items-center justify-between px-3 py-2">
           <button
-            onClick={openSidebar}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              openSidebar();
+            }}
+            onTouchEnd={(e) => {
+              // Prevent ghost clicks on mobile
+              e.stopPropagation();
+            }}
             className="hover:bg-gray-100 rounded-lg p-1"
             data-testid="open-sidebar-button"
             aria-label="Open menu"
+            type="button"
           >
             <Menu size={20} className="text-gray-700" />
           </button>

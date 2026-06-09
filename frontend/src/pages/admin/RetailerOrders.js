@@ -5026,8 +5026,8 @@ export default function RetailerOrders() {
           
           itemsHtml += `
             <tr class="category-header ${categoryClass}">
-              <td colspan="6" style="background: #166534; color: white; font-weight: bold; padding: 8px;">
-                ${categoryLabel} - ${typeLabel} (${items.length} items)
+              <td colspan="6" style="background: #000000; color: white; font-weight: bold; padding: 8px;">
+                ${categoryLabel} - ${typeLabel} | ${items.length} items | Qty: ${typeTotal}
               </td>
             </tr>
           `;
@@ -5040,18 +5040,18 @@ export default function RetailerOrders() {
                 <td style="text-align: left;">${getItemDisplayName(item)}</td>
                 <td style="text-align: center;">${getItemVariant(item)}</td>
                 <td style="text-align: center;">${item.quantity || 0}</td>
-                <td style="text-align: center;">${supplied}</td>
-                <td style="text-align: left;">${item.remarks || '-'}</td>
+                <td style="text-align: center;">${supplied > 0 ? supplied : ''}</td>
+                <td style="text-align: left;">${item.remarks || ''}</td>
               </tr>
             `;
           });
           
           // Subtotal for this type
           itemsHtml += `
-            <tr style="background: #f0fdf4; font-weight: bold;">
+            <tr style="background: #e5e7eb; font-weight: bold; border-top: 1px solid #000;">
               <td colspan="3" style="text-align: right; padding-right: 10px;">${typeLabel} ${l.total}:</td>
               <td style="text-align: center;">${typeTotal}</td>
-              <td style="text-align: center;">${typeSupplied}</td>
+              <td style="text-align: center;">${typeSupplied > 0 ? typeSupplied : ''}</td>
               <td></td>
             </tr>
           `;
@@ -5062,17 +5062,10 @@ export default function RetailerOrders() {
         const categoryTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
         const categorySupplied = items.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0);
         
-        const bgColors = {
-          'Fruits': '#c2410c',
-          'Exotic': '#7c3aed',
-          'Sprouts': '#0891b2',
-          'Others': '#6b7280'
-        };
-        
         itemsHtml += `
           <tr class="category-header ${categoryClass}">
-            <td colspan="6" style="background: ${bgColors[category] || '#6b7280'}; color: white; font-weight: bold; padding: 8px;">
-              ${categoryLabel} (${items.length} items)
+            <td colspan="6" style="background: #000000; color: white; font-weight: bold; padding: 8px;">
+              ${categoryLabel} | ${items.length} items | Qty: ${categoryTotal}
             </td>
           </tr>
         `;
@@ -5085,18 +5078,18 @@ export default function RetailerOrders() {
               <td style="text-align: left;">${getItemDisplayName(item)}</td>
               <td style="text-align: center;">${getItemVariant(item)}</td>
               <td style="text-align: center;">${item.quantity || 0}</td>
-              <td style="text-align: center;">${supplied}</td>
-              <td style="text-align: left;">${item.remarks || '-'}</td>
+              <td style="text-align: center;">${supplied > 0 ? supplied : ''}</td>
+              <td style="text-align: left;">${item.remarks || ''}</td>
             </tr>
           `;
         });
         
         // Subtotal
         itemsHtml += `
-          <tr style="background: #fef3c7; font-weight: bold;">
+          <tr style="background: #e5e7eb; font-weight: bold; border-top: 1px solid #000;">
             <td colspan="3" style="text-align: right; padding-right: 10px;">${categoryLabel} ${l.total}:</td>
             <td style="text-align: center;">${categoryTotal}</td>
-            <td style="text-align: center;">${categorySupplied}</td>
+            <td style="text-align: center;">${categorySupplied > 0 ? categorySupplied : ''}</td>
             <td></td>
           </tr>
         `;
@@ -5186,9 +5179,9 @@ export default function RetailerOrders() {
             <tbody>
               ${itemsHtml}
               <tr class="grand-total">
-                <td colspan="3" style="text-align: right; padding-right: 10px;">GRAND ${l.total}:</td>
+                <td colspan="3" style="text-align: right; padding-right: 10px;">GRAND ${l.total} (${indent.items?.length || 0} items):</td>
                 <td style="text-align: center;">${grandTotal}</td>
-                <td style="text-align: center;">${totalSupplied}</td>
+                <td style="text-align: center;">${totalSupplied > 0 ? totalSupplied : ''}</td>
                 <td></td>
               </tr>
             </tbody>
@@ -8436,8 +8429,10 @@ export default function RetailerOrders() {
                                               className={`${categoryColors[category]} text-white px-3 py-2 flex items-center justify-between cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
                                             >
-                                              <span className="font-semibold">{category} ({totalVegItems} items)</span>
-                                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                              <div className="flex items-center gap-3">
+                                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                <span className="font-semibold">{category} ({totalVegItems} items)</span>
+                                              </div>
                                             </div>
                                             {isExpanded && types.map(type => {
                                               const typeKey = `${indent.id}-${category}-${type}`;
@@ -8448,28 +8443,27 @@ export default function RetailerOrders() {
                                               return (
                                                 <div key={type}>
                                                   <div 
-                                                    className={`${typeColors[type]} text-white px-4 py-1.5 flex items-center justify-between cursor-pointer text-sm`}
+                                                    className={`${typeColors[type]} text-white px-4 py-1.5 flex items-center justify-between cursor-pointer text-sm font-medium`}
                                                     onClick={() => setExpandedCategories(prev => ({ ...prev, [typeKey]: !isTypeExpanded }))}
                                                   >
-                                                    <span>{type} Vegetables ({items.length})</span>
                                                     <div className="flex items-center gap-2">
-                                                      <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Total: {typeTotal}</span>
                                                       {isTypeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                      <span>{type} ({items.length})</span>
+                                                      <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Qty: {typeTotal}</span>
                                                     </div>
                                                   </div>
                                                   {isTypeExpanded && (
                                                     <table className="w-full text-xs">
                                                       <thead className="bg-gray-100">
                                                         <tr>
-                                                          <th className="p-1.5 text-center w-8">#</th>
+                                                          <th className="p-1.5 text-center w-6">#</th>
                                                           <th className="p-1.5 text-left">Product</th>
-                                                          <th className="p-1.5 text-left">Variant</th>
-                                                          {indent.generation_basis === 'plan' && <th className="p-1.5 text-right">Closing</th>}
-                                                          <th className="p-1.5 text-right">Ordered</th>
+                                                          <th className="p-1.5 text-center w-20">Variant</th>
+                                                          <th className="p-1.5 text-center w-12">Qty</th>
                                                           {showDispatchColumns && (
                                                             <>
-                                                              <th className="p-1.5 text-right">Supplied</th>
-                                                              <th className="p-1.5 text-right">Pending</th>
+                                                              <th className="p-1.5 text-center w-14">Supplied</th>
+                                                              <th className="p-1.5 text-center w-12">Pending</th>
                                                             </>
                                                           )}
                                                         </tr>
@@ -8484,13 +8478,12 @@ export default function RetailerOrders() {
                                                             <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
                                                               <td className="p-1.5 text-center text-gray-400">{globalIdx}</td>
                                                               <td className="p-1.5">{getProductNameInLang(item, indentLanguage)}</td>
-                                                              <td className="p-1.5">{getIndentVariantDisplay(item)}</td>
-                                                              {indent.generation_basis === 'plan' && <td className="p-1.5 text-right text-gray-500">{item.closing_qty ?? '-'}</td>}
-                                                              <td className="p-1.5 text-right">{item.quantity}</td>
+                                                              <td className="p-1.5 text-center">{getIndentVariantDisplay(item)}</td>
+                                                              <td className="p-1.5 text-center font-medium">{item.quantity}</td>
                                                               {showDispatchColumns && (
                                                                 <>
-                                                                  <td className="p-1.5 text-right text-green-700">{dispatched}</td>
-                                                                  <td className="p-1.5 text-right font-semibold">
+                                                                  <td className="p-1.5 text-center text-green-700">{dispatched}</td>
+                                                                  <td className="p-1.5 text-center font-semibold">
                                                                     {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
                                                                   </td>
                                                                 </>
@@ -8513,28 +8506,27 @@ export default function RetailerOrders() {
                                         return (
                                           <div key={category} className="border rounded-lg overflow-hidden">
                                             <div 
-                                              className={`${categoryColors[category]} text-white px-3 py-2 flex items-center justify-between cursor-pointer`}
+                                              className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
                                             >
-                                              <span className="font-semibold">{category} ({items.length} items)</span>
-                                              <div className="flex items-center gap-2">
-                                                <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Total: {catTotal}</span>
+                                              <div className="flex items-center gap-3">
                                                 {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                <span className="font-semibold">{category} ({items.length})</span>
+                                                <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Qty: {catTotal}</span>
                                               </div>
                                             </div>
                                             {isExpanded && (
                                               <table className="w-full text-xs">
                                                 <thead className="bg-gray-100">
                                                   <tr>
-                                                    <th className="p-1.5 text-center w-8">#</th>
+                                                    <th className="p-1.5 text-center w-6">#</th>
                                                     <th className="p-1.5 text-left">Product</th>
-                                                    <th className="p-1.5 text-left">Variant</th>
-                                                    {indent.generation_basis === 'plan' && <th className="p-1.5 text-right">Closing</th>}
-                                                    <th className="p-1.5 text-right">Ordered</th>
+                                                    <th className="p-1.5 text-center w-20">Variant</th>
+                                                    <th className="p-1.5 text-center w-12">Qty</th>
                                                     {showDispatchColumns && (
                                                       <>
-                                                        <th className="p-1.5 text-right">Supplied</th>
-                                                        <th className="p-1.5 text-right">Pending</th>
+                                                        <th className="p-1.5 text-center w-14">Supplied</th>
+                                                        <th className="p-1.5 text-center w-12">Pending</th>
                                                       </>
                                                     )}
                                                   </tr>
@@ -8549,13 +8541,12 @@ export default function RetailerOrders() {
                                                       <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
                                                         <td className="p-1.5 text-center text-gray-400">{globalIdx}</td>
                                                         <td className="p-1.5">{getProductNameInLang(item, indentLanguage)}</td>
-                                                        <td className="p-1.5">{getIndentVariantDisplay(item)}</td>
-                                                        {indent.generation_basis === 'plan' && <td className="p-1.5 text-right text-gray-500">{item.closing_qty ?? '-'}</td>}
-                                                        <td className="p-1.5 text-right">{item.quantity}</td>
+                                                        <td className="p-1.5 text-center">{getIndentVariantDisplay(item)}</td>
+                                                        <td className="p-1.5 text-center font-medium">{item.quantity}</td>
                                                         {showDispatchColumns && (
                                                           <>
-                                                            <td className="p-1.5 text-right text-green-700">{dispatched}</td>
-                                                            <td className="p-1.5 text-right font-semibold">
+                                                            <td className="p-1.5 text-center text-green-700">{dispatched}</td>
+                                                            <td className="p-1.5 text-center font-semibold">
                                                               {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
                                                             </td>
                                                           </>
@@ -8572,20 +8563,19 @@ export default function RetailerOrders() {
                                     })}
                                     
                                     {/* Grand Total */}
-                                    <div className="bg-blue-100 p-2 rounded font-semibold text-sm flex justify-between">
-                                      <span>GRAND TOTAL:</span>
-                                      <div className="flex gap-4">
-                                        <span>Ordered: {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}</span>
-                                        {showDispatchColumns && (
-                                          <>
-                                            <span className="text-green-700">Supplied: {indent.items?.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0)}</span>
-                                            <span className="text-amber-700">Pending: {indent.items?.reduce((sum, item) => {
-                                              const dispatched = dispatchedQtys[item.product_id] || 0;
-                                              return sum + Math.max(0, (item.quantity || 0) - dispatched);
-                                            }, 0)}</span>
-                                          </>
-                                        )}
-                                      </div>
+                                    <div className="bg-gray-800 text-white p-2 rounded font-semibold text-sm flex items-center gap-4">
+                                      <span>TOTAL:</span>
+                                      <span>{indent.items?.length} items</span>
+                                      <span>Qty: {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}</span>
+                                      {showDispatchColumns && (
+                                        <>
+                                          <span className="text-green-300">Supplied: {indent.items?.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0)}</span>
+                                          <span className="text-amber-300">Pending: {indent.items?.reduce((sum, item) => {
+                                            const dispatched = dispatchedQtys[item.product_id] || 0;
+                                            return sum + Math.max(0, (item.quantity || 0) - dispatched);
+                                          }, 0)}</span>
+                                        </>
+                                      )}
                                     </div>
                                     
                                     {indent.remarks && (

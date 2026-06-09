@@ -6311,28 +6311,30 @@ export default function RetailerOrders() {
             return (
               <>
                 {/* Summary Row - Order: Total Order, Rejections, Total Earnings, Avg Earnings */}
-                <div className="grid grid-cols-4 gap-3 mb-3">
+                {/* 2x2 grid on mobile, 4 columns on desktop */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-3">
                   <div className="bg-white/70 rounded-lg p-2 border border-blue-100">
-                    <p className="text-[10px] text-blue-600 uppercase font-medium">Total Order Value</p>
-                    <p className="text-lg font-bold text-blue-700">{formatCurrency(totalOrderValue)}</p>
+                    <p className="text-[9px] md:text-[10px] text-blue-600 uppercase font-medium truncate">Total Order Value</p>
+                    <p className="text-sm md:text-lg font-bold text-blue-700">{formatCurrency(totalOrderValue)}</p>
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-red-100">
-                    <p className="text-[10px] text-red-600 uppercase font-medium">Total Rejections</p>
-                    <p className="text-lg font-bold text-red-700">{formatCurrency(totalRejections)}</p>
-                    <p className="text-[9px] text-gray-500">({totalRejectionCount} items)</p>
+                    <p className="text-[9px] md:text-[10px] text-red-600 uppercase font-medium truncate">Total Rejections</p>
+                    <p className="text-sm md:text-lg font-bold text-red-700">{formatCurrency(totalRejections)}</p>
+                    <p className="text-[8px] md:text-[9px] text-gray-500">({totalRejectionCount} items)</p>
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-emerald-100">
-                    <p className="text-[10px] text-emerald-600 uppercase font-medium">Total Earnings</p>
-                    <p className="text-lg font-bold text-emerald-700">{formatCurrency(totalEarnings)}</p>
+                    <p className="text-[9px] md:text-[10px] text-emerald-600 uppercase font-medium truncate">Total Earnings</p>
+                    <p className="text-sm md:text-lg font-bold text-emerald-700">{formatCurrency(totalEarnings)}</p>
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-amber-100">
-                    <p className="text-[10px] text-amber-600 uppercase font-medium">Avg. Earning/Day</p>
-                    <p className="text-lg font-bold text-amber-700">{formatCurrency(avgEarningsPerDay)}</p>
-                    <p className="text-[9px] text-gray-500">({totalDays} days)</p>
+                    <p className="text-[9px] md:text-[10px] text-amber-600 uppercase font-medium truncate">Avg. Earning/Day</p>
+                    <p className="text-sm md:text-lg font-bold text-amber-700">{formatCurrency(avgEarningsPerDay)}</p>
+                    <p className="text-[8px] md:text-[9px] text-gray-500">({totalDays} days)</p>
                   </div>
                 </div>
                 
                 {/* Charts Row - Order: Total Order, Rejections, Total Earnings, Avg Earnings/Day */}
+                {/* Touch-friendly: tap to see tooltip, tap elsewhere to dismiss */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   {/* Order Value Chart */}
                   <div className="bg-white/80 rounded-xl p-2 border border-blue-100">
@@ -6340,7 +6342,7 @@ export default function RetailerOrders() {
                       <ShoppingCart size={12} className="text-blue-500" />
                       {viewModeLabel} Order Value
                     </p>
-                    <div className="h-28">
+                    <div className="h-28 touch-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
@@ -6358,6 +6360,7 @@ export default function RetailerOrders() {
                             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                             formatter={(value) => [`₹${value.toLocaleString()}`, 'Order Value']}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                            trigger="click"
                           />
                           <Bar dataKey="netOrderValue" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
@@ -6381,7 +6384,7 @@ export default function RetailerOrders() {
                       <AlertTriangle size={12} className="text-red-500" />
                       {viewModeLabel} Rejections
                     </p>
-                    <div className="h-28">
+                    <div className="h-28 touch-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
@@ -6402,6 +6405,7 @@ export default function RetailerOrders() {
                               'Rejections'
                             ]}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                            trigger="click"
                           />
                           <Bar dataKey="rejectionValue" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
@@ -6425,7 +6429,7 @@ export default function RetailerOrders() {
                       <TrendingUp size={12} className="text-emerald-500" />
                       {viewModeLabel} Earnings
                     </p>
-                    <div className="h-28">
+                    <div className="h-28 touch-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
@@ -6443,6 +6447,7 @@ export default function RetailerOrders() {
                             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                             formatter={(value) => [`₹${value.toLocaleString()}`, 'Earnings']}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                            trigger="click"
                           />
                           <Bar dataKey="earnings" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
@@ -6466,7 +6471,7 @@ export default function RetailerOrders() {
                       <DollarSign size={12} className="text-amber-500" />
                       Avg. Earning/Day
                     </p>
-                    <div className="h-28">
+                    <div className="h-28 touch-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
                           <XAxis 
@@ -6487,6 +6492,7 @@ export default function RetailerOrders() {
                               'Avg/Day'
                             ]}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                            trigger="click"
                           />
                           <Bar dataKey="avgEarningsPerDay" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (

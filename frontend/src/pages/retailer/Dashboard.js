@@ -805,6 +805,27 @@ export default function RetailerDashboard() {
     const variant = packagings.find(v => v.id === variantId);
     return variant ? variant.name : variantId;
   };
+  
+  // Helper to resolve variant name - handles legacy UUIDs stored as variant_name
+  const resolveVariantName = (variantName, variantId) => {
+    // If variant_name is a UUID pattern, look it up from packagings
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    // First check if variant_name itself is a UUID (legacy data issue)
+    if (variantName && uuidRegex.test(variantName)) {
+      const pkg = packagings.find(p => p.id === variantName);
+      if (pkg) return pkg.name;
+    }
+    
+    // If variant_id is available, try to resolve from that
+    if (variantId && uuidRegex.test(variantId)) {
+      const pkg = packagings.find(p => p.id === variantId);
+      if (pkg) return pkg.name;
+    }
+    
+    // Return original name or look up by variant_id
+    return variantName || getVariantName(variantId) || '';
+  };
 
   // Add item to cart
   const addToCart = (catalogueItem, variantId, variantName) => {
@@ -1364,10 +1385,12 @@ export default function RetailerDashboard() {
                                   (item.product_name || productMatch?.name || '');
               const storageType = productMatch?.storage_type || 'Outdoor';
               const storageColor = storageType === 'Fridge' ? '#1d4ed8' : '#b45309';
+              // Resolve variant name in case it's a UUID
+              const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
               return `
                 <tr>
                   <td>${idx + 1}</td>
-                  <td class="text-left">${displayName}${item.variant_name ? ' (' + item.variant_name + ')' : ''}<br/><span style="font-size: 9px; color: ${storageColor}; font-style: italic;">(Storage - ${storageType})</span></td>
+                  <td class="text-left">${displayName}${displayVariant ? ' (' + displayVariant + ')' : ''}<br/><span style="font-size: 9px; color: ${storageColor}; font-style: italic;">(Storage - ${storageType})</span></td>
                   <td>${suppliedQty}</td>
                   <td class="rejection">${rejectedQty > 0 ? '-' + rejectedQty : '-'}</td>
                   <td class="billable">${billableQty}</td>
@@ -3396,11 +3419,14 @@ export default function RetailerDashboard() {
                           )}
                         </td>
                         <td className="p-3 text-center">
-                          {indent.items?.map((item, idx) => (
-                            <div key={idx} className="text-xs">
-                              {getProductName(item)} {item.variant_name && `(${item.variant_name})`} x {item.quantity}
-                            </div>
-                          ))}
+                          {indent.items?.map((item, idx) => {
+                            const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+                            return (
+                              <div key={idx} className="text-xs">
+                                {getProductName(item)} {displayVariant && `(${displayVariant})`} x {item.quantity}
+                              </div>
+                            );
+                          })}
                         </td>
                         <td className="p-3 text-center">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -3836,8 +3862,8 @@ export default function RetailerDashboard() {
                           <p className="text-xs text-gray-500">
                             {/* For Pieces/Packets, show with weight info */}
                             {item.variant_id?.startsWith('unit_') && item.purchase_weight_name 
-                              ? `${item.variant_name} of ${item.purchase_weight_name}`
-                              : item.variant_name}
+                              ? `${resolveVariantName(item.variant_name, item.variant_id)} of ${item.purchase_weight_name}`
+                              : resolveVariantName(item.variant_name, item.variant_id)}
                           </p>
                           {mrp > 0 && (
                             <span className="text-xs text-green-600 font-medium">₹{mrp}/unit</span>
@@ -4178,18 +4204,21 @@ export default function RetailerDashboard() {
                                           {isOrderExpanded && (
                                             <div className="border-t bg-white p-3">
                                               <div className="space-y-2">
-                                                {indent.items?.map((item, idx) => (
-                                                  <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 px-3 py-2 rounded border">
-                                                    <div className="flex items-center gap-2">
-                                                      <span className="text-gray-400 text-xs w-5">{idx + 1}.</span>
-                                                      <span className="font-medium">{getProductName(item)}</span>
-                                                      {item.variant_name && item.variant_name !== 'Kg' && (
-                                                        <span className="text-orange-600 text-xs bg-orange-50 px-1.5 py-0.5 rounded">{item.variant_name}</span>
-                                                      )}
+                                                {indent.items?.map((item, idx) => {
+                                                  const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+                                                  return (
+                                                    <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 px-3 py-2 rounded border">
+                                                      <div className="flex items-center gap-2">
+                                                        <span className="text-gray-400 text-xs w-5">{idx + 1}.</span>
+                                                        <span className="font-medium">{getProductName(item)}</span>
+                                                        {displayVariant && displayVariant !== 'Kg' && (
+                                                          <span className="text-orange-600 text-xs bg-orange-50 px-1.5 py-0.5 rounded">{displayVariant}</span>
+                                                        )}
+                                                      </div>
+                                                      <span className="text-gray-600 font-semibold">×{item.quantity}</span>
                                                     </div>
-                                                    <span className="text-gray-600 font-semibold">×{item.quantity}</span>
-                                                  </div>
-                                                ))}
+                                                  );
+                                                })}
                                               </div>
                                               {indent.remarks && (
                                                 <div className="text-xs text-gray-500 mt-2 pt-2 border-t">
@@ -4305,7 +4334,7 @@ export default function RetailerDashboard() {
                                           {dispatch.items?.map((item, idx) => (
                                             <tr key={idx}>
                                               <td className="p-2 font-medium">{getProductName(item)}</td>
-                                              <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
+                                              <td className="p-2 text-gray-600">{resolveVariantName(item.variant_name, item.variant_id) || '-'}</td>
                                               <td className="p-2 text-center">{item.supplied_qty}</td>
                                               <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
                                               <td className="p-2 text-right">{formatCurrency(item.total_value)}</td>
@@ -4465,7 +4494,7 @@ export default function RetailerDashboard() {
                                               <tr key={idx} className={`border-t ${rejectedQty > 0 ? 'bg-red-50/50' : ''}`}>
                                                 <td className="p-2 text-center text-gray-500">{idx + 1}</td>
                                                 <td className="p-2 font-medium">{getProductName(item)}</td>
-                                                <td className="p-2 text-gray-600">{item.variant_name || '-'}</td>
+                                                <td className="p-2 text-gray-600">{resolveVariantName(item.variant_name, item.variant_id) || '-'}</td>
                                                 <td className="p-2 text-center">{suppliedQty}</td>
                                                 <td className="p-2 text-center text-red-600 font-medium">
                                                   {rejectedQty > 0 ? `-${rejectedQty}` : '-'}
@@ -5269,7 +5298,7 @@ export default function RetailerDashboard() {
                           <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
                             <td className="px-3 py-1.5 whitespace-nowrap">
                               <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                              <div className="text-xs text-gray-400">{item.variant_name || item.unit || 'Kg'}</div>
+                              <div className="text-xs text-gray-400">{resolveVariantName(item.variant_name, item.variant_id) || item.unit || 'Kg'}</div>
                             </td>
                             <td className="px-3 py-1.5 text-center">
                               {editingItemId === item.id ? (
@@ -5376,7 +5405,7 @@ export default function RetailerDashboard() {
                             const product = products.find(p => p.id === item.product_id);
                             return {
                               'Product Name': item.product_name || '',
-                              'Variant': item.variant_name || 'Kg',
+                              'Variant': resolveVariantName(item.variant_name, item.variant_id) || 'Kg',
                               'Type': product?.product_type || 'N/A',
                               'Category': product?.category || 'N/A',
                               'Closing Qty': item.closing_qty ?? 0
@@ -5484,9 +5513,12 @@ export default function RetailerDashboard() {
                               <tr key={`${item.product_id}-${item.variant_id || idx}`} className="border-b hover:bg-gray-50">
                                 <td className="px-2 py-1 whitespace-nowrap">
                                   <div className="font-medium text-gray-800">{item.product_name}</div>
-                                  {item.variant_name && item.variant_name !== 'Kg' && (
-                                    <div className="text-[10px] text-gray-500">{item.variant_name}</div>
-                                  )}
+                                  {(() => {
+                                    const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+                                    return displayVariant && displayVariant !== 'Kg' ? (
+                                      <div className="text-[10px] text-gray-500">{displayVariant}</div>
+                                    ) : null;
+                                  })()}
                                 </td>
                                 <td className="px-2 py-1 text-center">
                                   <span className={`font-semibold ${item.opening_qty > 0 ? 'text-blue-600' : 'text-gray-300'}`}>

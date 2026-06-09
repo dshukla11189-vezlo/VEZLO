@@ -2,6 +2,20 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Daily Purchase Requirement: Product Grouping & Dozen Math ✅
+- **BUG FIX**: Daily Purchase Requirement now groups indents by PRODUCT (not variant)
+  - Products with multiple variants (Onion 500g & 1kg, Bottle Gourd Pieces & 500g) appear as SINGLE rows
+  - Variants are combined into a comma-separated string (e.g., "500+ gm, 1000+ gm")
+  - Eliminates duplicate rows that caused procurement confusion
+- **BUG FIX**: Banana dozen calculations now work correctly
+  - Backend calculates `qty_dozens` based on variant multipliers: 1.0 for "1 Dozen", 0.5 for "Half Dozen"
+  - Example: 6 units × 1 dozen + 6 units × 0.5 dozen = 9 dozens
+  - Frontend displays yellow "Dozens" input field for products with `purchase_unit='Dozen'`
+- **Testing**: All 11 backend tests + full frontend verification passed
+- **Files Modified**:
+  - `/app/backend/server.py` (lines 19550-19800 - retailer-daily-requirement/calculate endpoint)
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` (lines 2919-2935, 7670-7692)
+
 ### June 9, 2025 - Compact Collapsible Tables for Indent & Dispatch ✅
 - **UI IMPROVEMENT**: Made Indent and Dispatch expanded tables more compact
   - Removed `w-full` to stop table from stretching to full width

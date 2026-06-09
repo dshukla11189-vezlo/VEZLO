@@ -2898,8 +2898,8 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
         unit = getattr(item, 'unit', 'Kg')
         unit_size = getattr(item, 'unit_size', '')
         
-        # Convert Bunch, Packet, Piece to kg using unit_size (in grams)
-        if unit in ["Bunch", "Packet", "Piece"] and unit_size:
+        # Convert Bunch, Packet, Piece, Box etc. to kg using unit_size (in grams)
+        if unit.lower() in ["bunch", "packet", "piece", "box", "crate", "dozen", "pack"] and unit_size:
             try:
                 qty_kg = (item.quantity * float(unit_size)) / 1000
             except (ValueError, TypeError):
@@ -3067,8 +3067,8 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                 unit = item.get("unit", "Kg")
                 unit_size = item.get("unit_size", "")
                 qty_kg = qty
-                # Convert Bunch, Packet, Piece to kg using unit_size
-                if unit in ["Bunch", "Packet", "Piece"] and unit_size:
+                # Convert Bunch, Packet, Piece, Box etc. to kg using unit_size
+                if unit.lower() in ["bunch", "packet", "piece", "box", "crate", "dozen", "pack"] and unit_size:
                     try:
                         qty_kg = (qty * float(unit_size)) / 1000
                     except:
@@ -3084,8 +3084,8 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                 unit = item.get("unit", "Kg")
                 unit_size = item.get("unit_size", "")
                 qty_kg = qty
-                # Convert Bunch, Packet, Piece to kg using unit_size
-                if unit in ["Bunch", "Packet", "Piece"] and unit_size:
+                # Convert Bunch, Packet, Piece, Box etc. to kg using unit_size
+                if unit.lower() in ["bunch", "packet", "piece", "box", "crate", "dozen", "pack"] and unit_size:
                     try:
                         qty_kg = (qty * float(unit_size)) / 1000
                     except:
@@ -6370,8 +6370,8 @@ async def get_pnl_report(
             unit = item.get("unit", "Kg")
             unit_size = item.get("unit_size", "")
             
-            # Convert to Kg if unit is Bunch/Piece
-            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+            # Convert to Kg if unit is Bunch/Piece/Packet etc.
+            if unit.lower() in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen"] and unit_size:
                 try:
                     weight_per_unit_gm = float(unit_size)
                     qty = (qty * weight_per_unit_gm) / 1000
@@ -6609,8 +6609,8 @@ async def get_pnl_report(
             total_item = item.get("total", 0) or 0
             product = item.get("product_name", "Unknown")
             
-            # Convert to Kg if unit is Bunch/Piece with unit_size
-            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+            # Convert to Kg if unit is Bunch/Piece/Packet etc. with unit_size
+            if unit.lower() in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen"] and unit_size:
                 try:
                     weight_per_unit_gm = float(unit_size)
                     qty_kg = (qty * weight_per_unit_gm) / 1000
@@ -6660,8 +6660,8 @@ async def get_pnl_report(
             unit_size = item.get("unit_size", "")
             total_value = item.get("total", qty * item.get("rate", 0))
             
-            # Convert to Kg
-            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+            # Convert to Kg for Packet, Bunch, Piece, Box etc.
+            if unit.lower() in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen"] and unit_size:
                 try:
                     weight_per_unit_gm = float(unit_size)
                     qty_kg = (qty * weight_per_unit_gm) / 1000
@@ -8496,9 +8496,9 @@ async def recalculate_purchase_from_procurement(
             total_value = float(item.get("total", 0) or 0)
             rate = float(item.get("rate", 0) or 0)
             
-            # Convert to kg based on unit type
+            # Convert to kg based on unit type (Packet, Bunch, Piece, Box, etc.)
             qty_kg = qty
-            if unit in ["Bunch", "Packet", "Piece"] and unit_size:
+            if unit.lower() in ["bunch", "packet", "piece", "box", "crate", "dozen", "pack"] and unit_size:
                 try:
                     qty_kg = (qty * float(unit_size)) / 1000
                 except (ValueError, TypeError):
@@ -8918,10 +8918,11 @@ async def fix_all_purchase_quantities(
         unit = item.get('unit', 'Kg')
         unit_size = item.get('unit_size', '')
         
-        if unit == 'Bunch' and unit_size:
+        # Convert Bunch, Packet, Piece, Box etc. to kg using unit_size (in grams)
+        if unit.lower() in ['bunch', 'packet', 'piece', 'box', 'crate', 'dozen', 'pack'] and unit_size:
             try:
                 weight_gm = float(unit_size)
-                return (qty * weight_gm) / 1000  # Convert bunch to kg
+                return (qty * weight_gm) / 1000  # Convert to kg
             except (ValueError, TypeError):
                 pass
         return qty

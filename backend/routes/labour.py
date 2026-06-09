@@ -150,6 +150,9 @@ async def get_labour_attendance(
             # Ensure working_hours has a default
             if "working_hours" not in record:
                 record["working_hours"] = 9 if record.get("present") else 0
+            # Ensure paid_leave has a default
+            if "paid_leave" not in record:
+                record["paid_leave"] = False
             result.append(record)
         else:
             # Return default attendance entry (not saved yet)
@@ -162,6 +165,7 @@ async def get_labour_attendance(
                 "present": False,
                 "working_hours": 9,  # Default 9 hours
                 "overtime_hours": 0,
+                "paid_leave": False,  # Default no paid leave
                 "daily_rate": daily_rate,
                 "hourly_rate": round(daily_rate / 9, 2) if daily_rate > 0 else 0,
                 "overtime_rate": labour.get("default_overtime_rate", 0),
@@ -254,6 +258,7 @@ async def save_bulk_labour_attendance(
         overtime_hours = float(record.get("overtime_hours", 0))
         daily_rate = float(record.get("daily_rate", 0))
         overtime_rate = float(record.get("overtime_rate", 0))
+        paid_leave = record.get("paid_leave", False)  # New field for paid leave
         remarks = record.get("remarks")
         
         # Calculate hourly rate (daily rate / 9 hours standard)
@@ -264,6 +269,9 @@ async def save_bulk_labour_attendance(
         if present:
             # Payment = (hourly rate * working hours) + (overtime rate * overtime hours)
             total_payment = (hourly_rate * working_hours) + (overtime_hours * overtime_rate)
+        elif paid_leave:
+            # Paid leave = full daily rate (as if worked 9 hours)
+            total_payment = daily_rate
         
         # Upsert attendance record
         await db.labour_attendance.update_one(
@@ -276,6 +284,7 @@ async def save_bulk_labour_attendance(
                 "daily_rate": daily_rate,
                 "hourly_rate": round(hourly_rate, 2),
                 "overtime_rate": overtime_rate,
+                "paid_leave": paid_leave,
                 "total_payment": round(total_payment, 2),
                 "remarks": remarks,
                 "recorded_by": current_user.get("user_id"),
@@ -312,7 +321,7 @@ async def get_labour_costs_summary(
     
     # Get all labourers for reference
     labours = await db.labours.find({}, {"_id": 0}).to_list(100)
-    labour_map = {l["id"]: l for l in labours}
+    labour_map = {lab["id"]: lab for lab in labours}
     
     # Calculate daily totals
     daily_totals = {}

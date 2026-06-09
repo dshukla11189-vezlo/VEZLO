@@ -6,8 +6,9 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Checkbox } from '../../components/ui/checkbox';
 import { 
-  Users, Save, RefreshCw, Calendar, Clock, CheckCircle2, XCircle, AlertCircle
+  Users, Save, RefreshCw, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, Coffee
 } from 'lucide-react';
 
 export default function Attendance() {
@@ -69,7 +70,30 @@ export default function Attendance() {
         return {
           ...record,
           present: newPresent,
-          overtime_hours: newPresent ? record.overtime_hours : 0
+          working_hours: newPresent ? 9 : 0, // Default 9 hours when marking present
+          overtime_hours: newPresent ? record.overtime_hours : 0,
+          paid_leave: newPresent ? false : record.paid_leave // Can't have paid leave if present
+        };
+      }
+      return record;
+    }));
+    setHasChanges(true);
+  };
+
+  // Toggle paid leave
+  const togglePaidLeave = (labourId) => {
+    if (!isToday) return;
+    
+    setAttendance(prev => prev.map(record => {
+      if (record.labour_id === labourId) {
+        // Can only mark paid leave if NOT present
+        if (record.present) {
+          toast.error('Cannot mark paid leave for someone who is present');
+          return record;
+        }
+        return {
+          ...record,
+          paid_leave: !record.paid_leave
         };
       }
       return record;
@@ -82,7 +106,9 @@ export default function Attendance() {
     if (!isToday) return;
     setAttendance(prev => prev.map(record => ({
       ...record,
-      present: true
+      present: true,
+      working_hours: 9,
+      paid_leave: false
     })));
     setHasChanges(true);
   };
@@ -93,7 +119,9 @@ export default function Attendance() {
     setAttendance(prev => prev.map(record => ({
       ...record,
       present: false,
-      overtime_hours: 0
+      working_hours: 0,
+      overtime_hours: 0,
+      paid_leave: false
     })));
     setHasChanges(true);
   };
@@ -111,7 +139,9 @@ export default function Attendance() {
         labour_id: a.labour_id,
         labour_name: a.labour_name,
         present: a.present,
+        working_hours: a.present ? (a.working_hours || 9) : 0,
         overtime_hours: a.overtime_hours,
+        paid_leave: !a.present && a.paid_leave, // Only save paid_leave if not present
         daily_rate: a.daily_rate,
         overtime_rate: a.overtime_rate
       }));
@@ -134,6 +164,8 @@ export default function Attendance() {
   // Calculate totals
   const presentCount = attendance.filter(a => a.present).length;
   const absentCount = attendance.length - presentCount;
+  const paidLeaveCount = attendance.filter(a => !a.present && a.paid_leave).length;
+  const totalWorkingHours = attendance.reduce((sum, a) => sum + (a.present ? (a.working_hours || 9) : 0), 0);
   const totalOvertimeHours = attendance.reduce((sum, a) => sum + (a.present ? a.overtime_hours : 0), 0);
 
   const formatDate = (dateStr) => {
@@ -186,14 +218,14 @@ export default function Attendance() {
             <CardContent className="p-3 flex items-center gap-2">
               <AlertCircle size={18} className="text-amber-600" />
               <span className="text-sm text-amber-800">
-                Viewing past attendance (read-only). You can only edit today's attendance.
+                Viewing past attendance (read-only). You can only edit today&apos;s attendance.
               </span>
             </CardContent>
           </Card>
         )}
 
-        {/* Summary Cards - Only 3 cards now (removed Total Cost) */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-4 gap-3">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardContent className="p-3">
               <div className="flex items-center gap-2">
@@ -217,6 +249,20 @@ export default function Attendance() {
                 <div>
                   <p className="text-[10px] text-green-800 font-medium uppercase">Present</p>
                   <p className="text-lg font-bold text-green-900" data-testid="present-count">{presentCount}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-600 rounded-lg">
+                  <Coffee className="text-white" size={16} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-purple-800 font-medium uppercase">Paid Leave</p>
+                  <p className="text-lg font-bold text-purple-900" data-testid="paid-leave-count">{paidLeaveCount}</p>
                 </div>
               </div>
             </CardContent>
@@ -277,14 +323,19 @@ export default function Attendance() {
                     <tr>
                       <th className="p-3 text-left font-medium text-gray-500">LABOUR NAME</th>
                       <th className="p-3 text-center font-medium text-gray-500">PRESENT</th>
-                      <th className="p-3 text-center font-medium text-gray-500">OVERTIME (HRS)</th>
+                      <th className="p-3 text-center font-medium text-gray-500">WORKING HRS</th>
+                      <th className="p-3 text-center font-medium text-gray-500">OVERTIME HRS</th>
+                      <th className="p-3 text-center font-medium text-gray-500">PAID LEAVE</th>
                     </tr>
                   </thead>
                   <tbody>
                     {attendance.map((record) => (
                       <tr 
                         key={record.labour_id} 
-                        className={`border-b hover:bg-gray-50 ${record.present ? 'bg-green-50/50' : ''}`}
+                        className={`border-b hover:bg-gray-50 ${
+                          record.present ? 'bg-green-50/50' : 
+                          record.paid_leave ? 'bg-purple-50/50' : ''
+                        }`}
                         data-testid={`attendance-row-${record.labour_id}`}
                       >
                         <td className="p-3 font-medium">{record.labour_name}</td>
@@ -307,13 +358,38 @@ export default function Attendance() {
                             type="number"
                             step="0.5"
                             min="0"
+                            max="24"
+                            value={record.present ? (record.working_hours || 9) : ''}
+                            onChange={(e) => updateAttendance(record.labour_id, 'working_hours', parseFloat(e.target.value) || 0)}
+                            disabled={!record.present || !isToday}
+                            className={`w-16 h-8 text-center mx-auto ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            placeholder="9"
+                            data-testid={`working-hours-${record.labour_id}`}
+                          />
+                        </td>
+                        <td className="p-3 text-center">
+                          <Input
+                            type="number"
+                            step="0.5"
+                            min="0"
                             value={record.overtime_hours || ''}
                             onChange={(e) => updateAttendance(record.labour_id, 'overtime_hours', parseFloat(e.target.value) || 0)}
                             disabled={!record.present || !isToday}
-                            className={`w-20 h-8 text-center mx-auto ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            className={`w-16 h-8 text-center mx-auto ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             placeholder="0"
                             data-testid={`overtime-hours-${record.labour_id}`}
                           />
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex justify-center">
+                            <Checkbox
+                              checked={record.paid_leave || false}
+                              onCheckedChange={() => togglePaidLeave(record.labour_id)}
+                              disabled={record.present || !isToday}
+                              className={`${record.present ? 'opacity-30 cursor-not-allowed' : ''}`}
+                              data-testid={`paid-leave-${record.labour_id}`}
+                            />
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -326,7 +402,9 @@ export default function Attendance() {
                         <span className="text-gray-400 mx-1">/</span>
                         <span className="text-gray-600">{attendance.length}</span>
                       </td>
+                      <td className="p-3 text-center font-bold text-blue-600">{totalWorkingHours.toFixed(1)} hrs</td>
                       <td className="p-3 text-center font-bold text-orange-600">{totalOvertimeHours.toFixed(1)} hrs</td>
+                      <td className="p-3 text-center font-bold text-purple-600">{paidLeaveCount}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -340,10 +418,12 @@ export default function Attendance() {
           <CardContent className="p-4">
             <h4 className="font-medium text-blue-900 mb-2">Instructions:</h4>
             <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-              <li>You can only mark attendance for today's date</li>
+              <li>You can only mark attendance for today&apos;s date</li>
               <li>Click the circle button to mark present/absent for each labourer</li>
-              <li>Enter overtime hours if any labourer worked extra (only when present)</li>
-              <li>Click "Save Attendance" to save all changes</li>
+              <li><strong>Working Hours:</strong> Default is 9 hours. Change if less (wages will be adjusted proportionally)</li>
+              <li><strong>Overtime Hours:</strong> Enter extra hours worked beyond regular time</li>
+              <li><strong>Paid Leave:</strong> Check this box for labourers on paid leave (only when absent)</li>
+              <li>Click &quot;Save Attendance&quot; to save all changes</li>
               <li>Past dates are view-only and cannot be modified</li>
             </ul>
           </CardContent>

@@ -2,6 +2,25 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Attendance: Working Hours & Paid Leave Features ✅
+- **NEW FEATURE**: Added configurable Working Hours for attendance
+  - Default: 9 hours when marking present
+  - Editable: Can change hours if labourer worked less (wages proportionally adjusted)
+  - Formula: `payment = (daily_rate / 9) * working_hours + (overtime_rate * overtime_hours)`
+- **NEW FEATURE**: Added Paid Leave checkbox column
+  - Only available when labourer is NOT present
+  - Paid leave days count as full day payment in calculations
+  - Formula when paid_leave: `payment = daily_rate`
+- **UI Changes** (Both Staff & Admin panels):
+  - Added "WORKING HRS" column (editable input, default 9)
+  - Added "PAID LEAVE" checkbox column (after OT hours)
+  - Added "Paid Leave" summary card
+  - Row highlighting: green for present, purple for paid leave
+- **Files Modified**:
+  - `/app/frontend/src/pages/staff/Attendance.js`
+  - `/app/frontend/src/pages/admin/LaborCosts.js`
+  - `/app/backend/routes/labour.py` (bulk save endpoint)
+
 ### June 9, 2025 - Rejection Chart Added to Retailer Earnings Block ✅
 - **NEW FEATURE**: Added rejection trend chart to the Retailer Earnings section
   - Summary row now shows 4 metrics: Total Order Value, Total Earnings, Avg. Earning/Day, **Total Rejections** (with item count)

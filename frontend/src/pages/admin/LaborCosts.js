@@ -306,6 +306,10 @@ export default function LaborCosts() {
           updated.overtime_hours = 0;
           updated.working_hours = 0;
         }
+        // Can't have paid leave if present
+        if (updated.present) {
+          updated.paid_leave = false;
+        }
         return updated;
       }
       return record;
@@ -322,7 +326,26 @@ export default function LaborCosts() {
           ...record,
           present: newPresent,
           working_hours: newPresent ? (record.working_hours || 9) : 0,
-          overtime_hours: newPresent ? record.overtime_hours : 0
+          overtime_hours: newPresent ? record.overtime_hours : 0,
+          paid_leave: newPresent ? false : record.paid_leave
+        };
+      }
+      return record;
+    }));
+    setHasAttendanceChanges(true);
+  };
+
+  // Toggle paid leave
+  const togglePaidLeave = (labourId) => {
+    setAttendance(prev => prev.map(record => {
+      if (record.labour_id === labourId) {
+        if (record.present) {
+          toast.error('Cannot mark paid leave for someone who is present');
+          return record;
+        }
+        return {
+          ...record,
+          paid_leave: !record.paid_leave
         };
       }
       return record;
@@ -334,7 +357,9 @@ export default function LaborCosts() {
   const markAllPresent = () => {
     setAttendance(prev => prev.map(record => ({
       ...record,
-      present: true
+      present: true,
+      working_hours: 9,
+      paid_leave: false
     })));
     setHasAttendanceChanges(true);
   };
@@ -344,7 +369,9 @@ export default function LaborCosts() {
     setAttendance(prev => prev.map(record => ({
       ...record,
       present: false,
-      overtime_hours: 0
+      working_hours: 0,
+      overtime_hours: 0,
+      paid_leave: false
     })));
     setHasAttendanceChanges(true);
   };
@@ -359,6 +386,7 @@ export default function LaborCosts() {
         present: a.present,
         working_hours: a.working_hours || 9,
         overtime_hours: a.overtime_hours,
+        paid_leave: !a.present && a.paid_leave,
         daily_rate: a.daily_rate,
         overtime_rate: a.overtime_rate
       }));
@@ -449,6 +477,7 @@ export default function LaborCosts() {
   // Calculate attendance totals
   const attendancePresentCount = attendance.filter(a => a.present).length;
   const attendanceAbsentCount = attendance.length - attendancePresentCount;
+  const paidLeaveCount = attendance.filter(a => !a.present && a.paid_leave).length;
   const totalDailyHours = attendance.reduce((sum, a) => sum + (a.present ? (a.working_hours || 9) : 0), 0);
   const totalOvertimeHours = attendance.reduce((sum, a) => sum + (a.present ? a.overtime_hours : 0), 0);
 
@@ -1249,18 +1278,23 @@ export default function LaborCosts() {
                       <th className="text-center">STATUS</th>
                       <th className="text-center">DAILY HOURS</th>
                       <th className="text-center">OT HOURS</th>
+                      <th className="text-center">PAID LEAVE</th>
                     </tr>
                   </thead>
                   <tbody>
                     {attendance.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="text-center text-gray-500 py-8">
+                        <td colSpan={5} className="text-center text-gray-500 py-8">
                           No labourers found. Add labourers in "Manage Labourers" tab first.
                         </td>
                       </tr>
                     ) : (
                       attendance.map((record) => (
-                        <tr key={record.labour_id} className={record.present ? '' : 'bg-gray-50'} data-testid={`attendance-row-${record.labour_id}`}>
+                        <tr 
+                          key={record.labour_id} 
+                          className={`${record.present ? '' : record.paid_leave ? 'bg-purple-50' : 'bg-gray-50'}`} 
+                          data-testid={`attendance-row-${record.labour_id}`}
+                        >
                           <td className="font-medium">{record.labour_name}</td>
                           <td className="text-center">
                             <button
@@ -1306,6 +1340,17 @@ export default function LaborCosts() {
                             ) : (
                               <span className="text-gray-400">-</span>
                             )}
+                          </td>
+                          <td className="text-center">
+                            <div className="flex justify-center">
+                              <Checkbox
+                                checked={record.paid_leave || false}
+                                onCheckedChange={() => togglePaidLeave(record.labour_id)}
+                                disabled={record.present}
+                                className={`${record.present ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                data-testid={`paid-leave-${record.labour_id}`}
+                              />
+                            </div>
                           </td>
                         </tr>
                       ))

@@ -13178,6 +13178,11 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     invoice_dict["total_credit_adjusted"] = round(total_credit_adjusted, 2)
     invoice_dict["final_payable"] = round(net_payable - total_credit_adjusted, 2)
     
+    # If invoice is fully covered by credit notes, mark as paid
+    if invoice_dict["final_payable"] <= 0.01:
+        invoice_dict["payment_status"] = "paid"
+        invoice_dict["status"] = "paid"
+    
     doc = invoice_dict
     doc["invoice_date"] = invoice.invoice_date.isoformat()
     doc["created_at"] = invoice.created_at.isoformat()
@@ -13474,20 +13479,29 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
         # Use the higher of actual payments vs stored paid_amount
         effective_paid = max(actual_paid, stored_paid)
         
+        # Also account for credit note adjustments
+        credit_adjusted = float(inv.get("total_credit_adjusted", 0) or 0)
+        final_payable = float(inv.get("final_payable") if inv.get("final_payable") is not None else effective_net_payable)
+        
         # Determine correct status with tolerance for floating point
-        if effective_net_payable > 0 and effective_paid >= effective_net_payable - 0.01:
+        # If final_payable (after credit adjustments) is <=0, it's paid via credit notes
+        if final_payable <= 0.01:
             correct_status = 'paid'
-        elif effective_paid > 0:
+        elif effective_net_payable > 0 and effective_paid >= final_payable - 0.01:
+            correct_status = 'paid'
+        elif effective_paid > 0 or credit_adjusted > 0:
             correct_status = 'partial'
         else:
             correct_status = 'pending'
         
         # Check if update needed
-        if current_status != correct_status:
+        current_payment_status = inv.get('payment_status', current_status)
+        if current_status != correct_status or current_payment_status != correct_status:
             await db.retailer_invoices.update_one(
                 {'id': invoice_id},
                 {'$set': {
                     'status': correct_status,
+                    'payment_status': correct_status,
                     'paid_amount': round(effective_paid, 2),
                     'net_payable': round(effective_net_payable, 2)  # Also update stored net_payable
                 }}
@@ -13498,6 +13512,8 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
                 'new_status': correct_status,
                 'stored_net_payable': stored_net_payable,
                 'effective_net_payable': effective_net_payable,
+                'credit_adjusted': credit_adjusted,
+                'final_payable': final_payable,
                 'stored_paid': stored_paid,
                 'effective_paid': effective_paid
             })
@@ -17568,12 +17584,14 @@ async def get_retailer_payment_summary(
     # Fetch invoices with full details
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
     
-    # Calculate totals
+    # Calculate totals - use final_payable if credit notes were adjusted
     total_gross = sum(inv.get("gross_value", 0) or 0 for inv in invoices)
     total_reject = sum(inv.get("rejection_amount", 0) or 0 for inv in invoices)
     total_mrp = sum(inv.get("total_mrp_value", 0) or 0 for inv in invoices)
     total_commission = sum(inv.get("commission_amount", 0) or 0 for inv in invoices)
-    total_payable = sum(inv.get("net_payable", 0) or 0 for inv in invoices)
+    total_credit_adjusted = sum(inv.get("total_credit_adjusted", 0) or 0 for inv in invoices)
+    # Use final_payable (after credit notes) if available, otherwise net_payable
+    total_payable = sum((inv.get("final_payable") if inv.get("final_payable") is not None else inv.get("net_payable", 0)) or 0 for inv in invoices)
     total_paid = sum(inv.get("paid_amount", 0) or 0 for inv in invoices)
     total_net_due = total_payable - total_paid
     
@@ -17584,7 +17602,9 @@ async def get_retailer_payment_summary(
         reject = inv.get("rejection_amount", 0) or 0
         mrp = inv.get("total_mrp_value", 0) or 0
         commission = inv.get("commission_amount", 0) or 0
-        payable = inv.get("net_payable", 0) or 0
+        credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
+        # Use final_payable (after credit notes) if available, otherwise net_payable
+        payable = (inv.get("final_payable") if inv.get("final_payable") is not None else inv.get("net_payable", 0)) or 0
         paid = inv.get("paid_amount", 0) or 0
         net_due = payable - paid
         
@@ -17598,7 +17618,9 @@ async def get_retailer_payment_summary(
             "rejection_amount": round(reject, 2),
             "total_mrp_value": round(mrp, 2),
             "commission_amount": round(commission, 2),
-            "net_payable": round(payable, 2),
+            "net_payable": round(inv.get("net_payable", 0) or 0, 2),
+            "total_credit_adjusted": round(credit_adjusted, 2),
+            "final_payable": round(payable, 2),
             "paid_amount": round(paid, 2),
             "net_due": round(net_due, 2),
             "payment_status": inv.get("payment_status", inv.get("status", "pending")),
@@ -17613,6 +17635,7 @@ async def get_retailer_payment_summary(
             "rejection_amount": round(total_reject, 2),
             "total_mrp_value": round(total_mrp, 2),
             "commission_amount": round(total_commission, 2),
+            "total_credit_adjusted": round(total_credit_adjusted, 2),
             "net_payable": round(total_payable, 2),
             "paid_amount": round(total_paid, 2),
             "net_due": round(total_net_due, 2)

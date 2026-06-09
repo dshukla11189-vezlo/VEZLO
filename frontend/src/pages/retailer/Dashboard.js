@@ -1428,12 +1428,34 @@ export default function RetailerDashboard() {
             <span style="color: #15803d;">₹${invoice.commission_amount.toFixed(2)}</span>
           </div>
           <div class="summary-row total-final">
-            <span>Amount Payable by You:</span>
+            <span>Invoice Amount:</span>
             <span>₹${invoice.net_payable.toFixed(2)}</span>
           </div>
+          ${(invoice.credit_note_adjustments?.length > 0 && invoice.total_credit_adjusted > 0) ? `
+          <div class="summary-row" style="color: #7c3aed;">
+            <span>Credit Notes Adjusted:</span>
+            <span>-₹${invoice.total_credit_adjusted.toFixed(2)}</span>
+          </div>
+          <div class="summary-row total-final" style="font-size: 16px; color: #15803d; background: #f0fdf4; padding: 8px; margin-top: 8px; border-radius: 4px;">
+            <span>FINAL PAYABLE:</span>
+            <span>₹${(invoice.final_payable ?? invoice.net_payable).toFixed(2)}</span>
+          </div>
+          ` : ''}
         </div>
         
-        ${(invoice.paid_amount > 0 || invoice.payment_status === 'paid' || paymentHistory.length > 0) ? `
+        ${((invoice.final_payable ?? invoice.net_payable) <= 0.01 || invoice.payment_status === 'paid') ? `
+        <div style="margin-top: 20px; padding: 15px; border: 2px solid #15803d; border-radius: 8px; background: #f0fdf4;">
+          <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: bold; color: #15803d;">
+            <span>Payment Status:</span>
+            <span>✓ FULLY SETTLED</span>
+          </div>
+          ${invoice.total_credit_adjusted > 0 ? `
+          <div style="font-size: 11px; color: #666; margin-top: 5px;">
+            Adjusted via Credit Notes: ₹${invoice.total_credit_adjusted.toFixed(2)}
+          </div>
+          ` : ''}
+        </div>
+        ` : (invoice.paid_amount > 0 || paymentHistory.length > 0) ? `
         <div style="margin-top: 20px; padding: 15px; border: 2px solid #15803d; border-radius: 8px; background: #f0fdf4;">
           <h3 style="color: #15803d; margin-bottom: 10px; font-size: 14px; border-bottom: 1px solid #bbf7d0; padding-bottom: 8px;">💳 Payment Details</h3>
           
@@ -1479,16 +1501,16 @@ export default function RetailerDashboard() {
           </div>` : ''}
           `}
           
-          <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; font-weight: bold; margin-top: 5px; ${(invoice.net_payable - (invoice.paid_amount || 0)) <= 0.01 ? 'color: #15803d;' : 'color: #dc2626;'}">
+          <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; font-weight: bold; margin-top: 5px; ${((invoice.final_payable ?? invoice.net_payable) - (invoice.paid_amount || 0)) <= 0.01 ? 'color: #15803d;' : 'color: #dc2626;'}">
             <span>Balance:</span>
-            <span>₹${Math.max(0, invoice.net_payable - (invoice.paid_amount || 0)).toFixed(2)} ${(invoice.net_payable - (invoice.paid_amount || 0)) <= 0.01 ? '✓ PAID' : ''}</span>
+            <span>₹${Math.max(0, (invoice.final_payable ?? invoice.net_payable) - (invoice.paid_amount || 0)).toFixed(2)} ${((invoice.final_payable ?? invoice.net_payable) - (invoice.paid_amount || 0)) <= 0.01 ? '✓ PAID' : ''}</span>
           </div>
         </div>
         ` : `
         <div style="margin-top: 20px; padding: 15px; border: 2px solid #f59e0b; border-radius: 8px; background: #fffbeb;">
           <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; color: #b45309;">
             <span>Payment Status:</span>
-            <span>PENDING - ₹${invoice.net_payable.toFixed(2)}</span>
+            <span>PENDING - ₹${(invoice.final_payable ?? invoice.net_payable).toFixed(2)}</span>
           </div>
         </div>
         `}
@@ -6543,7 +6565,9 @@ export default function RetailerDashboard() {
                               <th className="px-1.5 py-1.5 text-right text-blue-600 font-semibold">MRP</th>
                               <th className="px-1.5 py-1.5 text-right text-orange-600 font-semibold">Comm.</th>
                               <th className="px-1.5 py-1.5 text-right text-green-600 font-semibold">Payable</th>
-                              <th className="px-1.5 py-1.5 text-right text-purple-600 font-semibold">Paid</th>
+                              <th className="px-1.5 py-1.5 text-right text-purple-600 font-semibold">CR Adj</th>
+                              <th className="px-1.5 py-1.5 text-right text-teal-600 font-semibold">Final</th>
+                              <th className="px-1.5 py-1.5 text-right text-indigo-600 font-semibold">Paid</th>
                               <th className="px-1.5 py-1.5 text-right text-blue-800 font-bold">Net Due</th>
                             </tr>
                           </thead>
@@ -6561,7 +6585,9 @@ export default function RetailerDashboard() {
                                   <td className="px-1.5 py-1.5 text-right text-blue-600">₹{(inv.total_mrp_value || 0).toFixed(0)}</td>
                                   <td className="px-1.5 py-1.5 text-right text-orange-600">-₹{(inv.commission_amount || 0).toFixed(0)}</td>
                                   <td className="px-1.5 py-1.5 text-right text-green-600">₹{(inv.net_payable || 0).toFixed(0)}</td>
-                                  <td className="px-1.5 py-1.5 text-right text-purple-600">₹{(inv.paid_amount || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-purple-600">{(inv.total_credit_adjusted || 0) > 0 ? `-₹${(inv.total_credit_adjusted || 0).toFixed(0)}` : '-'}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-teal-600 font-medium">₹{(inv.final_payable || inv.net_payable || 0).toFixed(0)}</td>
+                                  <td className="px-1.5 py-1.5 text-right text-indigo-600">₹{(inv.paid_amount || 0).toFixed(0)}</td>
                                   <td className="px-1.5 py-1.5 text-right font-semibold text-blue-800">₹{(inv.net_due || 0).toFixed(0)}</td>
                                 </tr>
                               ))
@@ -6591,6 +6617,12 @@ export default function RetailerDashboard() {
                                   ₹{(paymentSummaryData.totals.net_payable || 0).toFixed(0)}
                                 </td>
                                 <td className="px-1.5 py-1.5 text-right text-purple-700">
+                                  {(paymentSummaryData.totals.total_credit_adjusted || 0) > 0 ? `-₹${(paymentSummaryData.totals.total_credit_adjusted || 0).toFixed(0)}` : '-'}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-teal-700 font-medium">
+                                  ₹{((paymentSummaryData.totals.net_payable || 0) - (paymentSummaryData.totals.total_credit_adjusted || 0)).toFixed(0)}
+                                </td>
+                                <td className="px-1.5 py-1.5 text-right text-indigo-700">
                                   ₹{(paymentSummaryData.totals.paid_amount || 0).toFixed(0)}
                                 </td>
                                 <td className="px-1.5 py-1.5 text-right text-blue-800 font-bold">
@@ -6629,7 +6661,7 @@ export default function RetailerDashboard() {
                           toast.error('No data to export');
                           return;
                         }
-                        const headers = ['#', 'Date', 'Invoice #', 'Gross', 'Reject', 'MRP', 'Comm.', 'Payable', 'Paid', 'Net Due'];
+                        const headers = ['#', 'Date', 'Invoice #', 'Gross', 'Reject', 'MRP', 'Comm.', 'Payable', 'CR Adj', 'Final', 'Paid', 'Net Due'];
                         const rows = paymentSummaryData.invoices.map(inv => [
                           inv.serial_num || '',
                           new Date(inv.dispatch_date || inv.invoice_date).toLocaleDateString('en-IN'),
@@ -6639,6 +6671,8 @@ export default function RetailerDashboard() {
                           inv.total_mrp_value || 0,
                           -(inv.commission_amount || 0),
                           inv.net_payable || 0,
+                          -(inv.total_credit_adjusted || 0),
+                          inv.final_payable || inv.net_payable || 0,
                           inv.paid_amount || 0,
                           inv.net_due || 0
                         ]);
@@ -6651,6 +6685,8 @@ export default function RetailerDashboard() {
                             paymentSummaryData.totals.total_mrp_value || 0,
                             -(paymentSummaryData.totals.commission_amount || 0),
                             paymentSummaryData.totals.net_payable || 0,
+                            -(paymentSummaryData.totals.total_credit_adjusted || 0),
+                            (paymentSummaryData.totals.net_payable || 0) - (paymentSummaryData.totals.total_credit_adjusted || 0),
                             paymentSummaryData.totals.paid_amount || 0,
                             paymentSummaryData.totals.net_due || 0
                           ]);

@@ -1577,10 +1577,21 @@ export default function RetailerOrders() {
 
   // Helper to get enhanced variant display for indent items
   // Shows Customer Display Variant, with weight appended for Pieces/Packets
+  // Also handles case where variant_name might be a UUID (packaging ID)
   const getIndentVariantDisplay = useCallback((item) => {
     if (!item) return '-';
     
-    const variantName = item.variant_name || '-';
+    let variantName = item.variant_name || '-';
+    
+    // Check if variant_name looks like a UUID (packaging ID) and needs to be resolved
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(variantName)) {
+      // Look up the actual packaging name
+      const packaging = packagings.find(p => p.id === variantName);
+      if (packaging) {
+        variantName = packaging.name || variantName;
+      }
+    }
     
     // If variant is "Pieces" or "Packets", look up catalogue to get weight info
     if (variantName.toLowerCase() === 'pieces' || variantName.toLowerCase() === 'packets') {
@@ -1616,7 +1627,7 @@ export default function RetailerOrders() {
       }
     }
     
-    // Return original variant name for other cases
+    // Return resolved variant name for other cases
     return variantName;
   }, [retailerCatalogue, packagings]);
 
@@ -7929,6 +7940,9 @@ export default function RetailerOrders() {
                                         <th className="p-2 text-center w-8">#</th>
                                         <th className="p-2 text-left">Product</th>
                                         <th className="p-2 text-left">Variant</th>
+                                        {indent.generation_basis === 'plan' && (
+                                          <th className="p-2 text-right">Yest. Closing</th>
+                                        )}
                                         <th className="p-2 text-right">Ordered</th>
                                         {showDispatchColumns && (
                                           <>
@@ -7948,6 +7962,9 @@ export default function RetailerOrders() {
                                             <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                             <td className="p-2">{getProductNameInLang(item, indentLanguage)}</td>
                                             <td className="p-2">{getIndentVariantDisplay(item)}</td>
+                                            {indent.generation_basis === 'plan' && (
+                                              <td className="p-2 text-right text-gray-500">{item.closing_qty ?? '-'}</td>
+                                            )}
                                             <td className="p-2 text-right">{item.quantity}</td>
                                             {showDispatchColumns && (
                                               <>
@@ -7967,7 +7984,7 @@ export default function RetailerOrders() {
                                     </tbody>
                                     <tfoot className="bg-blue-100 font-semibold">
                                       <tr>
-                                        <td colSpan={3} className="p-2 text-right">TOTAL:</td>
+                                        <td colSpan={indent.generation_basis === 'plan' ? 4 : 3} className="p-2 text-right">TOTAL:</td>
                                         <td className="p-2 text-right">
                                           {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}
                                         </td>

@@ -2,6 +2,26 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Sync & Auto Indent Improvements ✅
+- **BUG FIX**: Retail Plans now sync from Production to Preview
+  - Added `retail_plans` collection to backup system (`COLLECTIONS_TO_BACKUP`)
+  - Added to Excel sync sheet mapping (`sheet_to_collection`)
+  - Added to direct API sync endpoints
+  - Added to `/api/backup/status` and `/api/sync-status` responses
+  - Added `products` field to JSON fields map for proper nested array handling
+- **BUG FIX**: Variant names now display correctly in Auto Indent items
+  - Fixed `RetailPlans.js` to lookup packaging names when adding products (was storing UUID as name)
+  - Enhanced `getIndentVariantDisplay()` in `RetailerOrders.js` to detect and resolve UUID patterns
+- **NEW FEATURE**: "Yest. Closing" column added to Plan Based indent view
+  - Shows only for indents with `generation_basis === 'plan'`
+  - Helps verify calculation: Plan Qty - Closing Qty = Ordered Qty
+  - Column appears between Variant and Ordered columns
+- **Files Modified**:
+  - `/app/backend/backup_system.py`
+  - `/app/backend/server.py` (sync endpoints, backup status)
+  - `/app/frontend/src/pages/admin/RetailPlans.js`
+  - `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 ### June 9, 2025 - Attendance: Working Hours & Paid Leave Features ✅
 - **NEW FEATURE**: Added configurable Working Hours for attendance
   - Default: 9 hours when marking present

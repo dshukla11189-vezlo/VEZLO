@@ -205,13 +205,18 @@ export default function RetailPlans() {
             }
           } else {
             // Add new product
-            // Find variant name
+            // Find variant name - lookup from packagings if it's a packaging ID
             let variantName = variantId;
-            if (variantId === 'unit_piece') variantName = 'Pieces';
-            else if (variantId === 'unit_packet') variantName = 'Packets';
-            else {
-              // It's a packaging ID, try to get name from catalogue item
-              variantName = variantId; // Will be resolved by backend if needed
+            if (variantId === 'unit_piece') {
+              variantName = 'Pieces';
+            } else if (variantId === 'unit_packet') {
+              variantName = 'Packets';
+            } else {
+              // It's a packaging ID, look up the actual name from packagings array
+              const packagingMatch = packagings.find(p => p.id === variantId);
+              if (packagingMatch) {
+                variantName = packagingMatch.name || variantId;
+              }
             }
             
             await api.post(`/api/retail-plans/${plan.id}/products`, {

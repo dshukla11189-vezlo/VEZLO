@@ -57,6 +57,7 @@ COLLECTIONS_TO_BACKUP = [
     "retailer_closing_inventory",
     "retailer_inventory",
     "retailer_daily_requirements",
+    "retail_plans",
     # Stock & Expenses
     "daily_stock_status",
     "variable_expenses",

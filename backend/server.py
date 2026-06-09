@@ -7760,13 +7760,22 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             rate = item.get("rate", 0)  # rate per unit (per Kg or per Bunch)
             total_value = item.get("total", qty * rate)
             
-            # Convert to Kg if unit is Bunch/Piece with a unit_size (weight in grams)
-            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                try:
-                    weight_per_unit_gm = float(unit_size)  # grams per bunch/piece
-                    qty_kg = (qty * weight_per_unit_gm) / 1000  # convert to Kg
-                except (ValueError, TypeError):
-                    qty_kg = qty  # fallback if unit_size is not a number
+            # Convert to Kg if unit is Bunch/Piece/Packet etc. with a unit_size (weight in grams)
+            unit_lower = unit.lower().strip()
+            if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                weight_gm = None
+                if unit_size:
+                    try:
+                        weight_gm = float(unit_size)
+                    except (ValueError, TypeError):
+                        pass
+                if not weight_gm:
+                    defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
+                    weight_gm = defaults.get(unit_lower)
+                if weight_gm:
+                    qty_kg = (qty * weight_gm) / 1000
+                else:
+                    qty_kg = qty
             else:
                 qty_kg = qty  # already in Kg
             
@@ -8018,12 +8027,21 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
                 unit = item.get("unit", "Kg")
                 unit_size = item.get("unit_size", "")
                 
-                # Convert to Kg
-                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                    try:
-                        weight_per_unit_gm = float(unit_size)
-                        qty_kg = (qty * weight_per_unit_gm) / 1000
-                    except (ValueError, TypeError):
+                # Convert to Kg for Packet, Bunch, Piece, Box etc.
+                unit_lower = unit.lower().strip()
+                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                    weight_gm = None
+                    if unit_size:
+                        try:
+                            weight_gm = float(unit_size)
+                        except (ValueError, TypeError):
+                            pass
+                    if not weight_gm:
+                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
+                        weight_gm = defaults.get(unit_lower)
+                    if weight_gm:
+                        qty_kg = (qty * weight_gm) / 1000
+                    else:
                         qty_kg = qty
                 else:
                     qty_kg = qty
@@ -8952,6 +8970,52 @@ async def fix_all_purchase_quantities(
         # Step 2: Get all procurements
         all_procurements = await db.procurements.find({}).to_list(10000)
         
+        # Load packaging weights for fallback lookup
+        packaging_list = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        packaging_weight_map = {}
+        for p in packaging_list:
+            name = p.get('name', '').strip().lower()
+            weight = p.get('weight_gm', 0)
+            if name and weight:
+                packaging_weight_map[name] = weight
+        # Add common aliases
+        packaging_weight_map['packet'] = 200  # Default packet weight
+        packaging_weight_map['pack'] = 200
+        packaging_weight_map['bunch'] = 250  # Default bunch weight
+        packaging_weight_map['piece'] = 100  # Default piece weight
+        packaging_weight_map['pcs'] = 100
+        
+        def calculate_qty_kg_with_fallback(item):
+            """Convert quantity to Kg based on unit type with fallback lookup."""
+            try:
+                qty = float(item.get('quantity', 0) or 0)
+            except (ValueError, TypeError):
+                qty = 0
+            unit = item.get('unit', 'Kg')
+            unit_size = item.get('unit_size', '')
+            
+            unit_lower = unit.lower().strip()
+            
+            # Convert Bunch, Packet, Piece, Box etc. to kg using unit_size (in grams)
+            if unit_lower in ['bunch', 'packet', 'piece', 'box', 'crate', 'dozen', 'pack', 'pcs']:
+                weight_gm = None
+                
+                # First try unit_size from item
+                if unit_size:
+                    try:
+                        weight_gm = float(unit_size)
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Fallback to packaging lookup
+                if not weight_gm:
+                    weight_gm = packaging_weight_map.get(unit_lower, None)
+                
+                if weight_gm:
+                    return (qty * weight_gm) / 1000  # Convert to kg
+            
+            return qty
+        
         # Build lookup: date -> product_id -> {qty_kg, total_value}
         purchases_by_date_product = {}
         
@@ -8973,7 +9037,8 @@ async def fix_all_purchase_quantities(
                     if not product_id:
                         continue
                     
-                    qty_kg = calculate_qty_kg(item)
+                    qty_kg = calculate_qty_kg_with_fallback(item)
+                    
                     try:
                         total_value = float(item.get('total', 0) or 0)
                     except (ValueError, TypeError):
@@ -9026,7 +9091,11 @@ async def fix_all_purchase_quantities(
                         qty_diff = abs(current_purchase_qty - correct_purchase_qty)
                         value_diff = abs(current_purchase_value - correct_purchase_value)
                         
+                        # Compare with stock_status
                         if qty_diff > 0.01 or value_diff > 0.01:  # Significant difference in qty OR value
+                            # Log what we're fixing
+                            print(f"FIXING: {product_name} on {date}: {current_purchase_qty} -> {correct_purchase_qty}")
+                            
                             # Calculate new avg_price
                             avg_price = 0
                             if correct_purchase_qty > 0:
@@ -9132,12 +9201,21 @@ async def get_stock_status_history(
                 rate = item.get("rate", 0)
                 total_value = item.get("total", qty * rate)
                 
-                # Convert to Kg if unit is Bunch/Piece with a unit_size
-                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                    try:
-                        weight_per_unit_gm = float(unit_size)
-                        qty_kg = (qty * weight_per_unit_gm) / 1000
-                    except (ValueError, TypeError):
+                # Convert to Kg for Packet, Bunch, Piece, Box etc.
+                unit_lower = unit.lower().strip()
+                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                    weight_gm = None
+                    if unit_size:
+                        try:
+                            weight_gm = float(unit_size)
+                        except (ValueError, TypeError):
+                            pass
+                    if not weight_gm:
+                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
+                        weight_gm = defaults.get(unit_lower)
+                    if weight_gm:
+                        qty_kg = (qty * weight_gm) / 1000
+                    else:
                         qty_kg = qty
                 else:
                     qty_kg = qty
@@ -10088,12 +10166,24 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
                 unit_size = item.get("unit_size", "")
                 total_value = item.get("total", qty * item.get("rate", 0))
                 
-                # Convert to Kg
-                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                    try:
-                        weight_per_unit_gm = float(unit_size)
-                        qty_kg = (qty * weight_per_unit_gm) / 1000
-                    except (ValueError, TypeError):
+                # Convert to Kg for Packet, Bunch, Piece, Box etc.
+                unit_lower = unit.lower().strip()
+                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                    weight_gm = None
+                    # Try unit_size first
+                    if unit_size:
+                        try:
+                            weight_gm = float(unit_size)
+                        except (ValueError, TypeError):
+                            pass
+                    # Fallback to standard weights
+                    if not weight_gm:
+                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
+                        weight_gm = defaults.get(unit_lower)
+                    
+                    if weight_gm:
+                        qty_kg = (qty * weight_gm) / 1000
+                    else:
                         qty_kg = qty
                 else:
                     qty_kg = qty
@@ -14292,6 +14382,7 @@ async def get_backup_status(current_user: dict = Depends(get_current_user)):
             "retailers", "retailer_indents", "retailer_dispatches", "retailer_invoices", 
             "retailer_grn", "retailer_rejections", "retailer_payments",
             "retailer_closing_inventory", "retailer_inventory", "retailer_daily_requirements",
+            "retail_plans",
             # Stock & Expenses
             "daily_stock_status", "variable_expenses", "fixed_expenses",
             # Labour
@@ -14458,6 +14549,7 @@ async def sync_from_production(
                 'retailer_dispatches': 'retailer_dispatches',
                 'retailer_invoices': 'retailer_invoices',
                 'retailer_grn': 'retailer_grn',
+                'retail_plans': 'retail_plans',
                 'retailer_rejections': 'retailer_rejections',
                 'retailer_payments': 'retailer_payments',
                 'retailer_closing_inventory': 'retailer_closing_inventory',
@@ -14492,6 +14584,7 @@ async def sync_from_production(
                 'retailer_daily_requirements': ['items'],
                 'procurement_templates': ['products'],
                 'farmers': ['materials_supplied'],
+                'retail_plans': ['products'],
             }
             
             sync_results = {}
@@ -14641,6 +14734,7 @@ async def sync_from_production_direct(
                 'procurements': '/api/procurement',
                 'farmer_payments': '/api/farmer-payments',
                 'customer_product_settings': '/api/customer-product-settings',
+                'retail_plans': '/api/retail-plans',
             }
             
             # Endpoints that need date range params (fetch last 6 months)
@@ -14878,6 +14972,7 @@ async def sync_from_production_full(
                 'daily_stock_status': '/api/stock-status',
                 'users': '/api/users',
                 'blinkit_prices': '/api/blinkit-prices',
+                'retail_plans': '/api/retail-plans',
             }
             
             # Date range endpoints
@@ -15042,6 +15137,7 @@ async def get_sync_status(current_user: dict = Depends(get_current_user)):
         "retailers", "retailer_indents", "retailer_dispatches", "retailer_invoices", 
         "retailer_grn", "retailer_rejections", "retailer_payments",
         "retailer_closing_inventory", "retailer_inventory", "retailer_daily_requirements",
+        "retail_plans",
         # Stock & Expenses
         "daily_stock_status", "variable_expenses", "fixed_expenses",
         # Labour

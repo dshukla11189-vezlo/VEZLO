@@ -19548,6 +19548,7 @@ async def calculate_daily_purchase_requirement(
         # Aggregate indent items by product+variant (combining same product-variant combos)
         # Key is product_id + resolved_variant_name (not variant_id) to properly combine duplicates
         product_aggregation = {}
+        skipped_items = []  # Track skipped items for debugging
         
         for indent in target_indents:
             retailer_id = indent.get("retailer_id", "")
@@ -19559,8 +19560,23 @@ async def calculate_daily_purchase_requirement(
                 variant_name_raw = item.get("variant_name", "")
                 quantity = item.get("quantity", 0) or 0
                 
-                if not product_id:
+                # Skip items with no product_id AND no product_name
+                if not product_id and not product_name:
+                    skipped_items.append({"reason": "no_id_or_name", "item": item})
                     continue
+                
+                # If no product_id but has product_name, try to find it
+                if not product_id and product_name:
+                    # Search in products by name
+                    product_name_lower = product_name.strip().lower()
+                    for pid, pinfo in product_info_map.items():
+                        if pinfo.get("name", "").strip().lower() == product_name_lower:
+                            product_id = pid
+                            break
+                    
+                    # If still no product_id, use product_name as a fallback key
+                    if not product_id:
+                        product_id = f"name:{product_name_lower}"
                 
                 # Resolve variant - check multiple sources
                 resolved_variant_name = ""
@@ -19598,13 +19614,17 @@ async def calculate_daily_purchase_requirement(
                 agg_key = f"{product_id}|{normalized_variant}"
                 
                 if agg_key not in product_aggregation:
+                    # Try to get product info from map, or use item data as fallback
                     product_info = product_info_map.get(product_id, {})
+                    final_product_name = product_info.get("name") or product_name or "Unknown"
+                    final_category = product_info.get("category") or item.get("category") or "Other"
+                    
                     product_aggregation[agg_key] = {
                         "product_id": product_id,
-                        "product_name": product_info.get("name", product_name),
+                        "product_name": final_product_name,
                         "product_name_hi": product_info.get("name_hi", ""),
                         "product_name_mr": product_info.get("name_mr", ""),
-                        "category": product_info.get("category", "Other"),
+                        "category": final_category,
                         "variant_id": resolved_variant_id,
                         "variant_name": resolved_variant_name,
                         "total_units": 0,
@@ -19681,6 +19701,18 @@ async def calculate_daily_purchase_requirement(
         category_order = {"Fruits": 1, "Vegetables": 2, "Leafy": 3, "Exotic": 4, "Other": 5}
         result_items.sort(key=lambda x: (category_order.get(x["category"], 99), x["product_name"], x.get("variant_name", "")))
         
+        # Calculate category breakdown for debugging
+        category_counts = {}
+        for item in result_items:
+            cat = item["category"]
+            if cat not in category_counts:
+                category_counts[cat] = {"count": 0, "units": 0}
+            category_counts[cat]["count"] += 1
+            category_counts[cat]["units"] += item["qty_units"]
+        
+        # Count total items processed from indents
+        total_indent_items = sum(len(indent.get("items", [])) for indent in target_indents)
+        
         return {
             "success": True,
             "target_date": target_date,
@@ -19690,6 +19722,13 @@ async def calculate_daily_purchase_requirement(
             "total_qty_units": sum(item["qty_units"] for item in result_items),
             "total_qty_kg": round(sum(item["qty_kg"] for item in result_items), 2),
             "total_requirement_kg": round(sum(item["requirement_kg"] for item in result_items), 2),
+            "category_breakdown": category_counts,
+            "debug_info": {
+                "total_indent_items": total_indent_items,
+                "aggregated_items": len(result_items),
+                "products_in_db": len(product_info_map),
+                "packagings_in_db": len(variant_name_map)
+            },
             "message": f"Calculated from {len(target_indents)} indent(s) for {target_date}"
         }
         

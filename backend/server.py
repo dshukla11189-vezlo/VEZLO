@@ -19617,13 +19617,14 @@ async def calculate_daily_purchase_requirement(
                     # Try to get product info from map, or use item data as fallback
                     product_info = product_info_map.get(product_id, {})
                     final_product_name = product_info.get("name") or product_name or "Unknown"
-                    final_category = product_info.get("category") or item.get("category") or "Other"
+                    # Get category from product info, or from item, or default to Other
+                    final_category = product_info.get("category") or item.get("category") or item.get("product_category") or "Other"
                     
                     product_aggregation[agg_key] = {
                         "product_id": product_id,
                         "product_name": final_product_name,
-                        "product_name_hi": product_info.get("name_hi", ""),
-                        "product_name_mr": product_info.get("name_mr", ""),
+                        "product_name_hi": product_info.get("name_hi", "") or item.get("product_name_hi", ""),
+                        "product_name_mr": product_info.get("name_mr", "") or item.get("product_name_mr", ""),
                         "category": final_category,
                         "variant_id": resolved_variant_id,
                         "variant_name": resolved_variant_name,
@@ -19713,6 +19714,26 @@ async def calculate_daily_purchase_requirement(
         # Count total items processed from indents
         total_indent_items = sum(len(indent.get("items", [])) for indent in target_indents)
         
+        # Build detailed debug info about what was skipped
+        skipped_summary = {}
+        for skip in skipped_items:
+            reason = skip.get("reason", "unknown")
+            if reason not in skipped_summary:
+                skipped_summary[reason] = 0
+            skipped_summary[reason] += 1
+        
+        # Sample of raw indent data for debugging
+        sample_indent_items = []
+        if target_indents:
+            for item in target_indents[0].get("items", [])[:5]:
+                sample_indent_items.append({
+                    "product_name": item.get("product_name"),
+                    "product_id": item.get("product_id", "")[:20] + "..." if item.get("product_id") else None,
+                    "variant_id": item.get("variant_id", "")[:20] + "..." if item.get("variant_id") else None,
+                    "variant_name": item.get("variant_name"),
+                    "quantity": item.get("quantity")
+                })
+        
         return {
             "success": True,
             "target_date": target_date,
@@ -19726,8 +19747,12 @@ async def calculate_daily_purchase_requirement(
             "debug_info": {
                 "total_indent_items": total_indent_items,
                 "aggregated_items": len(result_items),
+                "skipped_items": len(skipped_items),
+                "skipped_summary": skipped_summary,
                 "products_in_db": len(product_info_map),
-                "packagings_in_db": len(variant_name_map)
+                "packagings_in_db": len(variant_name_map),
+                "sample_indent_items": sample_indent_items,
+                "indent_ids": [ind.get("id", "")[:20] for ind in target_indents[:5]]
             },
             "message": f"Calculated from {len(target_indents)} indent(s) for {target_date}"
         }

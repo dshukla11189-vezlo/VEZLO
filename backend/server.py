@@ -19546,15 +19546,11 @@ async def calculate_daily_purchase_requirement(
                 product_wastage_pct[product_id] = round(min(wastage_pct, 100), 1)  # Cap at 100%
         
         # Aggregate indent items by product+variant (combining same product-variant combos)
-        product_aggregation = {}  # key = "product_id|variant_id" -> {total_units, total_kg, product_name, variant_name, category, retailers}
+        # Key is product_id + resolved_variant_name (not variant_id) to properly combine duplicates
+        product_aggregation = {}
         
         for indent in target_indents:
             retailer_id = indent.get("retailer_id", "")
-            retailer_name = "Unknown"
-            # Get retailer name
-            for p in all_products:
-                pass  # Products don't have retailer info
-            # Actually fetch retailer name from users collection (we need to do this in a lookup)
             
             for item in indent.get("items", []):
                 product_id = item.get("product_id")
@@ -19566,19 +19562,29 @@ async def calculate_daily_purchase_requirement(
                 if not product_id:
                     continue
                 
-                # Resolve variant name from UUID if needed
-                resolved_variant_name = variant_name_raw
+                # Resolve variant - check multiple sources
+                resolved_variant_name = ""
+                resolved_variant_id = variant_id
+                
+                # Priority 1: variant_id is a valid UUID that maps to a name
                 if variant_id and variant_id in variant_name_map:
                     resolved_variant_name = variant_name_map[variant_id]
+                    resolved_variant_id = variant_id
+                # Priority 2: variant_name is actually a UUID (legacy data)
                 elif variant_name_raw and variant_name_raw in variant_name_map:
-                    # variant_name is actually a variant_id (UUID)
                     resolved_variant_name = variant_name_map[variant_name_raw]
-                    variant_id = variant_name_raw
+                    resolved_variant_id = variant_name_raw
+                # Priority 3: variant_name is already a readable name
+                elif variant_name_raw:
+                    resolved_variant_name = variant_name_raw
                 
                 # Get weight from variant
-                weight_kg = variant_weight_map.get(variant_id, 0)
-                if weight_kg == 0 and variant_name_raw:
-                    weight_kg = variant_weight_map.get(variant_name_raw, parse_variant_weight(resolved_variant_name))
+                weight_kg = 0
+                if resolved_variant_id and resolved_variant_id in variant_weight_map:
+                    weight_kg = variant_weight_map[resolved_variant_id]
+                elif variant_name_raw and variant_name_raw in variant_weight_map:
+                    weight_kg = variant_weight_map[variant_name_raw]
+                
                 if weight_kg == 0:
                     weight_kg = parse_variant_weight(resolved_variant_name)
                 if weight_kg == 0:
@@ -19586,8 +19592,10 @@ async def calculate_daily_purchase_requirement(
                     
                 item_kg = quantity * weight_kg
                 
-                # Create aggregation key - combine by product+variant
-                agg_key = f"{product_id}|{variant_id or resolved_variant_name}"
+                # Create aggregation key using RESOLVED variant name (not ID) to properly combine duplicates
+                # Normalize the variant name for consistent matching
+                normalized_variant = resolved_variant_name.strip().lower() if resolved_variant_name else ""
+                agg_key = f"{product_id}|{normalized_variant}"
                 
                 if agg_key not in product_aggregation:
                     product_info = product_info_map.get(product_id, {})
@@ -19597,23 +19605,22 @@ async def calculate_daily_purchase_requirement(
                         "product_name_hi": product_info.get("name_hi", ""),
                         "product_name_mr": product_info.get("name_mr", ""),
                         "category": product_info.get("category", "Other"),
-                        "variant_id": variant_id,
+                        "variant_id": resolved_variant_id,
                         "variant_name": resolved_variant_name,
                         "total_units": 0,
                         "total_kg": 0,
-                        "retailers": []  # Track which retailers have this item
+                        "retailers": []
                     }
                 
                 product_aggregation[agg_key]["total_units"] += quantity
                 product_aggregation[agg_key]["total_kg"] += item_kg
                 
-                # Track retailer (avoid duplicates)
-                retailer_info = {"retailer_id": retailer_id, "qty": quantity}
+                # Track retailer (accumulate qty if same retailer)
                 existing_retailer = next((r for r in product_aggregation[agg_key]["retailers"] if r["retailer_id"] == retailer_id), None)
                 if existing_retailer:
                     existing_retailer["qty"] += quantity
                 else:
-                    product_aggregation[agg_key]["retailers"].append(retailer_info)
+                    product_aggregation[agg_key]["retailers"].append({"retailer_id": retailer_id, "qty": quantity})
         
         # Get retailer names for lookup
         all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "id": 1, "company_name": 1, "name": 1}).to_list(200)

@@ -2660,34 +2660,47 @@ export default function RetailerOrders() {
   const openEditIndentModal = (indent) => {
     setEditingIndent(indent);
     
-    // Helper to resolve variant UUID to actual name
-    const resolveVariantName = (variantName, productId) => {
-      if (!variantName) return '';
+    // Helper to resolve variant info - if variant_name is a UUID, use it as variant_id
+    const resolveVariantInfo = (item) => {
+      let variantId = item.variant_id || '';
+      let variantName = item.variant_name || '';
       
       // Check if variant_name looks like a UUID (packaging ID)
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (uuidRegex.test(variantName)) {
+      
+      if (variantName && uuidRegex.test(variantName)) {
+        // variant_name is actually a UUID - use it as variant_id
+        variantId = variantName;
         // Look up the actual packaging name
         const packaging = packagings.find(p => p.id === variantName);
         if (packaging) {
-          return packaging.name || variantName;
+          variantName = packaging.name || '';
+        }
+      } else if (variantId && uuidRegex.test(variantId)) {
+        // variant_id is a UUID - resolve the name if not already set
+        const packaging = packagings.find(p => p.id === variantId);
+        if (packaging && (!variantName || uuidRegex.test(variantName))) {
+          variantName = packaging.name || '';
         }
       }
       
-      return variantName;
+      return { variantId, variantName };
     };
     
     setIndentForm({
       retailer_id: indent.retailer_id,
       indent_date: indent.indent_date?.split('T')[0] || new Date().toISOString().split('T')[0],
-      items: indent.items.map(item => ({
-        product_id: item.product_id,
-        product_name: item.product_name,
-        variant_id: item.variant_id || '',
-        variant_name: resolveVariantName(item.variant_name, item.product_id),
-        quantity: item.quantity,
-        status: item.status || 'pending'
-      })),
+      items: indent.items.map(item => {
+        const { variantId, variantName } = resolveVariantInfo(item);
+        return {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          variant_id: variantId,
+          variant_name: variantName,
+          quantity: item.quantity,
+          status: item.status || 'pending'
+        };
+      }),
       remarks: indent.remarks || ''
     });
     setShowIndentModal(true);
@@ -7652,6 +7665,30 @@ export default function RetailerOrders() {
                                                     <span className="text-xs text-gray-600">
                                                       Bunches
                                                       {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
+                                                    </span>
+                                                  </div>
+                                                ) : item.purchaseUnit === 'Dozen' ? (
+                                                  // For Dozens: show "5 Dozens"
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="1"
+                                                      min="0"
+                                                      value={Math.round(item.qtyUnits) || 0}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newData = [...dailyReqData];
+                                                        newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                        setDailyReqData(newData);
+                                                        setDailyReqSaved(false);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="h-7 w-14 text-center text-xs font-bold text-yellow-700"
+                                                      disabled={dailyReqViewMode === 'original'}
+                                                    />
+                                                    <span className="text-xs text-yellow-700 font-semibold">
+                                                      Dozens
+                                                      {item.purchaseWeightName && <span className="text-yellow-600"> ({item.purchaseWeightName})</span>}
                                                     </span>
                                                   </div>
                                                 ) : (

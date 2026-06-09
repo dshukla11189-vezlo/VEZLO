@@ -19545,41 +19545,86 @@ async def calculate_daily_purchase_requirement(
                 wastage_pct = (total_wastage / total_input) * 100
                 product_wastage_pct[product_id] = round(min(wastage_pct, 100), 1)  # Cap at 100%
         
-        # Aggregate indent items by product (combining all variants)
-        product_aggregation = {}  # product_id -> {total_units, total_kg, product_name, category}
+        # Aggregate indent items by product+variant (combining same product-variant combos)
+        product_aggregation = {}  # key = "product_id|variant_id" -> {total_units, total_kg, product_name, variant_name, category, retailers}
         
         for indent in target_indents:
+            retailer_id = indent.get("retailer_id", "")
+            retailer_name = "Unknown"
+            # Get retailer name
+            for p in all_products:
+                pass  # Products don't have retailer info
+            # Actually fetch retailer name from users collection (we need to do this in a lookup)
+            
             for item in indent.get("items", []):
                 product_id = item.get("product_id")
                 product_name = item.get("product_name", "Unknown")
-                variant_id = item.get("variant_id")
-                variant_name = item.get("variant_name", "")
+                variant_id = item.get("variant_id") or ""
+                variant_name_raw = item.get("variant_name", "")
                 quantity = item.get("quantity", 0) or 0
                 
                 if not product_id:
                     continue
                 
+                # Resolve variant name from UUID if needed
+                resolved_variant_name = variant_name_raw
+                if variant_id and variant_id in variant_name_map:
+                    resolved_variant_name = variant_name_map[variant_id]
+                elif variant_name_raw and variant_name_raw in variant_name_map:
+                    # variant_name is actually a variant_id (UUID)
+                    resolved_variant_name = variant_name_map[variant_name_raw]
+                    variant_id = variant_name_raw
+                
                 # Get weight from variant
-                weight_kg = variant_weight_map.get(variant_id, parse_variant_weight(variant_name))
+                weight_kg = variant_weight_map.get(variant_id, 0)
+                if weight_kg == 0 and variant_name_raw:
+                    weight_kg = variant_weight_map.get(variant_name_raw, parse_variant_weight(resolved_variant_name))
+                if weight_kg == 0:
+                    weight_kg = parse_variant_weight(resolved_variant_name)
+                if weight_kg == 0:
+                    weight_kg = 1.0  # Default
+                    
                 item_kg = quantity * weight_kg
                 
-                if product_id not in product_aggregation:
+                # Create aggregation key - combine by product+variant
+                agg_key = f"{product_id}|{variant_id or resolved_variant_name}"
+                
+                if agg_key not in product_aggregation:
                     product_info = product_info_map.get(product_id, {})
-                    product_aggregation[product_id] = {
+                    product_aggregation[agg_key] = {
+                        "product_id": product_id,
                         "product_name": product_info.get("name", product_name),
                         "product_name_hi": product_info.get("name_hi", ""),
                         "product_name_mr": product_info.get("name_mr", ""),
                         "category": product_info.get("category", "Other"),
+                        "variant_id": variant_id,
+                        "variant_name": resolved_variant_name,
                         "total_units": 0,
-                        "total_kg": 0
+                        "total_kg": 0,
+                        "retailers": []  # Track which retailers have this item
                     }
                 
-                product_aggregation[product_id]["total_units"] += quantity
-                product_aggregation[product_id]["total_kg"] += item_kg
+                product_aggregation[agg_key]["total_units"] += quantity
+                product_aggregation[agg_key]["total_kg"] += item_kg
+                
+                # Track retailer (avoid duplicates)
+                retailer_info = {"retailer_id": retailer_id, "qty": quantity}
+                existing_retailer = next((r for r in product_aggregation[agg_key]["retailers"] if r["retailer_id"] == retailer_id), None)
+                if existing_retailer:
+                    existing_retailer["qty"] += quantity
+                else:
+                    product_aggregation[agg_key]["retailers"].append(retailer_info)
+        
+        # Get retailer names for lookup
+        all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "id": 1, "company_name": 1, "name": 1}).to_list(200)
+        retailer_name_map = {}
+        for r in all_retailers:
+            retailer_name_map[r.get("id")] = r.get("company_name") or r.get("name", "Unknown")
         
         # Build result items
         result_items = []
-        for product_id, data in product_aggregation.items():
+        for agg_key, data in product_aggregation.items():
+            product_id = data["product_id"]
             wastage_pct = product_wastage_pct.get(product_id, 0)
             total_kg = data["total_kg"]
             
@@ -19600,23 +19645,34 @@ async def calculate_daily_purchase_requirement(
             purchase_weight_id = purchase_weights[0] if purchase_weights else cat_info.get("purchase_weight_variant", "")
             purchase_weight_name = variant_name_map.get(purchase_weight_id, "") if purchase_weight_id else ""
             
+            # Resolve retailer names
+            retailers_with_names = []
+            for r in data.get("retailers", []):
+                retailer_id = r.get("retailer_id")
+                qty = r.get("qty", 0)
+                name = retailer_name_map.get(retailer_id, "Unknown")
+                retailers_with_names.append({"name": name, "qty": qty})
+            
             result_items.append({
                 "product_id": product_id,
                 "product_name": data["product_name"],
                 "product_name_hi": data.get("product_name_hi", ""),
                 "product_name_mr": data.get("product_name_mr", ""),
                 "category": data["category"],
+                "variant_id": data.get("variant_id", ""),
+                "variant_name": data.get("variant_name", ""),
                 "qty_units": round(data["total_units"], 2),
                 "qty_kg": round(total_kg, 2),
                 "wastage_pct": wastage_pct,
                 "requirement_kg": round(requirement_kg, 2),
                 "purchase_unit": purchase_unit,
-                "purchase_weight_name": purchase_weight_name
+                "purchase_weight_name": purchase_weight_name,
+                "retailers": retailers_with_names
             })
         
-        # Sort by category then product name
+        # Sort by category then product name then variant
         category_order = {"Fruits": 1, "Vegetables": 2, "Leafy": 3, "Exotic": 4, "Other": 5}
-        result_items.sort(key=lambda x: (category_order.get(x["category"], 99), x["product_name"]))
+        result_items.sort(key=lambda x: (category_order.get(x["category"], 99), x["product_name"], x.get("variant_name", "")))
         
         return {
             "success": True,

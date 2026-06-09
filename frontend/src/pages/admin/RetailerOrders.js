@@ -352,6 +352,7 @@ export default function RetailerOrders() {
   const [dailyReqSaving, setDailyReqSaving] = useState(false);
   const [dailyReqSaved, setDailyReqSaved] = useState(false);
   const [retailWastageAverages, setRetailWastageAverages] = useState([]);
+  const [expandedPurchaseItem, setExpandedPurchaseItem] = useState(null); // Track which purchase item row is expanded to show retailers
   
   // Daily Requirement sub-tabs state
   const [dailyReqSubTab, setDailyReqSubTab] = useState('purchase'); // 'purchase' or 'stickersMrp'
@@ -2908,11 +2909,14 @@ export default function RetailerOrders() {
         productNameHi: item.product_name_hi || '',
         productNameMr: item.product_name_mr || '',
         category: item.category || 'Other',
+        variantId: item.variant_id || '',
+        variantName: item.variant_name || '',
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
         requirementKg: roundUpRequirement(item.qty_kg), // Round up, min 1 kg
         purchaseUnit: item.purchase_unit || '',
         purchaseWeightName: item.purchase_weight_name || '',
+        retailers: item.retailers || [],
         remarks: ''
       }));
       
@@ -7566,6 +7570,7 @@ export default function RetailerOrders() {
                                       <tr className="border-b bg-gray-50 text-xs">
                                         <th className="p-2 text-left w-10">#</th>
                                         <th className="p-2 text-left">Product Name</th>
+                                        <th className="p-2 text-left w-24">Variant</th>
                                         <th className="p-2 text-center w-20">Qty (Units)</th>
                                         <th className="p-2 text-center w-40">Purchase Req</th>
                                         <th className="p-2 text-left w-48">Remarks</th>
@@ -7581,116 +7586,156 @@ export default function RetailerOrders() {
                                             ? item.productNameMr 
                                             : item.productName;
                                         return (
-                                          <tr key={`${item.productId}-${localIdx}`} className="border-b hover:bg-gray-50">
-                                            <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                            <td className="p-2 font-medium">{displayName}</td>
-                                            <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
-                                            <td className="p-2">
-                                              {/* Smart Purchase Req display based on purchase unit */}
-                                              {['Piece', 'Packet'].includes(item.purchaseUnit) ? (
-                                                // For Pieces/Packets: show "5 Pieces of 500+ gm"
+                                          <React.Fragment key={`${item.productId}-${item.variantId || item.variantName}-${localIdx}`}>
+                                            <tr 
+                                              className={`border-b hover:bg-gray-50 cursor-pointer ${expandedPurchaseItem === `${item.productId}-${item.variantId || localIdx}` ? 'bg-blue-50' : ''}`}
+                                              onClick={() => setExpandedPurchaseItem(expandedPurchaseItem === `${item.productId}-${item.variantId || localIdx}` ? null : `${item.productId}-${item.variantId || localIdx}`)}
+                                            >
+                                              <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
+                                              <td className="p-2 font-medium">
                                                 <div className="flex items-center gap-1">
-                                                  <Input
-                                                    type="number"
-                                                    step="1"
-                                                    min="0"
-                                                    value={Math.round(item.qtyUnits) || 0}
-                                                    onChange={(e) => {
-                                                      const newData = [...dailyReqData];
-                                                      newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
-                                                      setDailyReqData(newData);
-                                                      setDailyReqSaved(false);
-                                                    }}
-                                                    className="h-7 w-14 text-center text-xs font-bold text-blue-700"
-                                                    disabled={dailyReqViewMode === 'original'}
-                                                  />
-                                                  <span className="text-xs text-gray-600">
-                                                    {item.purchaseUnit === 'Piece' ? 'Pcs' : 'Pkts'}
-                                                    {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
-                                                  </span>
+                                                  {item.retailers?.length > 0 && (
+                                                    expandedPurchaseItem === `${item.productId}-${item.variantId || localIdx}` 
+                                                      ? <ChevronDown size={14} className="text-blue-500" />
+                                                      : <ChevronRight size={14} className="text-gray-400" />
+                                                  )}
+                                                  {displayName}
                                                 </div>
-                                              ) : item.purchaseUnit === 'Bunch' ? (
-                                                // For Bunches: show "10 Bunches of 350+ gm"
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    type="number"
-                                                    step="1"
-                                                    min="0"
-                                                    value={Math.round(item.qtyUnits) || 0}
-                                                    onChange={(e) => {
-                                                      const newData = [...dailyReqData];
-                                                      newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
-                                                      setDailyReqData(newData);
-                                                      setDailyReqSaved(false);
-                                                    }}
-                                                    className="h-7 w-14 text-center text-xs font-bold text-blue-700"
-                                                    disabled={dailyReqViewMode === 'original'}
-                                                  />
-                                                  <span className="text-xs text-gray-600">
-                                                    Bunches
-                                                    {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
-                                                  </span>
-                                                </div>
-                                              ) : (
-                                                // Default: show in Kg
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    type="number"
-                                                    step="0.1"
-                                                    min="0"
-                                                    value={item.requirementKg}
-                                                    onChange={(e) => {
-                                                      const newData = [...dailyReqData];
-                                                      newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
-                                                      setDailyReqData(newData);
-                                                      setDailyReqSaved(false);
-                                                    }}
-                                                    className="h-7 w-16 text-center text-xs font-bold text-blue-700"
-                                                    disabled={dailyReqViewMode === 'original'}
-                                                  />
-                                                  <span className="text-xs text-gray-600">Kg</span>
-                                                </div>
-                                              )}
-                                            </td>
-                                            <td className="p-2">
-                                              <textarea
-                                                placeholder="Add remarks..."
-                                                value={item.remarks || ''}
-                                                onChange={(e) => {
-                                                  const newData = [...dailyReqData];
-                                                  newData[globalIdx].remarks = e.target.value;
-                                                  setDailyReqData(newData);
-                                                  setDailyReqSaved(false);
-                                                }}
-                                                className="w-full min-w-[200px] text-xs p-2 border rounded resize-y min-h-[36px]"
-                                                disabled={dailyReqViewMode === 'original'}
-                                                rows={2}
-                                              />
-                                            </td>
-                                            <td className="p-2 text-center">
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setDeletedItems(prev => [...prev, dailyReqData[globalIdx]]);
-                                                  const newData = dailyReqData.filter((_, i) => i !== globalIdx);
-                                                  setDailyReqData(newData);
-                                                  setDailyReqSaved(false);
-                                                }}
-                                                className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
-                                                disabled={dailyReqViewMode === 'original'}
-                                              >
-                                                <X size={12} />
-                                              </Button>
-                                            </td>
-                                          </tr>
+                                              </td>
+                                              <td className="p-2 text-xs text-gray-600">{item.variantName || '-'}</td>
+                                              <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
+                                              <td className="p-2">
+                                                {/* Smart Purchase Req display based on purchase unit */}
+                                                {['Piece', 'Packet'].includes(item.purchaseUnit) ? (
+                                                  // For Pieces/Packets: show "5 Pieces of 500+ gm"
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="1"
+                                                      min="0"
+                                                      value={Math.round(item.qtyUnits) || 0}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newData = [...dailyReqData];
+                                                        newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                        setDailyReqData(newData);
+                                                        setDailyReqSaved(false);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="h-7 w-14 text-center text-xs font-bold text-blue-700"
+                                                      disabled={dailyReqViewMode === 'original'}
+                                                    />
+                                                    <span className="text-xs text-gray-600">
+                                                      {item.purchaseUnit === 'Piece' ? 'Pcs' : 'Pkts'}
+                                                      {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
+                                                    </span>
+                                                  </div>
+                                                ) : item.purchaseUnit === 'Bunch' ? (
+                                                  // For Bunches: show "10 Bunches of 350+ gm"
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="1"
+                                                      min="0"
+                                                      value={Math.round(item.qtyUnits) || 0}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newData = [...dailyReqData];
+                                                        newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                        setDailyReqData(newData);
+                                                        setDailyReqSaved(false);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="h-7 w-14 text-center text-xs font-bold text-blue-700"
+                                                      disabled={dailyReqViewMode === 'original'}
+                                                    />
+                                                    <span className="text-xs text-gray-600">
+                                                      Bunches
+                                                      {item.purchaseWeightName && <span className="text-blue-600"> of {item.purchaseWeightName}</span>}
+                                                    </span>
+                                                  </div>
+                                                ) : (
+                                                  // Default: show in Kg
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="0.1"
+                                                      min="0"
+                                                      value={item.requirementKg}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newData = [...dailyReqData];
+                                                        newData[globalIdx].requirementKg = parseFloat(e.target.value) || 0;
+                                                        setDailyReqData(newData);
+                                                        setDailyReqSaved(false);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="h-7 w-16 text-center text-xs font-bold text-blue-700"
+                                                      disabled={dailyReqViewMode === 'original'}
+                                                    />
+                                                    <span className="text-xs text-gray-600">Kg</span>
+                                                  </div>
+                                                )}
+                                              </td>
+                                              <td className="p-2">
+                                                <textarea
+                                                  placeholder="Add remarks..."
+                                                  value={item.remarks || ''}
+                                                  onChange={(e) => {
+                                                    const newData = [...dailyReqData];
+                                                    newData[globalIdx].remarks = e.target.value;
+                                                    setDailyReqData(newData);
+                                                    setDailyReqSaved(false);
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="w-full min-w-[200px] text-xs p-2 border rounded resize-y min-h-[36px]"
+                                                  disabled={dailyReqViewMode === 'original'}
+                                                  rows={2}
+                                                />
+                                              </td>
+                                              <td className="p-2 text-center">
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setDeletedItems(prev => [...prev, dailyReqData[globalIdx]]);
+                                                    const newData = dailyReqData.filter((_, i) => i !== globalIdx);
+                                                    setDailyReqData(newData);
+                                                    setDailyReqSaved(false);
+                                                  }}
+                                                  className="text-red-500 hover:text-red-700 h-6 w-6 p-0"
+                                                  disabled={dailyReqViewMode === 'original'}
+                                                >
+                                                  <X size={12} />
+                                                </Button>
+                                              </td>
+                                            </tr>
+                                            {/* Retailer details row - shown when item is expanded */}
+                                            {expandedPurchaseItem === `${item.productId}-${item.variantId || localIdx}` && item.retailers?.length > 0 && (
+                                              <tr className="bg-blue-50 border-b">
+                                                <td></td>
+                                                <td colSpan="6" className="p-2">
+                                                  <div className="text-xs text-gray-700">
+                                                    <span className="font-semibold text-blue-700">Retailers:</span>
+                                                    <div className="flex flex-wrap gap-2 mt-1">
+                                                      {item.retailers.map((r, rIdx) => (
+                                                        <span key={rIdx} className="bg-white px-2 py-1 rounded border text-xs">
+                                                          {r.name} <span className="font-semibold text-green-700">({r.qty})</span>
+                                                        </span>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                </td>
+                                              </tr>
+                                            )}
+                                          </React.Fragment>
                                         );
                                       })}
                                     </tbody>
                                     <tfoot>
                                       <tr className={`border-t font-semibold text-xs ${getCategoryColorClasses(category).split(' ').slice(0, 2).join(' ')}`}>
-                                        <td className="p-2" colSpan="2">Category Total</td>
+                                        <td className="p-2" colSpan="3">Category Total</td>
                                         <td className="p-2 text-center">{categoryTotalUnits}</td>
                                         <td className="p-2 text-center text-blue-700">{categoryTotalRequirement.toFixed(2)}</td>
                                         <td className="p-2" colSpan="2"></td>

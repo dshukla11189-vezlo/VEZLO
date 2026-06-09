@@ -8397,10 +8397,10 @@ export default function RetailerOrders() {
                                 };
                                 
                                 const typeColors = {
-                                  'Hard': 'bg-green-800',
-                                  'Semi-hard': 'bg-teal-700',
-                                  'Leafy': 'bg-emerald-700',
-                                  'Others': 'bg-green-600'
+                                  'Hard': 'bg-green-800 text-white',
+                                  'Semi-hard': 'bg-lime-300 text-gray-900',
+                                  'Leafy': 'bg-emerald-700 text-white',
+                                  'Others': 'bg-green-600 text-white'
                                 };
                                 
                                 let globalIdx = 0;
@@ -8446,59 +8446,57 @@ export default function RetailerOrders() {
                                               return (
                                                 <div key={type}>
                                                   <div 
-                                                    className={`${typeColors[type]} text-white px-4 py-1.5 flex items-center cursor-pointer text-sm font-semibold`}
+                                                    className={`${typeColors[type]} px-4 py-1.5 flex items-center cursor-pointer text-sm font-semibold`}
                                                     onClick={() => setExpandedCategories(prev => ({ ...prev, [typeKey]: !isTypeExpanded }))}
                                                   >
                                                     <div className="flex items-center gap-2">
                                                       {isTypeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                       <span>{type}</span>
-                                                      <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded">{items.length}</span>
-                                                      <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded">Qty: {typeTotal}</span>
+                                                      <span className="text-xs bg-black/10 px-1.5 py-0.5 rounded">{items.length}</span>
+                                                      <span className="text-xs bg-black/20 px-1.5 py-0.5 rounded">Qty: {typeTotal}</span>
                                                     </div>
                                                   </div>
                                                   {isTypeExpanded && (
-                                                    <div className="overflow-x-auto">
-                                                      <table className="w-full text-xs min-w-0">
-                                                        <thead className="bg-gray-100">
-                                                          <tr>
-                                                            <th className="p-1 text-center" style={{width: '30px'}}>#</th>
-                                                            <th className="p-1 text-left">Product</th>
-                                                            <th className="p-1 text-center" style={{width: '60px'}}>Variant</th>
-                                                            <th className="p-1 text-center" style={{width: '40px'}}>Qty</th>
-                                                            {showDispatchColumns && (
-                                                              <>
-                                                                <th className="p-1 text-center" style={{width: '50px'}}>Sup.</th>
-                                                                <th className="p-1 text-center" style={{width: '40px'}}>Pend</th>
-                                                              </>
-                                                            )}
-                                                          </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                          {items.map((item, idx) => {
-                                                            globalIdx++;
-                                                            const key = item.product_id;
-                                                            const dispatched = dispatchedQtys[key] || 0;
-                                                            const remaining = (item.quantity || 0) - dispatched;
-                                                            return (
-                                                              <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
-                                                                <td className="p-1 text-center text-gray-400">{globalIdx}</td>
-                                                                <td className="p-1 truncate max-w-[150px]">{getProductNameInLang(item, indentLanguage)}</td>
-                                                                <td className="p-1 text-center text-xs">{getIndentVariantDisplay(item)}</td>
-                                                                <td className="p-1 text-center font-medium">{item.quantity}</td>
-                                                                {showDispatchColumns && (
-                                                                  <>
-                                                                    <td className="p-1 text-center text-green-700">{dispatched}</td>
-                                                                    <td className="p-1 text-center font-semibold">
-                                                                      {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
-                                                                    </td>
-                                                                  </>
-                                                                )}
-                                                              </tr>
-                                                            );
-                                                          })}
-                                                        </tbody>
-                                                      </table>
-                                                    </div>
+                                                    <table className="w-full text-xs">
+                                                      <thead className="bg-gray-100">
+                                                        <tr>
+                                                          <th className="p-1 text-center" style={{width: '25px'}}>#</th>
+                                                          <th className="p-1 text-left">Product</th>
+                                                          <th className="p-1 text-left" style={{width: '70px'}}>Variant</th>
+                                                          <th className="p-1 text-center" style={{width: '35px'}}>Qty</th>
+                                                          {showDispatchColumns && (
+                                                            <>
+                                                              <th className="p-1 text-center" style={{width: '40px'}}>Sup</th>
+                                                              <th className="p-1 text-center" style={{width: '35px'}}>Pend</th>
+                                                            </>
+                                                          )}
+                                                        </tr>
+                                                      </thead>
+                                                      <tbody>
+                                                        {items.map((item, idx) => {
+                                                          globalIdx++;
+                                                          const key = item.product_id;
+                                                          const dispatched = dispatchedQtys[key] || 0;
+                                                          const remaining = (item.quantity || 0) - dispatched;
+                                                          return (
+                                                            <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
+                                                              <td className="p-1 text-center text-gray-400">{globalIdx}</td>
+                                                              <td className="p-1">{getProductNameInLang(item, indentLanguage)}</td>
+                                                              <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                              <td className="p-1 text-center font-medium">{item.quantity}</td>
+                                                              {showDispatchColumns && (
+                                                                <>
+                                                                  <td className="p-1 text-center text-green-700">{dispatched}</td>
+                                                                  <td className="p-1 text-center font-semibold">
+                                                                    {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
+                                                                  </td>
+                                                                </>
+                                                              )}
+                                                            </tr>
+                                                          );
+                                                        })}
+                                                      </tbody>
+                                                    </table>
                                                   )}
                                                 </div>
                                               );
@@ -8523,48 +8521,46 @@ export default function RetailerOrders() {
                                               </div>
                                             </div>
                                             {isExpanded && (
-                                              <div className="overflow-x-auto">
-                                                <table className="w-full text-xs min-w-0">
-                                                  <thead className="bg-gray-100">
-                                                    <tr>
-                                                      <th className="p-1 text-center" style={{width: '30px'}}>#</th>
-                                                      <th className="p-1 text-left">Product</th>
-                                                      <th className="p-1 text-center" style={{width: '60px'}}>Variant</th>
-                                                      <th className="p-1 text-center" style={{width: '40px'}}>Qty</th>
-                                                      {showDispatchColumns && (
-                                                        <>
-                                                          <th className="p-1 text-center" style={{width: '50px'}}>Sup.</th>
-                                                          <th className="p-1 text-center" style={{width: '40px'}}>Pend</th>
-                                                        </>
-                                                      )}
-                                                    </tr>
-                                                  </thead>
-                                                  <tbody>
-                                                    {items.map((item, idx) => {
-                                                      globalIdx++;
-                                                      const key = item.product_id;
-                                                      const dispatched = dispatchedQtys[key] || 0;
-                                                      const remaining = (item.quantity || 0) - dispatched;
-                                                      return (
-                                                        <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
-                                                          <td className="p-1 text-center text-gray-400">{globalIdx}</td>
-                                                          <td className="p-1 truncate max-w-[150px]">{getProductNameInLang(item, indentLanguage)}</td>
-                                                          <td className="p-1 text-center text-xs">{getIndentVariantDisplay(item)}</td>
-                                                          <td className="p-1 text-center font-medium">{item.quantity}</td>
-                                                          {showDispatchColumns && (
-                                                            <>
-                                                              <td className="p-1 text-center text-green-700">{dispatched}</td>
-                                                              <td className="p-1 text-center font-semibold">
-                                                                {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
-                                                              </td>
-                                                            </>
-                                                          )}
-                                                        </tr>
-                                                      );
-                                                    })}
-                                                  </tbody>
-                                                </table>
-                                              </div>
+                                              <table className="w-full text-xs">
+                                                <thead className="bg-gray-100">
+                                                  <tr>
+                                                    <th className="p-1 text-center" style={{width: '25px'}}>#</th>
+                                                    <th className="p-1 text-left">Product</th>
+                                                    <th className="p-1 text-left" style={{width: '70px'}}>Variant</th>
+                                                    <th className="p-1 text-center" style={{width: '35px'}}>Qty</th>
+                                                    {showDispatchColumns && (
+                                                      <>
+                                                        <th className="p-1 text-center" style={{width: '40px'}}>Sup</th>
+                                                        <th className="p-1 text-center" style={{width: '35px'}}>Pend</th>
+                                                      </>
+                                                    )}
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {items.map((item, idx) => {
+                                                    globalIdx++;
+                                                    const key = item.product_id;
+                                                    const dispatched = dispatchedQtys[key] || 0;
+                                                    const remaining = (item.quantity || 0) - dispatched;
+                                                    return (
+                                                      <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
+                                                        <td className="p-1 text-center text-gray-400">{globalIdx}</td>
+                                                        <td className="p-1">{getProductNameInLang(item, indentLanguage)}</td>
+                                                        <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                        <td className="p-1 text-center font-medium">{item.quantity}</td>
+                                                        {showDispatchColumns && (
+                                                          <>
+                                                            <td className="p-1 text-center text-green-700">{dispatched}</td>
+                                                            <td className="p-1 text-center font-semibold">
+                                                              {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
+                                                            </td>
+                                                          </>
+                                                        )}
+                                                      </tr>
+                                                    );
+                                                  })}
+                                                </tbody>
+                                              </table>
                                             )}
                                           </div>
                                         );
@@ -8708,47 +8704,219 @@ export default function RetailerOrders() {
                           <tr className="bg-gray-50">
                             <td colSpan={11} className="p-0">
                               <div className="p-3 pl-8">
-                                <table className="w-full text-xs border rounded">
-                                  <thead className="bg-gray-100">
-                                    <tr>
-                                      <th className="p-2 text-center w-8 font-medium">#</th>
-                                      <th className="p-2 text-left font-medium">Product</th>
-                                      <th className="p-2 text-left font-medium">Variant</th>
-                                      <th className="p-2 text-center font-medium">Indent Qty</th>
-                                      <th className="p-2 text-center font-medium">Supplied Qty</th>
-                                      <th className="p-2 text-right font-medium">MRP</th>
-                                      <th className="p-2 text-right font-medium">Amount</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {dispatch.items?.map((item, idx) => (
-                                      <tr key={idx} className="border-t">
-                                        <td className="p-2 text-center text-gray-400">{idx + 1}</td>
-                                        <td className="p-2 font-medium">{getProductNameInLang(item, dispatchLanguage)}</td>
-                                        <td className="p-2 text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                        <td className="p-2 text-center">{item.indent_qty || '-'}</td>
-                                        <td className="p-2 text-center font-semibold">{item.supplied_qty}</td>
-                                        <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
-                                        <td className="p-2 text-right font-medium">₹{item.total_value?.toFixed(2)}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                  <tfoot className="bg-green-100 font-semibold">
-                                    <tr>
-                                      <td colSpan={3} className="p-2 text-right">TOTAL:</td>
-                                      <td className="p-2 text-center">
-                                        {dispatch.items?.reduce((sum, item) => sum + (item.indent_qty || 0), 0) || '-'}
-                                      </td>
-                                      <td className="p-2 text-center">
-                                        {dispatch.items?.reduce((sum, item) => sum + (item.supplied_qty || 0), 0)}
-                                      </td>
-                                      <td className="p-2 text-right">-</td>
-                                      <td className="p-2 text-right text-green-700">
-                                        ₹{dispatch.items?.reduce((sum, item) => sum + (item.total_value || 0), 0).toFixed(2)}
-                                      </td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
+                                {(() => {
+                                  // Group dispatch items by category and type
+                                  const categoryOrder = ['Vegetables', 'Fruits', 'Exotic', 'Sprouts', 'Others'];
+                                  const vegetableTypeOrder = ['Hard', 'Semi-hard', 'Leafy', 'Others'];
+                                  const groupedItems = {};
+                                  
+                                  (dispatch.items || []).forEach(item => {
+                                    const product = productMap.get(item.product_id) || productMap.get(item.product_name);
+                                    const category = product?.category || 'Others';
+                                    const productType = product?.product_type || 'Others';
+                                    
+                                    if (!groupedItems[category]) {
+                                      groupedItems[category] = {};
+                                    }
+                                    
+                                    if (category === 'Vegetables') {
+                                      if (!groupedItems[category][productType]) {
+                                        groupedItems[category][productType] = [];
+                                      }
+                                      groupedItems[category][productType].push(item);
+                                    } else {
+                                      if (!groupedItems[category]['all']) {
+                                        groupedItems[category]['all'] = [];
+                                      }
+                                      groupedItems[category]['all'].push(item);
+                                    }
+                                  });
+                                  
+                                  const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
+                                    const indexA = categoryOrder.indexOf(a);
+                                    const indexB = categoryOrder.indexOf(b);
+                                    if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                                    if (indexA === -1) return 1;
+                                    if (indexB === -1) return -1;
+                                    return indexA - indexB;
+                                  });
+                                  
+                                  const categoryColors = {
+                                    'Vegetables': 'bg-green-700',
+                                    'Fruits': 'bg-orange-600',
+                                    'Exotic': 'bg-purple-600',
+                                    'Sprouts': 'bg-cyan-600',
+                                    'Others': 'bg-gray-600'
+                                  };
+                                  
+                                  const typeColors = {
+                                    'Hard': 'bg-green-800 text-white',
+                                    'Semi-hard': 'bg-lime-300 text-gray-900',
+                                    'Leafy': 'bg-emerald-700 text-white',
+                                    'Others': 'bg-green-600 text-white'
+                                  };
+                                  
+                                  let globalIdx = 0;
+                                  const grandTotalIndent = (dispatch.items || []).reduce((sum, item) => sum + (item.indent_qty || 0), 0);
+                                  const grandTotalSupplied = (dispatch.items || []).reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
+                                  const grandTotalAmount = (dispatch.items || []).reduce((sum, item) => sum + (item.total_value || 0), 0);
+                                  
+                                  return (
+                                    <div className="space-y-2">
+                                      {sortedCategories.map(category => {
+                                        const catKey = `dispatch-${dispatch.id}-${category}`;
+                                        const isExpanded = expandedCategories[catKey] === true;
+                                        
+                                        if (category === 'Vegetables') {
+                                          const types = Object.keys(groupedItems[category]).sort((a, b) => {
+                                            const indexA = vegetableTypeOrder.indexOf(a);
+                                            const indexB = vegetableTypeOrder.indexOf(b);
+                                            if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                                            if (indexA === -1) return 1;
+                                            if (indexB === -1) return -1;
+                                            return indexA - indexB;
+                                          });
+                                          
+                                          const totalVegItems = types.reduce((sum, t) => sum + groupedItems[category][t].length, 0);
+                                          const totalVegSupplied = types.reduce((sum, t) => sum + groupedItems[category][t].reduce((s, item) => s + (item.supplied_qty || 0), 0), 0);
+                                          const totalVegAmount = types.reduce((sum, t) => sum + groupedItems[category][t].reduce((s, item) => s + (item.total_value || 0), 0), 0);
+                                          
+                                          return (
+                                            <div key={category} className="border rounded-lg overflow-hidden">
+                                              <div 
+                                                className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
+                                                onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
+                                              >
+                                                <div className="flex items-center gap-2">
+                                                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                  <span className="font-semibold">{category}</span>
+                                                  <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded">{totalVegItems}</span>
+                                                  <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded">Sup: {totalVegSupplied}</span>
+                                                  <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded">₹{totalVegAmount.toFixed(0)}</span>
+                                                </div>
+                                              </div>
+                                              {isExpanded && types.map(type => {
+                                                const typeKey = `dispatch-${dispatch.id}-${category}-${type}`;
+                                                const isTypeExpanded = expandedCategories[typeKey] === true;
+                                                const items = groupedItems[category][type];
+                                                const typeSupplied = items.reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
+                                                const typeAmount = items.reduce((sum, item) => sum + (item.total_value || 0), 0);
+                                                
+                                                return (
+                                                  <div key={type}>
+                                                    <div 
+                                                      className={`${typeColors[type]} px-4 py-1.5 flex items-center cursor-pointer text-sm font-semibold`}
+                                                      onClick={() => setExpandedCategories(prev => ({ ...prev, [typeKey]: !isTypeExpanded }))}
+                                                    >
+                                                      <div className="flex items-center gap-2">
+                                                        {isTypeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                        <span>{type}</span>
+                                                        <span className="text-xs bg-black/10 px-1.5 py-0.5 rounded">{items.length}</span>
+                                                        <span className="text-xs bg-black/20 px-1.5 py-0.5 rounded">Sup: {typeSupplied}</span>
+                                                      </div>
+                                                    </div>
+                                                    {isTypeExpanded && (
+                                                      <table className="w-full text-xs">
+                                                        <thead className="bg-gray-100">
+                                                          <tr>
+                                                            <th className="p-1 text-center" style={{width: '25px'}}>#</th>
+                                                            <th className="p-1 text-left">Product</th>
+                                                            <th className="p-1 text-left" style={{width: '60px'}}>Variant</th>
+                                                            <th className="p-1 text-center" style={{width: '35px'}}>Ind</th>
+                                                            <th className="p-1 text-center" style={{width: '35px'}}>Sup</th>
+                                                            <th className="p-1 text-right" style={{width: '50px'}}>MRP</th>
+                                                            <th className="p-1 text-right" style={{width: '60px'}}>Amt</th>
+                                                          </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                          {items.map((item, idx) => {
+                                                            globalIdx++;
+                                                            return (
+                                                              <tr key={idx} className="border-b">
+                                                                <td className="p-1 text-center text-gray-400">{globalIdx}</td>
+                                                                <td className="p-1">{getProductNameInLang(item, dispatchLanguage)}</td>
+                                                                <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                                <td className="p-1 text-center">{item.indent_qty || '-'}</td>
+                                                                <td className="p-1 text-center font-medium">{item.supplied_qty}</td>
+                                                                <td className="p-1 text-right">₹{item.mrp?.toFixed(0)}</td>
+                                                                <td className="p-1 text-right font-medium">₹{item.total_value?.toFixed(0)}</td>
+                                                              </tr>
+                                                            );
+                                                          })}
+                                                        </tbody>
+                                                      </table>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        } else {
+                                          const items = groupedItems[category]['all'] || [];
+                                          const catSupplied = items.reduce((sum, item) => sum + (item.supplied_qty || 0), 0);
+                                          const catAmount = items.reduce((sum, item) => sum + (item.total_value || 0), 0);
+                                          
+                                          return (
+                                            <div key={category} className="border rounded-lg overflow-hidden">
+                                              <div 
+                                                className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
+                                                onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
+                                              >
+                                                <div className="flex items-center gap-2">
+                                                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                  <span className="font-semibold">{category}</span>
+                                                  <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded">{items.length}</span>
+                                                  <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded">Sup: {catSupplied}</span>
+                                                  <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded">₹{catAmount.toFixed(0)}</span>
+                                                </div>
+                                              </div>
+                                              {isExpanded && (
+                                                <table className="w-full text-xs">
+                                                  <thead className="bg-gray-100">
+                                                    <tr>
+                                                      <th className="p-1 text-center" style={{width: '25px'}}>#</th>
+                                                      <th className="p-1 text-left">Product</th>
+                                                      <th className="p-1 text-left" style={{width: '60px'}}>Variant</th>
+                                                      <th className="p-1 text-center" style={{width: '35px'}}>Ind</th>
+                                                      <th className="p-1 text-center" style={{width: '35px'}}>Sup</th>
+                                                      <th className="p-1 text-right" style={{width: '50px'}}>MRP</th>
+                                                      <th className="p-1 text-right" style={{width: '60px'}}>Amt</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {items.map((item, idx) => {
+                                                      globalIdx++;
+                                                      return (
+                                                        <tr key={idx} className="border-b">
+                                                          <td className="p-1 text-center text-gray-400">{globalIdx}</td>
+                                                          <td className="p-1">{getProductNameInLang(item, dispatchLanguage)}</td>
+                                                          <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                          <td className="p-1 text-center">{item.indent_qty || '-'}</td>
+                                                          <td className="p-1 text-center font-medium">{item.supplied_qty}</td>
+                                                          <td className="p-1 text-right">₹{item.mrp?.toFixed(0)}</td>
+                                                          <td className="p-1 text-right font-medium">₹{item.total_value?.toFixed(0)}</td>
+                                                        </tr>
+                                                      );
+                                                    })}
+                                                  </tbody>
+                                                </table>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+                                      })}
+                                      
+                                      {/* Grand Total */}
+                                      <div className="bg-gray-800 text-white p-2 rounded font-semibold text-sm flex items-center gap-4">
+                                        <span>TOTAL:</span>
+                                        <span>{dispatch.items?.length} items</span>
+                                        <span>Ind: {grandTotalIndent || '-'}</span>
+                                        <span>Sup: {grandTotalSupplied}</span>
+                                        <span className="text-green-300">₹{grandTotalAmount.toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </td>
                           </tr>

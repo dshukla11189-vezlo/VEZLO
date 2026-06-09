@@ -2630,6 +2630,24 @@ export default function RetailerOrders() {
 
   const openEditIndentModal = (indent) => {
     setEditingIndent(indent);
+    
+    // Helper to resolve variant UUID to actual name
+    const resolveVariantName = (variantName, productId) => {
+      if (!variantName) return '';
+      
+      // Check if variant_name looks like a UUID (packaging ID)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(variantName)) {
+        // Look up the actual packaging name
+        const packaging = packagings.find(p => p.id === variantName);
+        if (packaging) {
+          return packaging.name || variantName;
+        }
+      }
+      
+      return variantName;
+    };
+    
     setIndentForm({
       retailer_id: indent.retailer_id,
       indent_date: indent.indent_date?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -2637,7 +2655,7 @@ export default function RetailerOrders() {
         product_id: item.product_id,
         product_name: item.product_name,
         variant_id: item.variant_id || '',
-        variant_name: item.variant_name || '',
+        variant_name: resolveVariantName(item.variant_name, item.product_id),
         quantity: item.quantity,
         status: item.status || 'pending'
       })),
@@ -2676,6 +2694,17 @@ export default function RetailerOrders() {
       return;
     }
     
+    // Helper to resolve variant UUID to actual name
+    const resolveVariantName = (variantName) => {
+      if (!variantName) return '';
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(variantName)) {
+        const packaging = packagings.find(p => p.id === variantName);
+        if (packaging) return packaging.name || variantName;
+      }
+      return variantName;
+    };
+    
     try {
       const res = await api.get(`/api/retailer-indents/previous/${targetRetailerId}`);
       if (res.data.indent && res.data.indent.items && res.data.indent.items.length > 0) {
@@ -2683,7 +2712,7 @@ export default function RetailerOrders() {
           product_id: item.product_id || '',
           product_name: item.product_name || '',
           variant_id: item.variant_id || '',
-          variant_name: item.variant_name || '',
+          variant_name: resolveVariantName(item.variant_name),
           quantity: '',  // Keep qty blank so user must enter new value
           status: 'pending'
         }));

@@ -5026,7 +5026,7 @@ export default function RetailerOrders() {
           
           itemsHtml += `
             <tr class="category-header ${categoryClass}">
-              <td colspan="6" style="background: #166534; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000; font-weight: bold; padding: 8px; border-top: 2px solid #000;">
+              <td colspan="6" style="background: #fff; color: #000; font-weight: bold; padding: 8px; border-top: 2px solid #000; border-bottom: 1px solid #000;">
                 ${categoryLabel} - ${typeLabel} | ${items.length} items | Qty: ${typeTotal}
               </td>
             </tr>
@@ -5064,7 +5064,7 @@ export default function RetailerOrders() {
         
         itemsHtml += `
           <tr class="category-header ${categoryClass}">
-            <td colspan="6" style="background: #166534; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000; font-weight: bold; padding: 8px; border-top: 2px solid #000;">
+            <td colspan="6" style="background: #000000; color: white; font-weight: bold; padding: 8px;">
               ${categoryLabel} | ${items.length} items | Qty: ${categoryTotal}
             </td>
           </tr>
@@ -5126,8 +5126,8 @@ export default function RetailerOrders() {
           .items-table td:not(:last-child) { border-right: 1px solid #ddd; }
           .items-table tr:last-child td { border-bottom: none; }
           
-          .grand-total { background: #14532D; color: white; font-weight: bold; }
-          .grand-total td { border-right: 1px solid #14532D !important; }
+          .grand-total { background: #fff; color: #000; font-weight: bold; border-top: 2px solid #000; }
+          .grand-total td { border-right: 1px solid #000 !important; color: #000; }
           
           .remarks-section { border: 1px solid #000; padding: 10px; margin-bottom: 15px; }
           .remarks-label { font-weight: bold; margin-bottom: 5px; }
@@ -5158,8 +5158,8 @@ export default function RetailerOrders() {
               <div style="font-size: 14px; font-weight: bold; text-transform: capitalize;">${indent.status}</div>
             </div>
             <div class="header-cell">
-              <div class="label">${l.total} Items</div>
-              <div style="font-size: 14px; font-weight: bold;">${indent.items?.length || 0}</div>
+              <div class="label">${l.total} Items / Qty</div>
+              <div style="font-size: 14px; font-weight: bold;">${indent.items?.length || 0} / ${grandTotal}</div>
             </div>
           </div>
         </div>
@@ -8398,7 +8398,7 @@ export default function RetailerOrders() {
                                 
                                 const typeColors = {
                                   'Hard': 'bg-green-600 text-white',
-                                  'Semi-hard': 'bg-green-300 text-green-900',
+                                  'Semi-hard': 'bg-green-200 text-green-900',
                                   'Leafy': 'bg-green-500 text-white',
                                   'Others': 'bg-green-400 text-white'
                                 };
@@ -8751,7 +8751,7 @@ export default function RetailerOrders() {
                                   
                                   const typeColors = {
                                     'Hard': 'bg-green-600 text-white',
-                                    'Semi-hard': 'bg-green-300 text-green-900',
+                                    'Semi-hard': 'bg-green-200 text-green-900',
                                     'Leafy': 'bg-green-500 text-white',
                                     'Others': 'bg-green-400 text-white'
                                   };

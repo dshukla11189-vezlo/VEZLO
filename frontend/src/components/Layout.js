@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
 import LanguageSwitcher from './LanguageSwitcher';
@@ -6,16 +6,27 @@ import { Menu } from 'lucide-react';
 
 export default function Layout({ children, title, hideTitle, hideSidebar, statusComponent }) {
   const { t } = useTranslation();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  
+  // Check if mobile on initial render
+  const checkIsMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
+  
+  const [isMobile, setIsMobile] = useState(checkIsMobile);
+  // IMPORTANT: Sidebar should ALWAYS start closed on mobile
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    // On mobile: always start closed
+    // On desktop: start open (unless hidden)
+    const mobile = checkIsMobile();
+    return !mobile && !hideSidebar;
+  });
 
+  // Handle resize events
   useEffect(() => {
-    const checkMobile = () => {
+    const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       
       // On mobile: always close sidebar
-      // On desktop: always open sidebar (unless hidden)
+      // On desktop: open sidebar (unless hidden)
       if (mobile) {
         setSidebarOpen(false);
       } else if (!hideSidebar) {
@@ -23,22 +34,31 @@ export default function Layout({ children, title, hideTitle, hideSidebar, status
       }
     };
     
-    // Don't run on mount - use initial state values instead
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, [hideSidebar]);
+  
+  // Explicit function to open sidebar - only callable from hamburger button
+  const openSidebar = useCallback(() => {
+    setSidebarOpen(true);
+  }, []);
+  
+  // Function to close sidebar
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
 
   return (
     <div className={`dashboard-layout ${hideSidebar ? 'sidebar-hidden' : ''}`}>
       {!hideSidebar && (
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isMobile={isMobile} />
+        <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} isMobile={isMobile} />
       )}
       
       {/* Mobile Header */}
       {isMobile && !hideSidebar && (
         <div className="mobile-header flex items-center justify-between px-3 py-2">
           <button
-            onClick={() => setSidebarOpen(true)}
+            onClick={openSidebar}
             className="hover:bg-gray-100 rounded-lg p-1"
             data-testid="open-sidebar-button"
             aria-label="Open menu"

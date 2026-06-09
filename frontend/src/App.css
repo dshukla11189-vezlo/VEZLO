@@ -214,17 +214,25 @@
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     overflow-y: auto;
     z-index: 50;
+    /* DEFAULT: Hidden on mobile - prevents flash of open menu */
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
   }
   
+  /* Only show sidebar when explicitly NOT mobile-hidden */
+  .sidebar:not(.mobile-hidden) {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  
+  /* Redundant but explicit - ensure mobile-hidden stays hidden */
   .sidebar.mobile-hidden {
     transform: translateY(-100%);
     opacity: 0;
     pointer-events: none;
-  }
-
-  .sidebar:not(.mobile-hidden) {
-    transform: translateY(0);
-    opacity: 1;
   }
   
   .main-content {

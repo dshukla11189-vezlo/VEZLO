@@ -328,6 +328,10 @@ export default function RetailerOrders() {
   const [expandedIndents, setExpandedIndents] = useState({});
   const [expandedInvoices, setExpandedInvoices] = useState({});
   
+  // Collapsible categories for indent/dispatch modals
+  const [expandedCategories, setExpandedCategories] = useState({});
+  const [indentDownloadLang, setIndentDownloadLang] = useState('en');
+  
   // Auto Indent Creation state
   const [showAutoIndentModal, setShowAutoIndentModal] = useState(false);
   const [autoIndentDate, setAutoIndentDate] = useState(new Date(Date.now() + 86400000).toISOString().split('T')[0]); // Tomorrow by default
@@ -4822,6 +4826,393 @@ export default function RetailerOrders() {
     return result + ' Only';
   };
 
+  // ==================== DOWNLOAD INDIVIDUAL INDENT ====================
+  const downloadIndentPdf = (indent, lang = 'en') => {
+    const printWindow = window.open('', '_blank');
+    const retailer = retailers.find(r => r.id === indent.retailer_id) || {};
+    const retailerDisplayName = retailer.company_name || indent.retailer_name || 'Retailer';
+    
+    // Helper to get translated product name
+    const getItemDisplayName = (item) => {
+      const productId = item.product_id || item.productId;
+      let product = productMap.get(productId);
+      if (!product) {
+        const itemName = item.product_name || item.productName || item.name;
+        product = productMap.get(itemName);
+      }
+      
+      let displayName = item.product_name || item.name || '';
+      if (product) {
+        if (lang === 'hi' && product.name_hi) displayName = product.name_hi;
+        else if (lang === 'mr' && product.name_mr) displayName = product.name_mr;
+        else displayName = product.name;
+      }
+      
+      return displayName;
+    };
+    
+    // Helper to get variant name (resolve UUIDs)
+    const getItemVariant = (item) => {
+      let variantName = item.variant_name || '';
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(variantName)) {
+        const pkg = packagings.find(p => p.id === variantName);
+        if (pkg) variantName = pkg.name;
+      }
+      return variantName || 'Kg';
+    };
+    
+    // Get dispatched quantities for this indent
+    const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
+    const dispatchedQtys = {};
+    for (const dispatch of indentDispatches) {
+      for (const item of (dispatch.items || [])) {
+        const key = item.product_id;
+        dispatchedQtys[key] = (dispatchedQtys[key] || 0) + (item.supplied_qty || 0);
+      }
+    }
+    
+    // Group items by category and type
+    const groupedItems = {};
+    const categoryOrder = ['Vegetables', 'Fruits', 'Exotic', 'Sprouts', 'Others'];
+    const vegetableTypeOrder = ['Hard', 'Semi-hard', 'Leafy', 'Others'];
+    
+    (indent.items || []).forEach(item => {
+      const product = productMap.get(item.product_id) || productMap.get(item.product_name);
+      const category = product?.category || 'Others';
+      const productType = product?.product_type || 'Others';
+      
+      if (!groupedItems[category]) {
+        groupedItems[category] = {};
+      }
+      
+      // For vegetables, further group by type
+      if (category === 'Vegetables') {
+        if (!groupedItems[category][productType]) {
+          groupedItems[category][productType] = [];
+        }
+        groupedItems[category][productType].push(item);
+      } else {
+        if (!groupedItems[category]['all']) {
+          groupedItems[category]['all'] = [];
+        }
+        groupedItems[category]['all'].push(item);
+      }
+    });
+    
+    // Sort categories
+    const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
+      const indexA = categoryOrder.indexOf(a);
+      const indexB = categoryOrder.indexOf(b);
+      if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
+    
+    // Calculate total supplied
+    const totalSupplied = (indent.items || []).reduce((sum, item) => {
+      return sum + (dispatchedQtys[item.product_id] || 0);
+    }, 0);
+    
+    // Language labels
+    const labels = {
+      en: {
+        title: 'INDENT ORDER',
+        date: 'Date',
+        retailer: 'Retailer',
+        status: 'Status',
+        sr: '#',
+        product: 'Product',
+        variant: 'Variant',
+        ordered: 'Ordered',
+        supplied: 'Supplied',
+        remarks: 'Remarks',
+        total: 'Total',
+        category: {
+          'Vegetables': 'Vegetables',
+          'Fruits': 'Fruits',
+          'Exotic': 'Exotic',
+          'Sprouts': 'Sprouts',
+          'Others': 'Others'
+        },
+        type: {
+          'Hard': 'Hard Vegetables',
+          'Semi-hard': 'Semi-hard Vegetables',
+          'Leafy': 'Leafy Vegetables',
+          'Others': 'Other Vegetables'
+        }
+      },
+      hi: {
+        title: 'इंडेंट ऑर्डर',
+        date: 'तारीख',
+        retailer: 'रिटेलर',
+        status: 'स्थिति',
+        sr: '#',
+        product: 'उत्पाद',
+        variant: 'वेरिएंट',
+        ordered: 'ऑर्डर',
+        supplied: 'सप्लाई',
+        remarks: 'टिप्पणी',
+        total: 'कुल',
+        category: {
+          'Vegetables': 'सब्जियां',
+          'Fruits': 'फल',
+          'Exotic': 'एक्जोटिक',
+          'Sprouts': 'स्प्राउट्स',
+          'Others': 'अन्य'
+        },
+        type: {
+          'Hard': 'कड़ी सब्जियां',
+          'Semi-hard': 'अर्ध-कड़ी सब्जियां',
+          'Leafy': 'पत्तेदार सब्जियां',
+          'Others': 'अन्य सब्जियां'
+        }
+      },
+      mr: {
+        title: 'इंडेंट ऑर्डर',
+        date: 'तारीख',
+        retailer: 'रिटेलर',
+        status: 'स्थिती',
+        sr: '#',
+        product: 'उत्पादन',
+        variant: 'व्हेरिएंट',
+        ordered: 'ऑर्डर',
+        supplied: 'पुरवठा',
+        remarks: 'टीप',
+        total: 'एकूण',
+        category: {
+          'Vegetables': 'भाज्या',
+          'Fruits': 'फळे',
+          'Exotic': 'एक्झोटिक',
+          'Sprouts': 'मोड',
+          'Others': 'इतर'
+        },
+        type: {
+          'Hard': 'कडक भाज्या',
+          'Semi-hard': 'मध्यम कडक भाज्या',
+          'Leafy': 'पालेभाज्या',
+          'Others': 'इतर भाज्या'
+        }
+      }
+    };
+    
+    const l = labels[lang] || labels.en;
+    
+    // Build HTML for each category
+    let itemsHtml = '';
+    let srNo = 1;
+    
+    sortedCategories.forEach(category => {
+      const categoryLabel = l.category[category] || category;
+      const categoryClass = `category-${category.toLowerCase().replace(/\s+/g, '-')}`;
+      
+      if (category === 'Vegetables') {
+        // Group by vegetable type
+        const types = Object.keys(groupedItems[category]).sort((a, b) => {
+          const indexA = vegetableTypeOrder.indexOf(a);
+          const indexB = vegetableTypeOrder.indexOf(b);
+          if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+          if (indexA === -1) return 1;
+          if (indexB === -1) return -1;
+          return indexA - indexB;
+        });
+        
+        types.forEach(type => {
+          const typeLabel = l.type[type] || type;
+          const items = groupedItems[category][type];
+          const typeTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+          const typeSupplied = items.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0);
+          
+          itemsHtml += `
+            <tr class="category-header ${categoryClass}">
+              <td colspan="6" style="background: #166534; color: white; font-weight: bold; padding: 8px;">
+                ${categoryLabel} - ${typeLabel} (${items.length} items)
+              </td>
+            </tr>
+          `;
+          
+          items.forEach(item => {
+            const supplied = dispatchedQtys[item.product_id] || 0;
+            itemsHtml += `
+              <tr>
+                <td style="text-align: center;">${srNo++}</td>
+                <td style="text-align: left;">${getItemDisplayName(item)}</td>
+                <td style="text-align: center;">${getItemVariant(item)}</td>
+                <td style="text-align: center;">${item.quantity || 0}</td>
+                <td style="text-align: center;">${supplied}</td>
+                <td style="text-align: left;">${item.remarks || '-'}</td>
+              </tr>
+            `;
+          });
+          
+          // Subtotal for this type
+          itemsHtml += `
+            <tr style="background: #f0fdf4; font-weight: bold;">
+              <td colspan="3" style="text-align: right; padding-right: 10px;">${typeLabel} ${l.total}:</td>
+              <td style="text-align: center;">${typeTotal}</td>
+              <td style="text-align: center;">${typeSupplied}</td>
+              <td></td>
+            </tr>
+          `;
+        });
+      } else {
+        // Other categories - no sub-grouping
+        const items = groupedItems[category]['all'] || [];
+        const categoryTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+        const categorySupplied = items.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0);
+        
+        const bgColors = {
+          'Fruits': '#c2410c',
+          'Exotic': '#7c3aed',
+          'Sprouts': '#0891b2',
+          'Others': '#6b7280'
+        };
+        
+        itemsHtml += `
+          <tr class="category-header ${categoryClass}">
+            <td colspan="6" style="background: ${bgColors[category] || '#6b7280'}; color: white; font-weight: bold; padding: 8px;">
+              ${categoryLabel} (${items.length} items)
+            </td>
+          </tr>
+        `;
+        
+        items.forEach(item => {
+          const supplied = dispatchedQtys[item.product_id] || 0;
+          itemsHtml += `
+            <tr>
+              <td style="text-align: center;">${srNo++}</td>
+              <td style="text-align: left;">${getItemDisplayName(item)}</td>
+              <td style="text-align: center;">${getItemVariant(item)}</td>
+              <td style="text-align: center;">${item.quantity || 0}</td>
+              <td style="text-align: center;">${supplied}</td>
+              <td style="text-align: left;">${item.remarks || '-'}</td>
+            </tr>
+          `;
+        });
+        
+        // Subtotal
+        itemsHtml += `
+          <tr style="background: #fef3c7; font-weight: bold;">
+            <td colspan="3" style="text-align: right; padding-right: 10px;">${categoryLabel} ${l.total}:</td>
+            <td style="text-align: center;">${categoryTotal}</td>
+            <td style="text-align: center;">${categorySupplied}</td>
+            <td></td>
+          </tr>
+        `;
+      }
+    });
+    
+    // Grand total
+    const grandTotal = (indent.items || []).reduce((sum, item) => sum + (item.quantity || 0), 0);
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Indent - ${retailerDisplayName}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 850px; margin: 0 auto; background: white; font-size: 12px; }
+          
+          .title { text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 15px; color: #14532D; }
+          .company-name { text-align: center; font-size: 22px; font-weight: bold; color: #14532D; margin-bottom: 5px; }
+          
+          .header-section { border: 1px solid #000; margin-bottom: 15px; }
+          .header-row { display: flex; border-bottom: 1px solid #000; }
+          .header-row:last-child { border-bottom: none; }
+          .header-cell { padding: 10px; flex: 1; }
+          .header-cell:first-child { border-right: 1px solid #000; }
+          .header-cell .label { font-weight: bold; font-size: 10px; color: #333; margin-bottom: 5px; }
+          
+          .items-section { border: 1px solid #000; margin-bottom: 15px; }
+          .items-table { width: 100%; border-collapse: collapse; }
+          .items-table th { background: #f5f5f5; border-bottom: 1px solid #000; padding: 10px 6px; font-size: 10px; font-weight: bold; text-align: center; }
+          .items-table th:not(:last-child) { border-right: 1px solid #000; }
+          .items-table td { padding: 8px 6px; font-size: 11px; border-bottom: 1px solid #ddd; }
+          .items-table td:not(:last-child) { border-right: 1px solid #ddd; }
+          .items-table tr:last-child td { border-bottom: none; }
+          
+          .grand-total { background: #14532D; color: white; font-weight: bold; }
+          .grand-total td { border-right: 1px solid #14532D !important; }
+          
+          .remarks-section { border: 1px solid #000; padding: 10px; margin-bottom: 15px; }
+          .remarks-label { font-weight: bold; margin-bottom: 5px; }
+          
+          @media print {
+            body { padding: 10px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="company-name">Mr Organix</div>
+        <div class="title">${l.title}</div>
+        
+        <div class="header-section">
+          <div class="header-row">
+            <div class="header-cell">
+              <div class="label">${l.retailer}</div>
+              <div style="font-size: 14px; font-weight: bold;">${retailerDisplayName}</div>
+            </div>
+            <div class="header-cell">
+              <div class="label">${l.date}</div>
+              <div style="font-size: 14px; font-weight: bold;">${formatDate(indent.indent_date)}</div>
+            </div>
+          </div>
+          <div class="header-row">
+            <div class="header-cell">
+              <div class="label">${l.status}</div>
+              <div style="font-size: 14px; font-weight: bold; text-transform: capitalize;">${indent.status}</div>
+            </div>
+            <div class="header-cell">
+              <div class="label">${l.total} Items</div>
+              <div style="font-size: 14px; font-weight: bold;">${indent.items?.length || 0}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="items-section">
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th style="width: 40px;">${l.sr}</th>
+                <th style="width: 40%;">${l.product}</th>
+                <th style="width: 15%;">${l.variant}</th>
+                <th style="width: 12%;">${l.ordered}</th>
+                <th style="width: 12%;">${l.supplied}</th>
+                <th style="width: 15%;">${l.remarks}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+              <tr class="grand-total">
+                <td colspan="3" style="text-align: right; padding-right: 10px;">GRAND ${l.total}:</td>
+                <td style="text-align: center;">${grandTotal}</td>
+                <td style="text-align: center;">${totalSupplied}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        ${indent.remarks ? `
+          <div class="remarks-section">
+            <div class="remarks-label">${l.remarks}:</div>
+            <div>${indent.remarks}</div>
+          </div>
+        ` : ''}
+        
+        <script>
+          window.onload = function() {
+            window.print();
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const downloadInvoicePdf = (invoice, lang = 'en') => {
     // Create a printable invoice using standard format with borders
     const printWindow = window.open('', '_blank');
@@ -7907,6 +8298,35 @@ export default function RetailerOrders() {
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEditIndentModal(indent); }}>
                                 <Edit size={14} className="text-blue-600" />
                               </Button>
+                              {/* Download Indent with Language Selection */}
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button size="sm" variant="ghost" onClick={(e) => e.stopPropagation()}>
+                                    <Download size={14} className="text-blue-600" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-32 p-1" align="start">
+                                  <div className="text-xs font-medium text-gray-500 px-2 py-1">Download as:</div>
+                                  <button 
+                                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 rounded"
+                                    onClick={(e) => { e.stopPropagation(); downloadIndentPdf(indent, 'en'); }}
+                                  >
+                                    English
+                                  </button>
+                                  <button 
+                                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 rounded"
+                                    onClick={(e) => { e.stopPropagation(); downloadIndentPdf(indent, 'hi'); }}
+                                  >
+                                    हिंदी (Hindi)
+                                  </button>
+                                  <button 
+                                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 rounded"
+                                    onClick={(e) => { e.stopPropagation(); downloadIndentPdf(indent, 'mr'); }}
+                                  >
+                                    मराठी (Marathi)
+                                  </button>
+                                </PopoverContent>
+                              </Popover>
                               {indent.status === 'pending' && (
                                 <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openDispatchModal(indent); }}>
                                   <Truck size={14} className="mr-1" /> Dispatch
@@ -7925,7 +8345,7 @@ export default function RetailerOrders() {
                         </tr>
                         {expandedIndents[indent.id] && (
                           <tr className="bg-blue-50">
-                            <td colSpan={6} className="p-3">
+                            <td colSpan={7} className="p-3">
                               {(() => {
                                 // Calculate dispatched quantities for this indent
                                 const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
@@ -7939,81 +8359,241 @@ export default function RetailerOrders() {
                                 }
                                 const showDispatchColumns = indent.status === 'partial' || indent.status === 'dispatched';
                                 
+                                // Group items by category and type
+                                const categoryOrder = ['Vegetables', 'Fruits', 'Exotic', 'Sprouts', 'Others'];
+                                const vegetableTypeOrder = ['Hard', 'Semi-hard', 'Leafy', 'Others'];
+                                const groupedItems = {};
+                                
+                                (indent.items || []).forEach(item => {
+                                  const product = productMap.get(item.product_id) || productMap.get(item.product_name);
+                                  const category = product?.category || 'Others';
+                                  const productType = product?.product_type || 'Others';
+                                  
+                                  if (!groupedItems[category]) {
+                                    groupedItems[category] = {};
+                                  }
+                                  
+                                  if (category === 'Vegetables') {
+                                    if (!groupedItems[category][productType]) {
+                                      groupedItems[category][productType] = [];
+                                    }
+                                    groupedItems[category][productType].push(item);
+                                  } else {
+                                    if (!groupedItems[category]['all']) {
+                                      groupedItems[category]['all'] = [];
+                                    }
+                                    groupedItems[category]['all'].push(item);
+                                  }
+                                });
+                                
+                                const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
+                                  const indexA = categoryOrder.indexOf(a);
+                                  const indexB = categoryOrder.indexOf(b);
+                                  if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                                  if (indexA === -1) return 1;
+                                  if (indexB === -1) return -1;
+                                  return indexA - indexB;
+                                });
+                                
+                                const categoryColors = {
+                                  'Vegetables': 'bg-green-700',
+                                  'Fruits': 'bg-orange-600',
+                                  'Exotic': 'bg-purple-600',
+                                  'Sprouts': 'bg-cyan-600',
+                                  'Others': 'bg-gray-600'
+                                };
+                                
+                                const typeColors = {
+                                  'Hard': 'bg-green-600',
+                                  'Semi-hard': 'bg-green-500',
+                                  'Leafy': 'bg-emerald-500',
+                                  'Others': 'bg-green-400'
+                                };
+                                
+                                let globalIdx = 0;
+                                
                                 return (
-                                  <table className="w-full text-xs">
-                                    <thead>
-                                      <tr className="border-b">
-                                        <th className="p-2 text-center w-8">#</th>
-                                        <th className="p-2 text-left">Product</th>
-                                        <th className="p-2 text-left">Variant</th>
-                                        {indent.generation_basis === 'plan' && (
-                                          <th className="p-2 text-right">Yest. Closing</th>
-                                        )}
-                                        <th className="p-2 text-right">Ordered</th>
-                                        {showDispatchColumns && (
-                                          <>
-                                            <th className="p-2 text-right">Dispatched</th>
-                                            <th className="p-2 text-right">Remaining</th>
-                                          </>
-                                        )}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {indent.items?.map((item, idx) => {
-                                        const key = item.product_id;
-                                        const dispatched = dispatchedQtys[key] || 0;
-                                        const remaining = (item.quantity || 0) - dispatched;
+                                  <div className="space-y-2">
+                                    {sortedCategories.map(category => {
+                                      const catKey = `${indent.id}-${category}`;
+                                      const isExpanded = expandedCategories[catKey] !== false; // Default expanded
+                                      
+                                      if (category === 'Vegetables') {
+                                        const types = Object.keys(groupedItems[category]).sort((a, b) => {
+                                          const indexA = vegetableTypeOrder.indexOf(a);
+                                          const indexB = vegetableTypeOrder.indexOf(b);
+                                          if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                                          if (indexA === -1) return 1;
+                                          if (indexB === -1) return -1;
+                                          return indexA - indexB;
+                                        });
+                                        
+                                        const totalVegItems = types.reduce((sum, t) => sum + groupedItems[category][t].length, 0);
+                                        
                                         return (
-                                          <tr key={idx} className={remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}>
-                                            <td className="p-2 text-center text-gray-400">{idx + 1}</td>
-                                            <td className="p-2">{getProductNameInLang(item, indentLanguage)}</td>
-                                            <td className="p-2">{getIndentVariantDisplay(item)}</td>
-                                            {indent.generation_basis === 'plan' && (
-                                              <td className="p-2 text-right text-gray-500">{item.closing_qty ?? '-'}</td>
-                                            )}
-                                            <td className="p-2 text-right">{item.quantity}</td>
-                                            {showDispatchColumns && (
-                                              <>
-                                                <td className="p-2 text-right text-green-700">{dispatched}</td>
-                                                <td className="p-2 text-right font-semibold">
-                                                  {remaining > 0 ? (
-                                                    <span className="text-amber-700">{remaining}</span>
-                                                  ) : (
-                                                    <span className="text-green-600">✓</span>
+                                          <div key={category} className="border rounded-lg overflow-hidden">
+                                            <div 
+                                              className={`${categoryColors[category]} text-white px-3 py-2 flex items-center justify-between cursor-pointer`}
+                                              onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
+                                            >
+                                              <span className="font-semibold">{category} ({totalVegItems} items)</span>
+                                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                            </div>
+                                            {isExpanded && types.map(type => {
+                                              const typeKey = `${indent.id}-${category}-${type}`;
+                                              const isTypeExpanded = expandedCategories[typeKey] !== false;
+                                              const items = groupedItems[category][type];
+                                              const typeTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                                              
+                                              return (
+                                                <div key={type}>
+                                                  <div 
+                                                    className={`${typeColors[type]} text-white px-4 py-1.5 flex items-center justify-between cursor-pointer text-sm`}
+                                                    onClick={() => setExpandedCategories(prev => ({ ...prev, [typeKey]: !isTypeExpanded }))}
+                                                  >
+                                                    <span>{type} Vegetables ({items.length})</span>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Total: {typeTotal}</span>
+                                                      {isTypeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                    </div>
+                                                  </div>
+                                                  {isTypeExpanded && (
+                                                    <table className="w-full text-xs">
+                                                      <thead className="bg-gray-100">
+                                                        <tr>
+                                                          <th className="p-1.5 text-center w-8">#</th>
+                                                          <th className="p-1.5 text-left">Product</th>
+                                                          <th className="p-1.5 text-left">Variant</th>
+                                                          {indent.generation_basis === 'plan' && <th className="p-1.5 text-right">Closing</th>}
+                                                          <th className="p-1.5 text-right">Ordered</th>
+                                                          {showDispatchColumns && (
+                                                            <>
+                                                              <th className="p-1.5 text-right">Supplied</th>
+                                                              <th className="p-1.5 text-right">Pending</th>
+                                                            </>
+                                                          )}
+                                                        </tr>
+                                                      </thead>
+                                                      <tbody>
+                                                        {items.map((item, idx) => {
+                                                          globalIdx++;
+                                                          const key = item.product_id;
+                                                          const dispatched = dispatchedQtys[key] || 0;
+                                                          const remaining = (item.quantity || 0) - dispatched;
+                                                          return (
+                                                            <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
+                                                              <td className="p-1.5 text-center text-gray-400">{globalIdx}</td>
+                                                              <td className="p-1.5">{getProductNameInLang(item, indentLanguage)}</td>
+                                                              <td className="p-1.5">{getIndentVariantDisplay(item)}</td>
+                                                              {indent.generation_basis === 'plan' && <td className="p-1.5 text-right text-gray-500">{item.closing_qty ?? '-'}</td>}
+                                                              <td className="p-1.5 text-right">{item.quantity}</td>
+                                                              {showDispatchColumns && (
+                                                                <>
+                                                                  <td className="p-1.5 text-right text-green-700">{dispatched}</td>
+                                                                  <td className="p-1.5 text-right font-semibold">
+                                                                    {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
+                                                                  </td>
+                                                                </>
+                                                              )}
+                                                            </tr>
+                                                          );
+                                                        })}
+                                                      </tbody>
+                                                    </table>
                                                   )}
-                                                </td>
-                                              </>
-                                            )}
-                                          </tr>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
                                         );
-                                      })}
-                                    </tbody>
-                                    <tfoot className="bg-blue-100 font-semibold">
-                                      <tr>
-                                        <td colSpan={indent.generation_basis === 'plan' ? 4 : 3} className="p-2 text-right">TOTAL:</td>
-                                        <td className="p-2 text-right">
-                                          {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}
-                                        </td>
+                                      } else {
+                                        const items = groupedItems[category]['all'] || [];
+                                        const catTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                                        
+                                        return (
+                                          <div key={category} className="border rounded-lg overflow-hidden">
+                                            <div 
+                                              className={`${categoryColors[category]} text-white px-3 py-2 flex items-center justify-between cursor-pointer`}
+                                              onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
+                                            >
+                                              <span className="font-semibold">{category} ({items.length} items)</span>
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Total: {catTotal}</span>
+                                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                              </div>
+                                            </div>
+                                            {isExpanded && (
+                                              <table className="w-full text-xs">
+                                                <thead className="bg-gray-100">
+                                                  <tr>
+                                                    <th className="p-1.5 text-center w-8">#</th>
+                                                    <th className="p-1.5 text-left">Product</th>
+                                                    <th className="p-1.5 text-left">Variant</th>
+                                                    {indent.generation_basis === 'plan' && <th className="p-1.5 text-right">Closing</th>}
+                                                    <th className="p-1.5 text-right">Ordered</th>
+                                                    {showDispatchColumns && (
+                                                      <>
+                                                        <th className="p-1.5 text-right">Supplied</th>
+                                                        <th className="p-1.5 text-right">Pending</th>
+                                                      </>
+                                                    )}
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {items.map((item, idx) => {
+                                                    globalIdx++;
+                                                    const key = item.product_id;
+                                                    const dispatched = dispatchedQtys[key] || 0;
+                                                    const remaining = (item.quantity || 0) - dispatched;
+                                                    return (
+                                                      <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
+                                                        <td className="p-1.5 text-center text-gray-400">{globalIdx}</td>
+                                                        <td className="p-1.5">{getProductNameInLang(item, indentLanguage)}</td>
+                                                        <td className="p-1.5">{getIndentVariantDisplay(item)}</td>
+                                                        {indent.generation_basis === 'plan' && <td className="p-1.5 text-right text-gray-500">{item.closing_qty ?? '-'}</td>}
+                                                        <td className="p-1.5 text-right">{item.quantity}</td>
+                                                        {showDispatchColumns && (
+                                                          <>
+                                                            <td className="p-1.5 text-right text-green-700">{dispatched}</td>
+                                                            <td className="p-1.5 text-right font-semibold">
+                                                              {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
+                                                            </td>
+                                                          </>
+                                                        )}
+                                                      </tr>
+                                                    );
+                                                  })}
+                                                </tbody>
+                                              </table>
+                                            )}
+                                          </div>
+                                        );
+                                      }
+                                    })}
+                                    
+                                    {/* Grand Total */}
+                                    <div className="bg-blue-100 p-2 rounded font-semibold text-sm flex justify-between">
+                                      <span>GRAND TOTAL:</span>
+                                      <div className="flex gap-4">
+                                        <span>Ordered: {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}</span>
                                         {showDispatchColumns && (
                                           <>
-                                            <td className="p-2 text-right text-green-700">
-                                              {indent.items?.reduce((sum, item) => {
-                                                const key = `${item.product_id}|${item.variant_id || ''}`;
-                                                return sum + (dispatchedQtys[key] || 0);
-                                              }, 0)}
-                                            </td>
-                                            <td className="p-2 text-right text-amber-700">
-                                              {indent.items?.reduce((sum, item) => {
-                                                const key = `${item.product_id}|${item.variant_id || ''}`;
-                                                const dispatched = dispatchedQtys[key] || 0;
-                                                return sum + Math.max(0, (item.quantity || 0) - dispatched);
-                                              }, 0)}
-                                            </td>
+                                            <span className="text-green-700">Supplied: {indent.items?.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0)}</span>
+                                            <span className="text-amber-700">Pending: {indent.items?.reduce((sum, item) => {
+                                              const dispatched = dispatchedQtys[item.product_id] || 0;
+                                              return sum + Math.max(0, (item.quantity || 0) - dispatched);
+                                            }, 0)}</span>
                                           </>
                                         )}
-                                      </tr>
-                                    </tfoot>
-                                  </table>
+                                      </div>
+                                    </div>
+                                    
+                                    {indent.remarks && (
+                                      <div className="text-xs text-gray-600 mt-2 border-t pt-2">
+                                        <strong>Remarks:</strong> {indent.remarks}
+                                      </div>
+                                    )}
+                                  </div>
                                 );
                               })()}
                             </td>

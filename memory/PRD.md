@@ -2,6 +2,16 @@
 
 ## Changelog (June 2025)
 
+### June 9, 2025 - Compact Collapsible Tables for Indent & Dispatch ✅
+- **UI IMPROVEMENT**: Made Indent and Dispatch expanded tables more compact
+  - Removed `w-full` to stop table from stretching to full width
+  - Product, Variant, and Qty columns now closer together
+  - Reduced cell padding from `p-1` to `px-1 py-0.5` for tighter rows
+  - Set minimum widths to maintain readability on mobile
+- **Parity**: Both Indent and Dispatch tabs now have identical compact table layouts
+- **Files Modified**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` (4 table updates - 2 for Indent, 2 for Dispatch)
+
 ### June 9, 2025 - Sync & Auto Indent Improvements ✅
 - **BUG FIX**: Retail Plans now sync from Production to Preview
   - Added `retail_plans` collection to backup system (`COLLECTIONS_TO_BACKUP`)

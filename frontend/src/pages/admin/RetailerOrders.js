@@ -8457,17 +8457,17 @@ export default function RetailerOrders() {
                                                     </div>
                                                   </div>
                                                   {isTypeExpanded && (
-                                                    <table className="w-full text-xs">
+                                                    <table className="text-xs" style={{width: 'auto', minWidth: '280px'}}>
                                                       <thead className="bg-gray-100">
                                                         <tr>
-                                                          <th className="p-1 text-center" style={{width: '25px'}}>#</th>
-                                                          <th className="p-1 text-left">Product</th>
-                                                          <th className="p-1 text-left" style={{width: '70px'}}>Variant</th>
-                                                          <th className="p-1 text-center" style={{width: '35px'}}>Qty</th>
+                                                          <th className="px-1 py-0.5 text-center" style={{width: '22px'}}>#</th>
+                                                          <th className="px-1 py-0.5 text-left" style={{minWidth: '100px'}}>Product</th>
+                                                          <th className="px-1 py-0.5 text-left" style={{width: '60px'}}>Variant</th>
+                                                          <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Qty</th>
                                                           {showDispatchColumns && (
                                                             <>
-                                                              <th className="p-1 text-center" style={{width: '40px'}}>Sup</th>
-                                                              <th className="p-1 text-center" style={{width: '35px'}}>Pend</th>
+                                                              <th className="px-1 py-0.5 text-center" style={{width: '32px'}}>Sup</th>
+                                                              <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Pend</th>
                                                             </>
                                                           )}
                                                         </tr>
@@ -8480,14 +8480,14 @@ export default function RetailerOrders() {
                                                           const remaining = (item.quantity || 0) - dispatched;
                                                           return (
                                                             <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
-                                                              <td className="p-1 text-center text-gray-400">{globalIdx}</td>
-                                                              <td className="p-1">{getProductNameInLang(item, indentLanguage)}</td>
-                                                              <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                                              <td className="p-1 text-center font-medium">{item.quantity}</td>
+                                                              <td className="px-1 py-0.5 text-center text-gray-400">{globalIdx}</td>
+                                                              <td className="px-1 py-0.5">{getProductNameInLang(item, indentLanguage)}</td>
+                                                              <td className="px-1 py-0.5 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                              <td className="px-1 py-0.5 text-center font-medium">{item.quantity}</td>
                                                               {showDispatchColumns && (
                                                                 <>
-                                                                  <td className="p-1 text-center text-green-700">{dispatched}</td>
-                                                                  <td className="p-1 text-center font-semibold">
+                                                                  <td className="px-1 py-0.5 text-center text-green-700">{dispatched}</td>
+                                                                  <td className="px-1 py-0.5 text-center font-semibold">
                                                                     {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
                                                                   </td>
                                                                 </>
@@ -8521,17 +8521,17 @@ export default function RetailerOrders() {
                                               </div>
                                             </div>
                                             {isExpanded && (
-                                              <table className="w-full text-xs">
+                                              <table className="text-xs" style={{width: 'auto', minWidth: '280px'}}>
                                                 <thead className="bg-gray-100">
                                                   <tr>
-                                                    <th className="p-1 text-center" style={{width: '25px'}}>#</th>
-                                                    <th className="p-1 text-left">Product</th>
-                                                    <th className="p-1 text-left" style={{width: '70px'}}>Variant</th>
-                                                    <th className="p-1 text-center" style={{width: '35px'}}>Qty</th>
+                                                    <th className="px-1 py-0.5 text-center" style={{width: '22px'}}>#</th>
+                                                    <th className="px-1 py-0.5 text-left" style={{minWidth: '100px'}}>Product</th>
+                                                    <th className="px-1 py-0.5 text-left" style={{width: '60px'}}>Variant</th>
+                                                    <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Qty</th>
                                                     {showDispatchColumns && (
                                                       <>
-                                                        <th className="p-1 text-center" style={{width: '40px'}}>Sup</th>
-                                                        <th className="p-1 text-center" style={{width: '35px'}}>Pend</th>
+                                                        <th className="px-1 py-0.5 text-center" style={{width: '32px'}}>Sup</th>
+                                                        <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Pend</th>
                                                       </>
                                                     )}
                                                   </tr>
@@ -8544,14 +8544,14 @@ export default function RetailerOrders() {
                                                     const remaining = (item.quantity || 0) - dispatched;
                                                     return (
                                                       <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
-                                                        <td className="p-1 text-center text-gray-400">{globalIdx}</td>
-                                                        <td className="p-1">{getProductNameInLang(item, indentLanguage)}</td>
-                                                        <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                                        <td className="p-1 text-center font-medium">{item.quantity}</td>
+                                                        <td className="px-1 py-0.5 text-center text-gray-400">{globalIdx}</td>
+                                                        <td className="px-1 py-0.5">{getProductNameInLang(item, indentLanguage)}</td>
+                                                        <td className="px-1 py-0.5 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                        <td className="px-1 py-0.5 text-center font-medium">{item.quantity}</td>
                                                         {showDispatchColumns && (
                                                           <>
-                                                            <td className="p-1 text-center text-green-700">{dispatched}</td>
-                                                            <td className="p-1 text-center font-semibold">
+                                                            <td className="px-1 py-0.5 text-center text-green-700">{dispatched}</td>
+                                                            <td className="px-1 py-0.5 text-center font-semibold">
                                                               {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
                                                             </td>
                                                           </>
@@ -8816,16 +8816,16 @@ export default function RetailerOrders() {
                                                       </div>
                                                     </div>
                                                     {isTypeExpanded && (
-                                                      <table className="w-full text-xs">
+                                                      <table className="text-xs" style={{width: 'auto', minWidth: '320px'}}>
                                                         <thead className="bg-gray-100">
                                                           <tr>
-                                                            <th className="p-1 text-center" style={{width: '25px'}}>#</th>
-                                                            <th className="p-1 text-left">Product</th>
-                                                            <th className="p-1 text-left" style={{width: '60px'}}>Variant</th>
-                                                            <th className="p-1 text-center" style={{width: '35px'}}>Ind</th>
-                                                            <th className="p-1 text-center" style={{width: '35px'}}>Sup</th>
-                                                            <th className="p-1 text-right" style={{width: '50px'}}>MRP</th>
-                                                            <th className="p-1 text-right" style={{width: '60px'}}>Amt</th>
+                                                            <th className="px-1 py-0.5 text-center" style={{width: '22px'}}>#</th>
+                                                            <th className="px-1 py-0.5 text-left" style={{minWidth: '100px'}}>Product</th>
+                                                            <th className="px-1 py-0.5 text-left" style={{width: '55px'}}>Variant</th>
+                                                            <th className="px-1 py-0.5 text-center" style={{width: '28px'}}>Ind</th>
+                                                            <th className="px-1 py-0.5 text-center" style={{width: '28px'}}>Sup</th>
+                                                            <th className="px-1 py-0.5 text-right" style={{width: '42px'}}>MRP</th>
+                                                            <th className="px-1 py-0.5 text-right" style={{width: '50px'}}>Amt</th>
                                                           </tr>
                                                         </thead>
                                                         <tbody>
@@ -8833,13 +8833,13 @@ export default function RetailerOrders() {
                                                             globalIdx++;
                                                             return (
                                                               <tr key={idx} className="border-b">
-                                                                <td className="p-1 text-center text-gray-400">{globalIdx}</td>
-                                                                <td className="p-1">{getProductNameInLang(item, dispatchLanguage)}</td>
-                                                                <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                                                <td className="p-1 text-center">{item.indent_qty || '-'}</td>
-                                                                <td className="p-1 text-center font-medium">{item.supplied_qty}</td>
-                                                                <td className="p-1 text-right">₹{item.mrp?.toFixed(0)}</td>
-                                                                <td className="p-1 text-right font-medium">₹{item.total_value?.toFixed(0)}</td>
+                                                                <td className="px-1 py-0.5 text-center text-gray-400">{globalIdx}</td>
+                                                                <td className="px-1 py-0.5">{getProductNameInLang(item, dispatchLanguage)}</td>
+                                                                <td className="px-1 py-0.5 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                                <td className="px-1 py-0.5 text-center">{item.indent_qty || '-'}</td>
+                                                                <td className="px-1 py-0.5 text-center font-medium">{item.supplied_qty}</td>
+                                                                <td className="px-1 py-0.5 text-right">₹{item.mrp?.toFixed(0)}</td>
+                                                                <td className="px-1 py-0.5 text-right font-medium">₹{item.total_value?.toFixed(0)}</td>
                                                               </tr>
                                                             );
                                                           })}
@@ -8871,16 +8871,16 @@ export default function RetailerOrders() {
                                                 </div>
                                               </div>
                                               {isExpanded && (
-                                                <table className="w-full text-xs">
+                                                <table className="text-xs" style={{width: 'auto', minWidth: '320px'}}>
                                                   <thead className="bg-gray-100">
                                                     <tr>
-                                                      <th className="p-1 text-center" style={{width: '25px'}}>#</th>
-                                                      <th className="p-1 text-left">Product</th>
-                                                      <th className="p-1 text-left" style={{width: '60px'}}>Variant</th>
-                                                      <th className="p-1 text-center" style={{width: '35px'}}>Ind</th>
-                                                      <th className="p-1 text-center" style={{width: '35px'}}>Sup</th>
-                                                      <th className="p-1 text-right" style={{width: '50px'}}>MRP</th>
-                                                      <th className="p-1 text-right" style={{width: '60px'}}>Amt</th>
+                                                      <th className="px-1 py-0.5 text-center" style={{width: '22px'}}>#</th>
+                                                      <th className="px-1 py-0.5 text-left" style={{minWidth: '100px'}}>Product</th>
+                                                      <th className="px-1 py-0.5 text-left" style={{width: '55px'}}>Variant</th>
+                                                      <th className="px-1 py-0.5 text-center" style={{width: '28px'}}>Ind</th>
+                                                      <th className="px-1 py-0.5 text-center" style={{width: '28px'}}>Sup</th>
+                                                      <th className="px-1 py-0.5 text-right" style={{width: '42px'}}>MRP</th>
+                                                      <th className="px-1 py-0.5 text-right" style={{width: '50px'}}>Amt</th>
                                                     </tr>
                                                   </thead>
                                                   <tbody>
@@ -8888,13 +8888,13 @@ export default function RetailerOrders() {
                                                       globalIdx++;
                                                       return (
                                                         <tr key={idx} className="border-b">
-                                                          <td className="p-1 text-center text-gray-400">{globalIdx}</td>
-                                                          <td className="p-1">{getProductNameInLang(item, dispatchLanguage)}</td>
-                                                          <td className="p-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                                          <td className="p-1 text-center">{item.indent_qty || '-'}</td>
-                                                          <td className="p-1 text-center font-medium">{item.supplied_qty}</td>
-                                                          <td className="p-1 text-right">₹{item.mrp?.toFixed(0)}</td>
-                                                          <td className="p-1 text-right font-medium">₹{item.total_value?.toFixed(0)}</td>
+                                                          <td className="px-1 py-0.5 text-center text-gray-400">{globalIdx}</td>
+                                                          <td className="px-1 py-0.5">{getProductNameInLang(item, dispatchLanguage)}</td>
+                                                          <td className="px-1 py-0.5 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                          <td className="px-1 py-0.5 text-center">{item.indent_qty || '-'}</td>
+                                                          <td className="px-1 py-0.5 text-center font-medium">{item.supplied_qty}</td>
+                                                          <td className="px-1 py-0.5 text-right">₹{item.mrp?.toFixed(0)}</td>
+                                                          <td className="px-1 py-0.5 text-right font-medium">₹{item.total_value?.toFixed(0)}</td>
                                                         </tr>
                                                       );
                                                     })}

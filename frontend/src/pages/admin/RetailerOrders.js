@@ -8406,7 +8406,7 @@ export default function RetailerOrders() {
                                 let globalIdx = 0;
                                 
                                 return (
-                                  <div className="space-y-2" style={{width: 'fit-content', minWidth: '280px'}}>
+                                  <div className="space-y-2" style={{width: 'fit-content', minWidth: '420px'}}>
                                     {sortedCategories.map(category => {
                                       const catKey = `${indent.id}-${category}`;
                                       const isExpanded = expandedCategories[catKey] === true; // Default COLLAPSED
@@ -8425,7 +8425,7 @@ export default function RetailerOrders() {
                                         const totalVegQty = types.reduce((sum, t) => sum + groupedItems[category][t].reduce((s, item) => s + (item.quantity || 0), 0), 0);
                                         
                                         return (
-                                          <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '280px'}}>
+                                          <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '420px'}}>
                                             <div 
                                               className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
@@ -8457,17 +8457,17 @@ export default function RetailerOrders() {
                                                     </div>
                                                   </div>
                                                   {isTypeExpanded && (
-                                                    <table className="text-xs" style={{width: 'auto', minWidth: '280px'}}>
+                                                    <table className="text-xs" style={{width: 'auto', minWidth: '400px'}}>
                                                       <thead className="bg-gray-100">
                                                         <tr>
-                                                          <th className="px-1 py-0.5 text-center" style={{width: '22px'}}>#</th>
-                                                          <th className="px-1 py-0.5 text-left" style={{minWidth: '100px'}}>Product</th>
-                                                          <th className="px-1 py-0.5 text-left" style={{width: '60px'}}>Variant</th>
-                                                          <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Qty</th>
+                                                          <th className="px-2 py-1 text-center" style={{width: '30px'}}>#</th>
+                                                          <th className="px-2 py-1 text-left" style={{minWidth: '180px'}}>Product</th>
+                                                          <th className="px-2 py-1 text-left" style={{width: '80px'}}>Variant</th>
+                                                          <th className="px-2 py-1 text-center" style={{width: '45px'}}>Qty</th>
                                                           {showDispatchColumns && (
                                                             <>
-                                                              <th className="px-1 py-0.5 text-center" style={{width: '32px'}}>Sup</th>
-                                                              <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Pend</th>
+                                                              <th className="px-2 py-1 text-center" style={{width: '40px'}}>Sup</th>
+                                                              <th className="px-2 py-1 text-center" style={{width: '40px'}}>Pend</th>
                                                             </>
                                                           )}
                                                         </tr>
@@ -8480,14 +8480,14 @@ export default function RetailerOrders() {
                                                           const remaining = (item.quantity || 0) - dispatched;
                                                           return (
                                                             <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
-                                                              <td className="px-1 py-0.5 text-center text-gray-400">{globalIdx}</td>
-                                                              <td className="px-1 py-0.5">{getProductNameInLang(item, indentLanguage)}</td>
-                                                              <td className="px-1 py-0.5 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                                              <td className="px-1 py-0.5 text-center font-medium">{item.quantity}</td>
+                                                              <td className="px-2 py-1 text-center text-gray-400">{globalIdx}</td>
+                                                              <td className="px-2 py-1">{getProductNameInLang(item, indentLanguage)}</td>
+                                                              <td className="px-2 py-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                              <td className="px-2 py-1 text-center font-medium">{item.quantity}</td>
                                                               {showDispatchColumns && (
                                                                 <>
-                                                                  <td className="px-1 py-0.5 text-center text-green-700">{dispatched}</td>
-                                                                  <td className="px-1 py-0.5 text-center font-semibold">
+                                                                  <td className="px-2 py-1 text-center text-green-700">{dispatched}</td>
+                                                                  <td className="px-2 py-1 text-center font-semibold">
                                                                     {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
                                                                   </td>
                                                                 </>
@@ -8508,7 +8508,7 @@ export default function RetailerOrders() {
                                         const catTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
                                         
                                         return (
-                                          <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '280px'}}>
+                                          <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '420px'}}>
                                             <div 
                                               className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
@@ -8521,17 +8521,17 @@ export default function RetailerOrders() {
                                               </div>
                                             </div>
                                             {isExpanded && (
-                                              <table className="text-xs" style={{width: 'auto', minWidth: '280px'}}>
+                                              <table className="text-xs" style={{width: 'auto', minWidth: '400px'}}>
                                                 <thead className="bg-gray-100">
                                                   <tr>
-                                                    <th className="px-1 py-0.5 text-center" style={{width: '22px'}}>#</th>
-                                                    <th className="px-1 py-0.5 text-left" style={{minWidth: '100px'}}>Product</th>
-                                                    <th className="px-1 py-0.5 text-left" style={{width: '60px'}}>Variant</th>
-                                                    <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Qty</th>
+                                                    <th className="px-2 py-1 text-center" style={{width: '30px'}}>#</th>
+                                                    <th className="px-2 py-1 text-left" style={{minWidth: '180px'}}>Product</th>
+                                                    <th className="px-2 py-1 text-left" style={{width: '80px'}}>Variant</th>
+                                                    <th className="px-2 py-1 text-center" style={{width: '45px'}}>Qty</th>
                                                     {showDispatchColumns && (
                                                       <>
-                                                        <th className="px-1 py-0.5 text-center" style={{width: '32px'}}>Sup</th>
-                                                        <th className="px-1 py-0.5 text-center" style={{width: '30px'}}>Pend</th>
+                                                        <th className="px-2 py-1 text-center" style={{width: '40px'}}>Sup</th>
+                                                        <th className="px-2 py-1 text-center" style={{width: '40px'}}>Pend</th>
                                                       </>
                                                     )}
                                                   </tr>
@@ -8544,14 +8544,14 @@ export default function RetailerOrders() {
                                                     const remaining = (item.quantity || 0) - dispatched;
                                                     return (
                                                       <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
-                                                        <td className="px-1 py-0.5 text-center text-gray-400">{globalIdx}</td>
-                                                        <td className="px-1 py-0.5">{getProductNameInLang(item, indentLanguage)}</td>
-                                                        <td className="px-1 py-0.5 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
-                                                        <td className="px-1 py-0.5 text-center font-medium">{item.quantity}</td>
+                                                        <td className="px-2 py-1 text-center text-gray-400">{globalIdx}</td>
+                                                        <td className="px-2 py-1">{getProductNameInLang(item, indentLanguage)}</td>
+                                                        <td className="px-2 py-1 text-left text-xs text-gray-600">{getIndentVariantDisplay(item)}</td>
+                                                        <td className="px-2 py-1 text-center font-medium">{item.quantity}</td>
                                                         {showDispatchColumns && (
                                                           <>
-                                                            <td className="px-1 py-0.5 text-center text-green-700">{dispatched}</td>
-                                                            <td className="px-1 py-0.5 text-center font-semibold">
+                                                            <td className="px-2 py-1 text-center text-green-700">{dispatched}</td>
+                                                            <td className="px-2 py-1 text-center font-semibold">
                                                               {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
                                                             </td>
                                                           </>

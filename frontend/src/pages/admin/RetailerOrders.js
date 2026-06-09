@@ -2922,10 +2922,10 @@ export default function RetailerOrders() {
         productNameHi: item.product_name_hi || '',
         productNameMr: item.product_name_mr || '',
         category: item.category || 'Other',
-        variantId: item.variant_id || '',
-        variantName: item.variant_name || '',
+        variants: item.variants || '',  // Combined variants for display
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
+        qtyDozens: item.qty_dozens || 0,  // For dozen-based products
         requirementKg: roundUpRequirement(item.qty_kg), // Round up, min 1 kg
         purchaseUnit: item.purchase_unit || '',
         purchaseWeightName: item.purchase_weight_name || '',
@@ -7615,7 +7615,7 @@ export default function RetailerOrders() {
                                                   {displayName}
                                                 </div>
                                               </td>
-                                              <td className="p-2 text-xs text-gray-600">{item.variantName || '-'}</td>
+                                              <td className="p-2 text-xs text-gray-600">{item.variants || '-'}</td>
                                               <td className="p-2 text-center font-semibold">{item.qtyUnits}</td>
                                               <td className="p-2">
                                                 {/* Smart Purchase Req display based on purchase unit */}
@@ -7668,17 +7668,17 @@ export default function RetailerOrders() {
                                                     </span>
                                                   </div>
                                                 ) : item.purchaseUnit === 'Dozen' ? (
-                                                  // For Dozens: show "5 Dozens"
+                                                  // For Dozens: show calculated dozens (7 x 1dz + 6 x 0.5dz = 10 dozens)
                                                   <div className="flex items-center gap-1">
                                                     <Input
                                                       type="number"
-                                                      step="1"
+                                                      step="0.5"
                                                       min="0"
-                                                      value={Math.round(item.qtyUnits) || 0}
+                                                      value={item.qtyDozens > 0 ? Math.ceil(item.qtyDozens) : Math.round(item.qtyUnits)}
                                                       onChange={(e) => {
                                                         e.stopPropagation();
                                                         const newData = [...dailyReqData];
-                                                        newData[globalIdx].qtyUnits = parseFloat(e.target.value) || 0;
+                                                        newData[globalIdx].qtyDozens = parseFloat(e.target.value) || 0;
                                                         setDailyReqData(newData);
                                                         setDailyReqSaved(false);
                                                       }}
@@ -7688,7 +7688,6 @@ export default function RetailerOrders() {
                                                     />
                                                     <span className="text-xs text-yellow-700 font-semibold">
                                                       Dozens
-                                                      {item.purchaseWeightName && <span className="text-yellow-600"> ({item.purchaseWeightName})</span>}
                                                     </span>
                                                   </div>
                                                 ) : (

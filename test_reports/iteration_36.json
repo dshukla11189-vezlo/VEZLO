@@ -1,0 +1,51 @@
+{
+  "summary": "Verified Daily Purchase Requirement product grouping & banana dozen calculation. Backend /api/retailer-daily-requirement/calculate (GET) returns 74 unique products for 2026-06-10 with variants combined per product_id and correct qty_dozens for Dozen-based products. UI (RetailerOrders > Daily Requirement) correctly renders combined variants column and yellow 'Dozens' input for Banana/Elaichi Banana rows.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "RetailerOrders (admin)", "issues": ["Pre-existing React hydration warning: <span> cannot be a child of <option> (caused by x-source-editable instrumentation in retailer dropdown). Cosmetic only, not in current scope."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_daily_purchase_requirement_grouping.py",
+    "/app/test_reports/pytest/daily_purchase_req.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "RetailerOrders.js is 14389 lines — exceeds 700-line guideline. Should be split into smaller modules (DailyRequirementTable, RejectionLoss, PaymentDetails etc.) for maintainability.",
+    "Dozen rounding logic 'Math.ceil(item.qtyDozens)' converts 3.5 dozens (Elaichi Banana) → 4 dozens in the editable input, but the backend still returns the precise 3.5. If the rounded value is later saved, precision is lost. Consider preserving the half-dozen value or making rounding explicit to the user.",
+    "calculate endpoint is a GET that performs aggregation across collections without pagination — acceptable now (74 products), but should be monitored as catalog grows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_daily_purchase_requirement_grouping.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (verified Banana, Elaichi Banana, Onion, Tomato Hybrid, Jamun, Bottle Gourd)"},
+  "test_credentials": "admin@freshflow.com / admin123 (login API requires 'identifier' field, not 'email')",
+  "seed_data_creation": "None - used existing indents for target_date=2026-06-10",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend uses GET /api/retailer-daily-requirement/calculate?target_date=YYYY-MM-DD (NOT POST). Login payload must use 'identifier' key. For UI test, RetailerOrders page has 3 date inputs; the Daily Requirement section uses the LAST date input (index 2). Click 'Daily Requirement' tab button first.",
+  "verification_details": {
+    "backend_api_2026-06-10": {
+      "total_unique_products": 74,
+      "duplicates": "NONE",
+      "banana": {"variants": "1 Dozen, Half Dozen", "qty_units": 12.0, "qty_dozens": 9.0, "purchase_unit": "Dozen"},
+      "elaichi_banana": {"variants": "Half Dozen", "qty_units": 7.0, "qty_dozens": 3.5, "purchase_unit": "Dozen"},
+      "onion": {"variants": "500+ gm, 1000+ gm", "single_row": true},
+      "tomato_hybrid": {"variants": "500+ gm, 1000+ gm", "single_row": true},
+      "jamun": {"variants": "250+ gm, 200+ gm", "single_row": true},
+      "bottle_gourd": {"variants": "500+ gm, Pieces", "single_row": true}
+    },
+    "frontend_ui_2026-06-10": {
+      "banana_row_displays": "variants='1 Dozen, Half Dozen', qty=12, input=9, label='Dozens' (yellow)",
+      "elaichi_banana_row_displays": "variant='Half Dozen', qty=7, input=4 (ceil of 3.5), label='Dozens' (yellow)",
+      "yellow_dozen_inputs_count": 2,
+      "multi_variant_single_rows": "Onion, Tomato Hybrid, Jamun, Bottle Gourd all show ONE row with combined variants"
+    }
+  }
+}

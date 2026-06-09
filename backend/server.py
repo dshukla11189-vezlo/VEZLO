@@ -19545,8 +19545,8 @@ async def calculate_daily_purchase_requirement(
                 wastage_pct = (total_wastage / total_input) * 100
                 product_wastage_pct[product_id] = round(min(wastage_pct, 100), 1)  # Cap at 100%
         
-        # Aggregate indent items by product+variant (combining same product-variant combos)
-        # Key is product_id + resolved_variant_name (not variant_id) to properly combine duplicates
+        # Aggregate indent items by PRODUCT ONLY (combining ALL variants into one row)
+        # Key is just product_id to combine all variants of the same product
         product_aggregation = {}
         skipped_items = []  # Track skipped items for debugging
         
@@ -19578,23 +19578,20 @@ async def calculate_daily_purchase_requirement(
                     if not product_id:
                         product_id = f"name:{product_name_lower}"
                 
-                # Resolve variant - check multiple sources
+                # Resolve variant name for display
                 resolved_variant_name = ""
                 resolved_variant_id = variant_id
                 
-                # Priority 1: variant_id is a valid UUID that maps to a name
                 if variant_id and variant_id in variant_name_map:
                     resolved_variant_name = variant_name_map[variant_id]
                     resolved_variant_id = variant_id
-                # Priority 2: variant_name is actually a UUID (legacy data)
                 elif variant_name_raw and variant_name_raw in variant_name_map:
                     resolved_variant_name = variant_name_map[variant_name_raw]
                     resolved_variant_id = variant_name_raw
-                # Priority 3: variant_name is already a readable name
                 elif variant_name_raw:
                     resolved_variant_name = variant_name_raw
                 
-                # Get weight from variant
+                # Get weight from variant for Kg calculation
                 weight_kg = 0
                 if resolved_variant_id and resolved_variant_id in variant_weight_map:
                     weight_kg = variant_weight_map[resolved_variant_id]
@@ -19608,17 +19605,31 @@ async def calculate_daily_purchase_requirement(
                     
                 item_kg = quantity * weight_kg
                 
-                # Create aggregation key using RESOLVED variant name (not ID) to properly combine duplicates
-                # Normalize the variant name for consistent matching
-                normalized_variant = resolved_variant_name.strip().lower() if resolved_variant_name else ""
-                agg_key = f"{product_id}|{normalized_variant}"
+                # For Dozen-based products, calculate dozens
+                # Check if variant is "1 Dozen", "Half Dozen", etc.
+                dozen_multiplier = 0
+                variant_lower = resolved_variant_name.lower() if resolved_variant_name else ""
+                if "dozen" in variant_lower or "dz" in variant_lower:
+                    if "half" in variant_lower or "1/2" in variant_lower:
+                        dozen_multiplier = 0.5
+                    elif "quarter" in variant_lower or "1/4" in variant_lower:
+                        dozen_multiplier = 0.25
+                    else:
+                        # Assume 1 dozen
+                        dozen_multiplier = 1.0
+                
+                item_dozens = quantity * dozen_multiplier if dozen_multiplier > 0 else 0
+                
+                # Aggregation key is just product_id - combine ALL variants
+                agg_key = product_id
                 
                 if agg_key not in product_aggregation:
-                    # Try to get product info from map, or use item data as fallback
                     product_info = product_info_map.get(product_id, {})
                     final_product_name = product_info.get("name") or product_name or "Unknown"
-                    # Get category from product info, or from item, or default to Other
                     final_category = product_info.get("category") or item.get("category") or item.get("product_category") or "Other"
+                    
+                    # Get purchase unit from catalogue
+                    cat_info = catalogue_map.get(product_id, {})
                     
                     product_aggregation[agg_key] = {
                         "product_id": product_id,
@@ -19626,15 +19637,28 @@ async def calculate_daily_purchase_requirement(
                         "product_name_hi": product_info.get("name_hi", "") or item.get("product_name_hi", ""),
                         "product_name_mr": product_info.get("name_mr", "") or item.get("product_name_mr", ""),
                         "category": final_category,
-                        "variant_id": resolved_variant_id,
-                        "variant_name": resolved_variant_name,
+                        "variants": [],  # Track all variants for reference
                         "total_units": 0,
                         "total_kg": 0,
+                        "total_dozens": 0,  # For dozen-based products
+                        "purchase_unit": cat_info.get("purchase_unit", ""),
+                        "purchase_weight_name": "",
                         "retailers": []
                     }
+                    
+                    # Get purchase weight name
+                    purchase_weights = cat_info.get("purchase_weights", [])
+                    purchase_weight_id = purchase_weights[0] if purchase_weights else cat_info.get("purchase_weight_variant", "")
+                    if purchase_weight_id and purchase_weight_id in variant_name_map:
+                        product_aggregation[agg_key]["purchase_weight_name"] = variant_name_map[purchase_weight_id]
                 
                 product_aggregation[agg_key]["total_units"] += quantity
                 product_aggregation[agg_key]["total_kg"] += item_kg
+                product_aggregation[agg_key]["total_dozens"] += item_dozens
+                
+                # Track variant for display (avoid duplicates)
+                if resolved_variant_name and resolved_variant_name not in product_aggregation[agg_key]["variants"]:
+                    product_aggregation[agg_key]["variants"].append(resolved_variant_name)
                 
                 # Track retailer (accumulate qty if same retailer)
                 existing_retailer = next((r for r in product_aggregation[agg_key]["retailers"] if r["retailer_id"] == retailer_id), None)
@@ -19655,23 +19679,28 @@ async def calculate_daily_purchase_requirement(
             product_id = data["product_id"]
             wastage_pct = product_wastage_pct.get(product_id, 0)
             total_kg = data["total_kg"]
+            total_units = data["total_units"]
+            total_dozens = data.get("total_dozens", 0)
             
             # Calculate requirement considering wastage
-            # If wastage is 50%, we need to procure 2x to get the required amount
-            # Requirement = total_kg / (1 - wastage_pct/100)
             if wastage_pct >= 100:
-                requirement_kg = total_kg * 2  # Cap at 2x if wastage is 100%
+                requirement_kg = total_kg * 2
             elif wastage_pct > 0:
                 requirement_kg = total_kg / (1 - wastage_pct / 100)
             else:
                 requirement_kg = total_kg
             
-            # Get purchase variant info from catalogue
-            cat_info = catalogue_map.get(product_id, {})
-            purchase_unit = cat_info.get("purchase_unit", "")
-            purchase_weights = cat_info.get("purchase_weights", [])
-            purchase_weight_id = purchase_weights[0] if purchase_weights else cat_info.get("purchase_weight_variant", "")
-            purchase_weight_name = variant_name_map.get(purchase_weight_id, "") if purchase_weight_id else ""
+            # Get purchase unit from the aggregated data
+            purchase_unit = data.get("purchase_unit", "")
+            purchase_weight_name = data.get("purchase_weight_name", "")
+            
+            # If not set, get from catalogue
+            if not purchase_unit:
+                cat_info = catalogue_map.get(product_id, {})
+                purchase_unit = cat_info.get("purchase_unit", "")
+                purchase_weights = cat_info.get("purchase_weights", [])
+                purchase_weight_id = purchase_weights[0] if purchase_weights else cat_info.get("purchase_weight_variant", "")
+                purchase_weight_name = variant_name_map.get(purchase_weight_id, "") if purchase_weight_id else ""
             
             # Resolve retailer names
             retailers_with_names = []
@@ -19681,16 +19710,19 @@ async def calculate_daily_purchase_requirement(
                 name = retailer_name_map.get(retailer_id, "Unknown")
                 retailers_with_names.append({"name": name, "qty": qty})
             
+            # Combine variant names for display
+            variants_display = ", ".join(data.get("variants", [])) if data.get("variants") else ""
+            
             result_items.append({
                 "product_id": product_id,
                 "product_name": data["product_name"],
                 "product_name_hi": data.get("product_name_hi", ""),
                 "product_name_mr": data.get("product_name_mr", ""),
                 "category": data["category"],
-                "variant_id": data.get("variant_id", ""),
-                "variant_name": data.get("variant_name", ""),
-                "qty_units": round(data["total_units"], 2),
+                "variants": variants_display,  # Combined variants for display
+                "qty_units": round(total_units, 2),
                 "qty_kg": round(total_kg, 2),
+                "qty_dozens": round(total_dozens, 2),  # For dozen-based products
                 "wastage_pct": wastage_pct,
                 "requirement_kg": round(requirement_kg, 2),
                 "purchase_unit": purchase_unit,

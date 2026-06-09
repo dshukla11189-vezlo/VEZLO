@@ -1837,7 +1837,35 @@ export default function RetailerOrders() {
       totalRejections,
       totalRejectionCount,
       totalRejectionItems,
-      pendingAmount: filteredTotalInvoiced - filteredTotalPayments
+      pendingAmount: filteredTotalInvoiced - filteredTotalPayments,
+      // Today's Orders (indents for today, dispatches for today)
+      todayIndentsCount: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
+      todayIndentsQty: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === new Date().toISOString().split('T')[0])
+        .reduce((sum, indent) => sum + (indent.items || []).reduce((itemSum, item) => itemSum + (item.quantity || item.indent_qty || 0), 0), 0),
+      todayDispatchesCount: filteredDispatchesForStats.filter(d => d.dispatch_date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
+      todayDispatchesQty: filteredDispatchesForStats.filter(d => d.dispatch_date?.split('T')[0] === new Date().toISOString().split('T')[0])
+        .reduce((sum, d) => (d.items || []).reduce((itemSum, item) => itemSum + (item.supplied_qty || item.dispatched_qty || item.quantity || 0), sum), 0),
+      // Tomorrow's Orders
+      tomorrowIndentsCount: filteredIndentsForStats.filter(i => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return i.indent_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+      }).length,
+      tomorrowIndentsQty: filteredIndentsForStats.filter(i => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return i.indent_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+      }).reduce((sum, indent) => sum + (indent.items || []).reduce((itemSum, item) => itemSum + (item.quantity || item.indent_qty || 0), 0), 0),
+      tomorrowDispatchesCount: filteredDispatchesForStats.filter(d => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return d.dispatch_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+      }).length,
+      tomorrowDispatchesQty: filteredDispatchesForStats.filter(d => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return d.dispatch_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+      }).reduce((sum, d) => (d.items || []).reduce((itemSum, item) => itemSum + (item.supplied_qty || item.dispatched_qty || item.quantity || 0), sum), 0)
     });
   }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer]);
 
@@ -6401,23 +6429,33 @@ export default function RetailerOrders() {
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <Package size={14} />
-              <span>Indents</span>
+              <span>Today's Orders ({new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})</span>
             </div>
-            <p className="text-lg font-bold">{dashboardStats.totalIndents}</p>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-amber-600">{dashboardStats.pendingIndents} pending</p>
-              <p className="text-xs font-semibold text-blue-600">{dashboardStats.totalIndentQty} units</p>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-600">Indents:</span>
+                <span className="text-xs font-semibold">{dashboardStats.todayIndentsCount || 0} <span className="text-blue-600">({dashboardStats.todayIndentsQty || 0} qty)</span></span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-600">Dispatch:</span>
+                <span className="text-xs font-semibold">{dashboardStats.todayDispatchesCount || 0} <span className="text-green-600">({dashboardStats.todayDispatchesQty || 0} qty)</span></span>
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-lg border p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <Truck size={14} />
-              <span>Dispatches</span>
+              <span>Tomorrow's Orders ({(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); })()})</span>
             </div>
-            <p className="text-lg font-bold">{dashboardStats.totalDispatches}</p>
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-blue-600">{dashboardStats.totalDispatchQty} units</p>
-              <p className="text-sm font-bold text-green-700">{formatCurrency(dashboardStats.totalMrpValue)}</p>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-600">Indents:</span>
+                <span className="text-xs font-semibold">{dashboardStats.tomorrowIndentsCount || 0} <span className="text-blue-600">({dashboardStats.tomorrowIndentsQty || 0} qty)</span></span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-600">Dispatch:</span>
+                <span className="text-xs font-semibold">{dashboardStats.tomorrowDispatchesCount || 0} <span className="text-green-600">({dashboardStats.tomorrowDispatchesQty || 0} qty)</span></span>
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-lg border p-3">

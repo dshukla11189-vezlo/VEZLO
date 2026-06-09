@@ -8398,7 +8398,7 @@ export default function RetailerOrders() {
                                 
                                 const typeColors = {
                                   'Hard': 'bg-green-800 text-white',
-                                  'Semi-hard': 'bg-lime-300 text-gray-900',
+                                  'Semi-hard': 'bg-amber-500 text-white',
                                   'Leafy': 'bg-emerald-700 text-white',
                                   'Others': 'bg-green-600 text-white'
                                 };
@@ -8406,7 +8406,7 @@ export default function RetailerOrders() {
                                 let globalIdx = 0;
                                 
                                 return (
-                                  <div className="space-y-2">
+                                  <div className="space-y-2" style={{width: 'fit-content', minWidth: '280px'}}>
                                     {sortedCategories.map(category => {
                                       const catKey = `${indent.id}-${category}`;
                                       const isExpanded = expandedCategories[catKey] === true; // Default COLLAPSED
@@ -8425,7 +8425,7 @@ export default function RetailerOrders() {
                                         const totalVegQty = types.reduce((sum, t) => sum + groupedItems[category][t].reduce((s, item) => s + (item.quantity || 0), 0), 0);
                                         
                                         return (
-                                          <div key={category} className="border rounded-lg overflow-hidden">
+                                          <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '280px'}}>
                                             <div 
                                               className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
@@ -8508,7 +8508,7 @@ export default function RetailerOrders() {
                                         const catTotal = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
                                         
                                         return (
-                                          <div key={category} className="border rounded-lg overflow-hidden">
+                                          <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '280px'}}>
                                             <div 
                                               className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
@@ -8751,7 +8751,7 @@ export default function RetailerOrders() {
                                   
                                   const typeColors = {
                                     'Hard': 'bg-green-800 text-white',
-                                    'Semi-hard': 'bg-lime-300 text-gray-900',
+                                    'Semi-hard': 'bg-amber-500 text-white',
                                     'Leafy': 'bg-emerald-700 text-white',
                                     'Others': 'bg-green-600 text-white'
                                   };
@@ -8762,7 +8762,7 @@ export default function RetailerOrders() {
                                   const grandTotalAmount = (dispatch.items || []).reduce((sum, item) => sum + (item.total_value || 0), 0);
                                   
                                   return (
-                                    <div className="space-y-2">
+                                    <div className="space-y-2" style={{width: 'fit-content', minWidth: '320px'}}>
                                       {sortedCategories.map(category => {
                                         const catKey = `dispatch-${dispatch.id}-${category}`;
                                         const isExpanded = expandedCategories[catKey] === true;
@@ -8782,7 +8782,7 @@ export default function RetailerOrders() {
                                           const totalVegAmount = types.reduce((sum, t) => sum + groupedItems[category][t].reduce((s, item) => s + (item.total_value || 0), 0), 0);
                                           
                                           return (
-                                            <div key={category} className="border rounded-lg overflow-hidden">
+                                            <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '320px'}}>
                                               <div 
                                                 className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                                 onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
@@ -8857,7 +8857,7 @@ export default function RetailerOrders() {
                                           const catAmount = items.reduce((sum, item) => sum + (item.total_value || 0), 0);
                                           
                                           return (
-                                            <div key={category} className="border rounded-lg overflow-hidden">
+                                            <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '320px'}}>
                                               <div 
                                                 className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
                                                 onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}

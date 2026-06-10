@@ -2,6 +2,21 @@
 
 ## Changelog (June 2025)
 
+### June 10, 2025 - Retailer Details & UUID Variant Resolution Fixes ✅
+- **BUG FIX**: Retailer names now show when clicking on Piece/Packet products in Stickers & MRP
+  - Issue: Key mismatch between aggregation key and lookup key
+  - Fix: Items now store their `aggregationKey` and use it for retailer details lookup
+- **BUG FIX**: UUID variants (Elaichi Banana, Muskmelon, etc.) now resolved in Daily P&L Dashboard
+  - Added `packaging_id_to_name` lookup in P&L report
+  - Added `resolve_variant_name()` helper to convert UUID → proper variant name
+  - Applied to retail dispatch items in the P&L calculation
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js`:
+    - `calculateStickersData()` - Items now store `aggregationKey`
+    - Retailer details lookup uses `item.key` instead of hardcoded key format
+  - `/app/backend/server.py`:
+    - `get_pnl_report()` - Added packaging lookup and UUID resolution for variant names
+
 ### June 10, 2025 - Stickers & MRP: Catalogue-Based Variant Aggregation ✅
 - **BUG FIX**: For products with `purchase_unit = "Piece"` or `"Packet"` in the Retailer Catalogue:
   - Retailer manual orders (using `unit_piece`/`Pieces`) now aggregated with system auto-generated orders (using weight variants like `250+ gm`)

@@ -6400,6 +6400,23 @@ async def get_pnl_report(
     all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
     retailer_company_map = {r.get("id"): r.get("company_name", r.get("name", "Unknown")) for r in all_retailers}
     
+    # Fetch packagings to resolve UUID variant names
+    all_packagings = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    packaging_id_to_name = {p.get("id"): p.get("name", "") for p in all_packagings}
+    
+    # Helper function to resolve variant name (handle UUIDs)
+    def resolve_variant_name(variant_name_raw):
+        if not variant_name_raw:
+            return "Kg"
+        # Check if it looks like a UUID
+        import re
+        uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+        if uuid_pattern.match(str(variant_name_raw)):
+            # Try to resolve from packagings
+            resolved = packaging_id_to_name.get(variant_name_raw, "")
+            return resolved if resolved else variant_name_raw
+        return variant_name_raw
+    
     # Track QC vs Retail sales for bifurcation
     qc_sales_total = total_sales  # QC sales already calculated above
     qc_sales_qty = total_sales_qty
@@ -6467,7 +6484,9 @@ async def get_pnl_report(
         for item in dispatch.get("items", []):
             qty = item.get("supplied_qty", 0) or 0
             product = item.get("product_name", "Unknown")
-            unit = item.get("variant_name", "") or "Kg"
+            # Resolve UUID variant names to proper names
+            raw_variant = item.get("variant_name", "") or "Kg"
+            unit = resolve_variant_name(raw_variant)
             item_value = item.get("total_value", 0) or 0  # MRP * qty
             mrp = item.get("mrp", 0) or 0
             

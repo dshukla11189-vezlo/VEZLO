@@ -3450,7 +3450,8 @@ export default function RetailerOrders() {
               variantName: displayVariantName,
               purchaseUnit: purchaseUnit,
               purchaseWeightName: purchaseWeightName,
-              quantity: 0
+              quantity: 0,
+              aggregationKey: key  // Store the actual key used for dedup/lookup
             };
             indentDetailsMap[key] = [];
           }
@@ -3482,9 +3483,9 @@ export default function RetailerOrders() {
         return a.variantName.localeCompare(b.variantName);
       });
       
-      // Attach keys to items for lookup
+      // Attach keys to items for lookup (use the actual aggregation key, not productId|variantId)
       stickersArray.forEach(item => {
-        item.key = `${item.productId}|${item.variantId}`;
+        item.key = item.aggregationKey || `${item.productId}|${item.variantId}`;
       });
       
       setStickersData(stickersArray);
@@ -8809,7 +8810,8 @@ export default function RetailerOrders() {
                                           <td className="p-2 font-medium">
                                             <div className="flex items-center gap-1">
                                               {(() => {
-                                                const stickerKey = `${item.productId}|${item.variantId}`;
+                                                // Use item.key for lookup (accounts for Piece/Packet aggregation)
+                                                const stickerKey = item.key || `${item.productId}|${item.variantId}`;
                                                 const details = stickerIndentDetails[stickerKey] || [];
                                                 if (details.length > 0) {
                                                   return expandedStickerItem === `${item.productId}-${item.variantId}`
@@ -8959,7 +8961,8 @@ export default function RetailerOrders() {
                                         </tr>
                                         {/* Retailer details row - shown when item is expanded */}
                                         {expandedStickerItem === `${item.productId}-${item.variantId}` && (() => {
-                                          const stickerKey = `${item.productId}|${item.variantId}`;
+                                          // Use item.key for lookup (accounts for Piece/Packet aggregation)
+                                          const stickerKey = item.key || `${item.productId}|${item.variantId}`;
                                           const details = stickerIndentDetails[stickerKey] || [];
                                           if (details.length === 0) return null;
                                           return (

@@ -296,6 +296,9 @@ export default function RetailerOrders() {
   const [stockClosingExpandedCats, setStockClosingExpandedCats] = useState({}); // Expanded categories
   const [stockClosingHasChanges, setStockClosingHasChanges] = useState(false);
   const [stockClosingSaving, setStockClosingSaving] = useState(false);
+  const [stockClosingSearchTerm, setStockClosingSearchTerm] = useState(''); // Search term for filtering products
+  const [todayClosingSummary, setTodayClosingSummary] = useState([]); // Summary of today's closings
+  const [todayClosingSummaryLoading, setTodayClosingSummaryLoading] = useState(false);
   
   // Payment Summary state
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
@@ -1163,16 +1166,35 @@ export default function RetailerOrders() {
     return [...new Set(stockClosingCatalogue.map(c => c.category || 'Uncategorized'))].sort();
   }, [stockClosingCatalogue]);
   
-  // Computed: Catalogue grouped by category
+  // Computed: Catalogue grouped by category WITH search filter
   const stockClosingCatalogueByCategory = useMemo(() => {
+    const searchLower = stockClosingSearchTerm.toLowerCase().trim();
     const grouped = {};
+    
     stockClosingCatalogue.forEach(item => {
+      // Apply search filter
+      if (searchLower) {
+        const matchesName = (item.product_name || '').toLowerCase().includes(searchLower);
+        const matchesNameHi = (item.product_name_hi || '').toLowerCase().includes(searchLower);
+        const matchesNameMr = (item.product_name_mr || '').toLowerCase().includes(searchLower);
+        if (!matchesName && !matchesNameHi && !matchesNameMr) {
+          return; // Skip this item
+        }
+      }
+      
       const cat = item.category || 'Uncategorized';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(item);
     });
     return grouped;
-  }, [stockClosingCatalogue]);
+  }, [stockClosingCatalogue, stockClosingSearchTerm]);
+  
+  // Filtered categories (only those with matching products)
+  const filteredStockClosingCategories = useMemo(() => {
+    return stockClosingCategories.filter(cat => 
+      stockClosingCatalogueByCategory[cat] && stockClosingCatalogueByCategory[cat].length > 0
+    );
+  }, [stockClosingCategories, stockClosingCatalogueByCategory]);
   
   // Get variant display name from packagings
   const getStockClosingVariantName = useCallback((variantId) => {
@@ -1257,6 +1279,27 @@ export default function RetailerOrders() {
       toast.error('Failed to load catalogue');
     }
   }, [closingInventoryRetailer, closingInventoryDate]);
+  
+  // Load today's closing summary for all retailers
+  const loadTodayClosingSummary = useCallback(async () => {
+    setTodayClosingSummaryLoading(true);
+    try {
+      const res = await api.get('/api/retailer-closing-inventory/today-summary');
+      setTodayClosingSummary(res.data?.retailers || []);
+    } catch (error) {
+      console.error('Failed to load today\'s closing summary:', error);
+      setTodayClosingSummary([]);
+    } finally {
+      setTodayClosingSummaryLoading(false);
+    }
+  }, []);
+  
+  // Load today's closing summary when tab is active
+  useEffect(() => {
+    if (activeTab === 'closingInventory') {
+      loadTodayClosingSummary();
+    }
+  }, [activeTab, loadTodayClosingSummary]);
   
   // Save stock closing data
   const saveStockClosing = async () => {
@@ -10210,6 +10253,46 @@ export default function RetailerOrders() {
               <p className="text-xs text-gray-500 mt-1">Record daily closing stock for retailers</p>
             </CardHeader>
             <CardContent>
+              {/* Today's Closing Summary */}
+              {todayClosingSummary.length > 0 && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                    <ClipboardList size={16} />
+                    Today's Closing Summary ({new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })})
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {todayClosingSummary.map(item => (
+                      <div 
+                        key={item.retailer_id}
+                        onClick={() => {
+                          setClosingInventoryRetailer(item.retailer_id);
+                          setClosingInventoryDate(new Date().toISOString().split('T')[0]);
+                          setTimeout(() => loadStockClosingData(), 100);
+                        }}
+                        className={`p-2 rounded cursor-pointer transition-colors text-xs ${
+                          item.status === 'complete' 
+                            ? 'bg-green-100 hover:bg-green-200 border border-green-300'
+                            : 'bg-amber-100 hover:bg-amber-200 border border-amber-300'
+                        }`}
+                      >
+                        <div className="font-medium truncate">{item.retailer_name}</div>
+                        <div className="flex justify-between mt-1">
+                          <span className={item.status === 'complete' ? 'text-green-700' : 'text-amber-700'}>
+                            {item.status === 'complete' ? '✓ Recorded' : '○ Pending'}
+                          </span>
+                          {item.status === 'complete' && (
+                            <span className="text-gray-600">{item.total_items} items</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {todayClosingSummaryLoading && (
+                    <div className="text-center text-xs text-gray-500 mt-2">Loading...</div>
+                  )}
+                </div>
+              )}
+
               {/* Filters Row */}
               <div className="flex flex-wrap gap-4 mb-4 items-end">
                 <div className="flex-1 min-w-[200px]">
@@ -10260,6 +10343,42 @@ export default function RetailerOrders() {
                 </div>
               </div>
 
+              {/* Search Bar - visible when catalogue is loaded */}
+              {stockClosingCatalogue.length > 0 && (
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <Input
+                      type="text"
+                      placeholder="Search products..."
+                      value={stockClosingSearchTerm}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setStockClosingSearchTerm(value);
+                        // Auto-expand all categories when searching
+                        if (value.trim()) {
+                          const expanded = {};
+                          stockClosingCategories.forEach(cat => expanded[cat] = true);
+                          setStockClosingExpandedCats(expanded);
+                        }
+                      }}
+                      className="pl-10 h-9"
+                    />
+                    {stockClosingSearchTerm && (
+                      <button
+                        onClick={() => {
+                          setStockClosingSearchTerm('');
+                          setStockClosingExpandedCats({});
+                        }}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Date indicator - Today vs Historical */}
               {closingInventoryRetailer && closingInventoryDate && (
                 <div className={`mb-4 px-4 py-2 rounded-lg text-sm flex items-center gap-2 ${
@@ -10305,7 +10424,7 @@ export default function RetailerOrders() {
                         </tr>
                       </thead>
                       <tbody>
-                        {stockClosingCategories.map(category => (
+                        {filteredStockClosingCategories.map(category => (
                           <React.Fragment key={category}>
                             {/* Category Row */}
                             <tr 

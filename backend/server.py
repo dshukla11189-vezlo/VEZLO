@@ -19260,6 +19260,66 @@ async def record_retailer_closing_inventory(
         "items_saved": saved_count
     }
 
+@app.get("/api/retailer-closing-inventory/today-summary")
+async def get_todays_closing_summary(current_user: dict = Depends(get_current_user)):
+    """Get summary of all retailers' closing inventory for today"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Get all closing inventory records for today
+    closings = await db.retailer_closing_inventory.find(
+        {"closing_date": today},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Aggregate by retailer
+    retailer_summary = {}
+    for item in closings:
+        retailer_id = item.get("retailer_id")
+        if retailer_id not in retailer_summary:
+            retailer_summary[retailer_id] = {
+                "retailer_id": retailer_id,
+                "retailer_name": item.get("retailer_name", "Unknown"),
+                "total_items": 0,
+                "total_qty": 0,
+                "status": "complete"
+            }
+        retailer_summary[retailer_id]["total_items"] += 1
+        retailer_summary[retailer_id]["total_qty"] += item.get("closing_qty", 0) or 0
+    
+    # Get list of all retailers who have had dispatches but haven't recorded closing today
+    retailers_with_dispatch = await db.retailer_dispatches.distinct(
+        "retailer_id",
+        {"dispatch_date": {"$regex": f"^{today}"}}
+    )
+    
+    # Get retailer names for those who haven't closed
+    for retailer_id in retailers_with_dispatch:
+        if retailer_id not in retailer_summary:
+            retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "name": 1, "company_name": 1})
+            if retailer:
+                retailer_summary[retailer_id] = {
+                    "retailer_id": retailer_id,
+                    "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
+                    "total_items": 0,
+                    "total_qty": 0,
+                    "status": "pending"
+                }
+    
+    # Convert to list and sort by retailer name
+    result = list(retailer_summary.values())
+    result.sort(key=lambda x: x.get("retailer_name", ""))
+    
+    return {
+        "date": today,
+        "retailers": result,
+        "total_retailers": len(result),
+        "completed_count": sum(1 for r in result if r["status"] == "complete"),
+        "pending_count": sum(1 for r in result if r["status"] == "pending")
+    }
+
 @app.get("/api/retailer-closing-inventory/summary/{retailer_id}")
 async def get_retailer_closing_summary(
     retailer_id: str,

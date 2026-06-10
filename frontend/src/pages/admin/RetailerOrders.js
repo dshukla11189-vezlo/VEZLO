@@ -4894,6 +4894,19 @@ export default function RetailerOrders() {
     }
   };
 
+  // Recalculate invoice totals (gross, net, rejection, commission)
+  const handleRecalculateInvoice = async (invoiceId, invoiceNumber) => {
+    if (!window.confirm(`Recalculate all totals for invoice ${invoiceNumber}? This will fix any calculation discrepancies.`)) return;
+    try {
+      const response = await api.post(`/api/retailer-invoices/${invoiceId}/recalculate`);
+      toast.success(response.data.message || 'Invoice recalculated successfully');
+      loadInvoices();
+    } catch (error) {
+      console.error('Error recalculating invoice:', error);
+      toast.error(error.response?.data?.detail || 'Failed to recalculate invoice');
+    }
+  };
+
   // Create credit note for excess payment
   const handleCreateExcessCreditNote = async (invoice, excessAmount) => {
     const retailerName = getRetailerNameById(invoice.retailer_id) || invoice.retailer_name || 'Unknown';
@@ -9493,6 +9506,14 @@ export default function RetailerOrders() {
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)}>
                                   <Edit size={14} className="text-amber-600" />
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  onClick={() => handleRecalculateInvoice(invoice.id, invoice.invoice_number)}
+                                  title="Recalculate invoice totals"
+                                >
+                                  <RefreshCw size={14} className="text-purple-600" />
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
                                   <Trash2 size={14} className="text-red-600" />

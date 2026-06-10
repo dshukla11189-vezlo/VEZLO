@@ -12110,28 +12110,88 @@ async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Payment not found")
     
-    # If payment was linked to an invoice, recalculate invoice paid_amount and status
+    # If payment was linked to an invoice, fully recalculate invoice totals
     if invoice_id:
         invoice = await db.retailer_invoices.find_one({"id": invoice_id})
         if invoice:
+            retailer_id = invoice.get("retailer_id")
+            
             # Recalculate total paid from remaining payments
             remaining_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
             new_paid_amount = sum(p.get("amount", 0) for p in remaining_payments)
-            net_payable = invoice.get("net_payable", 0)
+            
+            # Get rejection amount for this invoice
+            dispatch_ids = invoice.get("dispatch_ids", [])
+            if isinstance(dispatch_ids, str):
+                try:
+                    import ast
+                    dispatch_ids = ast.literal_eval(dispatch_ids)
+                except:
+                    dispatch_ids = []
+            
+            total_rejection_value = 0
+            if dispatch_ids and retailer_id:
+                dispatches = await db.retailer_dispatches.find(
+                    {"id": {"$in": dispatch_ids}},
+                    {"_id": 0, "dispatch_date": 1}
+                ).to_list(100)
+                dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+                
+                if dispatch_dates:
+                    rejection_query = {
+                        "retailer_id": retailer_id,
+                        "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+                    }
+                    rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+                    total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+            
+            # Recalculate net values
+            gross_value = float(invoice.get("gross_value", 0) or 0)
+            if gross_value == 0:
+                # Calculate from items if not stored
+                items = invoice.get("items", [])
+                gross_value = sum(
+                    (item.get("supplied_qty", item.get("quantity", 0)) or 0) * (item.get("mrp", 0) or 0)
+                    for item in items
+                )
+            
+            net_mrp_value = gross_value - total_rejection_value
+            commission_pct = float(invoice.get("commission_percentage", 0) or 0)
+            commission_amount = net_mrp_value * (commission_pct / 100)
+            net_payable = net_mrp_value - commission_amount
+            
+            # Account for credit note adjustments
+            total_credit_adjusted = sum(
+                adj.get("amount", 0) for adj in invoice.get("credit_note_adjustments", [])
+            )
+            final_payable = net_payable - total_credit_adjusted
+            remaining_amount = max(0, final_payable - new_paid_amount)
             
             # Determine new status
-            if new_paid_amount >= net_payable:
+            if final_payable <= 0.01 or new_paid_amount >= final_payable - 0.01:
                 new_status = "paid"
-            elif new_paid_amount > 0:
+            elif new_paid_amount > 0 or total_credit_adjusted > 0:
                 new_status = "partial"
             else:
                 new_status = "pending"
             
-            # Update invoice
+            # Update invoice with all recalculated values
             await db.retailer_invoices.update_one(
                 {"id": invoice_id},
-                {"$set": {"paid_amount": round(new_paid_amount, 2), "status": new_status}}
+                {"$set": {
+                    "paid_amount": round(new_paid_amount, 2),
+                    "remaining_amount": round(remaining_amount, 2),
+                    "status": new_status,
+                    "payment_status": new_status,
+                    "total_mrp_value": round(net_mrp_value, 2),  # Net after rejections
+                    "rejection_amount": round(total_rejection_value, 2),
+                    "commission_amount": round(commission_amount, 2),
+                    "net_payable": round(net_payable, 2),
+                    "final_payable": round(final_payable, 2)
+                }}
             )
+            
+            logger.info(f"Deleted payment {payment_id}, recalculated invoice {invoice.get('invoice_number')}: paid={new_paid_amount}, rejection={total_rejection_value}, net_payable={net_payable}, status={new_status}")
     
     return {"message": "Payment deleted successfully"}
 
@@ -13573,6 +13633,148 @@ async def get_invoice_payments(invoice_id: str, current_user: dict = Depends(get
         {"_id": 0}
     ).sort("payment_date", -1).to_list(100)
     return payments
+
+@api_router.post("/retailer-invoices/{invoice_id}/recalculate")
+async def recalculate_invoice_totals(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    """Recalculate invoice totals (gross, net, rejection, commission, payable) from scratch"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    retailer_id = invoice.get("retailer_id")
+    invoice_date = invoice.get("invoice_date", "")[:10]
+    
+    # Step 1: Calculate gross value from items (sum of supplied_qty * mrp)
+    items = invoice.get("items", [])
+    gross_value = sum(
+        (item.get("supplied_qty", item.get("quantity", 0)) or 0) * (item.get("mrp", 0) or 0)
+        for item in items
+    )
+    
+    # Step 2: Get rejections for this invoice's dispatch dates
+    dispatch_ids = invoice.get("dispatch_ids", [])
+    if isinstance(dispatch_ids, str):
+        try:
+            import ast
+            dispatch_ids = ast.literal_eval(dispatch_ids)
+        except:
+            dispatch_ids = []
+    
+    total_rejection_value = 0
+    rejection_by_item = {}
+    
+    if dispatch_ids:
+        dispatches = await db.retailer_dispatches.find(
+            {"id": {"$in": dispatch_ids}},
+            {"_id": 0, "dispatch_date": 1}
+        ).to_list(100)
+        dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+        
+        if dispatch_dates:
+            rejection_query = {
+                "retailer_id": retailer_id,
+                "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+            }
+            rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+            total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+            
+            # Build rejection lookup
+            for rej in rejections:
+                key = f"{rej.get('product_id')}_{rej.get('variant_id') or rej.get('variant_name')}"
+                if key not in rejection_by_item:
+                    rejection_by_item[key] = {"qty": 0, "value": 0}
+                rejection_by_item[key]["qty"] += rej.get("quantity", 0) or 0
+                rejection_by_item[key]["value"] += rej.get("rejection_value", 0) or 0
+    
+    # Step 3: Calculate net MRP value (gross - rejections)
+    net_mrp_value = gross_value - total_rejection_value
+    
+    # Step 4: Calculate commission
+    commission_pct = invoice.get("commission_percentage", 0) or 0
+    commission_amount = net_mrp_value * (commission_pct / 100)
+    
+    # Step 5: Calculate net payable
+    net_payable = net_mrp_value - commission_amount
+    
+    # Step 6: Get credit note adjustments
+    total_credit_adjusted = sum(
+        adj.get("amount", 0) for adj in invoice.get("credit_note_adjustments", [])
+    )
+    final_payable = net_payable - total_credit_adjusted
+    
+    # Step 7: Get actual paid amount from payments
+    payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+    paid_amount = sum(p.get("amount", 0) for p in payments)
+    
+    # Step 8: Determine status
+    if final_payable <= 0.01 or paid_amount >= final_payable - 0.01:
+        status = "paid"
+    elif paid_amount > 0 or total_credit_adjusted > 0:
+        status = "partial"
+    else:
+        status = "pending"
+    
+    remaining_amount = max(0, final_payable - paid_amount)
+    
+    # Step 9: Update item-level rejections
+    updated_items = []
+    for item in items:
+        item_key = f"{item.get('product_id')}_{item.get('variant_id') or item.get('variant_name')}"
+        rej_data = rejection_by_item.get(item_key, {"qty": 0, "value": 0})
+        
+        supplied_qty = item.get("supplied_qty", item.get("quantity", 0)) or 0
+        rejected_qty = rej_data["qty"]
+        billable_qty = max(0, supplied_qty - rejected_qty)
+        mrp = item.get("mrp", 0) or 0
+        amount = billable_qty * mrp
+        
+        updated_item = {
+            **item,
+            "rejected_qty": rejected_qty,
+            "rejection_qty": rejected_qty,
+            "billable_qty": billable_qty,
+            "amount": round(amount, 2)
+        }
+        updated_items.append(updated_item)
+    
+    # Step 10: Save all recalculated values
+    update_data = {
+        "gross_value": round(gross_value, 2),
+        "rejection_amount": round(total_rejection_value, 2),
+        "total_mrp_value": round(net_mrp_value, 2),  # This is the NET value after rejections
+        "commission_amount": round(commission_amount, 2),
+        "net_payable": round(net_payable, 2),
+        "final_payable": round(final_payable, 2),
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "paid_amount": round(paid_amount, 2),
+        "remaining_amount": round(remaining_amount, 2),
+        "status": status,
+        "payment_status": status,
+        "items": updated_items
+    }
+    
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": update_data}
+    )
+    
+    logger.info(f"Recalculated invoice {invoice.get('invoice_number')}: gross={gross_value}, rejection={total_rejection_value}, net_mrp={net_mrp_value}, commission={commission_amount}, net_payable={net_payable}, paid={paid_amount}, status={status}")
+    
+    return {
+        "message": "Invoice recalculated successfully",
+        "invoice_number": invoice.get("invoice_number"),
+        "old_values": {
+            "gross_value": invoice.get("gross_value"),
+            "total_mrp_value": invoice.get("total_mrp_value"),
+            "net_payable": invoice.get("net_payable"),
+            "paid_amount": invoice.get("paid_amount"),
+            "status": invoice.get("status")
+        },
+        "new_values": update_data
+    }
 
 @api_router.post("/retailer-invoices/fix-status")
 async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):

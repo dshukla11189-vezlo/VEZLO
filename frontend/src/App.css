@@ -31,7 +31,7 @@
 }
 
 .sidebar.mobile-hidden {
-  transform: translateX(-100%);
+  transform: translateY(-100%);
 }
 
 .sidebar-overlay {

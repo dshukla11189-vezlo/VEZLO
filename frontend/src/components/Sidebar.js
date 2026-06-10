@@ -92,10 +92,10 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
           {isMobile && (
             <button
               onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="p-2 bg-gray-100 rounded-lg"
               data-testid="close-sidebar-button"
             >
-              <X size={20} className="text-gray-600" />
+              <X size={24} className="text-gray-600" />
             </button>
           )}
         </div>
@@ -109,6 +109,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
                 key={link.path}
                 to={link.path}
                 data-testid={`nav-${t(link.labelKey).toLowerCase().replace(' ', '-')}`}
+                onClick={() => { if (isMobile) onClose(); }}
                 className={`flex items-center gap-3 px-4 py-2.5 rounded-lg mb-1 hover:bg-gray-100 ${
                   isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
                 }`}

@@ -2,6 +2,32 @@
 
 ## Changelog (June 2025)
 
+### June 10, 2025 - Stickers & MRP: Enhanced Dedup + MRP Overrides ✅
+- **ENHANCEMENT**: Fixed `calculateStickersData` dedup logic
+  - Dedup key now uses `product_id + canonical variant_id` (not name-based)
+  - Resolves variants via packagings map using same normalization as Daily Purchase Requirement
+  - Handles special `unit_piece`, `unit_packet`, and raw variant_name strings
+  - Onion 500g and Onion 1000g stay as separate rows (different variants)
+  - Button Mushroom across different spellings collapses to one row (same product)
+- **NEW FEATURE**: Sticker MRP Overrides
+  - New MongoDB collection `sticker_mrp_overrides` stores admin-defined MRPs
+  - Add button to create new override (product + variant + MRP)
+  - Pencil icon on each row to edit existing override
+  - Override MRP column (purple) shows saved overrides
+  - Overrides persist independently of indents/dispatches
+- **ENHANCEMENT**: `/api/retailer-dispatches/yesterday-mrp` now prefers overrides
+  - Checks `sticker_mrp_overrides` first, then falls back to dispatch MRP
+  - Response includes `source: "override"` or `source: "dispatch"` field
+  - This auto-populates the Dispatch flow with override MRPs
+- **Backend Endpoints Added**:
+  - `GET /api/sticker-mrp-overrides` - List all overrides
+  - `POST /api/sticker-mrp-overrides` - Create/update override
+  - `PUT /api/sticker-mrp-overrides/{id}` - Update specific override
+  - `DELETE /api/sticker-mrp-overrides/{id}` - Delete override
+- **Files Modified**:
+  - `/app/backend/server.py` (lines 11286-11455 - yesterday-mrp + override endpoints)
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` (StickerMrpOverrideForm component, calculateStickersData rewrite, modal state, UI columns)
+
 ### June 10, 2025 - Today's Closing Summary: Date Query Bug Fix ✅
 - **BUG FIX**: "Today's Closing Summary" section in Closing Inventory tab now correctly displays retailers
   - Root cause: MongoDB query used `$regex` on `dispatch_date` which didn't match ISO datetime strings stored in DB

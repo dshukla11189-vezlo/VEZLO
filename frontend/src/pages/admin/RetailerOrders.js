@@ -52,6 +52,219 @@ const exportToCSV = (data, filename, columns) => {
   toast.success(`Exported ${data.length} records to Excel`);
 };
 
+// Sticker MRP Override Form Component
+const StickerMrpOverrideForm = ({ editItem, products, packagings, onSave, onCancel }) => {
+  const [selectedProduct, setSelectedProduct] = useState(editItem?.productId || '');
+  const [selectedVariant, setSelectedVariant] = useState(editItem?.variantId || '');
+  const [mrp, setMrp] = useState(editItem?.mrp || '');
+  const [productSearch, setProductSearch] = useState('');
+  const [variantSearch, setVariantSearch] = useState('');
+  
+  // Build packaging map for display
+  const packagingMap = useMemo(() => {
+    const map = {};
+    packagings.forEach(p => {
+      map[p.id] = p.name || '';
+    });
+    return map;
+  }, [packagings]);
+  
+  // Get product name
+  const getProductName = (productId) => {
+    const product = products.find(p => p.id === productId);
+    return product?.name || '';
+  };
+  
+  // Get variant display name
+  const getVariantName = (variantId) => {
+    if (variantId === 'unit_piece') return 'Pieces';
+    if (variantId === 'unit_packet') return 'Packets';
+    return packagingMap[variantId] || variantId;
+  };
+  
+  // Filtered products for search
+  const filteredProducts = useMemo(() => {
+    if (!productSearch.trim()) return products;
+    const search = productSearch.toLowerCase();
+    return products.filter(p => p.name?.toLowerCase().includes(search));
+  }, [products, productSearch]);
+  
+  // Get variants for selected product (from packagings + special unit variants)
+  const availableVariants = useMemo(() => {
+    const variants = [
+      { id: 'unit_piece', name: 'Pieces' },
+      { id: 'unit_packet', name: 'Packets' },
+      ...packagings.map(p => ({ id: p.id, name: p.name }))
+    ];
+    
+    if (!variantSearch.trim()) return variants;
+    const search = variantSearch.toLowerCase();
+    return variants.filter(v => v.name?.toLowerCase().includes(search));
+  }, [packagings, variantSearch]);
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!selectedProduct) {
+      toast.error('Please select a product');
+      return;
+    }
+    if (!selectedVariant) {
+      toast.error('Please select a variant');
+      return;
+    }
+    if (!mrp || parseFloat(mrp) <= 0) {
+      toast.error('Please enter a valid MRP');
+      return;
+    }
+    
+    onSave({
+      product_id: selectedProduct,
+      product_name: getProductName(selectedProduct),
+      variant_id: selectedVariant,
+      variant_name: getVariantName(selectedVariant),
+      mrp: parseFloat(mrp)
+    });
+  };
+  
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Product Selection */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Product</label>
+        {editItem?.productId ? (
+          <div className="p-2 bg-gray-100 rounded text-sm">
+            {editItem.productName || getProductName(editItem.productId)}
+          </div>
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-full justify-between h-10"
+              >
+                {selectedProduct ? getProductName(selectedProduct) : "Select product..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[400px] p-0" align="start">
+              <Command>
+                <CommandInput 
+                  placeholder="Search products..." 
+                  value={productSearch}
+                  onValueChange={setProductSearch}
+                />
+                <CommandList className="max-h-[300px]">
+                  <CommandEmpty>No product found.</CommandEmpty>
+                  <CommandGroup>
+                    {filteredProducts.slice(0, 50).map((product) => (
+                      <CommandItem
+                        key={product.id}
+                        value={product.name}
+                        onSelect={() => {
+                          setSelectedProduct(product.id);
+                          setProductSearch('');
+                        }}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${
+                            selectedProduct === product.id ? "opacity-100" : "opacity-0"
+                          }`}
+                        />
+                        <span>{product.name}</span>
+                        <span className="ml-2 text-xs text-gray-500">{product.category}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
+      
+      {/* Variant Selection */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Variant</label>
+        {editItem?.variantId ? (
+          <div className="p-2 bg-gray-100 rounded text-sm">
+            {editItem.variantName || getVariantName(editItem.variantId)}
+          </div>
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-full justify-between h-10"
+              >
+                {selectedVariant ? getVariantName(selectedVariant) : "Select variant..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[300px] p-0" align="start">
+              <Command>
+                <CommandInput 
+                  placeholder="Search variants..." 
+                  value={variantSearch}
+                  onValueChange={setVariantSearch}
+                />
+                <CommandList className="max-h-[300px]">
+                  <CommandEmpty>No variant found.</CommandEmpty>
+                  <CommandGroup>
+                    {availableVariants.slice(0, 50).map((variant) => (
+                      <CommandItem
+                        key={variant.id}
+                        value={variant.name}
+                        onSelect={() => {
+                          setSelectedVariant(variant.id);
+                          setVariantSearch('');
+                        }}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${
+                            selectedVariant === variant.id ? "opacity-100" : "opacity-0"
+                          }`}
+                        />
+                        {variant.name}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
+      
+      {/* MRP Input */}
+      <div>
+        <label className="block text-sm font-medium mb-1">MRP (₹)</label>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={mrp}
+          onChange={(e) => setMrp(e.target.value)}
+          placeholder="Enter MRP"
+          className="h-10"
+        />
+      </div>
+      
+      {/* Actions */}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" className="bg-[#14532D] hover:bg-[#166534]">
+          <Save size={16} className="mr-2" />
+          {editItem?.id ? 'Update Override' : 'Create Override'}
+        </Button>
+      </div>
+    </form>
+  );
+};
+
 export default function RetailerOrders() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState('indents');
@@ -371,6 +584,12 @@ export default function RetailerOrders() {
   const [stickersCategoryFilter, setStickersCategoryFilter] = useState('all');
   const [expandedStickerItem, setExpandedStickerItem] = useState(null); // Track which sticker item is expanded
   const [stickerIndentDetails, setStickerIndentDetails] = useState({}); // product+variant key -> [{retailer, qty}]
+  
+  // Sticker MRP Override modal state
+  const [stickerOverrideModalOpen, setStickerOverrideModalOpen] = useState(false);
+  const [stickerOverrideEditItem, setStickerOverrideEditItem] = useState(null); // null = Add mode, object = Edit mode
+  const [stickerMrpOverrides, setStickerMrpOverrides] = useState([]);
+  const [stickerOverridesLoading, setStickerOverridesLoading] = useState(false);
 
   // Print language state for Daily Requirement PDF/Excel
   const [dailyReqPrintLang, setDailyReqPrintLang] = useState('en'); // 'en', 'hi', 'mr'
@@ -3054,6 +3273,8 @@ export default function RetailerOrders() {
   }, [dailyReqDate, dailyReqRetailer]);
 
   // Calculate stickers data from indents
+  // Dedup key: product_id + canonical variant_id (resolved via packagings map)
+  // Handles unit_piece, unit_packet, and raw variant_name strings that resolve to a packaging by name
   const calculateStickersData = useCallback(async () => {
     if (!dailyReqDate) {
       return;
@@ -3097,15 +3318,57 @@ export default function RetailerOrders() {
         retailerMap[r.id] = r.company_name || r.name || 'Unknown Retailer';
       });
       
-      // Build packaging map for resolving UUID variant names
-      const packagingMap = {};
+      // Build packaging maps for resolving variant IDs/names
+      const packagingIdToName = {};  // id -> canonical name
+      const packagingNameToId = {};  // lowercase name -> id (canonical)
       packagings.forEach(p => {
-        packagingMap[p.id] = p.name || '';
+        packagingIdToName[p.id] = p.name || '';
+        const nameLower = (p.name || '').toLowerCase();
+        if (nameLower) {
+          packagingNameToId[nameLower] = p.id;
+        }
       });
       
-      // Aggregate by product NAME + variant NAME combination (not IDs)
-      // Also build indent details per product+variant
-      const combinationMap = {}; // key = "ProductName_VariantName" -> {product_name, category, variant_name, quantity}
+      // Function to resolve variant to canonical (id, name) pair
+      const resolveVariant = (variantId, variantNameRaw) => {
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        
+        // Handle special unit-based variant IDs
+        if (variantId === 'unit_piece') {
+          return { canonicalId: 'unit_piece', canonicalName: 'Pieces' };
+        }
+        if (variantId === 'unit_packet') {
+          return { canonicalId: 'unit_packet', canonicalName: 'Packets' };
+        }
+        
+        // If variantId is a valid UUID in packagings, use it directly
+        if (variantId && packagingIdToName[variantId]) {
+          return { canonicalId: variantId, canonicalName: packagingIdToName[variantId] };
+        }
+        
+        // If variantNameRaw looks like a UUID, try to resolve it
+        if (variantNameRaw && uuidPattern.test(variantNameRaw) && packagingIdToName[variantNameRaw]) {
+          return { canonicalId: variantNameRaw, canonicalName: packagingIdToName[variantNameRaw] };
+        }
+        
+        // If variantNameRaw matches a packaging name (case-insensitive), use its canonical ID
+        const variantNameLower = (variantNameRaw || '').toLowerCase();
+        if (variantNameLower && packagingNameToId[variantNameLower]) {
+          const canonicalId = packagingNameToId[variantNameLower];
+          return { canonicalId, canonicalName: packagingIdToName[canonicalId] };
+        }
+        
+        // Fallback: use variantId if provided, else generate a pseudo-key from the name
+        if (variantId) {
+          return { canonicalId: variantId, canonicalName: variantNameRaw || 'Default' };
+        }
+        
+        // Last fallback: use the raw name as the key
+        return { canonicalId: `name:${variantNameLower || 'default'}`, canonicalName: variantNameRaw || 'Default' };
+      };
+      
+      // Aggregate by product_id + canonical variant_id
+      const combinationMap = {}; // key = "productId|variantId" -> data
       const indentDetailsMap = {}; // key -> [{retailerName, retailerId, quantity}]
       
       for (const indent of indents) {
@@ -3117,25 +3380,13 @@ export default function RetailerOrders() {
           const productName = (productInfo.name || item.product_name || 'Unknown').trim();
           const productNameHi = productInfo.name_hi || '';
           const productNameMr = productInfo.name_mr || '';
-          let variantName = (item.variant_name || 'Default').trim();
-          const variantId = item.variant_id || '';
           const category = productInfo.category || 'Other';
           
-          // If variant_name looks like a UUID, resolve it from packagings
-          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-          if (uuidPattern.test(variantName)) {
-            // Try to resolve from packagingMap
-            const resolvedName = packagingMap[variantName];
-            if (resolvedName) {
-              variantName = resolvedName;
-            } else if (variantId && packagingMap[variantId]) {
-              // Fallback: use variant_id to resolve
-              variantName = packagingMap[variantId];
-            }
-          }
+          // Resolve to canonical variant
+          const { canonicalId, canonicalName } = resolveVariant(item.variant_id, item.variant_name);
           
-          // Create key using product name + resolved variant name (case-insensitive)
-          const key = `${productName.toLowerCase()}_${variantName.toLowerCase()}`;
+          // Create key using product_id + canonical variant_id
+          const key = `${productId}|${canonicalId}`;
           
           if (!combinationMap[key]) {
             combinationMap[key] = {
@@ -3144,7 +3395,8 @@ export default function RetailerOrders() {
               productNameHi: productNameHi,
               productNameMr: productNameMr,
               category: category,
-              variantName: variantName,
+              variantId: canonicalId,
+              variantName: canonicalName,
               quantity: 0
             };
             indentDetailsMap[key] = [];
@@ -3179,7 +3431,7 @@ export default function RetailerOrders() {
       
       // Attach keys to items for lookup
       stickersArray.forEach(item => {
-        item.key = `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+        item.key = `${item.productId}|${item.variantId}`;
       });
       
       setStickersData(stickersArray);
@@ -3292,6 +3544,93 @@ export default function RetailerOrders() {
       [category]: !prev[category]
     }));
   };
+
+  // Load sticker MRP overrides
+  const loadStickerMrpOverrides = useCallback(async () => {
+    setStickerOverridesLoading(true);
+    try {
+      const response = await api.get('/api/sticker-mrp-overrides');
+      setStickerMrpOverrides(response.data || []);
+    } catch (error) {
+      console.error('Failed to load sticker MRP overrides:', error);
+    } finally {
+      setStickerOverridesLoading(false);
+    }
+  }, []);
+
+  // Load overrides when stickers tab is active
+  useEffect(() => {
+    if (dailyReqSubTab === 'stickersMrp') {
+      loadStickerMrpOverrides();
+    }
+  }, [dailyReqSubTab, loadStickerMrpOverrides]);
+
+  // Create or update sticker MRP override
+  const saveStickerMrpOverride = async (data) => {
+    try {
+      if (stickerOverrideEditItem?.id) {
+        // Update existing
+        await api.put(`/api/sticker-mrp-overrides/${stickerOverrideEditItem.id}`, data);
+        toast.success('MRP override updated');
+      } else {
+        // Create new
+        await api.post('/api/sticker-mrp-overrides', data);
+        toast.success('MRP override created');
+      }
+      setStickerOverrideModalOpen(false);
+      setStickerOverrideEditItem(null);
+      loadStickerMrpOverrides();
+    } catch (error) {
+      console.error('Failed to save sticker MRP override:', error);
+      toast.error('Failed to save MRP override');
+    }
+  };
+
+  // Delete sticker MRP override
+  const deleteStickerMrpOverride = async (overrideId) => {
+    if (!window.confirm('Are you sure you want to delete this MRP override?')) return;
+    try {
+      await api.delete(`/api/sticker-mrp-overrides/${overrideId}`);
+      toast.success('MRP override deleted');
+      loadStickerMrpOverrides();
+    } catch (error) {
+      console.error('Failed to delete sticker MRP override:', error);
+      toast.error('Failed to delete MRP override');
+    }
+  };
+
+  // Open modal for adding new sticker MRP override
+  const openAddStickerOverrideModal = () => {
+    setStickerOverrideEditItem(null);
+    setStickerOverrideModalOpen(true);
+  };
+
+  // Open modal for editing existing sticker MRP override
+  const openEditStickerOverrideModal = (item) => {
+    // item can be from stickersData or from stickerMrpOverrides
+    // Find if there's an existing override for this product+variant
+    const existingOverride = stickerMrpOverrides.find(o => 
+      o.product_id === item.productId && o.variant_id === item.variantId
+    );
+    
+    setStickerOverrideEditItem({
+      id: existingOverride?.id || null,
+      productId: item.productId,
+      productName: item.productName,
+      variantId: item.variantId,
+      variantName: item.variantName,
+      mrp: existingOverride?.mrp || 0
+    });
+    setStickerOverrideModalOpen(true);
+  };
+
+  // Get MRP for a product+variant (check overrides first)
+  const getStickerMrp = useCallback((productId, variantId) => {
+    const override = stickerMrpOverrides.find(o => 
+      o.product_id === productId && o.variant_id === variantId
+    );
+    return override?.mrp || null;
+  }, [stickerMrpOverrides]);
 
   // Toggle category expansion for MRP tab
   const toggleMrpCategory = (category) => {
@@ -8086,8 +8425,22 @@ export default function RetailerOrders() {
                           Read-only (Only Admin can edit past dates)
                         </span>
                       )}
+                      {stickerMrpOverrides.length > 0 && (
+                        <span className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
+                          {stickerMrpOverrides.length} MRP override(s) active
+                        </span>
+                      )}
                     </div>
                     <div className="flex gap-2 ml-auto flex-wrap">
+                      {/* Add MRP Override Button */}
+                      <Button 
+                        onClick={openAddStickerOverrideModal}
+                        variant="outline"
+                        className="h-9 border-purple-300 text-purple-600 hover:bg-purple-50"
+                      >
+                        <Plus size={14} className="mr-1" />
+                        Add MRP Override
+                      </Button>
                       <Button 
                         onClick={copyMrpFromPreviousDate}
                         disabled={savingMrp || mrpLoading || !canEditMrpForDate(dailyReqDate)}
@@ -8261,11 +8614,14 @@ export default function RetailerOrders() {
                                       <th className="p-2 text-center w-20">
                                         <span className="text-blue-600">Sticker Qty</span>
                                       </th>
+                                      <th className="p-2 text-right w-24">
+                                        <span className="text-purple-600">Override MRP</span>
+                                      </th>
                                       <th className="p-2 text-right w-24">MRP (₹)</th>
                                       <th className="p-2 text-right w-24">
                                         <span className="text-orange-600">Blinkit (₹)</span>
                                       </th>
-                                      <th className="p-2 text-center w-16">Actions</th>
+                                      <th className="p-2 text-center w-20">Actions</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -8282,9 +8638,13 @@ export default function RetailerOrders() {
                                       // Find matching sticker data for this product+variant
                                       const stickerItem = stickersData.find(s => 
                                         s.productId === item.productId && 
-                                        (s.variantName || '').toLowerCase() === (item.variantName || '').toLowerCase()
+                                        s.variantId === item.variantId
                                       );
                                       const stickerQty = stickerItem?.quantity || 0;
+                                      
+                                      // Get override MRP for this product+variant
+                                      const overrideMrp = getStickerMrp(item.productId, item.variantId);
+                                      const hasOverride = overrideMrp !== null;
                                       
                                       const blinkitData = blinkitPrices[item.productId];
                                       // Get display name based on language
@@ -8295,19 +8655,19 @@ export default function RetailerOrders() {
                                           : item.productName;
                                       
                                       return (
-                                        <React.Fragment key={`${item.productId}-${item.variantName}-${localIdx}`}>
+                                        <React.Fragment key={`${item.productId}-${item.variantId}-${localIdx}`}>
                                           <tr 
-                                            className={`border-b hover:bg-gray-50 cursor-pointer ${expandedStickerItem === `${item.productId}-${item.variantName}` ? 'bg-blue-50' : ''} ${mrpEntry && pendingMrpChanges[mrpEntry.id] ? 'bg-yellow-50' : ''}`}
-                                            onClick={() => setExpandedStickerItem(expandedStickerItem === `${item.productId}-${item.variantName}` ? null : `${item.productId}-${item.variantName}`)}
+                                            className={`border-b hover:bg-gray-50 cursor-pointer ${expandedStickerItem === `${item.productId}-${item.variantId}` ? 'bg-blue-50' : ''} ${hasOverride ? 'bg-purple-50' : ''} ${mrpEntry && pendingMrpChanges[mrpEntry.id] ? 'bg-yellow-50' : ''}`}
+                                            onClick={() => setExpandedStickerItem(expandedStickerItem === `${item.productId}-${item.variantId}` ? null : `${item.productId}-${item.variantId}`)}
                                           >
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
                                           <td className="p-2 font-medium">
                                             <div className="flex items-center gap-1">
                                               {(() => {
-                                                const stickerKey = `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+                                                const stickerKey = `${item.productId}|${item.variantId}`;
                                                 const details = stickerIndentDetails[stickerKey] || [];
                                                 if (details.length > 0) {
-                                                  return expandedStickerItem === `${item.productId}-${item.variantName}`
+                                                  return expandedStickerItem === `${item.productId}-${item.variantId}`
                                                     ? <ChevronDown size={14} className="text-blue-500" />
                                                     : <ChevronRight size={14} className="text-gray-400" />;
                                                 }
@@ -8368,6 +8728,43 @@ export default function RetailerOrders() {
                                               {stickerQty > 0 ? stickerQty : '-'}
                                             </span>
                                           </td>
+                                          {/* Override MRP Column */}
+                                          <td className="p-2 text-right" onClick={(e) => e.stopPropagation()}>
+                                            {hasOverride ? (
+                                              <div className="flex items-center justify-end gap-1">
+                                                <span className="text-purple-700 font-semibold">₹{overrideMrp}</span>
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => openEditStickerOverrideModal({
+                                                    productId: item.productId,
+                                                    productName: item.productName,
+                                                    variantId: item.variantId,
+                                                    variantName: item.variantName
+                                                  })}
+                                                  className="h-6 w-6 p-0 text-purple-600 hover:text-purple-800 hover:bg-purple-100"
+                                                  title="Edit override"
+                                                >
+                                                  <Pencil size={12} />
+                                                </Button>
+                                              </div>
+                                            ) : (
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => openEditStickerOverrideModal({
+                                                  productId: item.productId,
+                                                  productName: item.productName,
+                                                  variantId: item.variantId,
+                                                  variantName: item.variantName
+                                                })}
+                                                className="h-6 px-2 text-xs text-purple-500 hover:text-purple-700 hover:bg-purple-50"
+                                                title="Add override"
+                                              >
+                                                <Plus size={12} />
+                                              </Button>
+                                            )}
+                                          </td>
                                           <td className="p-2 text-right">
                                             {mrpEntry ? (
                                               <Input
@@ -8391,37 +8788,39 @@ export default function RetailerOrders() {
                                             </span>
                                           </td>
                                           <td className="p-2 text-center">
-                                            {isEditable && !mrpEntry && (
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={(e) => { e.stopPropagation(); addMrpEntryFromIndent(item); }}
-                                                className="h-7 px-2 text-xs text-green-600 border-green-300 hover:bg-green-50"
-                                              >
-                                                <Plus size={12} className="mr-1" /> Add
-                                              </Button>
-                                            )}
-                                            {isEditable && mrpEntry && (
-                                              <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={(e) => { e.stopPropagation(); deleteMrpEntry(mrpEntry.id); }}
-                                                className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                              >
-                                                <Trash2 size={14} />
-                                              </Button>
-                                            )}
+                                            <div className="flex items-center justify-center gap-1">
+                                              {isEditable && !mrpEntry && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  onClick={(e) => { e.stopPropagation(); addMrpEntryFromIndent(item); }}
+                                                  className="h-7 px-2 text-xs text-green-600 border-green-300 hover:bg-green-50"
+                                                >
+                                                  <Plus size={12} className="mr-1" /> Add
+                                                </Button>
+                                              )}
+                                              {isEditable && mrpEntry && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={(e) => { e.stopPropagation(); deleteMrpEntry(mrpEntry.id); }}
+                                                  className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                >
+                                                  <Trash2 size={14} />
+                                                </Button>
+                                              )}
+                                            </div>
                                           </td>
                                         </tr>
                                         {/* Retailer details row - shown when item is expanded */}
-                                        {expandedStickerItem === `${item.productId}-${item.variantName}` && (() => {
-                                          const stickerKey = `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+                                        {expandedStickerItem === `${item.productId}-${item.variantId}` && (() => {
+                                          const stickerKey = `${item.productId}|${item.variantId}`;
                                           const details = stickerIndentDetails[stickerKey] || [];
                                           if (details.length === 0) return null;
                                           return (
                                             <tr className="bg-blue-50 border-b">
                                               <td></td>
-                                              <td colSpan="6" className="p-2">
+                                              <td colSpan="7" className="p-2">
                                                 <div className="text-xs text-gray-700">
                                                   <span className="font-semibold text-blue-700">Retailers:</span>
                                                   <div className="flex flex-wrap gap-2 mt-1">
@@ -14651,6 +15050,28 @@ export default function RetailerOrders() {
               Print Invoice
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sticker MRP Override Modal */}
+      <Dialog open={stickerOverrideModalOpen} onOpenChange={setStickerOverrideModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag size={18} />
+              {stickerOverrideEditItem?.id ? 'Edit MRP Override' : 'Add MRP Override'}
+            </DialogTitle>
+          </DialogHeader>
+          <StickerMrpOverrideForm
+            editItem={stickerOverrideEditItem}
+            products={products}
+            packagings={packagings}
+            onSave={saveStickerMrpOverride}
+            onCancel={() => {
+              setStickerOverrideModalOpen(false);
+              setStickerOverrideEditItem(null);
+            }}
+          />
         </DialogContent>
       </Dialog>
     </Layout>

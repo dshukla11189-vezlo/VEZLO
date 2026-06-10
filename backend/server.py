@@ -11285,9 +11285,24 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
 
 @api_router.get("/retailer-dispatches/yesterday-mrp")
 async def get_yesterday_mrp(current_user: dict = Depends(get_current_user)):
-    """Get yesterday's MRP for all products by variant from retailer dispatches"""
+    """Get yesterday's MRP for all products by variant from retailer dispatches.
+    PRIORITY: sticker_mrp_overrides > yesterday's dispatch MRP
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # First, get all sticker MRP overrides (these take priority)
+    overrides = await db.sticker_mrp_overrides.find({}, {"_id": 0}).to_list(1000)
+    override_map = {}
+    for ov in overrides:
+        key = f"{ov.get('product_id', '')}|{ov.get('variant_id', '')}"
+        override_map[key] = {
+            "product_id": ov.get("product_id", ""),
+            "variant_id": ov.get("variant_id", ""),
+            "variant_name": ov.get("variant_name", ""),
+            "mrp": ov.get("mrp", 0),
+            "source": "override"
+        }
     
     # Get yesterday's date range
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -11300,7 +11315,9 @@ async def get_yesterday_mrp(current_user: dict = Depends(get_current_user)):
     }, {"_id": 0}).to_list(1000)
     
     # Build MRP map: product_id + variant_id -> mrp
-    mrp_map = {}
+    # Start with overrides, then fill in from dispatches where no override exists
+    mrp_map = dict(override_map)
+    
     for dispatch in dispatches:
         for item in dispatch.get('items', []):
             product_id = item.get('product_id', '')
@@ -11309,15 +11326,131 @@ async def get_yesterday_mrp(current_user: dict = Depends(get_current_user)):
             
             if product_id and mrp > 0:
                 key = f"{product_id}|{variant_id or ''}"
-                # Use the most recent MRP (last dispatch wins)
-                mrp_map[key] = {
-                    "product_id": product_id,
-                    "variant_id": variant_id,
-                    "variant_name": item.get('variant_name', ''),
-                    "mrp": mrp
-                }
+                # Only add from dispatch if no override exists for this product+variant
+                if key not in mrp_map:
+                    mrp_map[key] = {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "variant_name": item.get('variant_name', ''),
+                        "mrp": mrp,
+                        "source": "dispatch"
+                    }
     
     return list(mrp_map.values())
+
+# ------------ STICKER MRP OVERRIDES ------------
+@api_router.get("/sticker-mrp-overrides")
+async def get_sticker_mrp_overrides(current_user: dict = Depends(get_current_user)):
+    """Get all sticker MRP overrides"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    overrides = await db.sticker_mrp_overrides.find({}, {"_id": 0}).to_list(1000)
+    return overrides
+
+@api_router.post("/sticker-mrp-overrides")
+async def create_sticker_mrp_override(data: dict, current_user: dict = Depends(get_current_user)):
+    """Create or update a sticker MRP override for a product+variant"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    product_id = data.get("product_id")
+    variant_id = data.get("variant_id", "")
+    variant_name = data.get("variant_name", "")
+    mrp = data.get("mrp", 0)
+    product_name = data.get("product_name", "")
+    
+    if not product_id:
+        raise HTTPException(status_code=400, detail="product_id is required")
+    
+    try:
+        mrp = float(mrp) if mrp else 0
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid MRP value")
+    
+    # Check if override already exists for this product+variant
+    existing = await db.sticker_mrp_overrides.find_one({
+        "product_id": product_id,
+        "variant_id": variant_id
+    })
+    
+    if existing:
+        # Update existing override
+        await db.sticker_mrp_overrides.update_one(
+            {"product_id": product_id, "variant_id": variant_id},
+            {"$set": {
+                "mrp": mrp,
+                "variant_name": variant_name,
+                "product_name": product_name,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_by": current_user.get("user_id")
+            }}
+        )
+        return {"message": "Override updated", "id": existing.get("id")}
+    else:
+        # Create new override
+        override_id = str(uuid.uuid4())
+        override = {
+            "id": override_id,
+            "product_id": product_id,
+            "product_name": product_name,
+            "variant_id": variant_id,
+            "variant_name": variant_name,
+            "mrp": mrp,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": current_user.get("user_id"),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user.get("user_id")
+        }
+        await db.sticker_mrp_overrides.insert_one(override)
+        return {"message": "Override created", "id": override_id}
+
+@api_router.put("/sticker-mrp-overrides/{override_id}")
+async def update_sticker_mrp_override(override_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    """Update a specific sticker MRP override"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    existing = await db.sticker_mrp_overrides.find_one({"id": override_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Override not found")
+    
+    update_data = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user.get("user_id")
+    }
+    
+    if "mrp" in data:
+        try:
+            update_data["mrp"] = float(data["mrp"]) if data["mrp"] else 0
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid MRP value")
+    
+    if "variant_id" in data:
+        update_data["variant_id"] = data["variant_id"]
+    if "variant_name" in data:
+        update_data["variant_name"] = data["variant_name"]
+    if "product_name" in data:
+        update_data["product_name"] = data["product_name"]
+    
+    await db.sticker_mrp_overrides.update_one(
+        {"id": override_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Override updated"}
+
+@api_router.delete("/sticker-mrp-overrides/{override_id}")
+async def delete_sticker_mrp_override(override_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a sticker MRP override"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.sticker_mrp_overrides.delete_one({"id": override_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Override not found")
+    
+    return {"message": "Override deleted"}
 
 # ------------ RETAILER GRN ------------
 @api_router.get("/retailer-grn")

@@ -3054,6 +3054,12 @@ export default function RetailerOrders() {
         retailerMap[r.id] = r.company_name || r.name || 'Unknown Retailer';
       });
       
+      // Build packaging map for resolving UUID variant names
+      const packagingMap = {};
+      packagings.forEach(p => {
+        packagingMap[p.id] = p.name || '';
+      });
+      
       // Aggregate by product NAME + variant NAME combination (not IDs)
       // Also build indent details per product+variant
       const combinationMap = {}; // key = "ProductName_VariantName" -> {product_name, category, variant_name, quantity}
@@ -3068,10 +3074,24 @@ export default function RetailerOrders() {
           const productName = (productInfo.name || item.product_name || 'Unknown').trim();
           const productNameHi = productInfo.name_hi || '';
           const productNameMr = productInfo.name_mr || '';
-          const variantName = (item.variant_name || 'Default').trim();
+          let variantName = (item.variant_name || 'Default').trim();
+          const variantId = item.variant_id || '';
           const category = productInfo.category || 'Other';
           
-          // Create key using product name + variant name (case-insensitive)
+          // If variant_name looks like a UUID, resolve it from packagings
+          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (uuidPattern.test(variantName)) {
+            // Try to resolve from packagingMap
+            const resolvedName = packagingMap[variantName];
+            if (resolvedName) {
+              variantName = resolvedName;
+            } else if (variantId && packagingMap[variantId]) {
+              // Fallback: use variant_id to resolve
+              variantName = packagingMap[variantId];
+            }
+          }
+          
+          // Create key using product name + resolved variant name (case-insensitive)
           const key = `${productName.toLowerCase()}_${variantName.toLowerCase()}`;
           
           if (!combinationMap[key]) {
@@ -3127,7 +3147,7 @@ export default function RetailerOrders() {
     } finally {
       setStickersLoading(false);
     }
-  }, [dailyReqDate, products, retailers]);
+  }, [dailyReqDate, products, retailers, packagings]);
 
   // Get unique categories from stickers data
   const stickersCategories = useMemo(() => {
@@ -3353,8 +3373,15 @@ export default function RetailerOrders() {
         };
       });
       
-      // Aggregate by product NAME + variant NAME combination (like Stickers)
+      // Build packaging map for resolving UUID variant names
+      const packagingMap = {};
+      packagings.forEach(p => {
+        packagingMap[p.id] = p.name || '';
+      });
+      
+      // Aggregate by product NAME + RESOLVED variant NAME combination (like Stickers)
       // This ensures same variants across different retailers are combined
+      // Also resolve UUID variant names to actual names
       const combinationMap = {}; // key = "product_id_variant_name" -> product-variant data
       
       for (const indent of indents) {
@@ -3365,10 +3392,23 @@ export default function RetailerOrders() {
           const productNameHi = productInfo.name_hi || '';
           const productNameMr = productInfo.name_mr || '';
           const variantId = item.variant_id || '';
-          const variantName = (item.variant_name || 'Default').trim();
+          let variantName = (item.variant_name || 'Default').trim();
           const category = productInfo.category || 'Other';
           
-          // Create key using product_id + variant_name (to ensure uniqueness)
+          // If variant_name looks like a UUID, resolve it from packagings
+          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (uuidPattern.test(variantName)) {
+            // Try to resolve from packagingMap
+            const resolvedName = packagingMap[variantName];
+            if (resolvedName) {
+              variantName = resolvedName;
+            } else if (variantId && packagingMap[variantId]) {
+              // Fallback: use variant_id to resolve
+              variantName = packagingMap[variantId];
+            }
+          }
+          
+          // Create key using product_id + resolved variant_name (to ensure uniqueness)
           const key = `${productId}_${variantName.toLowerCase()}`;
           
           if (!combinationMap[key]) {
@@ -3406,7 +3446,7 @@ export default function RetailerOrders() {
     } finally {
       setMrpIndentLoading(false);
     }
-  }, [products]);
+  }, [products, packagings]);
 
   // Auto-load MRP data and indent products when MRP tab is selected - uses dailyReqDate (shared date picker)
   useEffect(() => {

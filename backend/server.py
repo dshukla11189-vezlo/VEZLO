@@ -19633,7 +19633,14 @@ async def calculate_daily_purchase_requirement(
                 resolved_variant_name = ""
                 resolved_variant_id = variant_id
                 
-                if variant_id and variant_id in variant_name_map:
+                # Handle special unit-based variant IDs (not in qc_packaging)
+                if variant_id == "unit_piece":
+                    resolved_variant_name = "Pieces"
+                    resolved_variant_id = variant_id
+                elif variant_id == "unit_packet":
+                    resolved_variant_name = "Packets"
+                    resolved_variant_id = variant_id
+                elif variant_id and variant_id in variant_name_map:
                     resolved_variant_name = variant_name_map[variant_id]
                     resolved_variant_id = variant_id
                 elif variant_name_raw and variant_name_raw in variant_name_map:
@@ -19644,7 +19651,24 @@ async def calculate_daily_purchase_requirement(
                 
                 # Get weight from variant for Kg calculation
                 weight_kg = 0
-                if resolved_variant_id and resolved_variant_id in variant_weight_map:
+                
+                # Special handling for unit_piece and unit_packet - try to get weight from catalogue
+                if resolved_variant_id in ["unit_piece", "unit_packet"]:
+                    # Try to get the purchase weight from catalogue for this product
+                    cat_info = catalogue_map.get(product_id, {})
+                    purchase_weights = cat_info.get("purchase_weights", [])
+                    purchase_weight_id = purchase_weights[0] if purchase_weights else cat_info.get("purchase_weight_variant", "")
+                    if purchase_weight_id and purchase_weight_id in variant_weight_map:
+                        weight_kg = variant_weight_map[purchase_weight_id]
+                    
+                    # If still no weight, try to parse from the purchase weight name
+                    if weight_kg == 0 and purchase_weight_id and purchase_weight_id in variant_name_map:
+                        weight_kg = parse_variant_weight(variant_name_map[purchase_weight_id])
+                    
+                    # Default for Pieces/Packets - assume 0.5 kg average if no better info
+                    if weight_kg == 0:
+                        weight_kg = 0.5
+                elif resolved_variant_id and resolved_variant_id in variant_weight_map:
                     weight_kg = variant_weight_map[resolved_variant_id]
                 elif variant_name_raw and variant_name_raw in variant_weight_map:
                     weight_kg = variant_weight_map[variant_name_raw]
@@ -19671,6 +19695,10 @@ async def calculate_daily_purchase_requirement(
                 
                 item_dozens = quantity * dozen_multiplier if dozen_multiplier > 0 else 0
                 
+                # Track pieces and packets separately
+                item_pieces = quantity if resolved_variant_id == "unit_piece" or "piece" in variant_lower else 0
+                item_packets = quantity if resolved_variant_id == "unit_packet" or "packet" in variant_lower else 0
+                
                 # Aggregation key is just product_id - combine ALL variants
                 agg_key = product_id
                 
@@ -19692,6 +19720,8 @@ async def calculate_daily_purchase_requirement(
                         "total_units": 0,
                         "total_kg": 0,
                         "total_dozens": 0,  # For dozen-based products
+                        "total_pieces": 0,  # For piece-based products
+                        "total_packets": 0,  # For packet-based products
                         "purchase_unit": cat_info.get("purchase_unit", ""),
                         "purchase_weight_name": "",
                         "retailers": []
@@ -19706,6 +19736,8 @@ async def calculate_daily_purchase_requirement(
                 product_aggregation[agg_key]["total_units"] += quantity
                 product_aggregation[agg_key]["total_kg"] += item_kg
                 product_aggregation[agg_key]["total_dozens"] += item_dozens
+                product_aggregation[agg_key]["total_pieces"] += item_pieces
+                product_aggregation[agg_key]["total_packets"] += item_packets
                 
                 # Track variant for display (avoid duplicates)
                 if resolved_variant_name and resolved_variant_name not in product_aggregation[agg_key]["variants"]:
@@ -19764,6 +19796,10 @@ async def calculate_daily_purchase_requirement(
             # Combine variant names for display
             variants_display = ", ".join(data.get("variants", [])) if data.get("variants") else ""
             
+            # Get piece and packet totals
+            total_pieces = data.get("total_pieces", 0)
+            total_packets = data.get("total_packets", 0)
+            
             result_items.append({
                 "product_id": product_id,
                 "product_name": data["product_name"],
@@ -19774,6 +19810,8 @@ async def calculate_daily_purchase_requirement(
                 "qty_units": round(total_units, 2),
                 "qty_kg": round(total_kg, 2),
                 "qty_dozens": round(total_dozens, 2),  # For dozen-based products
+                "qty_pieces": round(total_pieces, 2),  # For piece-based products
+                "qty_packets": round(total_packets, 2),  # For packet-based products
                 "wastage_pct": wastage_pct,
                 "requirement_kg": round(requirement_kg, 2),
                 "purchase_unit": purchase_unit,

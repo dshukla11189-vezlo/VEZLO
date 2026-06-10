@@ -2926,6 +2926,8 @@ export default function RetailerOrders() {
         qtyUnits: item.qty_units,
         qtyKg: item.qty_kg,
         qtyDozens: item.qty_dozens || 0,  // For dozen-based products
+        qtyPieces: item.qty_pieces || 0,  // For piece-based products
+        qtyPackets: item.qty_packets || 0,  // For packet-based products
         requirementKg: roundUpRequirement(item.qty_kg), // Round up, min 1 kg
         purchaseUnit: item.purchase_unit || '',
         purchaseWeightName: item.purchase_weight_name || '',
@@ -7688,6 +7690,52 @@ export default function RetailerOrders() {
                                                     />
                                                     <span className="text-xs text-yellow-700 font-semibold">
                                                       Dozens
+                                                    </span>
+                                                  </div>
+                                                ) : item.purchaseUnit === 'Piece' || item.qtyPieces > 0 ? (
+                                                  // For Pieces: show pieces count
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="1"
+                                                      min="0"
+                                                      value={item.qtyPieces > 0 ? Math.ceil(item.qtyPieces) : Math.round(item.qtyUnits)}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newData = [...dailyReqData];
+                                                        newData[globalIdx].qtyPieces = parseFloat(e.target.value) || 0;
+                                                        setDailyReqData(newData);
+                                                        setDailyReqSaved(false);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="h-7 w-14 text-center text-xs font-bold text-orange-700"
+                                                      disabled={dailyReqViewMode === 'original'}
+                                                    />
+                                                    <span className="text-xs text-orange-700 font-semibold">
+                                                      Pcs
+                                                    </span>
+                                                  </div>
+                                                ) : item.purchaseUnit === 'Packet' || item.qtyPackets > 0 ? (
+                                                  // For Packets: show packets count
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="1"
+                                                      min="0"
+                                                      value={item.qtyPackets > 0 ? Math.ceil(item.qtyPackets) : Math.round(item.qtyUnits)}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newData = [...dailyReqData];
+                                                        newData[globalIdx].qtyPackets = parseFloat(e.target.value) || 0;
+                                                        setDailyReqData(newData);
+                                                        setDailyReqSaved(false);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="h-7 w-14 text-center text-xs font-bold text-purple-700"
+                                                      disabled={dailyReqViewMode === 'original'}
+                                                    />
+                                                    <span className="text-xs text-purple-700 font-semibold">
+                                                      Pkts
                                                     </span>
                                                   </div>
                                                 ) : (

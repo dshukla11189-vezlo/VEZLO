@@ -2,6 +2,19 @@
 
 ## Changelog (June 2025)
 
+### June 10, 2025 - Daily Purchase Requirement: Enhanced Unit Handling ✅
+- **ENHANCEMENT**: Added proper handling for `unit_piece` and `unit_packet` variant IDs
+  - These special IDs are used for items sold by piece/packet but not in qc_packaging collection
+  - Backend now resolves them to proper display names ("Pieces", "Packets")
+  - Weight calculation improved: looks up catalogue purchase_weight for accurate Kg conversion
+- **ENHANCEMENT**: Added `qty_pieces` and `qty_packets` tracking to API response
+  - Frontend displays orange "Pcs" label for piece-based products
+  - Frontend displays purple "Pkts" label for packet-based products
+  - Shows contextual info like "Pcs of 500+ gm" for better procurement guidance
+- **Files Modified**:
+  - `/app/backend/server.py` (lines 19630-19820 - retailer-daily-requirement/calculate)
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` (lines 2928-2933, 7672-7716)
+
 ### June 9, 2025 - Auto Indent Edit: Missing Variant Fix ✅
 - **BUG FIX**: Editing auto-generated indents no longer shows "Missing variant" error
   - Root cause: Sales-based auto indents stored `variant_name` but empty `variant_id`

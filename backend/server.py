@@ -16370,6 +16370,18 @@ async def generate_auto_indents_for_tomorrow():
                 # But keeps Potato 500g and 1000g separate (500g gap)
                 product_weight_totals = merge_close_weight_variants(product_weight_totals, max_gap_gm=300)
                 
+                # Fetch retailer catalogue to get purchase_unit info for each product
+                catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
+                catalogue_map = {}
+                for cat in catalogue_items:
+                    catalogue_map[cat.get("product_id")] = {
+                        "purchase_unit": cat.get("purchase_unit", ""),
+                        "purchase_weight_variant": cat.get("purchase_weight_variant", "")
+                    }
+                
+                # Build packaging name map for resolving weight variant names
+                packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
+                
                 # Calculate average and add 10% buffer
                 # Use the latest variant name for display (most recent invoice)
                 indent_items = []
@@ -16380,11 +16392,33 @@ async def generate_auto_indents_for_tomorrow():
                     
                     if recommended_qty > 0:
                         product = product_map.get(data["product_id"], {})
+                        product_id = data["product_id"]
+                        
+                        # Check catalogue for this product - override variant for Piece/Packet products
+                        cat_info = catalogue_map.get(product_id, {})
+                        purchase_unit = cat_info.get("purchase_unit", "")
+                        
+                        if purchase_unit == "Piece":
+                            final_variant_id = "unit_piece"
+                            final_variant_name = "Pieces"
+                        elif purchase_unit == "Packet":
+                            final_variant_id = "unit_packet"
+                            final_variant_name = "Packets"
+                        else:
+                            # Keep original variant but resolve UUID if needed
+                            final_variant_id = data["latest_variant_id"]
+                            final_variant_name = data["latest_variant_name"]
+                            # If variant_name looks like UUID, try to resolve it
+                            if final_variant_name and len(final_variant_name) == 36 and '-' in final_variant_name:
+                                resolved = packaging_name_map.get(final_variant_name, "")
+                                if resolved:
+                                    final_variant_name = resolved
+                        
                         indent_items.append({
-                            "product_id": data["product_id"],
+                            "product_id": product_id,
                             "product_name": product.get("name", data["product_name"]),
-                            "variant_id": data["latest_variant_id"],
-                            "variant_name": data["latest_variant_name"],
+                            "variant_id": final_variant_id,
+                            "variant_name": final_variant_name,
                             "quantity": recommended_qty,
                             "status": "pending"
                         })
@@ -16748,6 +16782,19 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         key = f"{product_id}_{variant_id}"
         closing_map[key] = closing_qty
     
+    # Fetch retailer catalogue to get purchase_unit info for each product
+    catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
+    catalogue_map = {}
+    for cat in catalogue_items:
+        catalogue_map[cat.get("product_id")] = {
+            "purchase_unit": cat.get("purchase_unit", ""),
+            "purchase_weight_variant": cat.get("purchase_weight_variant", "")
+        }
+    
+    # Build packaging name map for resolving UUID variant names
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
+    
     # Calculate pending quantities
     indent_items = []
     for plan_item in plan_products:
@@ -16757,9 +16804,35 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         variant_name = plan_item.get("variant_name") or ""
         plan_qty = plan_item.get("quantity", 0)
         
-        # Get closing inventory for this product+variant
+        # Check catalogue for this product - override variant for Piece/Packet products
+        cat_info = catalogue_map.get(product_id, {})
+        purchase_unit = cat_info.get("purchase_unit", "")
+        
+        if purchase_unit == "Piece":
+            final_variant_id = "unit_piece"
+            final_variant_name = "Pieces"
+        elif purchase_unit == "Packet":
+            final_variant_id = "unit_packet"
+            final_variant_name = "Packets"
+        else:
+            # Keep original variant but resolve UUID if needed
+            final_variant_id = variant_id
+            final_variant_name = variant_name
+            # If variant_name looks like UUID, try to resolve it
+            if final_variant_name and len(final_variant_name) == 36 and '-' in final_variant_name:
+                resolved = packaging_name_map.get(final_variant_name, "")
+                if resolved:
+                    final_variant_name = resolved
+        
+        # Get closing inventory for this product+variant (use original variant_id for lookup)
         key = f"{product_id}_{variant_id}"
         closing_qty = closing_map.get(key, 0)
+        
+        # Also check with normalized variant_id for Piece/Packet products
+        if purchase_unit in ["Piece", "Packet"] and closing_qty == 0:
+            # Try lookup with unit_piece/unit_packet
+            normalized_key = f"{product_id}_{final_variant_id}"
+            closing_qty = closing_map.get(normalized_key, 0)
         
         # Calculate pending qty (Plan qty - Closing qty)
         pending_qty = max(0, plan_qty - closing_qty)
@@ -16768,8 +16841,8 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
             indent_items.append({
                 "product_id": product_id,
                 "product_name": product_name,
-                "variant_id": variant_id,
-                "variant_name": variant_name,
+                "variant_id": final_variant_id,
+                "variant_name": final_variant_name,
                 "quantity": round(pending_qty),
                 "plan_qty": plan_qty,
                 "closing_qty": closing_qty,

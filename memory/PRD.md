@@ -2,6 +2,24 @@
 
 ## Changelog (June 2025)
 
+### June 10, 2025 - Root Cause Fix: Variant Consistency in Auto-Generated Orders ✅
+- **ROOT CAUSE FIX**: Auto-generated indents now use consistent variant IDs for Piece/Packet products
+  - **`generate_auto_indents_for_tomorrow`** (line ~16371): 
+    - Fetches retailer catalogue to check `purchase_unit` for each product
+    - For `purchase_unit = "Piece"`: Sets `variant_id = "unit_piece"`, `variant_name = "Pieces"`
+    - For `purchase_unit = "Packet"`: Sets `variant_id = "unit_packet"`, `variant_name = "Packets"`
+    - Resolves any UUID variant_names to actual packaging names
+  - **`generate_plan_based_indent`** (line ~16777):
+    - Same logic applied - checks catalogue and overrides variants for Piece/Packet products
+    - Also checks closing inventory with both original and normalized variant IDs
+- **Migration Script Created**: `/app/backend/migrations/fix_uuid_variants.py`
+  - Fixes existing `retail_plans`, `retailer_indents`, and `retailer_dispatches` collections
+  - Resolves UUID variant_names to actual packaging names
+  - Run manually in production: `cd /app/backend && python3 migrations/fix_uuid_variants.py`
+- **FILES MODIFIED**:
+  - `/app/backend/server.py` (generate_auto_indents_for_tomorrow, generate_plan_based_indent)
+  - `/app/backend/migrations/fix_uuid_variants.py` (NEW)
+
 ### June 10, 2025 - Retailer Details & UUID Variant Resolution Fixes ✅
 - **BUG FIX**: Retailer names now show when clicking on Piece/Packet products in Stickers & MRP
   - Issue: Key mismatch between aggregation key and lookup key

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
@@ -46,13 +46,23 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
 
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'staff' ? staffLinks : retailerLinks;
 
-  // Close sidebar on route change (mobile only)
+  // Close sidebar on route change (mobile only) - fallback mechanism
   useEffect(() => {
     if (isMobile && onClose) {
       onClose();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
+  
+  // Force close handler for nav links
+  const handleNavClick = useCallback(() => {
+    if (isMobile && onClose) {
+      // Use requestAnimationFrame to ensure DOM updates before closing
+      requestAnimationFrame(() => {
+        onClose();
+      });
+    }
+  }, [isMobile, onClose]);
 
   // Sidebar should be visible on desktop, hideable on mobile
   // Use inline style for mobile to ensure the sidebar stays hidden
@@ -109,7 +119,8 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
                 key={link.path}
                 to={link.path}
                 data-testid={`nav-${t(link.labelKey).toLowerCase().replace(' ', '-')}`}
-                onClick={() => { if (isMobile) onClose(); }}
+                onClick={handleNavClick}
+                onTouchEnd={handleNavClick}
                 className={`flex items-center gap-3 px-4 py-2.5 rounded-lg mb-1 hover:bg-gray-100 ${
                   isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
                 }`}

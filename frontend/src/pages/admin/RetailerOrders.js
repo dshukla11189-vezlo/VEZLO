@@ -3373,8 +3373,17 @@ export default function RetailerOrders() {
         }
         
         // If variantNameRaw looks like a UUID, try to resolve it
-        if (variantNameRaw && uuidPattern.test(variantNameRaw) && packagingIdToName[variantNameRaw]) {
-          return { canonicalId: variantNameRaw, canonicalName: packagingIdToName[variantNameRaw] };
+        if (variantNameRaw && uuidPattern.test(variantNameRaw)) {
+          // First check if this UUID exists in packagings
+          if (packagingIdToName[variantNameRaw]) {
+            return { canonicalId: variantNameRaw, canonicalName: packagingIdToName[variantNameRaw] };
+          }
+          // UUID not in packagings - check if variantId can be resolved instead
+          if (variantId && packagingIdToName[variantId]) {
+            return { canonicalId: variantId, canonicalName: packagingIdToName[variantId] };
+          }
+          // Unresolved UUID - show "Unknown Variant" instead of the UUID
+          return { canonicalId: variantNameRaw, canonicalName: 'Unknown Variant' };
         }
         
         // If variantNameRaw matches a packaging name (case-insensitive), use its canonical ID
@@ -3385,7 +3394,11 @@ export default function RetailerOrders() {
         }
         
         // Fallback: use variantId if provided, else generate a pseudo-key from the name
+        // But if it's a UUID that's not in packagings, show "Unknown Variant"
         if (variantId) {
+          if (uuidPattern.test(variantId) && !packagingIdToName[variantId]) {
+            return { canonicalId: variantId, canonicalName: 'Unknown Variant' };
+          }
           return { canonicalId: variantId, canonicalName: variantNameRaw || 'Default' };
         }
         
@@ -3866,8 +3879,17 @@ export default function RetailerOrders() {
         }
         
         // If variantNameRaw looks like a UUID, try to resolve it
-        if (variantNameRaw && uuidPattern.test(variantNameRaw) && packagingIdToName[variantNameRaw]) {
-          return { canonicalId: variantNameRaw, canonicalName: packagingIdToName[variantNameRaw] };
+        if (variantNameRaw && uuidPattern.test(variantNameRaw)) {
+          // First check if this UUID exists in packagings
+          if (packagingIdToName[variantNameRaw]) {
+            return { canonicalId: variantNameRaw, canonicalName: packagingIdToName[variantNameRaw] };
+          }
+          // UUID not in packagings - check if variantId can be resolved instead
+          if (variantId && packagingIdToName[variantId]) {
+            return { canonicalId: variantId, canonicalName: packagingIdToName[variantId] };
+          }
+          // Unresolved UUID - show "Unknown Variant" instead of the UUID
+          return { canonicalId: variantNameRaw, canonicalName: 'Unknown Variant' };
         }
         
         // If variantNameRaw matches a packaging name (case-insensitive), use its canonical ID
@@ -3878,7 +3900,11 @@ export default function RetailerOrders() {
         }
         
         // Fallback: use variantId if provided, else generate a pseudo-key from the name
+        // But if it's a UUID that's not in packagings, show "Unknown Variant"
         if (variantId) {
+          if (uuidPattern.test(variantId) && !packagingIdToName[variantId]) {
+            return { canonicalId: variantId, canonicalName: 'Unknown Variant' };
+          }
           return { canonicalId: variantId, canonicalName: variantNameRaw || 'Default' };
         }
         
@@ -3937,7 +3963,8 @@ export default function RetailerOrders() {
               variantName: displayVariantName,
               purchaseUnit: purchaseUnit,
               purchaseWeightName: purchaseWeightName,
-              totalQuantity: 0
+              totalQuantity: 0,
+              aggregationKey: key  // Store the actual key for retailer details lookup
             };
           }
           
@@ -3954,6 +3981,11 @@ export default function RetailerOrders() {
         const nameCompare = a.productName.localeCompare(b.productName);
         if (nameCompare !== 0) return nameCompare;
         return a.variantName.localeCompare(b.variantName);
+      });
+      
+      // Attach keys to items for lookup
+      indentProductsArray.forEach(item => {
+        item.key = item.aggregationKey || `${item.productId}|${item.variantId}`;
       });
       
       setMrpIndentProducts(indentProductsArray);
@@ -3980,8 +4012,9 @@ export default function RetailerOrders() {
 
   // Group products by category for MRP - filtered to only products from day's indents
   const mrpProductsByCategory = useMemo(() => {
-    // Use indent-filtered product+variant combinations if available
-    const productsToShow = mrpIndentProducts.length > 0 ? mrpIndentProducts : [];
+    // Prefer stickersData which has correct aggregation keys and retailer details
+    // Fall back to mrpIndentProducts for backward compatibility
+    const productsToShow = stickersData.length > 0 ? stickersData : (mrpIndentProducts.length > 0 ? mrpIndentProducts : []);
     
     const grouped = {};
     productsToShow.forEach(p => {
@@ -3998,7 +4031,7 @@ export default function RetailerOrders() {
       });
     });
     return grouped;
-  }, [mrpIndentProducts]);
+  }, [stickersData, mrpIndentProducts]);
 
   // Auto-expand categories when indent products load
   useEffect(() => {

@@ -8237,13 +8237,28 @@ export default function RetailerOrders() {
                                           : item.productName;
                                       
                                       return (
-                                        <tr 
-                                          key={`${item.productId}-${item.variantName}-${localIdx}`} 
-                                          className={`border-b hover:bg-gray-50 ${mrpEntry && pendingMrpChanges[mrpEntry.id] ? 'bg-yellow-50' : ''}`}
-                                        >
+                                        <React.Fragment key={`${item.productId}-${item.variantName}-${localIdx}`}>
+                                          <tr 
+                                            className={`border-b hover:bg-gray-50 cursor-pointer ${expandedStickerItem === `${item.productId}-${item.variantName}` ? 'bg-blue-50' : ''} ${mrpEntry && pendingMrpChanges[mrpEntry.id] ? 'bg-yellow-50' : ''}`}
+                                            onClick={() => setExpandedStickerItem(expandedStickerItem === `${item.productId}-${item.variantName}` ? null : `${item.productId}-${item.variantName}`)}
+                                          >
                                           <td className="p-2 text-gray-400 text-xs">{localIdx + 1}</td>
-                                          <td className="p-2 font-medium">{displayName}</td>
-                                          <td className="p-2">
+                                          <td className="p-2 font-medium">
+                                            <div className="flex items-center gap-1">
+                                              {(() => {
+                                                const stickerKey = `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+                                                const details = stickerIndentDetails[stickerKey] || [];
+                                                if (details.length > 0) {
+                                                  return expandedStickerItem === `${item.productId}-${item.variantName}`
+                                                    ? <ChevronDown size={14} className="text-blue-500" />
+                                                    : <ChevronRight size={14} className="text-gray-400" />;
+                                                }
+                                                return null;
+                                              })()}
+                                              {displayName}
+                                            </div>
+                                          </td>
+                                          <td className="p-2" onClick={(e) => e.stopPropagation()}>
                                             {mrpEntry && isEditable ? (
                                               <Popover>
                                                 <PopoverTrigger asChild>
@@ -8303,6 +8318,7 @@ export default function RetailerOrders() {
                                                 min="0"
                                                 value={mrpEntry.mrp || ''}
                                                 onChange={(e) => updateMrpEntryLocal(mrpEntry.id, 'mrp', e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
                                                 disabled={!isEditable}
                                                 className={`h-8 w-20 text-right ml-auto ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                                 placeholder="0.00"
@@ -8321,7 +8337,7 @@ export default function RetailerOrders() {
                                               <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() => addMrpEntryFromIndent(item)}
+                                                onClick={(e) => { e.stopPropagation(); addMrpEntryFromIndent(item); }}
                                                 className="h-7 px-2 text-xs text-green-600 border-green-300 hover:bg-green-50"
                                               >
                                                 <Plus size={12} className="mr-1" /> Add
@@ -8331,7 +8347,7 @@ export default function RetailerOrders() {
                                               <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                onClick={() => deleteMrpEntry(mrpEntry.id)}
+                                                onClick={(e) => { e.stopPropagation(); deleteMrpEntry(mrpEntry.id); }}
                                                 className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
                                               >
                                                 <Trash2 size={14} />
@@ -8339,6 +8355,30 @@ export default function RetailerOrders() {
                                             )}
                                           </td>
                                         </tr>
+                                        {/* Retailer details row - shown when item is expanded */}
+                                        {expandedStickerItem === `${item.productId}-${item.variantName}` && (() => {
+                                          const stickerKey = `${item.productName.toLowerCase()}_${item.variantName.toLowerCase()}`;
+                                          const details = stickerIndentDetails[stickerKey] || [];
+                                          if (details.length === 0) return null;
+                                          return (
+                                            <tr className="bg-blue-50 border-b">
+                                              <td></td>
+                                              <td colSpan="6" className="p-2">
+                                                <div className="text-xs text-gray-700">
+                                                  <span className="font-semibold text-blue-700">Retailers:</span>
+                                                  <div className="flex flex-wrap gap-2 mt-1">
+                                                    {details.map((r, rIdx) => (
+                                                      <span key={rIdx} className="bg-white px-2 py-1 rounded border text-xs">
+                                                        {r.retailerName} <span className="font-semibold text-green-700">({r.quantity})</span>
+                                                      </span>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })()}
+                                        </React.Fragment>
                                       );
                                     })}
                                   </tbody>

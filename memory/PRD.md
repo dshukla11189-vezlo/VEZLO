@@ -2,6 +2,17 @@
 
 ## Changelog (June 2025)
 
+### June 10, 2025 - Stickers & MRP: Catalogue-Based Variant Aggregation ✅
+- **BUG FIX**: For products with `purchase_unit = "Piece"` or `"Packet"` in the Retailer Catalogue:
+  - Retailer manual orders (using `unit_piece`/`Pieces`) now aggregated with system auto-generated orders (using weight variants like `250+ gm`)
+  - Example: Broccoli "Pieces" (3) + Broccoli "250+ gm" (4) → Combined as "Broccoli: 7 Pieces of 250+ gm"
+- **ENHANCEMENT**: Variant display now shows weight info for Piece/Packet products
+  - Format: "Pieces of [weight]" or "Packets of [weight]" where weight comes from catalogue's `purchase_weight_variant`
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js`:
+    - `calculateStickersData()` - Fetches catalogue, aggregates by `productId` only for Piece/Packet products
+    - `loadMrpIndentProducts()` - Same catalogue-based aggregation logic
+
 ### June 10, 2025 - Stickers & MRP: Enhanced Dedup + MRP Overrides ✅
 - **ENHANCEMENT**: Fixed `calculateStickersData` dedup logic
   - Dedup key now uses `product_id + canonical variant_id` (not name-based)

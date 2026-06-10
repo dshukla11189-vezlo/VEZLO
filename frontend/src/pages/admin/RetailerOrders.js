@@ -3274,7 +3274,7 @@ export default function RetailerOrders() {
 
   // Calculate stickers data from indents
   // Dedup key: product_id + canonical variant_id (resolved via packagings map)
-  // Handles unit_piece, unit_packet, and raw variant_name strings that resolve to a packaging by name
+  // EXCEPTION: For products with purchase_unit = "Piece" or "Packet", aggregate ALL variants under product_id only
   const calculateStickersData = useCallback(async () => {
     if (!dailyReqDate) {
       return;
@@ -3299,6 +3299,32 @@ export default function RetailerOrders() {
       if (indents.length === 0) {
         setStickersLoading(false);
         return;
+      }
+      
+      // Fetch retailer catalogue to get purchase_unit info for each product
+      let catalogueMap = {}; // product_id -> {purchase_unit, purchase_weight_name}
+      try {
+        const catResponse = await api.get('/api/retailer-catalogue');
+        const catalogueItems = catResponse.data || [];
+        
+        // Build packaging ID to name map for resolving purchase_weight_variant
+        const pkgIdToName = {};
+        packagings.forEach(p => {
+          pkgIdToName[p.id] = p.name || '';
+        });
+        
+        catalogueItems.forEach(cat => {
+          const purchaseWeights = cat.purchase_weights || [];
+          const purchaseWeightId = purchaseWeights[0] || cat.purchase_weight_variant || '';
+          const purchaseWeightName = pkgIdToName[purchaseWeightId] || '';
+          
+          catalogueMap[cat.product_id] = {
+            purchaseUnit: cat.purchase_unit || '',
+            purchaseWeightName: purchaseWeightName
+          };
+        });
+      } catch (catErr) {
+        console.log('Could not load catalogue for stickers:', catErr);
       }
       
       // Build product info map from products state
@@ -3367,8 +3393,10 @@ export default function RetailerOrders() {
         return { canonicalId: `name:${variantNameLower || 'default'}`, canonicalName: variantNameRaw || 'Default' };
       };
       
-      // Aggregate by product_id + canonical variant_id
-      const combinationMap = {}; // key = "productId|variantId" -> data
+      // Aggregate data
+      // For products with purchase_unit = "Piece" or "Packet", use productId only as key (combine all variants)
+      // For other products, use productId|variantId as key
+      const combinationMap = {}; // key -> data
       const indentDetailsMap = {}; // key -> [{retailerName, retailerId, quantity}]
       
       for (const indent of indents) {
@@ -3382,11 +3410,34 @@ export default function RetailerOrders() {
           const productNameMr = productInfo.name_mr || '';
           const category = productInfo.category || 'Other';
           
+          // Get catalogue info for this product
+          const catInfo = catalogueMap[productId] || {};
+          const purchaseUnit = catInfo.purchaseUnit || '';
+          const purchaseWeightName = catInfo.purchaseWeightName || '';
+          const isPieceOrPacket = ['Piece', 'Packet'].includes(purchaseUnit);
+          
           // Resolve to canonical variant
           const { canonicalId, canonicalName } = resolveVariant(item.variant_id, item.variant_name);
           
-          // Create key using product_id + canonical variant_id
-          const key = `${productId}|${canonicalId}`;
+          // Determine aggregation key based on purchase_unit
+          // For Piece/Packet products: aggregate ALL variants under the product
+          // For others: keep variants separate
+          let key, displayVariantId, displayVariantName;
+          
+          if (isPieceOrPacket) {
+            // Aggregate all variants for this product
+            key = productId;
+            // Use "Pieces" or "Packets" as variant name, with weight info
+            displayVariantId = purchaseUnit === 'Piece' ? 'unit_piece' : 'unit_packet';
+            displayVariantName = purchaseWeightName 
+              ? `${purchaseUnit === 'Piece' ? 'Pieces' : 'Packets'} of ${purchaseWeightName}`
+              : (purchaseUnit === 'Piece' ? 'Pieces' : 'Packets');
+          } else {
+            // Keep variants separate
+            key = `${productId}|${canonicalId}`;
+            displayVariantId = canonicalId;
+            displayVariantName = canonicalName;
+          }
           
           if (!combinationMap[key]) {
             combinationMap[key] = {
@@ -3395,8 +3446,10 @@ export default function RetailerOrders() {
               productNameHi: productNameHi,
               productNameMr: productNameMr,
               category: category,
-              variantId: canonicalId,
-              variantName: canonicalName,
+              variantId: displayVariantId,
+              variantName: displayVariantName,
+              purchaseUnit: purchaseUnit,
+              purchaseWeightName: purchaseWeightName,
               quantity: 0
             };
             indentDetailsMap[key] = [];
@@ -3725,6 +3778,7 @@ export default function RetailerOrders() {
 
   // Load unique products from day's indents for MRP filtering (mirrors Stickers logic)
   // Uses same canonical variant resolution as calculateStickersData
+  // EXCEPTION: For products with purchase_unit = "Piece" or "Packet", aggregate ALL variants under product_id only
   const loadMrpIndentProducts = useCallback(async (date) => {
     if (!date) return;
     setMrpIndentLoading(true);
@@ -3743,6 +3797,32 @@ export default function RetailerOrders() {
       if (indents.length === 0) {
         setMrpIndentLoading(false);
         return;
+      }
+      
+      // Fetch retailer catalogue to get purchase_unit info for each product
+      let catalogueMap = {}; // product_id -> {purchase_unit, purchase_weight_name}
+      try {
+        const catResponse = await api.get('/api/retailer-catalogue');
+        const catalogueItems = catResponse.data || [];
+        
+        // Build packaging ID to name map for resolving purchase_weight_variant
+        const pkgIdToName = {};
+        packagings.forEach(p => {
+          pkgIdToName[p.id] = p.name || '';
+        });
+        
+        catalogueItems.forEach(cat => {
+          const purchaseWeights = cat.purchase_weights || [];
+          const purchaseWeightId = purchaseWeights[0] || cat.purchase_weight_variant || '';
+          const purchaseWeightName = pkgIdToName[purchaseWeightId] || '';
+          
+          catalogueMap[cat.product_id] = {
+            purchaseUnit: cat.purchase_unit || '',
+            purchaseWeightName: purchaseWeightName
+          };
+        });
+      } catch (catErr) {
+        console.log('Could not load catalogue for MRP indent products:', catErr);
       }
       
       // Build product info map from products state
@@ -3805,8 +3885,10 @@ export default function RetailerOrders() {
         return { canonicalId: `name:${variantNameLower || 'default'}`, canonicalName: variantNameRaw || 'Default' };
       };
       
-      // Aggregate by product_id + canonical variant_id (same as calculateStickersData)
-      const combinationMap = {}; // key = "productId|variantId" -> data
+      // Aggregate data
+      // For products with purchase_unit = "Piece" or "Packet", use productId only as key (combine all variants)
+      // For other products, use productId|variantId as key
+      const combinationMap = {}; // key -> data
       
       for (const indent of indents) {
         for (const item of (indent.items || [])) {
@@ -3817,11 +3899,31 @@ export default function RetailerOrders() {
           const productNameMr = productInfo.name_mr || '';
           const category = productInfo.category || 'Other';
           
+          // Get catalogue info for this product
+          const catInfo = catalogueMap[productId] || {};
+          const purchaseUnit = catInfo.purchaseUnit || '';
+          const purchaseWeightName = catInfo.purchaseWeightName || '';
+          const isPieceOrPacket = ['Piece', 'Packet'].includes(purchaseUnit);
+          
           // Resolve to canonical variant
           const { canonicalId, canonicalName } = resolveVariant(item.variant_id, item.variant_name);
           
-          // Create key using product_id + canonical variant_id
-          const key = `${productId}|${canonicalId}`;
+          // Determine aggregation key based on purchase_unit
+          let key, displayVariantId, displayVariantName;
+          
+          if (isPieceOrPacket) {
+            // Aggregate all variants for this product
+            key = productId;
+            displayVariantId = purchaseUnit === 'Piece' ? 'unit_piece' : 'unit_packet';
+            displayVariantName = purchaseWeightName 
+              ? `${purchaseUnit === 'Piece' ? 'Pieces' : 'Packets'} of ${purchaseWeightName}`
+              : (purchaseUnit === 'Piece' ? 'Pieces' : 'Packets');
+          } else {
+            // Keep variants separate
+            key = `${productId}|${canonicalId}`;
+            displayVariantId = canonicalId;
+            displayVariantName = canonicalName;
+          }
           
           if (!combinationMap[key]) {
             combinationMap[key] = {
@@ -3830,8 +3932,10 @@ export default function RetailerOrders() {
               productNameHi: productNameHi,
               productNameMr: productNameMr,
               category: category,
-              variantId: canonicalId,
-              variantName: canonicalName,
+              variantId: displayVariantId,
+              variantName: displayVariantName,
+              purchaseUnit: purchaseUnit,
+              purchaseWeightName: purchaseWeightName,
               totalQuantity: 0
             };
           }

@@ -9725,10 +9725,10 @@ export default function RetailerOrders() {
                   {filteredInvoices.length > 0 && (
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
-                        <td colSpan={5} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.net_payable || 0), 0))}</td>
+                        <td colSpan={6} className="p-3 text-right">TOTAL:</td>
+                        <td className="p-3 text-right">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.final_payable || i.net_payable || 0), 0))}</td>
                         <td className="p-3 text-right text-green-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.paid_amount || 0), 0))}</td>
-                        <td className="p-3 text-right text-amber-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + ((i.net_payable || 0) - (i.paid_amount || 0)), 0))}</td>
+                        <td className="p-3 text-right text-amber-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + ((i.final_payable || i.net_payable || 0) - (i.paid_amount || 0)), 0))}</td>
                         <td colSpan={2}></td>
                       </tr>
                     </tfoot>

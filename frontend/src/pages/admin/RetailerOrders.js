@@ -3724,6 +3724,7 @@ export default function RetailerOrders() {
   }, [products]);
 
   // Load unique products from day's indents for MRP filtering (mirrors Stickers logic)
+  // Uses same canonical variant resolution as calculateStickersData
   const loadMrpIndentProducts = useCallback(async (date) => {
     if (!date) return;
     setMrpIndentLoading(true);
@@ -3755,16 +3756,57 @@ export default function RetailerOrders() {
         };
       });
       
-      // Build packaging map for resolving UUID variant names
-      const packagingMap = {};
+      // Build packaging maps for resolving variant IDs/names (same as calculateStickersData)
+      const packagingIdToName = {};  // id -> canonical name
+      const packagingNameToId = {};  // lowercase name -> id (canonical)
       packagings.forEach(p => {
-        packagingMap[p.id] = p.name || '';
+        packagingIdToName[p.id] = p.name || '';
+        const nameLower = (p.name || '').toLowerCase();
+        if (nameLower) {
+          packagingNameToId[nameLower] = p.id;
+        }
       });
       
-      // Aggregate by product NAME + RESOLVED variant NAME combination (like Stickers)
-      // This ensures same variants across different retailers are combined
-      // Also resolve UUID variant names to actual names
-      const combinationMap = {}; // key = "product_id_variant_name" -> product-variant data
+      // Function to resolve variant to canonical (id, name) pair
+      const resolveVariant = (variantId, variantNameRaw) => {
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        
+        // Handle special unit-based variant IDs
+        if (variantId === 'unit_piece') {
+          return { canonicalId: 'unit_piece', canonicalName: 'Pieces' };
+        }
+        if (variantId === 'unit_packet') {
+          return { canonicalId: 'unit_packet', canonicalName: 'Packets' };
+        }
+        
+        // If variantId is a valid UUID in packagings, use it directly
+        if (variantId && packagingIdToName[variantId]) {
+          return { canonicalId: variantId, canonicalName: packagingIdToName[variantId] };
+        }
+        
+        // If variantNameRaw looks like a UUID, try to resolve it
+        if (variantNameRaw && uuidPattern.test(variantNameRaw) && packagingIdToName[variantNameRaw]) {
+          return { canonicalId: variantNameRaw, canonicalName: packagingIdToName[variantNameRaw] };
+        }
+        
+        // If variantNameRaw matches a packaging name (case-insensitive), use its canonical ID
+        const variantNameLower = (variantNameRaw || '').toLowerCase();
+        if (variantNameLower && packagingNameToId[variantNameLower]) {
+          const canonicalId = packagingNameToId[variantNameLower];
+          return { canonicalId, canonicalName: packagingIdToName[canonicalId] };
+        }
+        
+        // Fallback: use variantId if provided, else generate a pseudo-key from the name
+        if (variantId) {
+          return { canonicalId: variantId, canonicalName: variantNameRaw || 'Default' };
+        }
+        
+        // Last fallback: use the raw name as the key
+        return { canonicalId: `name:${variantNameLower || 'default'}`, canonicalName: variantNameRaw || 'Default' };
+      };
+      
+      // Aggregate by product_id + canonical variant_id (same as calculateStickersData)
+      const combinationMap = {}; // key = "productId|variantId" -> data
       
       for (const indent of indents) {
         for (const item of (indent.items || [])) {
@@ -3773,25 +3815,13 @@ export default function RetailerOrders() {
           const productName = (productInfo.name || item.product_name || 'Unknown').trim();
           const productNameHi = productInfo.name_hi || '';
           const productNameMr = productInfo.name_mr || '';
-          const variantId = item.variant_id || '';
-          let variantName = (item.variant_name || 'Default').trim();
           const category = productInfo.category || 'Other';
           
-          // If variant_name looks like a UUID, resolve it from packagings
-          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-          if (uuidPattern.test(variantName)) {
-            // Try to resolve from packagingMap
-            const resolvedName = packagingMap[variantName];
-            if (resolvedName) {
-              variantName = resolvedName;
-            } else if (variantId && packagingMap[variantId]) {
-              // Fallback: use variant_id to resolve
-              variantName = packagingMap[variantId];
-            }
-          }
+          // Resolve to canonical variant
+          const { canonicalId, canonicalName } = resolveVariant(item.variant_id, item.variant_name);
           
-          // Create key using product_id + resolved variant_name (to ensure uniqueness)
-          const key = `${productId}_${variantName.toLowerCase()}`;
+          // Create key using product_id + canonical variant_id
+          const key = `${productId}|${canonicalId}`;
           
           if (!combinationMap[key]) {
             combinationMap[key] = {
@@ -3800,8 +3830,8 @@ export default function RetailerOrders() {
               productNameHi: productNameHi,
               productNameMr: productNameMr,
               category: category,
-              variantId: variantId,
-              variantName: variantName,
+              variantId: canonicalId,
+              variantName: canonicalName,
               totalQuantity: 0
             };
           }
@@ -4354,6 +4384,7 @@ export default function RetailerOrders() {
       pieces: 'Pcs',
       packets: 'Pkts',
       bunches: 'Bunches',
+      dozens: 'Dozens',
       of: 'of',
       kg: 'Kg',
     },
@@ -4374,6 +4405,7 @@ export default function RetailerOrders() {
       pieces: 'पीस',
       packets: 'पैकेट',
       bunches: 'गुच्छे',
+      dozens: 'दर्जन',
       of: 'का',
       kg: 'किलो',
     },
@@ -4394,6 +4426,7 @@ export default function RetailerOrders() {
       pieces: 'नग',
       packets: 'पॅकेट',
       bunches: 'जुडे',
+      dozens: 'डझन',
       of: 'चे',
       kg: 'किलो',
     }
@@ -4449,6 +4482,7 @@ export default function RetailerOrders() {
     const getPurchaseReqDisplay = (item) => {
       const unitQty = Math.round(item.qtyUnits) || 0;
       const kgQty = (item.requirementKg || 0).toFixed(1);
+      const dozenQty = item.qtyDozens > 0 ? Math.ceil(item.qtyDozens) : Math.round(item.qtyUnits);
       
       if (item.purchaseUnit === 'Piece') {
         const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
@@ -4459,6 +4493,9 @@ export default function RetailerOrders() {
       } else if (item.purchaseUnit === 'Bunch') {
         const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
         return `${unitQty} ${labels.bunches}${weightInfo}`;
+      } else if (item.purchaseUnit === 'Dozen' || item.qtyDozens > 0) {
+        // Show dozens if explicitly set OR if calculated dozens > 0
+        return `${dozenQty} ${labels.dozens}`;
       } else {
         return `${kgQty} ${labels.kg}`;
       }
@@ -4629,6 +4666,7 @@ export default function RetailerOrders() {
     const getPurchaseReqDisplay = (item) => {
       const unitQty = Math.round(item.qtyUnits) || 0;
       const kgQty = (item.requirementKg || 0).toFixed(1);
+      const dozenQty = item.qtyDozens > 0 ? Math.ceil(item.qtyDozens) : Math.round(item.qtyUnits);
       
       if (item.purchaseUnit === 'Piece') {
         const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
@@ -4639,6 +4677,9 @@ export default function RetailerOrders() {
       } else if (item.purchaseUnit === 'Bunch') {
         const weightInfo = item.purchaseWeightName ? ` ${labels.of} ${item.purchaseWeightName}` : '';
         return `${unitQty} ${labels.bunches}${weightInfo}`;
+      } else if (item.purchaseUnit === 'Dozen' || item.qtyDozens > 0) {
+        // Show dozens if explicitly set OR if calculated dozens > 0
+        return `${dozenQty} ${labels.dozens}`;
       } else {
         return `${kgQty} ${labels.kg}`;
       }

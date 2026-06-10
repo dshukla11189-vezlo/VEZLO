@@ -19220,13 +19220,30 @@ async def get_todays_closing_summary(current_user: dict = Depends(get_current_us
                 retailer_summary[retailer_id]["retailer_name"] = retailer_name_map[retailer_id]
     
     # Get list of all retailers who have had dispatches today but haven't recorded closing
+    # Use $or to handle both string dates (ISO format) and regex patterns
     retailers_with_dispatch = await db.retailer_dispatches.distinct(
         "retailer_id",
-        {"dispatch_date": {"$regex": f"^{today}"}}
+        {"$or": [
+            {"dispatch_date": {"$regex": f"^{today}"}},
+            {"dispatch_date": {"$gte": today + "T00:00:00", "$lte": today + "T23:59:59"}}
+        ]}
     )
     
+    # Also get retailers who have indents for today (even if not dispatched yet)
+    retailers_with_indent = await db.retailer_indents.distinct(
+        "retailer_id",
+        {"$or": [
+            {"indent_date": {"$regex": f"^{today}"}},
+            {"indent_date": today},
+            {"indent_date": {"$gte": today + "T00:00:00", "$lte": today + "T23:59:59"}}
+        ]}
+    )
+    
+    # Combine both sets
+    all_active_retailers = set(retailers_with_dispatch) | set(retailers_with_indent)
+    
     # Get retailer names for those who haven't closed
-    for retailer_id in retailers_with_dispatch:
+    for retailer_id in all_active_retailers:
         if retailer_id not in retailer_summary:
             retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "name": 1, "company_name": 1})
             if retailer:

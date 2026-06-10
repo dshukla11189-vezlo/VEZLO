@@ -2,6 +2,15 @@
 
 ## Changelog (June 2025)
 
+### June 10, 2025 - Today's Closing Summary: Date Query Bug Fix ✅
+- **BUG FIX**: "Today's Closing Summary" section in Closing Inventory tab now correctly displays retailers
+  - Root cause: MongoDB query used `$regex` on `dispatch_date` which didn't match ISO datetime strings stored in DB
+  - Fix: Changed to use `$or` query combining regex pattern AND date range (`$gte`/`$lte`) for robust matching
+  - Also added indents check: Retailers with today's indents (not just dispatches) now appear in summary
+  - All 5 retailers (Jai Bhawani, Narang Super Mart, Park Way Mart, Savtamali, Tamanna Mart) now show as "Pending"
+- **Files Modified**:
+  - `/app/backend/server.py` (lines 19222-19244 - get_todays_closing_summary endpoint)
+
 ### June 10, 2025 - Daily Purchase Requirement: Enhanced Unit Handling ✅
 - **ENHANCEMENT**: Added proper handling for `unit_piece` and `unit_packet` variant IDs
   - These special IDs are used for items sold by piece/packet but not in qc_packaging collection

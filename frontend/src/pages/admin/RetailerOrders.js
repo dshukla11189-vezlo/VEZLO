@@ -4900,7 +4900,9 @@ export default function RetailerOrders() {
     try {
       const response = await api.post(`/api/retailer-invoices/${invoiceId}/recalculate`);
       toast.success(response.data.message || 'Invoice recalculated successfully');
+      // Refresh both invoices list AND payment summary
       loadInvoices();
+      loadImmediatelyPayable();
     } catch (error) {
       console.error('Error recalculating invoice:', error);
       toast.error(error.response?.data?.detail || 'Failed to recalculate invoice');

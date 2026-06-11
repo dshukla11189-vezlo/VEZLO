@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { logout, getUser } from '../utils/auth';
@@ -46,68 +46,52 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
 
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'staff' ? staffLinks : retailerLinks;
 
-  // Close sidebar on route change (mobile only) - fallback mechanism
+  // Close sidebar on every route change (no isMobile guard)
   useEffect(() => {
-    if (isMobile && onClose) {
+    if (onClose) {
       onClose();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
   
-  // Force close handler for nav links
+  // Nav click handler - close synchronously and unconditionally
   const handleNavClick = useCallback(() => {
-    if (isMobile && onClose) {
-      // Use requestAnimationFrame to ensure DOM updates before closing
-      requestAnimationFrame(() => {
-        onClose();
-      });
+    if (onClose) {
+      onClose();
     }
-  }, [isMobile, onClose]);
+  }, [onClose]);
 
-  // Sidebar should be visible on desktop, hideable on mobile
-  // Use inline style for mobile to ensure the sidebar stays hidden
+  // Sidebar classes - let CSS drive the hidden state
   const sidebarClasses = isMobile 
     ? `sidebar ${!isOpen ? 'mobile-hidden' : ''}`
     : 'sidebar';
-    
-  // Explicit inline styles for mobile to guarantee hidden state
-  const mobileHiddenStyle = isMobile && !isOpen ? {
-    transform: 'translateY(-100%)',
-    opacity: 0,
-    pointerEvents: 'none'
-  } : {};
 
   return (
     <>
-      {/* Overlay for mobile */}
-      {isMobile && (
+      {/* Overlay - show when drawer is open on mobile */}
+      {isMobile && isOpen && (
         <div 
-          className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
+          className="sidebar-overlay active"
           onClick={onClose}
-          onTouchEnd={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
           data-testid="sidebar-overlay"
         />
       )}
       
       {/* Sidebar */}
-      <div className={sidebarClasses} style={mobileHiddenStyle} data-testid="sidebar">
+      <div className={sidebarClasses} data-testid="sidebar">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">{t('app.title')}</h1>
             <p className="text-sm text-gray-500 mt-1">{user?.role?.toUpperCase()}</p>
           </div>
-          {isMobile && (
-            <button
-              onClick={onClose}
-              className="p-2 bg-gray-100 rounded-lg"
-              data-testid="close-sidebar-button"
-            >
-              <X size={24} className="text-gray-600" />
-            </button>
-          )}
+          {/* X close button - always visible for accessibility */}
+          <button
+            onClick={onClose}
+            className="p-2 bg-gray-100 rounded-lg"
+            data-testid="close-sidebar-button"
+          >
+            <X size={24} className="text-gray-600" />
+          </button>
         </div>
         
         <nav className="p-4 overflow-y-auto flex-1" style={{ maxHeight: 'calc(100vh - 220px)' }}>
@@ -120,7 +104,6 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
                 to={link.path}
                 data-testid={`nav-${t(link.labelKey).toLowerCase().replace(' ', '-')}`}
                 onClick={handleNavClick}
-                onTouchEnd={handleNavClick}
                 className={`flex items-center gap-3 px-4 py-2.5 rounded-lg mb-1 hover:bg-gray-100 ${
                   isActive ? 'bg-[#14532D] text-white hover:bg-[#166534]' : 'text-gray-700'
                 }`}

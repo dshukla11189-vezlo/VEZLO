@@ -17512,6 +17512,117 @@ async def reset_all_retailer_referral_codes(current_user: dict = Depends(get_cur
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/admin/run-migration/fix-uuid-variants")
+async def run_uuid_variant_migration(current_user: dict = Depends(get_current_user)):
+    """
+    Admin endpoint to run the UUID variant fix migration.
+    This fixes existing data where variant_name was stored as a UUID.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run migrations")
+    
+    import re
+    UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+    
+    results = {
+        "plans_fixed": 0,
+        "products_fixed": 0,
+        "indents_fixed": 0,
+        "indent_items_fixed": 0,
+        "dispatches_fixed": 0,
+        "dispatch_items_fixed": 0,
+        "details": []
+    }
+    
+    try:
+        # Step 1: Build packaging lookup
+        packagings = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+        packaging_map = {p.get("id"): p.get("name", "") for p in packagings}
+        results["details"].append(f"Loaded {len(packaging_map)} packaging variants")
+        
+        # Step 2: Fix retail_plans
+        plans = await db.retail_plans.find({}, {"_id": 0}).to_list(500)
+        for plan in plans:
+            plan_updated = False
+            products = plan.get("products", [])
+            
+            for product in products:
+                variant_name = product.get("variant_name", "")
+                variant_id = product.get("variant_id", "")
+                
+                if variant_name and UUID_PATTERN.match(str(variant_name)):
+                    resolved = packaging_map.get(variant_name, "") or packaging_map.get(variant_id, "")
+                    if resolved:
+                        product["variant_name"] = resolved
+                        plan_updated = True
+                        results["products_fixed"] += 1
+            
+            if plan_updated:
+                await db.retail_plans.update_one(
+                    {"id": plan.get("id")},
+                    {"$set": {"products": products}}
+                )
+                results["plans_fixed"] += 1
+        
+        # Step 3: Fix retailer_indents (auto-generated)
+        indents = await db.retailer_indents.find({"is_auto_generated": True}, {"_id": 0}).to_list(5000)
+        for indent in indents:
+            indent_updated = False
+            items = indent.get("items", [])
+            
+            for item in items:
+                variant_name = item.get("variant_name", "")
+                variant_id = item.get("variant_id", "")
+                
+                if variant_name and UUID_PATTERN.match(str(variant_name)):
+                    resolved = packaging_map.get(variant_name, "") or packaging_map.get(variant_id, "")
+                    if resolved:
+                        item["variant_name"] = resolved
+                        indent_updated = True
+                        results["indent_items_fixed"] += 1
+            
+            if indent_updated:
+                await db.retailer_indents.update_one(
+                    {"id": indent.get("id")},
+                    {"$set": {"items": items}}
+                )
+                results["indents_fixed"] += 1
+        
+        # Step 4: Fix retailer_dispatches
+        dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+        for dispatch in dispatches:
+            dispatch_updated = False
+            items = dispatch.get("items", [])
+            
+            for item in items:
+                variant_name = item.get("variant_name", "")
+                variant_id = item.get("variant_id", "")
+                
+                if variant_name and UUID_PATTERN.match(str(variant_name)):
+                    resolved = packaging_map.get(variant_name, "") or packaging_map.get(variant_id, "")
+                    if resolved:
+                        item["variant_name"] = resolved
+                        dispatch_updated = True
+                        results["dispatch_items_fixed"] += 1
+            
+            if dispatch_updated:
+                await db.retailer_dispatches.update_one(
+                    {"id": dispatch.get("id")},
+                    {"$set": {"items": items}}
+                )
+                results["dispatches_fixed"] += 1
+        
+        results["success"] = True
+        results["message"] = f"Migration complete! Fixed {results['products_fixed']} plan products, {results['indent_items_fixed']} indent items, {results['dispatch_items_fixed']} dispatch items"
+        
+    except Exception as e:
+        results["success"] = False
+        results["error"] = str(e)
+        logger.error(f"Migration error: {e}")
+    
+    return results
+
+
 # ==================== IMMEDIATELY PAYABLE CALCULATION ====================
 @api_router.get("/retailer-immediately-payable")
 async def get_retailer_immediately_payable(

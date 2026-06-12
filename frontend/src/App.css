@@ -30,10 +30,6 @@
   left: 0;
 }
 
-.sidebar.mobile-hidden {
-  transform: translateY(-100%);
-}
-
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -221,25 +217,19 @@
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     overflow-y: auto;
     z-index: 50;
-    /* DEFAULT: Hidden on mobile - prevents flash of open menu */
+    /* DEFAULT: Hidden on mobile - no animation window */
     transform: translateY(-100%);
     opacity: 0;
     pointer-events: none;
-    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+    visibility: hidden;
   }
   
-  /* Only show sidebar when explicitly NOT mobile-hidden */
-  .sidebar:not(.mobile-hidden) {
+  /* Show sidebar only when explicitly opened */
+  .sidebar.mobile-open {
     transform: translateY(0);
     opacity: 1;
     pointer-events: auto;
-  }
-  
-  /* Redundant but explicit - ensure mobile-hidden stays hidden */
-  .sidebar.mobile-hidden {
-    transform: translateY(-100%);
-    opacity: 0;
-    pointer-events: none;
+    visibility: visible;
   }
   
   .main-content {

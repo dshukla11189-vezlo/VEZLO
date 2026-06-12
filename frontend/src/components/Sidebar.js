@@ -61,9 +61,9 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     }
   }, [onClose]);
 
-  // Sidebar classes - let CSS drive the hidden state
+  // Sidebar classes - hidden by default on mobile, shown only when opened
   const sidebarClasses = isMobile 
-    ? `sidebar ${!isOpen ? 'mobile-hidden' : ''}`
+    ? `sidebar ${isOpen ? 'mobile-open' : ''}`
     : 'sidebar';
 
   return (

@@ -33,10 +33,15 @@
 | Users | ✅ ACTIVE | `/users/*`, `/employees` |
 | Farmers | ✅ ACTIVE | `/farmers/*` |
 | Labour | ✅ ACTIVE | `/labour/*` |
+| QC Orders/Customers | ✅ ACTIVE | `/qc-orders/*`, `/qc-customers/*`, `/customer-product-settings/*` |
+| QC Indents/Dispatches | ✅ ACTIVE | `/qc-indents/*`, `/qc-dispatches/*` |
 | Products | ❌ In server.py | Complex routes with retry logic |
-| QC | ❌ In server.py | Orders, Dispatches, Invoices, GRN |
+| QC GRN | ❌ In server.py | GRN management routes |
+| QC Invoices | ❌ In server.py | Invoice generation routes |
 | Retail | ❌ In server.py | Plans, Indents, Catalogue |
 | Admin | ❌ In server.py | Utilities, migrations |
+
+**Progress**: server.py reduced from ~20,841 to ~19,615 lines (-1,226 lines, ~6% reduction)
 
 ## Server.py Structure (Table of Contents)
 

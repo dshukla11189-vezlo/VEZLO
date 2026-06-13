@@ -4785,16 +4785,46 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     
     # Get yesterday's closing inventory
     yesterday = (target_date - timedelta(days=1)).isoformat()
+    yesterday_date_only = yesterday[:10]  # YYYY-MM-DD format
+    
     closing_records = await db.retailer_closing_inventory.find({
         "retailer_id": retailer_id,
-        "closing_date": yesterday
+        "closing_date": yesterday_date_only
     }, {"_id": 0}).to_list(500)
     
     if not closing_records:
         return {
             "success": False,
-            "message": f"No closing inventory found for {retailer_name} on {yesterday}. Closing inventory is mandatory for Plan-based orders."
+            "message": f"No closing inventory found for {retailer_name} on {yesterday_date_only}. Closing inventory is mandatory for Plan-based orders."
         }
+    
+    # TIMING-BASED ADJUSTMENT:
+    # 1. Find the last closing record timestamp (when closing was recorded)
+    # 2. Find the last dispatch timestamp for yesterday
+    # 3. If closing_time < dispatch_time: Add dispatch items to closing (dispatch arrived after closing was recorded)
+    # 4. If dispatch_time <= closing_time: Use closing as-is (closing already includes dispatch)
+    
+    # Find max closing timestamp
+    closing_timestamps = [r.get("created_at", "") for r in closing_records if r.get("created_at")]
+    last_closing_time = max(closing_timestamps) if closing_timestamps else ""
+    
+    # Get yesterday's dispatches for this retailer
+    yesterday_dispatches = await db.retailer_dispatches.find({
+        "retailer_id": retailer_id,
+        "dispatch_date": {"$regex": f"^{yesterday_date_only}"}
+    }, {"_id": 0}).to_list(100)
+    
+    # Find max dispatch timestamp (use created_at or updated_at, whichever is later)
+    dispatch_timestamps = []
+    for d in yesterday_dispatches:
+        created = d.get("created_at", "")
+        updated = d.get("updated_at", "")
+        # Use the later of created_at or updated_at
+        ts = max(created, updated) if updated else created
+        if ts:
+            dispatch_timestamps.append(ts)
+    
+    last_dispatch_time = max(dispatch_timestamps) if dispatch_timestamps else ""
     
     # Create a map of closing inventory by product_id + variant_id
     closing_map = {}
@@ -4804,6 +4834,30 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         closing_qty = record.get("closing_qty", 0)
         key = f"{product_id}_{variant_id}"
         closing_map[key] = closing_qty
+    
+    # If closing was recorded BEFORE dispatch, we need to add dispatch items to get true ending inventory
+    # This handles the case where retailer recorded closing, then received dispatch later same day
+    dispatch_adjustment_applied = False
+    if last_closing_time and last_dispatch_time and last_closing_time < last_dispatch_time:
+        dispatch_adjustment_applied = True
+        # Add dispatch items to closing to get true ending inventory
+        for dispatch in yesterday_dispatches:
+            for item in dispatch.get("items", []):
+                product_id = item.get("product_id")
+                variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+                supplied_qty = item.get("supplied_qty", 0) or 0
+                
+                key = f"{product_id}_{variant_id}"
+                if key in closing_map:
+                    closing_map[key] += supplied_qty
+                else:
+                    # Also try with default variant
+                    key_default = f"{product_id}_"
+                    if key_default in closing_map:
+                        closing_map[key_default] += supplied_qty
+                    else:
+                        # New item not in closing - add it
+                        closing_map[key] = supplied_qty
     
     # Fetch retailer catalogue to get purchase_unit info for each product
     catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
@@ -4881,6 +4935,11 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     # Sort by product name
     indent_items.sort(key=lambda x: x["product_name"])
     
+    # Build remarks with timing info
+    remarks_base = f"Plan-based indent from '{plan.get('name')}' (Closing date: {yesterday_date_only})"
+    if dispatch_adjustment_applied:
+        remarks_base += " [Dispatch items added to closing - dispatch arrived after closing was recorded]"
+    
     # Create the indent
     new_indent = {
         "id": str(uuid.uuid4()),
@@ -4890,12 +4949,15 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         "items": indent_items,
         "total_qty": sum(item["quantity"] for item in indent_items),
         "status": "pending",
-        "remarks": f"Plan-based indent from '{plan.get('name')}' (Closing date: {yesterday})",
+        "remarks": remarks_base,
         "is_auto_generated": True,
         "generation_basis": "plan",  # Plan based
         "plan_id": subscribed_plan_id,
         "plan_name": plan.get("name"),
-        "closing_date_used": yesterday,
+        "closing_date_used": yesterday_date_only,
+        "dispatch_adjustment_applied": dispatch_adjustment_applied,  # Track if dispatch was added to closing
+        "last_closing_time": last_closing_time,
+        "last_dispatch_time": last_dispatch_time,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }

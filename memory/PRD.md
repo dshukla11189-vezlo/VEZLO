@@ -12,9 +12,16 @@
   - When `filter_inactive=true`, only returns products with non-zero opening OR non-zero closing quantities
   - Frontend `loadClosingHistory()` now uses this filter for historical dates
   - Today's view shows all products; historical views show only products with activity
+- **FEATURE**: Plan-Based Auto-Indent Timing Adjustment
+  - When generating plan-based indents, system now considers timing relationship between closing and dispatch
+  - If closing was recorded BEFORE dispatch arrived: Dispatch items are added to closing to get true ending inventory
+  - This handles the case where retailer records closing, then receives dispatch later same day
+  - New fields in indent: `dispatch_adjustment_applied`, `last_closing_time`, `last_dispatch_time`
+  - Remarks include "[Dispatch items added to closing...]" when adjustment is applied
 - **FILES MODIFIED**:
   - `/app/backend/server.py` - Added startup seed functions, filter_inactive parameter
   - `/app/backend/routes/dashboard_analytics.py` - Import calculate_grn_loss from qc_grn
+  - `/app/backend/routes/retailer_portal.py` - Timing-based adjustment for plan-based indent generation
   - `/app/frontend/src/pages/retailer/Dashboard.js` - Use filter_inactive for historical closings
 
 ### June 13, 2025 - Backend Codebase Refactoring COMPLETE ✅

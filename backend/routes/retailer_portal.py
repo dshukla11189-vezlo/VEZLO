@@ -27,6 +27,7 @@ from dependencies import (
 from models import (
     RetailerIndent,
     RetailerIndentCreate,
+    RetailerIndentItem,
     RetailerDispatch,
     RetailerDispatchCreate,
     RetailerInvoice,
@@ -90,7 +91,6 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
     
     # Validate and resolve variant_ids from variant_names if needed
     resolved_items = []
-    missing_variants = []
     for item in input.items:
         item_dict = item.model_dump()
         variant_id = item_dict.get("variant_id") or ""
@@ -103,17 +103,14 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
             if variant_id:
                 item_dict["variant_id"] = variant_id
         
-        # Still no variant_id? Add to missing list
+        # If still no variant_id, set a default or leave empty (don't block indent creation)
+        # This allows indents to be created even without specific packaging
         if not item_dict.get("variant_id"):
-            missing_variants.append(item_dict.get("product_name") or 'Unknown product')
+            item_dict["variant_id"] = ""  # Allow empty variant
+            if not item_dict.get("variant_name"):
+                item_dict["variant_name"] = "Kg"  # Default to Kg
         
         resolved_items.append(item_dict)
-    
-    if missing_variants:
-        detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
-        if len(missing_variants) > 5:
-            detail += f" and {len(missing_variants) - 5} more"
-        raise HTTPException(status_code=400, detail=detail)
     
     # Get retailer info
     if current_user["role"] == "retailer":

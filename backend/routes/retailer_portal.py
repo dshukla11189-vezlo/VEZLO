@@ -1288,6 +1288,17 @@ async def get_rejection_daily_summary(
     # Fetch rejections sorted by created_at
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     
+    # Get unique retailer IDs and fetch their company names
+    retailer_ids = list(set(r.get("retailer_id") for r in rejections if r.get("retailer_id")))
+    retailers_data = await db.users.find(
+        {"id": {"$in": retailer_ids}}, 
+        {"_id": 0, "id": 1, "company_name": 1, "name": 1}
+    ).to_list(500)
+    retailer_company_map = {
+        r["id"]: r.get("company_name") or r.get("name") or "Unknown" 
+        for r in retailers_data
+    }
+    
     # Group by date (from created_at)
     daily_summary = {}
     
@@ -1309,7 +1320,8 @@ async def get_rejection_daily_summary(
         
         # Group by retailer within each date
         ret_id = rej.get("retailer_id")
-        ret_name = rej.get("retailer_name", "Unknown")
+        # Use company_name from lookup, fallback to stored name
+        ret_name = retailer_company_map.get(ret_id) or rej.get("retailer_name", "Unknown")
         
         if ret_id not in daily_summary[record_date]["retailers"]:
             daily_summary[record_date]["retailers"][ret_id] = {

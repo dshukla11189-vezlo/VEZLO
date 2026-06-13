@@ -470,7 +470,7 @@ export default function RetailerOrders() {
   // Rejection Loss date filter
   const [rejectionLossDateFrom, setRejectionLossDateFrom] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() - 84); // 12 weeks = 84 days
     return d.toISOString().split('T')[0];
   });
   const [rejectionLossDateTo, setRejectionLossDateTo] = useState(new Date().toISOString().split('T')[0]);

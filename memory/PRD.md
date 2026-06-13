@@ -2,6 +2,14 @@
 
 ## Changelog (June 2025)
 
+### June 13, 2025 - Retailer Portal Rejections & Admin Chart Defaults ✅
+- **FEATURE**: Added Rejections tab to Retailer Portal hamburger menu (below Payment Ledger)
+  - Same view modes as Admin: "By Invoice Date" and "By Recorded Date"
+  - Date range filter for "By Recorded Date" view
+  - Shows rejection history with expandable date rows
+- **FEATURE**: Admin Retailer Orders charts now default to 12 weeks (84 days) instead of 30 days
+  - User can still adjust dates to see different periods
+
 ### June 13, 2025 - Rejection Daily Summary & Payment Integration ✅
 - **FEATURE**: Daily Rejection Summary View
   - New endpoint `/api/retailer-rejections/daily-summary` groups rejections by RECORDED date (created_at)

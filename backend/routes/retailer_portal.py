@@ -1,0 +1,6894 @@
+"""
+Retailer Portal Routes
+======================
+Extracted from server.py for modular organization.
+Handles retailer management, retailer indents, dispatches, GRN, 
+rejections, payments, invoices, catalogue, and related operations.
+"""
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query, Response, BackgroundTasks
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List, Any
+import uuid
+import asyncio
+import io
+import re
+import csv
+from collections import defaultdict
+
+from dependencies import (
+    db,
+    get_current_user,
+    logger,
+    HINDI_PRODUCT_NAMES,
+    MARATHI_PRODUCT_NAMES,
+)
+from models import (
+    RetailerIndent,
+    RetailerIndentCreate,
+    RetailerDispatch,
+    RetailerDispatchCreate,
+    RetailerInvoice,
+    RetailerInvoiceCreate,
+    RetailerGRN,
+    RetailerGRNCreate,
+    RetailerRejection,
+    RetailerRejectionCreate,
+    RetailerPayment,
+    RetailerPaymentCreate,
+    RetailerCreditNote,
+    StockClosingEntry,
+    StockClosingBulkEntry,
+)
+
+router = APIRouter(tags=["retailer_portal"])
+
+# SECTION: RETAILER PORTAL ROUTES (Lines ~3368-4100)
+# Includes: Retailers, Indents, Dispatches, GRN, Rejections, Payments, Invoices
+# ============================================================================
+
+# Get all retailers (for dropdowns)
+@router.get("/retailers")
+async def get_retailers(current_user: dict = Depends(get_current_user)):
+    retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "password": 0}).to_list(500)
+    return retailers
+
+# ------------ RETAILER INDENTS ------------
+@router.get("/retailer-indents")
+async def get_retailer_indents(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    # If retailer, only show their own indents
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["indent_date"] = date_query
+    
+    indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(limit)
+    return indents
+
+@router.post("/retailer-indents")
+async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict = Depends(get_current_user)):
+    # Get packagings for variant lookup
+    all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+    packaging_map = {p.get("name", "").strip().lower(): p.get("id", "") for p in all_packagings}
+    
+    # Validate and resolve variant_ids from variant_names if needed
+    resolved_items = []
+    missing_variants = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        variant_id = item_dict.get("variant_id") or ""
+        variant_name = item_dict.get("variant_name") or ""
+        
+        # If no variant_id but have variant_name, try to look it up
+        if not variant_id and variant_name:
+            variant_name_lower = variant_name.strip().lower()
+            variant_id = packaging_map.get(variant_name_lower, "")
+            if variant_id:
+                item_dict["variant_id"] = variant_id
+        
+        # Still no variant_id? Add to missing list
+        if not item_dict.get("variant_id"):
+            missing_variants.append(item_dict.get("product_name") or 'Unknown product')
+        
+        resolved_items.append(item_dict)
+    
+    if missing_variants:
+        detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
+        if len(missing_variants) > 5:
+            detail += f" and {len(missing_variants) - 5} more"
+        raise HTTPException(status_code=400, detail=detail)
+    
+    # Get retailer info
+    if current_user["role"] == "retailer":
+        retailer_id = current_user["user_id"]
+    else:
+        retailer_id = input.retailer_id
+    
+    retailer = await db.users.find_one({"id": retailer_id, "role": "retailer"}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Use resolved items instead of raw input items
+    indent = RetailerIndent(
+        retailer_id=retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        indent_date=input.indent_date,
+        items=[RetailerIndentItem(**item) for item in resolved_items],
+        remarks=input.remarks,
+        created_by=current_user["user_id"],
+        created_by_role=current_user["role"]
+    )
+    
+    doc = indent.model_dump()
+    # Store indent_date as YYYY-MM-DD string for consistent date matching
+    # This avoids timezone issues where IST dates become different UTC dates
+    if isinstance(doc["indent_date"], datetime):
+        doc["indent_date"] = doc["indent_date"].strftime("%Y-%m-%d")
+    else:
+        doc["indent_date"] = str(doc["indent_date"])[:10]
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    # Mark if created by retailer
+    doc["created_by_retailer"] = current_user["role"] == "retailer"
+    
+    await db.retailer_indents.insert_one(doc)
+    return {"id": indent.id, "message": "Indent created successfully"}
+
+@router.put("/retailer-indents/{indent_id}")
+async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, current_user: dict = Depends(get_current_user)):
+    existing = await db.retailer_indents.find_one({"id": indent_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Get packagings for variant lookup
+    all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+    packaging_map = {p.get("name", "").strip().lower(): p.get("id", "") for p in all_packagings}
+    
+    # Validate and resolve variant_ids from variant_names if needed
+    resolved_items = []
+    missing_variants = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        variant_id = item_dict.get("variant_id") or ""
+        variant_name = item_dict.get("variant_name") or ""
+        
+        # If no variant_id but have variant_name, try to look it up
+        if not variant_id and variant_name:
+            variant_name_lower = variant_name.strip().lower()
+            variant_id = packaging_map.get(variant_name_lower, "")
+            if variant_id:
+                item_dict["variant_id"] = variant_id
+        
+        # Still no variant_id? Add to missing list
+        if not item_dict.get("variant_id"):
+            missing_variants.append(item_dict.get("product_name") or 'Unknown product')
+        
+        resolved_items.append(item_dict)
+    
+    if missing_variants:
+        detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
+        if len(missing_variants) > 5:
+            detail += f" and {len(missing_variants) - 5} more"
+        raise HTTPException(status_code=400, detail=detail)
+    
+    # Retailers can only update their own pending indents
+    if current_user["role"] == "retailer":
+        if existing["retailer_id"] != current_user["user_id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        if existing["status"] != "pending":
+            raise HTTPException(status_code=400, detail="Cannot edit non-pending indent")
+        # Note: Time restriction removed - retailers can edit anytime while status is pending
+    
+    # Get all dispatches for this indent to recalculate status
+    all_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+    
+    # Calculate total dispatched per product+variant
+    total_dispatched = {}
+    for d in all_dispatches:
+        for item in d.get('items', []):
+            key = f"{item.get('product_id', '')}|{item.get('variant_id', '')}"
+            total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+    
+    # Check if all new items are fully dispatched
+    new_items = resolved_items  # Use resolved items with variant_ids looked up
+    fully_dispatched = True
+    has_any_dispatch = len(all_dispatches) > 0
+    
+    for item in new_items:
+        key = f"{item.get('product_id', '')}|{item.get('variant_id', '')}"
+        dispatched = total_dispatched.get(key, 0)
+        if dispatched < item.get('quantity', 0):
+            fully_dispatched = False
+            break
+    
+    # Determine new status
+    if not has_any_dispatch:
+        new_status = "pending"
+    elif fully_dispatched:
+        new_status = "dispatched"
+    else:
+        new_status = "partial"
+    
+    update_data = {
+        "indent_date": input.indent_date.strftime("%Y-%m-%d") if isinstance(input.indent_date, datetime) else str(input.indent_date)[:10],
+        "items": new_items,
+        "remarks": input.remarks,
+        "status": new_status  # Update status based on dispatch completeness
+    }
+    
+    await db.retailer_indents.update_one({"id": indent_id}, {"$set": update_data})
+    return {"id": indent_id, "message": "Indent updated successfully", "new_status": new_status}
+
+
+@router.post("/retailer-indents/{indent_id}/mark-items-done")
+async def mark_indent_items_done(indent_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Mark specific indent items as 'done' (supply complete, even if partial)
+    
+    Input format:
+    {
+        "done_items": [
+            {"product_id": "xxx", "variant_id": "yyy"},
+            ...
+        ]
+    }
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    existing = await db.retailer_indents.find_one({"id": indent_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    done_items = input.get("done_items", [])
+    if not done_items:
+        return {"message": "No items to mark as done"}
+    
+    # Create a set of done item keys for quick lookup
+    done_keys = {f"{item['product_id']}|{item.get('variant_id', '')}" for item in done_items}
+    
+    # Update items in the indent
+    updated_items = []
+    for item in existing.get("items", []):
+        key = f"{item.get('product_id', '')}|{item.get('variant_id', '')}"
+        item_copy = dict(item)
+        if key in done_keys:
+            item_copy["marked_done"] = True
+        updated_items.append(item_copy)
+    
+    await db.retailer_indents.update_one(
+        {"id": indent_id},
+        {"$set": {"items": updated_items}}
+    )
+    
+    return {"message": f"Marked {len(done_keys)} item(s) as done", "indent_id": indent_id}
+
+
+@router.delete("/retailer-indents/{indent_id}")
+async def delete_retailer_indent(indent_id: str, current_user: dict = Depends(get_current_user)):
+    existing = await db.retailer_indents.find_one({"id": indent_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Retailers can only delete their own indents
+    if current_user["role"] == "retailer" and existing["retailer_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if there are any dispatches for this indent
+    dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+    if len(dispatches) > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete indent with existing dispatches. Delete dispatches first.")
+    
+    await db.retailer_indents.delete_one({"id": indent_id})
+    return {"message": "Indent deleted successfully"}
+
+@router.get("/retailer-indents/previous/{retailer_id}")
+async def get_previous_retailer_indent(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get the most recent indent for a retailer to use as template"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Find the most recent indent for this retailer
+    indent = await db.retailer_indents.find_one(
+        {"retailer_id": retailer_id},
+        {"_id": 0},
+        sort=[("indent_date", -1), ("created_at", -1)]
+    )
+    
+    if not indent:
+        return {"indent": None, "message": "No previous indent found"}
+    
+    return {"indent": indent, "message": "Previous indent found"}
+
+# ------------ RETAILER DISPATCHES ------------
+@router.get("/retailer-dispatches")
+async def get_retailer_dispatches(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["dispatch_date"] = date_query
+    
+    dispatches = await db.retailer_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(limit)
+    return dispatches
+
+@router.post("/retailer-dispatches")
+async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create dispatches")
+    
+    # Get indent
+    indent = await db.retailer_indents.find_one({"id": input.indent_id})
+    if not indent:
+        raise HTTPException(status_code=404, detail="Indent not found")
+    
+    # Get retailer info for commission
+    retailer = await db.users.find_one({"id": indent["retailer_id"]}, {"_id": 0})
+    commission = retailer.get("commission_percentage", 0) if retailer else 0
+    
+    # Calculate totals
+    total_mrp_value = 0
+    items_with_totals = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        item_dict["total_value"] = item.supplied_qty * item.mrp
+        total_mrp_value += item_dict["total_value"]
+        items_with_totals.append(item_dict)
+    
+    net_payable = total_mrp_value * (1 - commission / 100)
+    
+    dispatch = RetailerDispatch(
+        indent_id=input.indent_id,
+        retailer_id=indent["retailer_id"],
+        retailer_name=indent["retailer_name"],
+        dispatch_date=input.dispatch_date,
+        items=items_with_totals,
+        total_mrp_value=round(total_mrp_value, 2),
+        commission_percentage=commission,
+        net_payable=round(net_payable, 2),
+        transport_charges=input.transport_charges or 0,
+        dispatched_by=current_user["user_id"],
+        invoice_number=None,  # Invoice created separately
+        remarks=input.remarks
+    )
+    
+    doc = dispatch.model_dump()
+    doc["dispatch_date"] = doc["dispatch_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_dispatches.insert_one(doc)
+    
+    # Update indent status based on dispatch completeness
+    # Get all dispatches for this indent
+    all_dispatches = await db.retailer_dispatches.find({"indent_id": input.indent_id}, {"_id": 0}).to_list(100)
+    
+    # Calculate total dispatched per product
+    total_dispatched = {}
+    for d in all_dispatches:
+        for item in d.get('items', []):
+            key = item.get('product_id', '')
+            total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+    
+    # Check if fully dispatched
+    fully_dispatched = True
+    for item in indent.get('items', []):
+        dispatched = total_dispatched.get(item.get('product_id', ''), 0)
+        if dispatched < item.get('quantity', 0):
+            fully_dispatched = False
+            break
+    
+    new_status = "dispatched" if fully_dispatched else "partial"
+    await db.retailer_indents.update_one(
+        {"id": input.indent_id},
+        {"$set": {"status": new_status}}
+    )
+    
+    return {"id": dispatch.id, "message": "Dispatch created successfully"}
+
+# Edit Retailer Dispatch
+@router.put("/retailer-dispatches/{dispatch_id}")
+async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update dispatches")
+    
+    existing = await db.retailer_dispatches.find_one({"id": dispatch_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    indent_id = existing.get("indent_id")
+    
+    # Track items that existed before the edit (for done status management)
+    old_item_keys = {f"{item.get('product_id')}|{item.get('variant_id', '')}" for item in existing.get("items", [])}
+    new_item_keys = {f"{item.product_id}|{item.variant_id or ''}" for item in input.items}
+    removed_item_keys = old_item_keys - new_item_keys
+    
+    # Get retailer info for commission
+    retailer = await db.users.find_one({"id": existing["retailer_id"]}, {"_id": 0})
+    commission = retailer.get("commission_percentage", 0) if retailer else 0
+    
+    # Calculate totals
+    total_mrp_value = 0
+    items_with_totals = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        item_dict["total_value"] = item.supplied_qty * item.mrp
+        total_mrp_value += item_dict["total_value"]
+        items_with_totals.append(item_dict)
+    
+    net_payable = total_mrp_value * (1 - commission / 100)
+    
+    update_data = {
+        "dispatch_date": input.dispatch_date.isoformat(),
+        "items": items_with_totals,
+        "total_mrp_value": round(total_mrp_value, 2),
+        "commission_percentage": commission,
+        "net_payable": round(net_payable, 2),
+        "transport_charges": input.transport_charges or 0,
+        "remarks": input.remarks
+    }
+    
+    await db.retailer_dispatches.update_one({"id": dispatch_id}, {"$set": update_data})
+    
+    # If items were removed, check if they should be unmarked as "Done"
+    if removed_item_keys and indent_id:
+        # Get all OTHER dispatches for this indent (excluding current one)
+        other_dispatches = await db.retailer_dispatches.find(
+            {"indent_id": indent_id, "id": {"$ne": dispatch_id}}, 
+            {"_id": 0, "items": 1}
+        ).to_list(100)
+        
+        # Build set of product+variant keys that have dispatches in OTHER dispatches
+        other_dispatch_keys = set()
+        for d in other_dispatches:
+            for item in d.get("items", []):
+                key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                other_dispatch_keys.add(key)
+        
+        # Find removed items that have NO other dispatches
+        items_to_unmark = removed_item_keys - other_dispatch_keys
+        
+        if items_to_unmark:
+            # Get the indent and unmark those items as done
+            indent = await db.retailer_indents.find_one({"id": indent_id})
+            if indent:
+                updated_items = []
+                for item in indent.get("items", []):
+                    item_key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                    item_copy = dict(item)
+                    if item_key in items_to_unmark:
+                        # Remove marked_done flag so it appears in future dispatches
+                        item_copy.pop("marked_done", None)
+                    updated_items.append(item_copy)
+                
+                await db.retailer_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"items": updated_items}}
+                )
+    
+    return {"id": dispatch_id, "message": "Dispatch updated successfully"}
+
+# Delete Retailer Dispatch
+@router.delete("/retailer-dispatches/{dispatch_id}")
+async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete dispatches")
+    
+    existing = await db.retailer_dispatches.find_one({"id": dispatch_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Check if dispatch is part of an invoice
+    invoice = await db.retailer_invoices.find_one({"dispatch_ids": dispatch_id})
+    if invoice:
+        raise HTTPException(status_code=400, detail="Cannot delete dispatch that is part of an invoice")
+    
+    indent_id = existing.get("indent_id")
+    
+    # Track items that were in this dispatch (for unmarking done status)
+    deleted_item_keys = {f"{item.get('product_id')}|{item.get('variant_id', '')}" for item in existing.get("items", [])}
+    
+    await db.retailer_dispatches.delete_one({"id": dispatch_id})
+    
+    # Recalculate indent status based on remaining dispatches
+    if indent_id:
+        remaining_dispatches = await db.retailer_dispatches.find({"indent_id": indent_id}, {"_id": 0}).to_list(100)
+        
+        # Build set of product+variant keys that still have dispatches
+        remaining_dispatch_keys = set()
+        for d in remaining_dispatches:
+            for item in d.get("items", []):
+                key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                remaining_dispatch_keys.add(key)
+        
+        # Find deleted items that now have NO dispatches
+        items_to_unmark = deleted_item_keys - remaining_dispatch_keys
+        
+        if len(remaining_dispatches) == 0:
+            # No dispatches left - set back to pending and unmark all done items
+            indent = await db.retailer_indents.find_one({"id": indent_id})
+            if indent:
+                updated_items = []
+                for item in indent.get("items", []):
+                    item_copy = dict(item)
+                    item_copy.pop("marked_done", None)  # Remove done flag
+                    updated_items.append(item_copy)
+                
+                await db.retailer_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"status": "pending", "items": updated_items}}
+                )
+        else:
+            # Check if partially or fully dispatched
+            indent = await db.retailer_indents.find_one({"id": indent_id})
+            if indent:
+                total_dispatched = {}
+                for d in remaining_dispatches:
+                    for item in d.get('items', []):
+                        key = item.get('product_id', '')
+                        total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+                
+                fully_dispatched = True
+                for item in indent.get('items', []):
+                    dispatched = total_dispatched.get(item.get('product_id', ''), 0)
+                    if dispatched < item.get('quantity', 0):
+                        fully_dispatched = False
+                        break
+                
+                new_status = "dispatched" if fully_dispatched else "partial"
+                
+                # Also unmark items that no longer have dispatches
+                updated_items = []
+                for item in indent.get("items", []):
+                    item_key = f"{item.get('product_id')}|{item.get('variant_id', '')}"
+                    item_copy = dict(item)
+                    if item_key in items_to_unmark:
+                        item_copy.pop("marked_done", None)
+                    updated_items.append(item_copy)
+                
+                await db.retailer_indents.update_one(
+                    {"id": indent_id},
+                    {"$set": {"status": new_status, "items": updated_items}}
+                )
+    
+    return {"message": "Dispatch deleted successfully"}
+
+@router.get("/retailer-dispatches/yesterday-mrp")
+async def get_yesterday_mrp(current_user: dict = Depends(get_current_user)):
+    """Get yesterday's MRP for all products by variant from retailer dispatches.
+    PRIORITY: sticker_mrp_overrides > yesterday's dispatch MRP
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # First, get all sticker MRP overrides (these take priority)
+    overrides = await db.sticker_mrp_overrides.find({}, {"_id": 0}).to_list(1000)
+    override_map = {}
+    for ov in overrides:
+        key = f"{ov.get('product_id', '')}|{ov.get('variant_id', '')}"
+        override_map[key] = {
+            "product_id": ov.get("product_id", ""),
+            "variant_id": ov.get("variant_id", ""),
+            "variant_name": ov.get("variant_name", ""),
+            "mrp": ov.get("mrp", 0),
+            "source": "override"
+        }
+    
+    # Get yesterday's date range
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_start = today - timedelta(days=1)
+    yesterday_end = today
+    
+    # Get dispatches from yesterday
+    dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": yesterday_start.isoformat(), "$lt": yesterday_end.isoformat()}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Build MRP map: product_id + variant_id -> mrp
+    # Start with overrides, then fill in from dispatches where no override exists
+    mrp_map = dict(override_map)
+    
+    for dispatch in dispatches:
+        for item in dispatch.get('items', []):
+            product_id = item.get('product_id', '')
+            variant_id = item.get('variant_id', '')
+            mrp = item.get('mrp', 0)
+            
+            if product_id and mrp > 0:
+                key = f"{product_id}|{variant_id or ''}"
+                # Only add from dispatch if no override exists for this product+variant
+                if key not in mrp_map:
+                    mrp_map[key] = {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "variant_name": item.get('variant_name', ''),
+                        "mrp": mrp,
+                        "source": "dispatch"
+                    }
+    
+    return list(mrp_map.values())
+
+# ------------ STICKER MRP OVERRIDES ------------
+@router.get("/sticker-mrp-overrides")
+async def get_sticker_mrp_overrides(current_user: dict = Depends(get_current_user)):
+    """Get all sticker MRP overrides"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    overrides = await db.sticker_mrp_overrides.find({}, {"_id": 0}).to_list(1000)
+    return overrides
+
+@router.post("/sticker-mrp-overrides")
+async def create_sticker_mrp_override(data: dict, current_user: dict = Depends(get_current_user)):
+    """Create or update a sticker MRP override for a product+variant"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    product_id = data.get("product_id")
+    variant_id = data.get("variant_id", "")
+    variant_name = data.get("variant_name", "")
+    mrp = data.get("mrp", 0)
+    product_name = data.get("product_name", "")
+    
+    if not product_id:
+        raise HTTPException(status_code=400, detail="product_id is required")
+    
+    try:
+        mrp = float(mrp) if mrp else 0
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid MRP value")
+    
+    # Check if override already exists for this product+variant
+    existing = await db.sticker_mrp_overrides.find_one({
+        "product_id": product_id,
+        "variant_id": variant_id
+    })
+    
+    if existing:
+        # Update existing override
+        await db.sticker_mrp_overrides.update_one(
+            {"product_id": product_id, "variant_id": variant_id},
+            {"$set": {
+                "mrp": mrp,
+                "variant_name": variant_name,
+                "product_name": product_name,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_by": current_user.get("user_id")
+            }}
+        )
+        return {"message": "Override updated", "id": existing.get("id")}
+    else:
+        # Create new override
+        override_id = str(uuid.uuid4())
+        override = {
+            "id": override_id,
+            "product_id": product_id,
+            "product_name": product_name,
+            "variant_id": variant_id,
+            "variant_name": variant_name,
+            "mrp": mrp,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": current_user.get("user_id"),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user.get("user_id")
+        }
+        await db.sticker_mrp_overrides.insert_one(override)
+        return {"message": "Override created", "id": override_id}
+
+@router.put("/sticker-mrp-overrides/{override_id}")
+async def update_sticker_mrp_override(override_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    """Update a specific sticker MRP override"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    existing = await db.sticker_mrp_overrides.find_one({"id": override_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Override not found")
+    
+    update_data = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user.get("user_id")
+    }
+    
+    if "mrp" in data:
+        try:
+            update_data["mrp"] = float(data["mrp"]) if data["mrp"] else 0
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid MRP value")
+    
+    if "variant_id" in data:
+        update_data["variant_id"] = data["variant_id"]
+    if "variant_name" in data:
+        update_data["variant_name"] = data["variant_name"]
+    if "product_name" in data:
+        update_data["product_name"] = data["product_name"]
+    
+    await db.sticker_mrp_overrides.update_one(
+        {"id": override_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Override updated"}
+
+@router.delete("/sticker-mrp-overrides/{override_id}")
+async def delete_sticker_mrp_override(override_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a sticker MRP override"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.sticker_mrp_overrides.delete_one({"id": override_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Override not found")
+    
+    return {"message": "Override deleted"}
+
+# ------------ RETAILER GRN ------------
+@router.get("/retailer-grn")
+async def get_retailer_grn(
+    retailer_id: str = None,
+    dispatch_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    if dispatch_id:
+        query["dispatch_id"] = dispatch_id
+    
+    grns = await db.retailer_grn.find(query, {"_id": 0}).sort("grn_date", -1).to_list(1000)
+    return grns
+
+@router.post("/retailer-grn")
+async def create_retailer_grn(input: RetailerGRNCreate, current_user: dict = Depends(get_current_user)):
+    # Get dispatch
+    dispatch = await db.retailer_dispatches.find_one({"id": input.dispatch_id})
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Retailers can only create GRN for their own dispatches
+    if current_user["role"] == "retailer" and dispatch["retailer_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if GRN already exists
+    existing = await db.retailer_grn.find_one({"dispatch_id": input.dispatch_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="GRN already exists for this dispatch")
+    
+    # Calculate differences
+    items_with_diff = []
+    for item in input.items:
+        item_dict = item.model_dump()
+        item_dict["difference"] = item.received_qty - item.supplied_qty
+        items_with_diff.append(item_dict)
+    
+    grn = RetailerGRN(
+        dispatch_id=input.dispatch_id,
+        retailer_id=dispatch["retailer_id"],
+        retailer_name=dispatch["retailer_name"],
+        grn_date=datetime.now(timezone.utc),
+        items=items_with_diff,
+        confirmed_by=current_user["user_id"],
+        remarks=input.remarks
+    )
+    
+    doc = grn.model_dump()
+    doc["grn_date"] = doc["grn_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_grn.insert_one(doc)
+    
+    # Update indent status to received
+    await db.retailer_indents.update_one(
+        {"id": dispatch["indent_id"]},
+        {"$set": {"status": "received"}}
+    )
+    
+    return {"id": grn.id, "message": "GRN confirmed successfully"}
+
+# ------------ RETAILER REJECTIONS ------------
+@router.get("/retailer-rejections")
+async def get_retailer_rejections(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 2000,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["rejection_date"] = date_query
+    
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", -1).to_list(limit)
+    return rejections
+
+@router.post("/retailer-rejections")
+async def create_retailer_rejection(input: RetailerRejectionCreate, current_user: dict = Depends(get_current_user)):
+    # Only admin/staff can create rejections
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can record rejections")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id, "role": "retailer"}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # CRITICAL VALIDATION: Ensure rejection qty doesn't exceed supplied qty
+    rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
+    
+    # Find dispatches for this retailer and date to get supplied quantity
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": input.retailer_id,
+        "dispatch_date": {"$regex": f"^{rejection_date_str}"}
+    }, {"_id": 0, "items": 1}).to_list(100)
+    
+    # Find supplied quantity for this specific product + variant
+    supplied_qty = 0
+    for dispatch in dispatches:
+        for item in (dispatch.get("items") or []):
+            # Match by product_id
+            if item.get("product_id") == input.product_id:
+                # Also match by variant_id if specified
+                if input.variant_id:
+                    if item.get("variant_id") == input.variant_id:
+                        supplied_qty += float(item.get("supplied_qty", 0) or 0)
+                else:
+                    # No variant specified, just match by product
+                    supplied_qty += float(item.get("supplied_qty", 0) or 0)
+    
+    # Get existing rejections for this product+variant on this date
+    existing_query = {
+        "retailer_id": input.retailer_id,
+        "product_id": input.product_id,
+        "rejection_date": {"$regex": f"^{rejection_date_str}"}
+    }
+    if input.variant_id:
+        existing_query["variant_id"] = input.variant_id
+    
+    existing_rejections = await db.retailer_rejections.find(existing_query, {"_id": 0, "quantity": 1}).to_list(500)
+    already_rejected_qty = sum(r.get("quantity", 0) or 0 for r in existing_rejections)
+    
+    # Validate: new rejection + already rejected cannot exceed supplied
+    max_allowed = supplied_qty - already_rejected_qty
+    if input.quantity > max_allowed:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Rejection qty ({input.quantity}) exceeds maximum allowed ({max_allowed}). Supplied: {supplied_qty}, Already rejected: {already_rejected_qty}"
+        )
+    
+    rejection_value = input.quantity * input.mrp
+    
+    rejection = RetailerRejection(
+        retailer_id=input.retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        rejection_date=input.rejection_date,
+        product_id=input.product_id,
+        product_name=input.product_name,
+        variant_id=input.variant_id,
+        variant_name=input.variant_name,
+        quantity=input.quantity,
+        reason=input.reason,
+        dispatch_id=input.dispatch_id,
+        recorded_by=current_user["user_id"],
+        mrp=input.mrp,
+        rejection_value=round(rejection_value, 2),
+        remarks=input.remarks
+    )
+    
+    doc = rejection.model_dump()
+    doc["rejection_date"] = doc["rejection_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_rejections.insert_one(doc)
+    
+    # IMPORTANT: Auto-sync rejection amount to the invoice for this date/retailer
+    rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
+    await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
+    
+    # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
+    auto_credit_note = None
+    
+    # Credit note logic (universal - not based on retailer type):
+    # - If retailer has ALREADY PAID >= payable amount, create credit note for rejection
+    # - If retailer has paid less than payable, no credit note (rejection reduces payable)
+    
+    if rejection_value > 0:
+        # Find the invoice for this date
+        invoice = await db.retailer_invoices.find_one({
+            "retailer_id": input.retailer_id,
+            "invoice_date": {"$regex": f"^{rejection_date_str}"}
+        }, {"_id": 0})
+        
+        should_create_credit_note = False
+        
+        if invoice:
+            invoice_id = invoice.get("id")
+            net_payable = invoice.get("net_payable", 0) or 0
+            
+            # Calculate total paid from retailer_payments for this invoice
+            payments = await db.retailer_payments.find(
+                {"invoice_id": invoice_id},
+                {"_id": 0, "amount": 1}
+            ).to_list(100)
+            total_paid = sum(p.get("amount", 0) or 0 for p in payments)
+            
+            # If paid >= payable (before this rejection), retailer has already settled
+            # This rejection means they overpaid, so create credit note
+            if total_paid >= net_payable and net_payable > 0:
+                should_create_credit_note = True
+                logger.info(f"Creating credit note - paid ({total_paid}) >= payable ({net_payable}). Rejection creates excess payment.")
+            else:
+                # Paid < Payable: No credit note needed
+                # Rejection will reduce the payable, retailer pays the reduced amount
+                logger.info(f"Skipping credit note - paid ({total_paid}) < payable ({net_payable}). Rejection will reduce pending amount.")
+        
+        if should_create_credit_note and invoice:
+            # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
+            retailer_name = retailer.get("company_name", retailer.get("name", ""))
+            retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+            cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": input.retailer_id})
+            credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+            
+            # Calculate credit amount after deducting commission
+            # Credit = Rejection Value × (1 - Commission%)
+            # Because retailer was paying (100% - commission%) of MRP
+            commission_pct = retailer.get("commission_percentage", 0) or 0
+            credit_amount = rejection_value * (1 - commission_pct / 100)
+            
+            credit_note = {
+                "id": str(uuid.uuid4()),
+                "credit_note_number": credit_note_number,
+                "retailer_id": input.retailer_id,
+                "retailer_name": retailer.get("company_name", retailer.get("name", "")),
+                "original_invoice_id": invoice.get("id"),
+                "original_invoice_number": invoice.get("invoice_number"),
+                "rejection_id": rejection.id,
+                "rejection_date": doc["rejection_date"],
+                "rejection_value": round(rejection_value, 2),  # Original MRP value
+                "commission_percentage": commission_pct,
+                "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+                "amount": round(credit_amount, 2),  # Net credit after commission
+                "rejection_details": [{
+                    "product_name": input.product_name,
+                    "variant_name": input.variant_name,
+                    "quantity": input.quantity,
+                    "mrp": input.mrp,
+                    "value": round(rejection_value, 2),
+                    "reason": input.reason
+                }],
+                "status": "pending",
+                "adjusted_amount": 0,
+                "pending_amount": round(credit_amount, 2),
+                "adjusted_against_invoices": [],
+                "remarks": f"Auto-generated: Rejection on {rejection_date_str} after invoice was fully paid",
+                "created_by": current_user["user_id"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "auto_generated": True
+            }
+            
+            await db.retailer_credit_notes.insert_one(credit_note)
+            auto_credit_note = {
+                "id": credit_note["id"],
+                "credit_note_number": credit_note_number,
+                "amount": credit_note["amount"]
+            }
+            logger.info(f"Auto-created credit note {credit_note_number} for retailer {retailer.get('company_name', retailer.get('name'))} - Rejection: {rejection_value}, Commission: {commission_pct}%, Credit: {credit_amount}")
+    
+    response = {"id": rejection.id, "message": "Rejection recorded successfully"}
+    if auto_credit_note:
+        response["auto_credit_note"] = auto_credit_note
+        response["message"] = f"Rejection recorded and Credit Note {auto_credit_note['credit_note_number']} auto-generated"
+    
+    return response
+
+async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
+    """
+    Sync rejection amounts from retailer_rejections to the corresponding invoice.
+    This ensures Payment Summary shows correct rejection values AND item-level rejections.
+    """
+    try:
+        # Get all rejections for this retailer and date
+        rejections = await db.retailer_rejections.find({
+            "retailer_id": retailer_id,
+            "rejection_date": {"$regex": f"^{date_str}"}
+        }, {"_id": 0}).to_list(500)
+        
+        total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+        
+        # Group rejections by MULTIPLE keys for flexible matching
+        # Key 1: product_id + variant_id (exact match)
+        # Key 2: product_id + variant_name (fallback)
+        rejection_by_exact = {}  # product_id + variant_id
+        rejection_by_name = {}   # product_id + variant_name
+        
+        for rej in rejections:
+            product_id = rej.get('product_id', '') or ''
+            variant_id = rej.get('variant_id', '') or ''
+            variant_name = rej.get('variant_name', '') or ''
+            
+            rej_data = {"qty": rej.get("quantity", 0) or 0, "value": rej.get("rejection_value", 0) or 0}
+            
+            # Store by exact variant_id if it's a valid ID
+            if variant_id and variant_id not in ['N/A', 'None', 'null', '', 'undefined']:
+                exact_key = f"{product_id}_{variant_id}"
+                if exact_key not in rejection_by_exact:
+                    rejection_by_exact[exact_key] = {"qty": 0, "value": 0}
+                rejection_by_exact[exact_key]["qty"] += rej_data["qty"]
+                rejection_by_exact[exact_key]["value"] += rej_data["value"]
+            
+            # Also store by variant_name for fallback matching
+            if variant_name:
+                name_key = f"{product_id}_{variant_name}"
+                if name_key not in rejection_by_name:
+                    rejection_by_name[name_key] = {"qty": 0, "value": 0}
+                rejection_by_name[name_key]["qty"] += rej_data["qty"]
+                rejection_by_name[name_key]["value"] += rej_data["value"]
+        
+        # Find the invoice for this date and retailer
+        invoice = await db.retailer_invoices.find_one({
+            "retailer_id": retailer_id,
+            "invoice_date": {"$regex": f"^{date_str}"}
+        }, {"_id": 0})
+        
+        if invoice:
+            gross_value = invoice.get("gross_value", 0) or 0
+            commission_pct = invoice.get("commission_percentage", 0) or 0
+            
+            # Recalculate: net_mrp = gross - rejections, then apply commission
+            net_mrp_value = gross_value - total_rejection_value
+            commission_amount = net_mrp_value * (commission_pct / 100)
+            net_payable = net_mrp_value - commission_amount
+            
+            # Update item-level rejections in the invoice
+            updated_items = []
+            for item in invoice.get("items", []):
+                item_product_id = item.get('product_id', '') or ''
+                item_variant_id = item.get('variant_id', '') or ''
+                item_variant_name = item.get('variant_name', '') or ''
+                
+                rej_data = {"qty": 0, "value": 0}
+                
+                # Try to match by exact variant_id first (if invoice item has valid variant_id)
+                if item_variant_id and item_variant_id not in ['N/A', 'None', 'null', '', 'undefined']:
+                    exact_key = f"{item_product_id}_{item_variant_id}"
+                    if exact_key in rejection_by_exact:
+                        rej_data = rejection_by_exact[exact_key]
+                
+                # If no match by variant_id, try matching by variant_name
+                if rej_data["qty"] == 0 and item_variant_name:
+                    name_key = f"{item_product_id}_{item_variant_name}"
+                    if name_key in rejection_by_name:
+                        rej_data = rejection_by_name[name_key]
+                
+                # Update rejection_qty and recalculate billable_qty
+                supplied_qty = item.get("supplied_qty", item.get("quantity", 0)) or 0
+                rejection_qty = rej_data["qty"]
+                billable_qty = max(0, supplied_qty - rejection_qty)
+                mrp = item.get("mrp", 0) or 0
+                amount = billable_qty * mrp
+                
+                updated_item = {
+                    **item,
+                    "rejected_qty": rejection_qty,  # Use consistent field name
+                    "rejection_qty": rejection_qty,  # Keep both for backwards compatibility
+                    "billable_qty": billable_qty,
+                    "amount": round(amount, 2)
+                }
+                updated_items.append(updated_item)
+            
+            # Update the invoice with both totals and item-level rejections
+            await db.retailer_invoices.update_one(
+                {"id": invoice["id"]},
+                {"$set": {
+                    "rejection_amount": round(total_rejection_value, 2),
+                    "total_mrp_value": round(net_mrp_value, 2),
+                    "commission_amount": round(commission_amount, 2),
+                    "net_payable": round(net_payable, 2),
+                    "items": updated_items
+                }}
+            )
+            logger.info(f"Synced rejection amount ₹{total_rejection_value} and {len(rejection_by_item)} item rejections to invoice {invoice.get('invoice_number')}")
+    except Exception as e:
+        logger.error(f"Failed to sync invoice rejection amount: {e}")
+
+@router.post("/admin/sync-invoice-rejections")
+async def sync_all_invoice_rejections(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Sync all rejection amounts from retailer_rejections to corresponding invoices.
+    This fixes invoices that have rejection_amount=0 but should have rejection values.
+    Also syncs item-level rejection data.
+    """
+    if current_user.get("role") not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get all rejections grouped by retailer_id and date
+    query = {}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(10000)
+    
+    # Group rejections by (retailer_id, date)
+    rejection_keys = set()
+    for rej in rejections:
+        rej_date = rej.get("rejection_date", "")[:10]
+        ret_id = rej.get("retailer_id")
+        if ret_id and rej_date:
+            rejection_keys.add((ret_id, rej_date))
+    
+    # Call the proper sync function for each retailer+date combination
+    # This does both totals AND item-level sync
+    updated_count = 0
+    for (ret_id, date_str) in rejection_keys:
+        try:
+            await sync_invoice_rejection_amount(ret_id, date_str)
+            updated_count += 1
+        except Exception as e:
+            logger.error(f"Failed to sync for retailer {ret_id} date {date_str}: {e}")
+    
+    return {
+        "message": f"Synced rejection amounts to {updated_count} invoices",
+        "updated_count": updated_count,
+        "total_rejection_entries": len(rejection_keys)
+    }
+
+@router.delete("/retailer-rejections/{rejection_id}")
+async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete rejections")
+    
+    # Get the rejection first to know which invoice to re-sync
+    rejection = await db.retailer_rejections.find_one({"id": rejection_id}, {"_id": 0})
+    if not rejection:
+        raise HTTPException(status_code=404, detail="Rejection not found")
+    
+    # Find and delete any credit note linked to this rejection
+    credit_note = await db.retailer_credit_notes.find_one({"rejection_id": rejection_id}, {"_id": 0})
+    credit_note_deleted = False
+    if credit_note:
+        # Check if credit note has been adjusted (used against invoices)
+        if credit_note.get("adjusted_amount", 0) > 0:
+            # Credit note has been partially/fully adjusted - we can't delete it
+            # Instead, mark it as void or reduce its amount
+            await db.retailer_credit_notes.update_one(
+                {"id": credit_note["id"]},
+                {"$set": {
+                    "status": "voided",
+                    "voided_reason": f"Source rejection {rejection_id} was deleted",
+                    "amount": 0,
+                    "pending_amount": 0
+                }}
+            )
+        else:
+            # Credit note hasn't been used - safe to delete
+            await db.retailer_credit_notes.delete_one({"id": credit_note["id"]})
+            credit_note_deleted = True
+    
+    # Delete the rejection
+    result = await db.retailer_rejections.delete_one({"id": rejection_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Rejection not found")
+    
+    # Re-sync the invoice for this rejection's date/retailer
+    rej_date = rejection.get("rejection_date", "")[:10]
+    retailer_id = rejection.get("retailer_id")
+    if rej_date and retailer_id:
+        await sync_invoice_rejection_amount(retailer_id, rej_date)
+    
+    message = "Rejection deleted successfully"
+    if credit_note:
+        if credit_note_deleted:
+            message += f". Credit note {credit_note.get('credit_note_number')} also deleted."
+        else:
+            message += f". Credit note {credit_note.get('credit_note_number')} voided (was partially adjusted)."
+    
+    return {"message": message, "credit_note_deleted": credit_note_deleted}
+
+@router.get("/retailer-rejections/history")
+async def get_rejection_history(
+    dispatch_id: str = None,
+    product_id: str = None,
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get rejection history for a specific dispatch/product/retailer combination.
+    Returns all previous rejections with dates to show cumulative history.
+    NOTE: dispatch_id is IGNORED to fetch all rejections for this product/retailer
+    regardless of which dispatch date the rejection was originally recorded against.
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    # IMPORTANT: Do NOT filter by dispatch_id - we want ALL rejections for this product/retailer
+    # to show proper history even if rejections were recorded against different dispatch dates
+    if product_id:
+        query["product_id"] = product_id
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Get all rejections matching the criteria, sorted by date
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", 1).to_list(100)
+    
+    # Calculate total rejection
+    total_qty = sum(r.get("quantity", 0) for r in rejections)
+    total_value = sum(r.get("rejection_value", 0) for r in rejections)
+    
+    return {
+        "rejections": rejections,
+        "total_quantity": round(total_qty, 2),
+        "total_value": round(total_value, 2),
+        "count": len(rejections)
+    }
+
+
+@router.post("/retailer-rejections/history-batch")
+async def get_rejection_history_batch(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get rejection history for multiple products at once (batch API).
+    This is much faster than making separate calls for each product.
+    
+    Input: { 
+        "retailer_id": "...", 
+        "product_ids": ["prod1", "prod2", ...],
+        "variant_ids": ["var1", "var2", ...],  # Optional - for variant-level tracking
+        "rejection_date": "YYYY-MM-DD" (optional - if provided, filters to only this date)
+    }
+    
+    Returns: {
+        "history": {
+            "product_id_1": { "rejections": [...], "total_quantity": 0, "total_value": 0 },
+            "product_id_1|variant_id_1": { "rejections": [...], "total_quantity": 0, "total_value": 0 },
+            ...
+        }
+    }
+    
+    Note: Returns BOTH product-level and product+variant level aggregations.
+    Frontend should prefer the more specific product+variant key when available.
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    retailer_id = input.get("retailer_id")
+    product_ids = input.get("product_ids", [])
+    variant_ids = input.get("variant_ids", [])  # NEW: variant IDs for precise tracking
+    rejection_date = input.get("rejection_date")  # The dispatch date we're recording rejections for
+    
+    if not retailer_id or not product_ids:
+        return {"history": {}}
+    
+    # Build query - filter by retailer and products
+    query = {
+        "retailer_id": retailer_id,
+        "product_id": {"$in": product_ids}
+    }
+    
+    # IMPORTANT: Filter by rejection_date to only show rejections for THIS SPECIFIC DATE
+    # This ensures "Previous Rej." only shows rejections already recorded for this dispatch date
+    if rejection_date:
+        # Match rejection_date that starts with the given date (handles ISO datetime strings)
+        query["rejection_date"] = {"$regex": f"^{rejection_date}"}
+    
+    all_rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("created_at", 1).to_list(500)
+    
+    # Initialize history - both product-level and product+variant level
+    history = {}
+    
+    # Initialize product-level entries
+    for product_id in product_ids:
+        history[product_id] = {
+            "rejections": [],
+            "total_quantity": 0,
+            "total_value": 0
+        }
+    
+    # Process rejections and group by BOTH product_id AND product_id+variant_id
+    for rej in all_rejections:
+        pid = rej.get("product_id")
+        vid = rej.get("variant_id") or ""
+        qty = rej.get("quantity", 0) or 0
+        val = rej.get("rejection_value", 0) or 0
+        
+        # Add to product-level aggregation
+        if pid in history:
+            history[pid]["rejections"].append(rej)
+            history[pid]["total_quantity"] += qty
+            history[pid]["total_value"] += val
+        
+        # Also add to product+variant-level aggregation (more specific key)
+        composite_key = f"{pid}|{vid}" if vid else pid
+        if composite_key not in history:
+            history[composite_key] = {
+                "rejections": [],
+                "total_quantity": 0,
+                "total_value": 0
+            }
+        history[composite_key]["rejections"].append(rej)
+        history[composite_key]["total_quantity"] += qty
+        history[composite_key]["total_value"] += val
+    
+    # Round the totals
+    for key in history:
+        history[key]["total_quantity"] = round(history[key]["total_quantity"], 2)
+        history[key]["total_value"] = round(history[key]["total_value"], 2)
+    
+    return {"history": history}
+
+
+
+
+@router.put("/retailer-rejections/{rejection_id}")
+async def update_retailer_rejection(rejection_id: str, rejection: RetailerRejection, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update rejections")
+    
+    # Check if rejection exists
+    existing = await db.retailer_rejections.find_one({"id": rejection_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rejection not found")
+    
+    # Update the rejection
+    update_data = {
+        "retailer_id": rejection.retailer_id,
+        "rejection_date": rejection.rejection_date,
+        "product_id": rejection.product_id,
+        "product_name": rejection.product_name,
+        "variant_id": rejection.variant_id,
+        "variant_name": rejection.variant_name,
+        "quantity": rejection.quantity,
+        "mrp": rejection.mrp,
+        "reason": rejection.reason,
+        "remarks": rejection.remarks,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.retailer_rejections.update_one(
+        {"id": rejection_id},
+        {"$set": update_data}
+    )
+    
+    # Re-sync the invoice for both old and new dates
+    old_date = existing.get("rejection_date", "")[:10]
+    old_retailer = existing.get("retailer_id")
+    new_date = rejection.rejection_date[:10] if rejection.rejection_date else ""
+    new_retailer = rejection.retailer_id
+    
+    if old_date and old_retailer:
+        await sync_invoice_rejection_amount(old_retailer, old_date)
+    if new_date and new_retailer and (new_date != old_date or new_retailer != old_retailer):
+        await sync_invoice_rejection_amount(new_retailer, new_date)
+    
+    return {"id": rejection_id, "message": "Rejection updated successfully"}
+
+
+# ------------ RETAILER PAYMENTS ------------
+@router.get("/retailer-payments")
+async def get_retailer_payments(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 500,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["payment_date"] = date_query
+    
+    payments = await db.retailer_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(limit)
+    return payments
+
+@router.post("/retailer-payments")
+async def create_retailer_payment(input: RetailerPaymentCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can record payments")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id, "role": "retailer"}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    payment = RetailerPayment(
+        retailer_id=input.retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        payment_date=input.payment_date,
+        amount=input.amount,
+        payment_mode=input.payment_mode,
+        reference_number=input.reference_number,
+        recorded_by=current_user["user_id"],
+        remarks=input.remarks
+    )
+    
+    doc = payment.model_dump()
+    doc["payment_date"] = doc["payment_date"].isoformat()
+    doc["created_at"] = doc["created_at"].isoformat()
+    
+    await db.retailer_payments.insert_one(doc)
+    return {"id": payment.id, "message": "Payment recorded successfully"}
+
+@router.put("/retailer-payments/{payment_id}")
+async def update_retailer_payment(payment_id: str, payment_data: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing payment"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update payments")
+    
+    # Get the original payment
+    original_payment = await db.retailer_payments.find_one({"id": payment_id})
+    if not original_payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    invoice_id = original_payment.get("invoice_id")
+    old_amount = original_payment.get("amount", 0)
+    new_amount = payment_data.get("amount", old_amount)
+    
+    # Validate new amount
+    if new_amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be positive")
+    
+    # Update the payment
+    update_data = {
+        "amount": round(new_amount, 2),
+        "payment_mode": payment_data.get("payment_mode", original_payment.get("payment_mode")),
+        "reference_number": payment_data.get("reference_number", original_payment.get("reference_number")),
+        "remarks": payment_data.get("remarks", original_payment.get("remarks")),
+        "payment_date": payment_data.get("payment_date", original_payment.get("payment_date")),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    await db.retailer_payments.update_one(
+        {"id": payment_id},
+        {"$set": update_data}
+    )
+    
+    # If payment was linked to an invoice, recalculate invoice paid_amount and status
+    if invoice_id:
+        invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+        if invoice:
+            # Recalculate total paid from all payments
+            all_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+            new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
+            net_payable = invoice.get("net_payable", 0)
+            
+            # Determine new status (use tolerance for floating point comparison)
+            if new_paid_amount >= net_payable - 0.01:
+                new_status = "paid"
+            elif new_paid_amount > 0:
+                new_status = "partial"
+            else:
+                new_status = "pending"
+            
+            # Update invoice
+            await db.retailer_invoices.update_one(
+                {"id": invoice_id},
+                {"$set": {"paid_amount": round(new_paid_amount, 2), "status": new_status}}
+            )
+    
+    return {"message": "Payment updated successfully"}
+
+@router.delete("/retailer-payments/{payment_id}")
+async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete payments")
+    
+    # Get the payment first to know which invoice to update
+    payment = await db.retailer_payments.find_one({"id": payment_id})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    invoice_id = payment.get("invoice_id")
+    payment_amount = payment.get("amount", 0)
+    
+    # Delete the payment
+    result = await db.retailer_payments.delete_one({"id": payment_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    # If payment was linked to an invoice, fully recalculate invoice totals
+    if invoice_id:
+        invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+        if invoice:
+            retailer_id = invoice.get("retailer_id")
+            
+            # Recalculate total paid from remaining payments
+            remaining_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+            new_paid_amount = sum(p.get("amount", 0) for p in remaining_payments)
+            
+            # Get rejection amount for this invoice
+            dispatch_ids = invoice.get("dispatch_ids", [])
+            if isinstance(dispatch_ids, str):
+                try:
+                    import ast
+                    dispatch_ids = ast.literal_eval(dispatch_ids)
+                except:
+                    dispatch_ids = []
+            
+            total_rejection_value = 0
+            if dispatch_ids and retailer_id:
+                dispatches = await db.retailer_dispatches.find(
+                    {"id": {"$in": dispatch_ids}},
+                    {"_id": 0, "dispatch_date": 1}
+                ).to_list(100)
+                dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+                
+                if dispatch_dates:
+                    rejection_query = {
+                        "retailer_id": retailer_id,
+                        "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+                    }
+                    rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+                    total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+            
+            # Recalculate net values
+            gross_value = float(invoice.get("gross_value", 0) or 0)
+            if gross_value == 0:
+                # Calculate from items if not stored
+                items = invoice.get("items", [])
+                gross_value = sum(
+                    (item.get("supplied_qty", item.get("quantity", 0)) or 0) * (item.get("mrp", 0) or 0)
+                    for item in items
+                )
+            
+            net_mrp_value = gross_value - total_rejection_value
+            commission_pct = float(invoice.get("commission_percentage", 0) or 0)
+            commission_amount = net_mrp_value * (commission_pct / 100)
+            net_payable = net_mrp_value - commission_amount
+            
+            # Account for credit note adjustments
+            total_credit_adjusted = sum(
+                adj.get("amount", 0) for adj in invoice.get("credit_note_adjustments", [])
+            )
+            final_payable = net_payable - total_credit_adjusted
+            remaining_amount = max(0, final_payable - new_paid_amount)
+            
+            # Determine new status
+            if final_payable <= 0.01 or new_paid_amount >= final_payable - 0.01:
+                new_status = "paid"
+            elif new_paid_amount > 0 or total_credit_adjusted > 0:
+                new_status = "partial"
+            else:
+                new_status = "pending"
+            
+            # Update invoice with all recalculated values
+            await db.retailer_invoices.update_one(
+                {"id": invoice_id},
+                {"$set": {
+                    "paid_amount": round(new_paid_amount, 2),
+                    "remaining_amount": round(remaining_amount, 2),
+                    "status": new_status,
+                    "payment_status": new_status,
+                    "total_mrp_value": round(net_mrp_value, 2),  # Net after rejections
+                    "rejection_amount": round(total_rejection_value, 2),
+                    "commission_amount": round(commission_amount, 2),
+                    "net_payable": round(net_payable, 2),
+                    "final_payable": round(final_payable, 2)
+                }}
+            )
+            
+            logger.info(f"Deleted payment {payment_id}, recalculated invoice {invoice.get('invoice_number')}: paid={new_paid_amount}, rejection={total_rejection_value}, net_payable={net_payable}, status={new_status}")
+    
+    return {"message": "Payment deleted successfully"}
+
+
+@router.get("/retailer-payments/orphans")
+async def get_orphan_payments(current_user: dict = Depends(get_current_user)):
+    """Find payments that are not linked to any existing invoice"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view orphan payments")
+    
+    # Get all payments
+    all_payments = await db.retailer_payments.find({}, {"_id": 0}).to_list(10000)
+    
+    # Get all invoice numbers
+    all_invoices = await db.retailer_invoices.find({}, {"_id": 0, "invoice_number": 1}).to_list(10000)
+    invoice_numbers = {inv["invoice_number"] for inv in all_invoices if inv.get("invoice_number")}
+    
+    # Find orphan payments (not linked to any existing invoice)
+    orphan_payments = []
+    for payment in all_payments:
+        invoice_num = payment.get("invoice_number")
+        if invoice_num and invoice_num not in invoice_numbers:
+            orphan_payments.append(payment)
+    
+    return {
+        "total_payments": len(all_payments),
+        "orphan_count": len(orphan_payments),
+        "orphan_payments": orphan_payments
+    }
+
+
+@router.get("/retailer-payments/detailed/{retailer_id}")
+async def get_retailer_payments_detailed(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get ALL payments for a specific retailer with full details - for debugging"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can view detailed payments")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "name": 1, "email": 1})
+    
+    # Get all payments for this retailer
+    payments = await db.retailer_payments.find({"retailer_id": retailer_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    
+    # Get all invoices for this retailer to cross-reference
+    invoices = await db.retailer_invoices.find({"retailer_id": retailer_id}, {"_id": 0, "id": 1, "invoice_number": 1, "net_payable": 1, "paid_amount": 1, "status": 1}).to_list(1000)
+    invoice_map = {inv["id"]: inv for inv in invoices}
+    
+    # Enrich payments with invoice info and identify orphans
+    enriched_payments = []
+    total_amount = 0
+    for payment in payments:
+        invoice_id = payment.get("invoice_id")
+        invoice_info = invoice_map.get(invoice_id) if invoice_id else None
+        
+        enriched_payments.append({
+            **payment,
+            "linked_invoice": invoice_info,
+            "is_orphan": invoice_id and not invoice_info
+        })
+        total_amount += payment.get("amount", 0)
+    
+    return {
+        "retailer": retailer,
+        "retailer_id": retailer_id,
+        "total_payments_count": len(payments),
+        "total_amount": round(total_amount, 2),
+        "payments": enriched_payments
+    }
+
+
+# ------------ RETAILER CREDIT NOTES ------------
+
+@router.get("/retailer-credit-notes")
+async def get_retailer_credit_notes(
+    retailer_id: str = None,
+    status: str = None,
+    original_invoice_id: str = None,
+    adjusted_against_invoice: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all credit notes, optionally filtered by retailer, status, or invoice"""
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    if status:
+        query["status"] = status
+    
+    # Filter by original invoice (credit notes CREATED FROM this invoice)
+    if original_invoice_id:
+        query["original_invoice_id"] = original_invoice_id
+    
+    # Filter by adjusted against invoice (credit notes APPLIED TO this invoice)
+    if adjusted_against_invoice:
+        query["adjusted_against_invoices.invoice_id"] = adjusted_against_invoice
+    
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return credit_notes
+
+@router.get("/retailer-credit-notes/pending/{retailer_id}")
+async def get_pending_credit_notes(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get pending and partial credit notes for a retailer (for payment collection)"""
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(100)
+    
+    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in credit_notes)
+    
+    return {
+        "credit_notes": credit_notes,
+        "total_pending_credit": round(total_pending, 2),
+        "count": len(credit_notes)
+    }
+
+
+@router.get("/retailer-credit-notes/my-summary")
+async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_user)):
+    """Get credit notes summary for the logged-in retailer grouped by INVOICE (supply date)"""
+    if current_user["role"] != "retailer":
+        raise HTTPException(status_code=403, detail="Only retailers can access this endpoint")
+    
+    retailer_id = current_user["user_id"]
+    
+    # Fetch all credit notes for this retailer
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    # Calculate summary totals
+    total_issued = sum(cn.get("amount", 0) for cn in credit_notes)
+    total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in credit_notes)
+    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in credit_notes)
+    
+    # Group credit notes by INVOICE (original_invoice_number)
+    # This shows all rejections for a particular supply/invoice together
+    from collections import defaultdict
+    invoice_groups = defaultdict(lambda: {"credit_notes": [], "total_credit": 0, "invoice_date": None})
+    
+    for cn in credit_notes:
+        invoice_num = cn.get("original_invoice_number") or "Unknown Invoice"
+        invoice_groups[invoice_num]["credit_notes"].append(cn)
+        invoice_groups[invoice_num]["total_credit"] += cn.get("amount", 0)
+        
+        # Extract invoice date from invoice number (format: XXX-INV-DDMMMYYYY-NNN)
+        # e.g., SAV-INV-01JUN2026-001 -> 2026-06-01
+        if not invoice_groups[invoice_num]["invoice_date"]:
+            try:
+                # Try to extract date from invoice number
+                parts = invoice_num.split('-')
+                if len(parts) >= 3:
+                    date_part = parts[2]  # e.g., "01JUN2026"
+                    if len(date_part) >= 9:
+                        day = date_part[:2]
+                        month_str = date_part[2:5].upper()
+                        year = date_part[5:9]
+                        month_map = {'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04', 
+                                     'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
+                                     'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'}
+                        month = month_map.get(month_str, '01')
+                        invoice_groups[invoice_num]["invoice_date"] = f"{year}-{month}-{day}"
+            except:
+                pass
+    
+    # Convert to sorted list (newest invoice first)
+    invoices_list = []
+    for invoice_num, group in sorted(invoice_groups.items(), key=lambda x: x[1].get("invoice_date") or "0000-00-00", reverse=True):
+        invoices_list.append({
+            "invoice_number": invoice_num,
+            "invoice_date": group["invoice_date"],
+            "credit_amount": round(group["total_credit"], 2),
+            "credit_note_count": len(group["credit_notes"]),
+            "credit_notes": group["credit_notes"]
+        })
+    
+    return {
+        "summary": {
+            "total_issued": round(total_issued, 2),
+            "total_adjusted": round(total_adjusted, 2),
+            "total_pending": round(total_pending, 2),
+            "total_count": len(credit_notes)
+        },
+        "invoices": invoices_list
+    }
+
+
+@router.post("/retailer-credit-notes")
+async def create_retailer_credit_note(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a credit note from a rejection"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create credit notes")
+    
+    # Get the original invoice
+    original_invoice = await db.retailer_invoices.find_one({"id": input.get("original_invoice_id")})
+    if not original_invoice:
+        raise HTTPException(status_code=404, detail="Original invoice not found")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.get("retailer_id")})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
+    retailer_name = retailer.get("company_name", retailer.get("name", ""))
+    retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+    count = await db.retailer_credit_notes.count_documents({"retailer_id": input.get("retailer_id")})
+    credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
+    
+    # Calculate credit amount after deducting commission
+    # Credit = Rejection Value × (1 - Commission%)
+    rejection_value = input.get("amount", 0)
+    commission_pct = retailer.get("commission_percentage", 0) or 0
+    credit_amount = rejection_value * (1 - commission_pct / 100)
+    
+    # Create credit note
+    credit_note = {
+        "id": str(uuid.uuid4()),
+        "credit_note_number": credit_note_number,
+        "retailer_id": input.get("retailer_id"),
+        "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
+        "original_invoice_id": input.get("original_invoice_id"),
+        "original_invoice_number": original_invoice.get("invoice_number", ""),
+        "rejection_id": input.get("rejection_id"),
+        "rejection_date": datetime.now(timezone.utc),
+        "rejection_value": round(rejection_value, 2),  # Original MRP value
+        "commission_percentage": commission_pct,
+        "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+        "amount": round(credit_amount, 2),  # Net credit after commission
+        "rejection_details": input.get("rejection_details", []),
+        "status": "pending",
+        "adjusted_amount": 0,
+        "pending_amount": round(credit_amount, 2),
+        "adjusted_against_invoices": [],
+        "remarks": input.get("remarks"),
+        "created_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.retailer_credit_notes.insert_one(credit_note)
+    
+    # Update the original invoice to mark it has a credit note
+    await db.retailer_invoices.update_one(
+        {"id": input.get("original_invoice_id")},
+        {
+            "$set": {
+                "has_credit_note": True,
+                "credit_note_amount": round(credit_amount, 2),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {
+        "message": "Credit note created successfully",
+        "credit_note": {k: v for k, v in credit_note.items() if k != "_id"}
+    }
+
+@router.post("/retailer-credit-notes/from-excess")
+async def create_credit_note_from_excess(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a credit note from excess payment on an invoice"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create credit notes")
+    
+    invoice_id = input.get("invoice_id")
+    excess_amount = input.get("excess_amount", 0)
+    remarks = input.get("remarks", "")
+    
+    if excess_amount <= 0:
+        raise HTTPException(status_code=400, detail="Excess amount must be greater than 0")
+    
+    # Get the invoice
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    retailer_id = invoice.get("retailer_id")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": retailer_id})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Check if credit note already exists for this invoice's excess
+    existing_cn = await db.retailer_credit_notes.find_one({
+        "original_invoice_id": invoice_id,
+        "source": "excess_payment"
+    })
+    if existing_cn:
+        raise HTTPException(status_code=400, detail=f"Credit note {existing_cn.get('credit_note_number')} already exists for this invoice's excess payment")
+    
+    # Generate credit note number
+    retailer_name = retailer.get("company_name", retailer.get("name", ""))
+    retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+    count = await db.retailer_credit_notes.count_documents({"retailer_id": retailer_id})
+    credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
+    
+    # Create credit note - no commission deduction for excess payments (already collected)
+    credit_note = {
+        "id": str(uuid.uuid4()),
+        "credit_note_number": credit_note_number,
+        "retailer_id": retailer_id,
+        "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
+        "original_invoice_id": invoice_id,
+        "original_invoice_number": invoice.get("invoice_number", ""),
+        "source": "excess_payment",  # Mark as excess payment credit note
+        "rejection_id": None,
+        "rejection_date": None,
+        "rejection_value": 0,  # No rejection value - this is from excess payment
+        "commission_percentage": 0,  # No commission deduction
+        "commission_deducted": 0,
+        "amount": round(excess_amount, 2),  # Full excess amount as credit
+        "rejection_details": [],
+        "status": "pending",
+        "adjusted_amount": 0,
+        "pending_amount": round(excess_amount, 2),
+        "adjusted_against_invoices": [],
+        "remarks": remarks or f"Excess payment on invoice {invoice.get('invoice_number', '')}",
+        "created_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.retailer_credit_notes.insert_one(credit_note)
+    
+    # Update the invoice to mark it has excess credit note
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {
+            "$set": {
+                "has_excess_credit_note": True,
+                "excess_credit_note_id": credit_note["id"],
+                "excess_credit_note_amount": round(excess_amount, 2),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    logger.info(f"Created excess payment credit note {credit_note_number} for {retailer_name} - Amount: {excess_amount}")
+    
+    return {
+        "message": f"Credit note {credit_note_number} created for excess amount ₹{excess_amount}",
+        "credit_note": {k: v for k, v in credit_note.items() if k != "_id"}
+    }
+
+@router.post("/retailer-credit-notes/adjust")
+async def adjust_credit_note(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Adjust credit note(s) against an invoice during payment collection"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can adjust credit notes")
+    
+    invoice_id = input.get("invoice_id")
+    adjustments = input.get("adjustments", [])  # [{credit_note_id, amount}]
+    
+    # Get the invoice
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    total_adjusted = 0
+    adjustment_records = []
+    
+    for adj in adjustments:
+        cn_id = adj.get("credit_note_id")
+        adj_amount = adj.get("amount", 0)
+        
+        credit_note = await db.retailer_credit_notes.find_one({"id": cn_id})
+        if not credit_note:
+            continue
+        
+        pending = credit_note.get("pending_amount", credit_note.get("amount", 0))
+        actual_adj = min(adj_amount, pending)
+        
+        if actual_adj <= 0:
+            continue
+        
+        # Update credit note
+        new_adjusted = credit_note.get("adjusted_amount", 0) + actual_adj
+        new_pending = credit_note.get("amount", 0) - new_adjusted
+        new_status = "adjusted" if new_pending <= 0 else "partial"
+        
+        adjustment_record = {
+            "invoice_id": invoice_id,
+            "invoice_number": invoice.get("invoice_number", ""),
+            "amount": actual_adj,
+            "date": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.retailer_credit_notes.update_one(
+            {"id": cn_id},
+            {
+                "$set": {
+                    "adjusted_amount": round(new_adjusted, 2),
+                    "pending_amount": round(max(0, new_pending), 2),
+                    "status": new_status,
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$push": {
+                    "adjusted_against_invoices": adjustment_record
+                }
+            }
+        )
+        
+        total_adjusted += actual_adj
+        adjustment_records.append({
+            "credit_note_id": cn_id,
+            "credit_note_number": credit_note.get("credit_note_number"),
+            "amount_adjusted": actual_adj
+        })
+    
+    # Update invoice with credit adjustment info
+    if total_adjusted > 0:
+        await db.retailer_invoices.update_one(
+            {"id": invoice_id},
+            {
+                "$set": {
+                    "credit_adjusted": True,
+                    "credit_adjustment_amount": total_adjusted,
+                    "credit_adjustments": adjustment_records,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+    
+    return {
+        "message": f"Credit adjustment of ₹{total_adjusted} applied successfully",
+        "total_adjusted": round(total_adjusted, 2),
+        "adjustments": adjustment_records
+    }
+
+@router.delete("/retailer-credit-notes/{credit_note_id}")
+async def delete_credit_note(credit_note_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a credit note (only if not adjusted)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete credit notes")
+    
+    credit_note = await db.retailer_credit_notes.find_one({"id": credit_note_id})
+    if not credit_note:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    
+    if credit_note.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Cannot delete adjusted credit notes")
+    
+    # Remove credit note
+    await db.retailer_credit_notes.delete_one({"id": credit_note_id})
+    
+    # Update original invoice
+    await db.retailer_invoices.update_one(
+        {"id": credit_note.get("original_invoice_id")},
+        {
+            "$set": {
+                "has_credit_note": False,
+                "credit_note_amount": 0,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {"message": "Credit note deleted successfully"}
+
+@router.put("/retailer-credit-notes/{credit_note_id}")
+async def update_credit_note(credit_note_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update a credit note (only if pending or partial - not fully adjusted)"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update credit notes")
+    
+    credit_note = await db.retailer_credit_notes.find_one({"id": credit_note_id}, {"_id": 0})
+    if not credit_note:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    
+    # Don't allow editing fully adjusted credit notes
+    if credit_note.get("status") == "adjusted":
+        raise HTTPException(status_code=400, detail="Cannot edit fully adjusted credit notes")
+    
+    update_data = {}
+    
+    # Updatable fields
+    if "amount" in input:
+        new_amount = float(input["amount"])
+        adjusted_amount = credit_note.get("adjusted_amount", 0)
+        
+        # New amount must be >= already adjusted amount
+        if new_amount < adjusted_amount:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"New amount (₹{new_amount}) cannot be less than already adjusted amount (₹{adjusted_amount})"
+            )
+        
+        update_data["amount"] = round(new_amount, 2)
+        update_data["pending_amount"] = round(new_amount - adjusted_amount, 2)
+        
+        # Update status if needed
+        if update_data["pending_amount"] <= 0.01:
+            update_data["status"] = "adjusted"
+        elif adjusted_amount > 0:
+            update_data["status"] = "partial"
+        else:
+            update_data["status"] = "pending"
+    
+    if "remarks" in input:
+        update_data["remarks"] = input["remarks"]
+    
+    if "rejection_details" in input:
+        update_data["rejection_details"] = input["rejection_details"]
+    
+    if not update_data:
+        return {"message": "No changes to update", "credit_note": credit_note}
+    
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.retailer_credit_notes.update_one(
+        {"id": credit_note_id},
+        {"$set": update_data}
+    )
+    
+    # Update invoice credit_note_amount if amount changed
+    if "amount" in input:
+        await db.retailer_invoices.update_one(
+            {"id": credit_note.get("original_invoice_id")},
+            {"$set": {"credit_note_amount": update_data["amount"]}}
+        )
+    
+    # Fetch updated credit note
+    updated_cn = await db.retailer_credit_notes.find_one({"id": credit_note_id}, {"_id": 0})
+    
+    return {"message": "Credit note updated successfully", "credit_note": updated_cn}
+
+@router.get("/retailer-credit-notes/summary/{retailer_id}")
+async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Depends(get_current_user)):
+    """Get credit note summary for a retailer"""
+    all_cns = await db.retailer_credit_notes.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(500)
+    
+    total_credit_issued = sum(cn.get("amount", 0) for cn in all_cns)
+    total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in all_cns)
+    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in all_cns if cn.get("status") in ["pending", "partial"])
+    
+    return {
+        "total_credit_issued": round(total_credit_issued, 2),
+        "total_adjusted": round(total_adjusted, 2),
+        "total_pending": round(total_pending, 2),
+        "pending_count": len([cn for cn in all_cns if cn.get("status") in ["pending", "partial"]]),
+        "adjusted_count": len([cn for cn in all_cns if cn.get("status") == "adjusted"])
+    }
+
+class RemoveCreditAdjustmentInput(BaseModel):
+    invoice_id: str
+
+@router.post("/retailer-credit-notes/backfill-rejection-details")
+async def backfill_credit_note_rejection_details(current_user: dict = Depends(get_current_user)):
+    """Backfill rejection_details for credit notes that have linked rejections but missing details"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    updated_count = 0
+    skipped_count = 0
+    no_rejection_link = 0
+    
+    # Find all credit notes
+    credit_notes = await db.retailer_credit_notes.find({}, {"_id": 0}).to_list(1000)
+    
+    for cn in credit_notes:
+        # Check if rejection_details are complete
+        existing_details = cn.get("rejection_details", [])
+        first_detail = existing_details[0] if existing_details else {}
+        
+        # If details are already complete, skip
+        qty = first_detail.get("quantity") or first_detail.get("rejected_qty")
+        rate = first_detail.get("mrp") or first_detail.get("rate")
+        if qty and rate:
+            skipped_count += 1
+            continue
+        
+        # Try to find the linked rejection
+        rejection_id = cn.get("rejection_id")
+        if not rejection_id:
+            no_rejection_link += 1
+            continue
+        
+        rejection = await db.retailer_rejections.find_one({"id": rejection_id}, {"_id": 0})
+        if not rejection:
+            no_rejection_link += 1
+            continue
+        
+        # Build proper rejection_details from the rejection record
+        new_details = [{
+            "product_id": rejection.get("product_id"),
+            "product_name": rejection.get("product_name"),
+            "variant_id": rejection.get("variant_id"),
+            "variant_name": rejection.get("variant_name"),
+            "rejected_qty": rejection.get("quantity"),
+            "quantity": rejection.get("quantity"),
+            "rate": rejection.get("mrp"),
+            "mrp": rejection.get("mrp"),
+            "rejected_amount": rejection.get("quantity", 0) * (rejection.get("mrp") or 0),
+            "value": rejection.get("quantity", 0) * (rejection.get("mrp") or 0),
+            "reason": rejection.get("reason")
+        }]
+        
+        # Update the credit note
+        await db.retailer_credit_notes.update_one(
+            {"id": cn.get("id")},
+            {"$set": {"rejection_details": new_details}}
+        )
+        updated_count += 1
+    
+    return {
+        "message": f"Backfill completed. Updated: {updated_count}, Skipped (complete): {skipped_count}, No rejection link: {no_rejection_link}",
+        "updated_count": updated_count,
+        "skipped_count": skipped_count,
+        "no_rejection_link": no_rejection_link
+    }
+
+@router.post("/retailer-credit-notes/{credit_note_id}/remove-adjustment")
+async def remove_credit_adjustment(
+    credit_note_id: str,
+    input: RemoveCreditAdjustmentInput,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a credit note adjustment from an invoice and restore the credit"""
+    credit_note = await db.retailer_credit_notes.find_one({"id": credit_note_id}, {"_id": 0})
+    if not credit_note:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    
+    # Find the adjustment record for this invoice
+    adjustments = credit_note.get("adjusted_against_invoices", [])
+    adjustment = next((adj for adj in adjustments if adj.get("invoice_id") == input.invoice_id), None)
+    
+    if not adjustment:
+        raise HTTPException(status_code=404, detail="No adjustment found for this invoice")
+    
+    adj_amount = adjustment.get("amount", 0)
+    
+    # Get the invoice
+    invoice = await db.retailer_invoices.find_one({"id": input.invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Remove the adjustment from credit note and restore pending amount
+    new_adjustments = [adj for adj in adjustments if adj.get("invoice_id") != input.invoice_id]
+    new_adjusted_amount = max(0, (credit_note.get("adjusted_amount", 0) or 0) - adj_amount)
+    new_pending = (credit_note.get("amount", 0) or 0) - new_adjusted_amount
+    
+    # Determine new status
+    if new_adjusted_amount <= 0.01:
+        new_status = "pending"
+    elif new_pending <= 0.01:
+        new_status = "adjusted"
+    else:
+        new_status = "partial"
+    
+    await db.retailer_credit_notes.update_one(
+        {"id": credit_note_id},
+        {
+            "$set": {
+                "adjusted_against_invoices": new_adjustments,
+                "adjusted_amount": round(new_adjusted_amount, 2),
+                "pending_amount": round(new_pending, 2),
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Update the invoice paid_amount (reduce by the credit amount that was removed)
+    new_paid = max(0, (invoice.get("paid_amount", 0) or 0) - adj_amount)
+    net_payable = invoice.get("net_payable", 0) or 0
+    
+    # Determine new invoice payment status
+    if new_paid >= net_payable - 0.01:
+        inv_status = "paid"
+    elif new_paid > 0:
+        inv_status = "partial"
+    else:
+        inv_status = "pending"
+    
+    await db.retailer_invoices.update_one(
+        {"id": input.invoice_id},
+        {
+            "$set": {
+                "paid_amount": round(new_paid, 2),
+                "payment_status": inv_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    return {
+        "message": "Credit adjustment removed successfully",
+        "restored_amount": adj_amount,
+        "credit_note_pending": round(new_pending, 2),
+        "invoice_paid_amount": round(new_paid, 2),
+        "invoice_status": inv_status
+    }
+
+
+# ------------ RETAILER INVOICES ------------
+@router.get("/retailer-invoices")
+async def get_retailer_invoices(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {}
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Date filtering for performance
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["invoice_date"] = date_query
+    
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(limit)
+    
+    # PERFORMANCE: Skip heavy enrichment if invoices already have rejection data
+    # Only enrich invoices that were created before the rejection tracking was added
+    invoices_needing_enrichment = [inv for inv in invoices if (inv.get("rejection_amount") or 0) == 0 and inv.get("dispatch_ids")]
+    
+    # Limit enrichment to only 10 invoices per request to avoid timeout
+    if len(invoices_needing_enrichment) > 10:
+        invoices_needing_enrichment = invoices_needing_enrichment[:10]
+    
+    # Enrich invoices with rejection data if not already present
+    # This handles older invoices that don't have rejection_amount or rejected_qty in items
+    for invoice in invoices_needing_enrichment:
+        # Get all dispatch_ids for this invoice
+        dispatch_ids = invoice.get("dispatch_ids", [])
+        
+        # Handle case where dispatch_ids is stored as a string (e.g., "['id1', 'id2']")
+        if isinstance(dispatch_ids, str):
+            try:
+                import ast
+                dispatch_ids = ast.literal_eval(dispatch_ids)
+            except:
+                dispatch_ids = []
+        
+        if not dispatch_ids or not isinstance(dispatch_ids, list) or len(dispatch_ids) == 0:
+            continue
+        
+        # Get dispatches to find the dispatch dates and retailer
+        try:
+            dispatches = await db.retailer_dispatches.find(
+                {"id": {"$in": dispatch_ids}},
+                {"_id": 0, "dispatch_date": 1, "retailer_id": 1}
+            ).to_list(100)
+        except:
+            continue
+        
+        if not dispatches:
+            continue
+        
+        retailer_id = invoice.get("retailer_id") or dispatches[0].get("retailer_id")
+        dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+        
+        if not dispatch_dates:
+            continue
+        
+        # Fetch rejections for these dispatch dates and retailer
+        rejection_query = {
+            "retailer_id": retailer_id,
+            "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+        }
+        rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+        
+        # Group rejections by product AND date (key = product_id_date) to avoid cross-date summing
+        rejections_by_product_date = {}
+        for rej in rejections:
+            product_id = rej.get("product_id")
+            product_name = rej.get("product_name", "").strip()
+            rejection_date = rej.get("rejection_date", "")[:10]  # YYYY-MM-DD
+            key = f"{product_id or product_name}_{rejection_date}"
+            if key not in rejections_by_product_date:
+                rejections_by_product_date[key] = {"qty": 0, "value": 0}
+            rejections_by_product_date[key]["qty"] += rej.get("quantity", 0) or 0
+            rejections_by_product_date[key]["value"] += rej.get("rejection_value", 0) or 0
+        
+        # Build dispatch_id to date mapping from the dispatches we fetched
+        dispatch_id_to_date = {}
+        for d in dispatches:
+            dispatch_id_to_date[d.get("id")] = d.get("dispatch_date", "")[:10]
+        
+        # Also need to get the full dispatch data to know which items came from which dispatch
+        full_dispatches = await db.retailer_dispatches.find(
+            {"id": {"$in": dispatch_ids}},
+            {"_id": 0}
+        ).to_list(100)
+        
+        # Build a map of dispatch items by dispatch_id for matching
+        dispatch_items_map = {}
+        for d in full_dispatches:
+            dispatch_items_map[d.get("id")] = {
+                "date": d.get("dispatch_date", "")[:10],
+                "items": d.get("items", [])
+            }
+        
+        # Update invoice items with rejected_qty - match by product AND dispatch date
+        total_rejection_value = 0
+        for item in invoice.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "").strip()
+            product_key = product_id or product_name
+            
+            # Find which dispatch this item came from (via dispatch_id if stored, or by matching)
+            item_dispatch_date = None
+            item_dispatch_id = item.get("dispatch_id")
+            if item_dispatch_id and item_dispatch_id in dispatch_id_to_date:
+                item_dispatch_date = dispatch_id_to_date[item_dispatch_id]
+            else:
+                # Fallback: use the first dispatch date (may not be accurate for multi-dispatch invoices)
+                if dispatch_dates:
+                    item_dispatch_date = dispatch_dates[0]
+            
+            # Look up rejection by product + date
+            if item_dispatch_date:
+                lookup_key = f"{product_key}_{item_dispatch_date}"
+                if lookup_key in rejections_by_product_date:
+                    item["rejected_qty"] = rejections_by_product_date[lookup_key]["qty"]
+                    item["rejection_value"] = rejections_by_product_date[lookup_key]["value"]
+                    total_rejection_value += rejections_by_product_date[lookup_key]["value"]
+        
+        # Update invoice-level rejection amount
+        if total_rejection_value > 0:
+            invoice["rejection_amount"] = round(total_rejection_value, 2)
+            # Recalculate gross_value (if needed)
+            if invoice.get("gross_value", 0) == 0:
+                invoice["gross_value"] = round((invoice.get("total_mrp_value", 0) or 0) + total_rejection_value, 2)
+            
+            # IMPORTANT: Recalculate net_payable to account for rejection
+            # net_payable = gross_value - rejection_amount - commission_amount
+            gross_value = invoice.get("gross_value", 0) or invoice.get("total_mrp_value", 0) or 0
+            commission_percentage = invoice.get("commission_percentage", 0) or 0
+            
+            # Net MRP after rejections
+            net_mrp_value = gross_value - total_rejection_value
+            commission_amount = net_mrp_value * (commission_percentage / 100)
+            new_net_payable = net_mrp_value - commission_amount
+            
+            # Update the invoice fields
+            invoice["total_mrp_value"] = round(net_mrp_value, 2)
+            invoice["commission_amount"] = round(commission_amount, 2)
+            invoice["net_payable"] = round(new_net_payable, 2)
+    
+    return invoices
+
+@router.get("/retailer-invoices/{invoice_id}")
+async def get_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Retailers can only see their own invoices
+    if current_user["role"] == "retailer" and invoice["retailer_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    return invoice
+
+@router.post("/retailer-invoices")
+async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create invoices")
+    
+    if not input.dispatch_ids:
+        raise HTTPException(status_code=400, detail="At least one dispatch is required")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    commission = retailer.get("commission_percentage", 0)
+    
+    # Get all dispatches for validation
+    dispatches = await db.retailer_dispatches.find(
+        {"id": {"$in": input.dispatch_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    if len(dispatches) != len(input.dispatch_ids):
+        raise HTTPException(status_code=400, detail="Some dispatches not found")
+    
+    # Check if any dispatch is already in another invoice
+    for dispatch in dispatches:
+        existing_invoice = await db.retailer_invoices.find_one({"dispatch_ids": dispatch["id"]})
+        if existing_invoice:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dispatch is already in invoice {existing_invoice.get('invoice_number')}"
+            )
+    
+    # Use selected_items if provided (includes rejection adjustments), otherwise fall back to dispatch items
+    all_items = []
+    gross_value = 0  # Total before rejections
+    rejection_amount = 0  # Total rejection value
+    
+    if input.selected_items and len(input.selected_items) > 0:
+        # Use the item-level selection with rejection data
+        # First, combine items with same product_id + variant_name
+        combined_items = {}
+        
+        for item in input.selected_items:
+            # Create a key for combining (product_id + variant_name)
+            combine_key = f"{item.product_id}|{item.variant_name or ''}"
+            
+            if combine_key in combined_items:
+                # Combine with existing item
+                existing = combined_items[combine_key]
+                existing['net_qty'] += item.net_qty
+                existing['supplied_qty'] += item.supplied_qty
+                existing['rejected_qty'] += item.rejected_qty if item.rejected_qty else 0
+                existing['total_value'] += item.total_value
+                existing['dispatch_ids'].append(item.dispatch_id)
+            else:
+                # Create new entry
+                combined_items[combine_key] = {
+                    'dispatch_id': item.dispatch_id,
+                    'dispatch_ids': [item.dispatch_id],
+                    'product_id': item.product_id,
+                    'product_name': item.product_name,
+                    'variant_name': item.variant_name,
+                    'net_qty': item.net_qty,
+                    'supplied_qty': item.supplied_qty,
+                    'rejected_qty': item.rejected_qty if item.rejected_qty else 0,
+                    'mrp': item.mrp,
+                    'total_value': item.total_value
+                }
+        
+        # Create invoice items from combined data
+        for item_data in combined_items.values():
+            all_items.append(RetailerInvoiceItem(
+                dispatch_id=item_data['dispatch_ids'][0],  # Use first dispatch_id for reference
+                product_id=item_data['product_id'],
+                product_name=item_data['product_name'],
+                variant_name=item_data['variant_name'],
+                quantity=item_data['net_qty'],  # Use net_qty (after rejection deduction)
+                supplied_qty=item_data['supplied_qty'],
+                rejected_qty=item_data['rejected_qty'],
+                mrp=item_data['mrp'],
+                total_value=item_data['total_value']  # This is net_value from frontend
+            ))
+            # Calculate gross (supplied_qty * mrp)
+            item_gross = item_data['supplied_qty'] * item_data['mrp']
+            gross_value += item_gross
+            # Calculate rejection value (rejected_qty * mrp)
+            item_rejection = item_data['rejected_qty'] * item_data['mrp'] if item_data['rejected_qty'] else 0
+            rejection_amount += item_rejection
+    else:
+        # Fallback: aggregate items from all dispatches (legacy behavior)
+        for dispatch in dispatches:
+            for item in dispatch.get("items", []):
+                all_items.append(RetailerInvoiceItem(
+                    dispatch_id=dispatch["id"],
+                    product_id=item.get("product_id", ""),
+                    product_name=item.get("product_name", ""),
+                    variant_name=item.get("variant_name"),
+                    quantity=item.get("supplied_qty", 0),
+                    mrp=item.get("mrp", 0),
+                    total_value=item.get("total_value", 0)
+                ))
+                gross_value += item.get("total_value", 0)
+    
+    # Net MRP value = Gross - Rejections
+    total_mrp_value = gross_value - rejection_amount
+    
+    # Commission on NET value (after rejections)
+    commission_amount = total_mrp_value * commission / 100
+    net_payable = total_mrp_value - commission_amount
+    
+    # Generate invoice number: XXX-INV-DDMMMYYYY-NNN (XXX = first 3 letters of shop/retailer name)
+    # Use company_name (shop name) if available, otherwise use retailer name
+    shop_name = retailer.get("company_name") or retailer.get("name") or "RET"
+    # Get first 3 letters, uppercase, remove special chars
+    prefix = ''.join(c for c in shop_name[:3] if c.isalnum()).upper()
+    if len(prefix) < 3:
+        prefix = (prefix + "XXX")[:3]  # Pad if needed
+    
+    today = input.invoice_date.strftime("%d%b%Y").upper()
+    
+    # Count existing invoices for THIS retailer on this date (not all invoices)
+    date_pattern = f"^{prefix}-INV-{today}-"
+    existing_count = await db.retailer_invoices.count_documents({
+        "invoice_number": {"$regex": date_pattern}
+    })
+    invoice_number = f"{prefix}-INV-{today}-{str(existing_count + 1).zfill(3)}"
+    
+    invoice = RetailerInvoice(
+        invoice_number=invoice_number,
+        retailer_id=input.retailer_id,
+        retailer_name=retailer.get("name", "Unknown"),
+        invoice_date=input.invoice_date,
+        dispatch_ids=input.dispatch_ids,
+        items=[item.model_dump() for item in all_items],
+        gross_value=round(gross_value, 2),
+        rejection_amount=round(rejection_amount, 2),
+        total_mrp_value=round(total_mrp_value, 2),
+        commission_percentage=commission,
+        commission_amount=round(commission_amount, 2),
+        net_payable=round(net_payable, 2),
+        created_by=current_user["user_id"],
+        remarks=input.remarks
+    )
+    
+    # Auto-adjust pending credit notes for this retailer
+    pending_credit_notes = await db.retailer_credit_notes.find({
+        "retailer_id": input.retailer_id,
+        "status": {"$in": ["pending", "partial"]}
+    }, {"_id": 0}).to_list(100)
+    
+    credit_note_adjustments = []
+    total_credit_adjusted = 0
+    
+    for cn in pending_credit_notes:
+        if total_credit_adjusted >= net_payable:
+            break  # Don't adjust more than the invoice amount
+            
+        pending_amount = cn.get("pending_amount", cn.get("amount", 0))
+        if pending_amount <= 0:
+            continue
+            
+        # Calculate how much to adjust
+        remaining_payable = net_payable - total_credit_adjusted
+        adjust_amount = min(pending_amount, remaining_payable)
+        
+        if adjust_amount > 0:
+            # Record the adjustment with full details including original invoice
+            adjustment = {
+                "credit_note_id": cn.get("id"),
+                "credit_note_number": cn.get("credit_note_number"),
+                "credit_note_date": cn.get("created_at", ""),  # When CN was created
+                "original_invoice_id": cn.get("original_invoice_id", ""),
+                "original_invoice_number": cn.get("original_invoice_number", ""),
+                "original_amount": cn.get("amount", 0),
+                "adjusted_amount": adjust_amount,
+                "rejection_details": cn.get("rejection_details", []),
+                "rejection_id": cn.get("rejection_id"),
+                "rejection_date": cn.get("rejection_date", ""),  # When rejection was recorded
+                "source": cn.get("source", "rejection")
+            }
+            credit_note_adjustments.append(adjustment)
+            total_credit_adjusted += adjust_amount
+            
+            # Update the credit note
+            new_pending = pending_amount - adjust_amount
+            new_status = "adjusted" if new_pending <= 0 else "partial"
+            
+            # Add to adjusted_in_invoices array
+            adjusted_invoices = cn.get("adjusted_in_invoices", [])
+            adjusted_invoices.append({
+                "invoice_id": invoice.id,
+                "invoice_number": invoice_number,
+                "adjusted_amount": adjust_amount,
+                "adjusted_at": datetime.now(timezone.utc).isoformat()
+            })
+            
+            await db.retailer_credit_notes.update_one(
+                {"id": cn.get("id")},
+                {"$set": {
+                    "pending_amount": round(new_pending, 2),
+                    "status": new_status,
+                    "adjusted_in_invoices": adjusted_invoices
+                }}
+            )
+    
+    # Add credit note adjustments to invoice
+    invoice_dict = invoice.model_dump()
+    invoice_dict["credit_note_adjustments"] = credit_note_adjustments
+    invoice_dict["total_credit_adjusted"] = round(total_credit_adjusted, 2)
+    invoice_dict["final_payable"] = round(net_payable - total_credit_adjusted, 2)
+    
+    # If invoice is fully covered by credit notes, mark as paid
+    if invoice_dict["final_payable"] <= 0.01:
+        invoice_dict["payment_status"] = "paid"
+        invoice_dict["status"] = "paid"
+    
+    doc = invoice_dict
+    doc["invoice_date"] = invoice.invoice_date.isoformat()
+    doc["created_at"] = invoice.created_at.isoformat()
+    
+    await db.retailer_invoices.insert_one(doc)
+    
+    # Update dispatches with invoice number
+    await db.retailer_dispatches.update_many(
+        {"id": {"$in": input.dispatch_ids}},
+        {"$set": {"invoice_number": invoice_number, "invoice_id": invoice.id}}
+    )
+    
+    return {
+        "id": invoice.id, 
+        "invoice_number": invoice_number, 
+        "message": "Invoice created successfully",
+        "net_payable": round(net_payable, 2),
+        "credit_note_adjustments": credit_note_adjustments,
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "final_payable": round(net_payable - total_credit_adjusted, 2)
+    }
+
+
+@router.put("/retailer-invoices/{invoice_id}")
+async def update_retailer_invoice(invoice_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing retailer invoice"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can update invoices")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Process items if provided
+    items = input.get("items", invoice.get("items", []))
+    total_mrp_value = sum(item.get("total_value", 0) for item in items)
+    
+    # Get retailer for commission calculation
+    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    commission_percentage = retailer.get("commission_percentage", 0) if retailer else invoice.get("commission_percentage", 0)
+    commission_amount = total_mrp_value * (commission_percentage / 100)
+    net_payable = total_mrp_value - commission_amount
+    
+    # Update invoice
+    update_data = {
+        "invoice_date": input.get("invoice_date", invoice.get("invoice_date")),
+        "items": items,
+        "total_mrp_value": round(total_mrp_value, 2),
+        "commission_percentage": commission_percentage,
+        "commission_amount": round(commission_amount, 2),
+        "net_payable": round(net_payable, 2),
+        "remarks": input.get("remarks", invoice.get("remarks", ""))
+    }
+    
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": update_data}
+    )
+    
+    return {"id": invoice_id, "message": "Invoice updated successfully"}
+
+
+@router.delete("/retailer-invoices/{invoice_id}")
+async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can delete invoices")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Remove invoice reference from dispatches
+    await db.retailer_dispatches.update_many(
+        {"id": {"$in": invoice.get("dispatch_ids", [])}},
+        {"$set": {"invoice_number": None, "invoice_id": None}}
+    )
+    
+    await db.retailer_invoices.delete_one({"id": invoice_id})
+    return {"message": "Invoice deleted successfully"}
+
+# Record payment against an invoice
+@router.post("/retailer-invoices/{invoice_id}/payment")
+async def record_invoice_payment(invoice_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Record payment against a retailer invoice with optional credit note adjustments"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can record payments")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    amount = input.get("amount", 0)
+    payment_mode = input.get("payment_mode", "cash")
+    received_by = input.get("received_by", current_user.get("user_id", ""))
+    received_by_name = input.get("received_by_name", current_user.get("name", ""))
+    reference_number = input.get("reference_number", "")
+    remarks = input.get("remarks", "")
+    payment_date = input.get("payment_date", datetime.now(timezone.utc).isoformat())
+    credit_adjustments = input.get("credit_adjustments", [])  # [{credit_note_id, credit_note_number, amount}]
+    
+    # Process credit note adjustments first
+    total_credit_applied = 0
+    credit_adjustment_records = []
+    
+    for adj in credit_adjustments:
+        cn_id = adj.get("credit_note_id")
+        adj_amount = float(adj.get("amount", 0))
+        
+        if adj_amount <= 0:
+            continue
+            
+        credit_note = await db.retailer_credit_notes.find_one({"id": cn_id}, {"_id": 0})
+        if not credit_note:
+            continue
+            
+        # Calculate actual adjustment (can't exceed pending amount)
+        pending = credit_note.get("pending_amount", credit_note.get("amount", 0))
+        actual_adj = min(adj_amount, pending)
+        
+        if actual_adj <= 0:
+            continue
+            
+        # Update credit note
+        new_adjusted = credit_note.get("adjusted_amount", 0) + actual_adj
+        new_pending = credit_note.get("amount", 0) - new_adjusted
+        new_status = "adjusted" if new_pending <= 0.01 else "partial"
+        
+        # Add adjustment record to credit note
+        adjustment_record = {
+            "invoice_id": invoice_id,
+            "invoice_number": invoice.get("invoice_number"),
+            "amount": actual_adj,
+            "date": payment_date
+        }
+        
+        await db.retailer_credit_notes.update_one(
+            {"id": cn_id},
+            {
+                "$set": {
+                    "adjusted_amount": round(new_adjusted, 2),
+                    "pending_amount": round(new_pending, 2),
+                    "status": new_status,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                },
+                "$push": {
+                    "adjusted_against_invoices": adjustment_record
+                }
+            }
+        )
+        
+        total_credit_applied += actual_adj
+        credit_adjustment_records.append({
+            "credit_note_id": cn_id,
+            "credit_note_number": adj.get("credit_note_number") or credit_note.get("credit_note_number"),
+            "amount_adjusted": actual_adj
+        })
+    
+    # Calculate new paid amount (cash + credit adjustments)
+    current_paid = invoice.get("paid_amount", 0)
+    new_paid = current_paid + amount + total_credit_applied
+    net_payable = invoice.get("net_payable", 0)
+    
+    # Determine payment status (use tolerance for floating point comparison)
+    if new_paid >= net_payable - 0.01:  # Tolerance of 0.01 for floating point precision
+        new_status = "paid"
+    elif new_paid > 0:
+        new_status = "partial"
+    else:
+        new_status = "pending"
+    
+    # Record the payment in retailer_payments collection
+    payment_id = str(uuid.uuid4())
+    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    payment_doc = {
+        "id": payment_id,
+        "retailer_id": invoice.get("retailer_id"),
+        "retailer_name": retailer.get("company_name", retailer.get("name", "")) if retailer else "",
+        "invoice_id": invoice_id,
+        "invoice_number": invoice.get("invoice_number"),
+        "payment_date": payment_date,
+        "amount": amount,  # Cash amount
+        "credit_applied": total_credit_applied,  # Credit note amount
+        "total_settled": amount + total_credit_applied,  # Total amount settled
+        "credit_adjustments": credit_adjustment_records,  # Details of credit notes used
+        "payment_mode": payment_mode,
+        "received_by": received_by,
+        "received_by_name": received_by_name,
+        "reference_number": reference_number,
+        "remarks": remarks,
+        "recorded_by": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.retailer_payments.insert_one(payment_doc)
+    
+    # Update the invoice with new paid amount, status, and payment_date
+    invoice_update = {
+        "paid_amount": round(new_paid, 2),
+        "status": new_status,
+        "payment_date": payment_date  # Track when payment was received
+    }
+    
+    # If credit notes were applied, track them on the invoice too
+    if total_credit_applied > 0:
+        invoice_update["credit_adjusted"] = True
+        invoice_update["credit_adjustment_amount"] = total_credit_applied
+        invoice_update["credit_adjustments"] = credit_adjustment_records
+    
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": invoice_update}
+    )
+    
+    return {
+        "id": payment_id,
+        "invoice_id": invoice_id,
+        "cash_amount": round(amount, 2),
+        "credit_applied": round(total_credit_applied, 2),
+        "paid_amount": round(new_paid, 2),
+        "status": new_status,
+        "credit_adjustments": credit_adjustment_records,
+        "message": "Payment recorded successfully"
+    }
+
+# Fix invoice statuses - recalculate from payments
+@router.post("/retailer-invoices/fix-statuses")
+async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
+    """Recalculate and fix invoice payment statuses based on actual payments and recalculated net_payable"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix statuses")
+    
+    # Get all retailer invoices
+    invoices = await db.retailer_invoices.find({}, {"_id": 0}).to_list(5000)
+    
+    fixed_count = 0
+    fixed_invoices = []
+    
+    for inv in invoices:
+        invoice_id = inv.get('id')
+        current_status = inv.get('status', 'pending')
+        stored_paid = float(inv.get('paid_amount', 0) or 0)
+        stored_net_payable = float(inv.get('net_payable', 0) or 0)
+        
+        # Recalculate net_payable accounting for rejections (same logic as GET endpoint)
+        effective_net_payable = stored_net_payable
+        
+        # Get dispatch IDs for this invoice to find rejections
+        dispatch_ids = inv.get("dispatch_ids", [])
+        if isinstance(dispatch_ids, str):
+            try:
+                import ast
+                dispatch_ids = ast.literal_eval(dispatch_ids)
+            except:
+                dispatch_ids = []
+        
+        # Calculate rejection-adjusted net_payable if we have dispatch info
+        if dispatch_ids and isinstance(dispatch_ids, list) and len(dispatch_ids) > 0:
+            try:
+                # Get dispatches to find dispatch dates
+                dispatches = await db.retailer_dispatches.find(
+                    {"id": {"$in": dispatch_ids}},
+                    {"_id": 0, "dispatch_date": 1, "retailer_id": 1}
+                ).to_list(100)
+                
+                if dispatches:
+                    retailer_id = inv.get("retailer_id") or dispatches[0].get("retailer_id")
+                    dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+                    
+                    if dispatch_dates and retailer_id:
+                        # Fetch rejections for these dispatch dates
+                        rejection_query = {
+                            "retailer_id": retailer_id,
+                            "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+                        }
+                        rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+                        total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+                        
+                        # Recalculate net_payable
+                        gross_value = float(inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0)
+                        if gross_value == 0:
+                            gross_value = float(inv.get("total_mrp_value", 0) or 0) + total_rejection_value
+                        
+                        net_mrp_value = gross_value - total_rejection_value
+                        commission_percentage = float(inv.get("commission_percentage", 0) or 0)
+                        commission_amount = net_mrp_value * (commission_percentage / 100)
+                        effective_net_payable = net_mrp_value - commission_amount
+            except Exception as e:
+                # If rejection calculation fails, use stored net_payable
+                pass
+        
+        # Get paid amount from payments collection
+        all_payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+        actual_paid = sum(float(p.get("amount", 0) or 0) for p in all_payments)
+        
+        # Use the higher of actual payments vs stored paid_amount
+        effective_paid = max(actual_paid, stored_paid)
+        
+        # Also account for credit note adjustments
+        credit_adjusted = float(inv.get("total_credit_adjusted", 0) or 0)
+        final_payable = float(inv.get("final_payable") if inv.get("final_payable") is not None else effective_net_payable)
+        
+        # Determine correct status with tolerance for floating point
+        # If final_payable (after credit adjustments) is <=0, it's paid via credit notes
+        if final_payable <= 0.01:
+            correct_status = 'paid'
+        elif effective_net_payable > 0 and effective_paid >= final_payable - 0.01:
+            correct_status = 'paid'
+        elif effective_paid > 0 or credit_adjusted > 0:
+            correct_status = 'partial'
+        else:
+            correct_status = 'pending'
+        
+        # Check if update needed
+        current_payment_status = inv.get('payment_status', current_status)
+        if current_status != correct_status or current_payment_status != correct_status:
+            await db.retailer_invoices.update_one(
+                {'id': invoice_id},
+                {'$set': {
+                    'status': correct_status,
+                    'payment_status': correct_status,
+                    'paid_amount': round(effective_paid, 2),
+                    'net_payable': round(effective_net_payable, 2)  # Also update stored net_payable
+                }}
+            )
+            fixed_invoices.append({
+                'invoice_number': inv.get('invoice_number'),
+                'old_status': current_status,
+                'new_status': correct_status,
+                'stored_net_payable': stored_net_payable,
+                'effective_net_payable': effective_net_payable,
+                'credit_adjusted': credit_adjusted,
+                'final_payable': final_payable,
+                'stored_paid': stored_paid,
+                'effective_paid': effective_paid
+            })
+            fixed_count += 1
+    
+    return {
+        "message": f"Fixed {fixed_count} invoices",
+        "total_checked": len(invoices),
+        "fixed_invoices": fixed_invoices[:100]
+    }
+
+# Get payment history for an invoice
+@router.get("/retailer-invoices/{invoice_id}/payments")
+async def get_invoice_payments(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    """Get all payments for a specific invoice"""
+    payments = await db.retailer_payments.find(
+        {"invoice_id": invoice_id}, 
+        {"_id": 0}
+    ).sort("payment_date", -1).to_list(100)
+    return payments
+
+@router.post("/retailer-invoices/{invoice_id}/recalculate")
+async def recalculate_invoice_totals(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    """Recalculate invoice totals (gross, net, rejection, commission, payable) from scratch"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    retailer_id = invoice.get("retailer_id")
+    invoice_date = invoice.get("invoice_date", "")[:10]
+    
+    # Step 1: Calculate gross value from items (sum of supplied_qty * mrp)
+    items = invoice.get("items", [])
+    gross_value = sum(
+        (item.get("supplied_qty", item.get("quantity", 0)) or 0) * (item.get("mrp", 0) or 0)
+        for item in items
+    )
+    
+    # Step 2: Get rejections for this invoice's dispatch dates
+    dispatch_ids = invoice.get("dispatch_ids", [])
+    if isinstance(dispatch_ids, str):
+        try:
+            import ast
+            dispatch_ids = ast.literal_eval(dispatch_ids)
+        except:
+            dispatch_ids = []
+    
+    total_rejection_value = 0
+    rejection_by_item = {}
+    
+    if dispatch_ids:
+        dispatches = await db.retailer_dispatches.find(
+            {"id": {"$in": dispatch_ids}},
+            {"_id": 0, "dispatch_date": 1}
+        ).to_list(100)
+        dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+        
+        if dispatch_dates:
+            rejection_query = {
+                "retailer_id": retailer_id,
+                "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+            }
+            rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+            total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+            
+            # Build rejection lookup
+            for rej in rejections:
+                key = f"{rej.get('product_id')}_{rej.get('variant_id') or rej.get('variant_name')}"
+                if key not in rejection_by_item:
+                    rejection_by_item[key] = {"qty": 0, "value": 0}
+                rejection_by_item[key]["qty"] += rej.get("quantity", 0) or 0
+                rejection_by_item[key]["value"] += rej.get("rejection_value", 0) or 0
+    
+    # Step 3: Calculate net MRP value (gross - rejections)
+    net_mrp_value = gross_value - total_rejection_value
+    
+    # Step 4: Calculate commission
+    commission_pct = invoice.get("commission_percentage", 0) or 0
+    commission_amount = net_mrp_value * (commission_pct / 100)
+    
+    # Step 5: Calculate net payable
+    net_payable = net_mrp_value - commission_amount
+    
+    # Step 6: Get credit note adjustments
+    total_credit_adjusted = sum(
+        adj.get("amount", 0) for adj in invoice.get("credit_note_adjustments", [])
+    )
+    final_payable = net_payable - total_credit_adjusted
+    
+    # Step 7: Get actual paid amount from payments
+    payments = await db.retailer_payments.find({"invoice_id": invoice_id}).to_list(100)
+    paid_amount = sum(p.get("amount", 0) for p in payments)
+    
+    # Step 8: Determine status
+    if final_payable <= 0.01 or paid_amount >= final_payable - 0.01:
+        status = "paid"
+    elif paid_amount > 0 or total_credit_adjusted > 0:
+        status = "partial"
+    else:
+        status = "pending"
+    
+    remaining_amount = max(0, final_payable - paid_amount)
+    
+    # Step 9: Update item-level rejections
+    updated_items = []
+    for item in items:
+        item_key = f"{item.get('product_id')}_{item.get('variant_id') or item.get('variant_name')}"
+        rej_data = rejection_by_item.get(item_key, {"qty": 0, "value": 0})
+        
+        supplied_qty = item.get("supplied_qty", item.get("quantity", 0)) or 0
+        rejected_qty = rej_data["qty"]
+        billable_qty = max(0, supplied_qty - rejected_qty)
+        mrp = item.get("mrp", 0) or 0
+        amount = billable_qty * mrp
+        
+        updated_item = {
+            **item,
+            "rejected_qty": rejected_qty,
+            "rejection_qty": rejected_qty,
+            "billable_qty": billable_qty,
+            "amount": round(amount, 2)
+        }
+        updated_items.append(updated_item)
+    
+    # Step 10: Save all recalculated values
+    update_data = {
+        "gross_value": round(gross_value, 2),
+        "rejection_amount": round(total_rejection_value, 2),
+        "total_mrp_value": round(net_mrp_value, 2),  # This is the NET value after rejections
+        "commission_amount": round(commission_amount, 2),
+        "net_payable": round(net_payable, 2),
+        "final_payable": round(final_payable, 2),
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "paid_amount": round(paid_amount, 2),
+        "remaining_amount": round(remaining_amount, 2),
+        "status": status,
+        "payment_status": status,
+        "items": updated_items
+    }
+    
+    await db.retailer_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": update_data}
+    )
+    
+    logger.info(f"Recalculated invoice {invoice.get('invoice_number')}: gross={gross_value}, rejection={total_rejection_value}, net_mrp={net_mrp_value}, commission={commission_amount}, net_payable={net_payable}, paid={paid_amount}, status={status}")
+    
+    return {
+        "message": "Invoice recalculated successfully",
+        "invoice_number": invoice.get("invoice_number"),
+        "old_values": {
+            "gross_value": invoice.get("gross_value"),
+            "total_mrp_value": invoice.get("total_mrp_value"),
+            "net_payable": invoice.get("net_payable"),
+            "paid_amount": invoice.get("paid_amount"),
+            "status": invoice.get("status")
+        },
+        "new_values": update_data
+    }
+
+@router.post("/retailer-invoices/fix-status")
+async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
+    """Utility to fix invoice statuses where paid_amount equals net_payable but status is not 'paid'"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run this fix")
+    
+    # Get all invoices via the main API (which calculates net_payable correctly)
+    # We'll simulate this by getting all invoices including rejections
+    fixed_count = 0
+    
+    # First, get all partial/pending invoices from the database
+    raw_invoices = await db.retailer_invoices.find(
+        {"status": {"$in": ["partial", "pending"]}},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    logger.info(f"Found {len(raw_invoices)} partial/pending invoices to check")
+    
+    for invoice in raw_invoices:
+        invoice_id = invoice.get("id")
+        paid_amount = float(invoice.get("paid_amount", 0) or 0)
+        
+        # Get dispatch IDs for this invoice
+        dispatch_ids = invoice.get("dispatch_ids", [])
+        if not dispatch_ids or not isinstance(dispatch_ids, list):
+            # Try to get dispatches by invoice_id reference
+            dispatches = await db.retailer_dispatches.find(
+                {"invoice_id": invoice_id},
+                {"_id": 0}
+            ).to_list(100)
+        else:
+            # Get dispatches by IDs
+            dispatches = await db.retailer_dispatches.find(
+                {"id": {"$in": dispatch_ids}},
+                {"_id": 0}
+            ).to_list(100)
+        
+        if not dispatches:
+            continue
+        
+        retailer_id = invoice.get("retailer_id") or dispatches[0].get("retailer_id")
+        dispatch_dates = list(set([d.get("dispatch_date", "")[:10] for d in dispatches if d.get("dispatch_date")]))
+        
+        if not dispatch_dates:
+            continue
+        
+        # Fetch rejections for these dispatch dates and retailer
+        rejection_query = {
+            "retailer_id": retailer_id,
+            "rejection_date": {"$regex": f"^({'|'.join(dispatch_dates)})"}
+        }
+        rejections = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(500)
+        
+        # Calculate total rejection value
+        total_rejection_value = sum(r.get("rejection_value", 0) or 0 for r in rejections)
+        
+        # Recalculate net_payable
+        gross_value = float(invoice.get("gross_value", 0) or invoice.get("total_mrp_value", 0) or 0)
+        commission_percentage = float(invoice.get("commission_percentage", 0) or 0)
+        
+        # If no gross_value stored, calculate from total_mrp + rejections
+        if gross_value == 0:
+            gross_value = (invoice.get("total_mrp_value", 0) or 0) + total_rejection_value
+        
+        # Net MRP after rejections
+        net_mrp_value = gross_value - total_rejection_value
+        commission_amount = net_mrp_value * (commission_percentage / 100)
+        net_payable = net_mrp_value - commission_amount
+        
+        logger.info(f"Checking invoice {invoice.get('invoice_number')}: paid={paid_amount}, rejection={total_rejection_value}, calculated_net={net_payable}")
+        
+        # Check if paid_amount >= net_payable (with tolerance)
+        if paid_amount >= net_payable - 0.01 and net_payable > 0:
+            result = await db.retailer_invoices.update_one(
+                {"id": invoice_id},
+                {"$set": {"status": "paid"}}
+            )
+            logger.info(f"Updated invoice {invoice.get('invoice_number')} to PAID")
+            if result.modified_count > 0:
+                fixed_count += 1
+    
+    return {
+        "message": f"Fixed {fixed_count} invoices",
+        "fixed_count": fixed_count
+    }
+
+# ==================== DAILY MRP MANAGEMENT ====================
+@router.get("/daily-mrp")
+async def get_daily_mrp(
+    date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get daily MRP entries for a specific date (auto-deduplicates on fetch)"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {}
+    if date:
+        query["date"] = date
+    else:
+        # Default to today
+        from datetime import date as date_type
+        query["date"] = date_type.today().isoformat()
+    
+    entries = await db.daily_mrp.find(query, {"_id": 0}).to_list(1000)
+    
+    # Auto-deduplicate: keep only first occurrence of each product+variant
+    seen = set()
+    unique_entries = []
+    duplicates_found = []
+    
+    for entry in entries:
+        key = (entry.get("product_id"), entry.get("variant_id"))
+        if key not in seen:
+            seen.add(key)
+            unique_entries.append(entry)
+        else:
+            duplicates_found.append(entry.get("id"))
+    
+    # Auto-cleanup duplicates in background (delete them from DB)
+    if duplicates_found:
+        for dup_id in duplicates_found:
+            await db.daily_mrp.delete_one({"id": dup_id})
+    
+    return unique_entries
+
+@router.post("/daily-mrp")
+async def save_daily_mrp(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Save/update daily MRP entries with Blinkit prices for historical tracking"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    date = input.get("date")
+    items = input.get("items", [])
+    
+    if not date:
+        raise HTTPException(status_code=400, detail="Date is required")
+    
+    # Delete existing entries for this date and save new ones
+    await db.daily_mrp.delete_many({"date": date})
+    
+    if items:
+        for item in items:
+            item["date"] = date
+            item["id"] = str(uuid.uuid4())
+            item["updated_by"] = current_user["user_id"]
+            item["updated_at"] = datetime.now(timezone.utc).isoformat()
+            # Ensure blinkit_price is stored (default to 0 if not provided)
+            if "blinkit_price" not in item:
+                item["blinkit_price"] = 0
+            await db.daily_mrp.insert_one(item)
+    
+    return {"message": f"Saved {len(items)} MRP entries for {date}"}
+
+@router.post("/daily-mrp/entry")
+async def add_mrp_entry(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add a single MRP entry with Blinkit price. Prevents duplicates by date+product+variant."""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    date = input.get("date")
+    product_id = input.get("product_id")
+    variant_id = input.get("variant_id")
+    
+    # Check for existing entry with same date + product + variant
+    existing = await db.daily_mrp.find_one({
+        "date": date,
+        "product_id": product_id,
+        "variant_id": variant_id
+    }, {"_id": 0})
+    
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Entry already exists for {input.get('product_name')} ({input.get('variant_name')}) on {date}"
+        )
+    
+    entry = {
+        "id": str(uuid.uuid4()),
+        "date": date,
+        "product_id": product_id,
+        "product_name": input.get("product_name"),
+        "category": input.get("category"),
+        "variant_id": variant_id,
+        "variant_name": input.get("variant_name"),
+        "mrp": input.get("mrp", 0),
+        "blinkit_price": input.get("blinkit_price", 0),
+        "updated_by": current_user["user_id"],
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.daily_mrp.insert_one(entry)
+    entry.pop("_id", None)
+    return entry
+
+@router.put("/daily-mrp/{entry_id}")
+async def update_mrp_entry(
+    entry_id: str,
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a single MRP entry with Blinkit price"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    update_data = {
+        "variant_id": input.get("variant_id"),
+        "variant_name": input.get("variant_name"),
+        "mrp": input.get("mrp", 0),
+        "blinkit_price": input.get("blinkit_price", 0),
+        "updated_by": current_user["user_id"],
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.daily_mrp.update_one(
+        {"id": entry_id},
+        {"$set": update_data}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    return {"message": "MRP entry updated"}
+
+@router.delete("/daily-mrp/{entry_id}")
+async def delete_mrp_entry(
+    entry_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a single MRP entry"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    result = await db.daily_mrp.delete_one({"id": entry_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    return {"message": "MRP entry deleted"}
+
+
+@router.post("/daily-mrp/cleanup-duplicates")
+async def cleanup_mrp_duplicates(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove duplicate MRP entries for a date, keeping only the first occurrence"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    date = input.get("date")
+    if not date:
+        raise HTTPException(status_code=400, detail="Date is required")
+    
+    # Get all entries for this date
+    entries = await db.daily_mrp.find({"date": date}, {"_id": 0}).to_list(1000)
+    
+    # Find duplicates
+    seen = {}  # (product_id, variant_id) -> first entry id
+    duplicates_to_delete = []
+    
+    for entry in entries:
+        key = (entry.get("product_id"), entry.get("variant_id"))
+        if key in seen:
+            # This is a duplicate, mark for deletion
+            duplicates_to_delete.append(entry.get("id"))
+        else:
+            seen[key] = entry.get("id")
+    
+    # Delete duplicates
+    deleted_count = 0
+    for entry_id in duplicates_to_delete:
+        result = await db.daily_mrp.delete_one({"id": entry_id})
+        deleted_count += result.deleted_count
+    
+    return {
+        "message": f"Removed {deleted_count} duplicate entries for {date}",
+        "duplicates_removed": deleted_count
+    }
+
+
+@router.get("/daily-mrp/last-variants")
+async def get_last_sold_variants(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get last sold variant for each product from recent dispatches"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get recent dispatches (last 30 days)
+    from datetime import timedelta
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    
+    dispatches = await db.retailer_dispatches.find(
+        {"dispatch_date": {"$gte": thirty_days_ago}},
+        {"_id": 0, "items": 1, "dispatch_date": 1}
+    ).sort("dispatch_date", -1).to_list(500)
+    
+    # Build a map of product_id -> last variant
+    last_variants = {}
+    for dispatch in dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id")
+            if product_id and product_id not in last_variants:
+                last_variants[product_id] = {
+                    "variant_id": item.get("variant_id"),
+                    "variant_name": item.get("variant_name") or item.get("packaging_name")
+                }
+    
+    return last_variants
+
+
+@router.get("/daily-mrp/for-dispatch")
+async def get_mrp_for_dispatch(
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get MRP entries for a dispatch date, keyed by product_id+variant_id"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get MRP entries for the given date
+    mrp_entries = await db.daily_mrp.find(
+        {"date": date},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Create a map keyed by product_id+variant_id for quick lookup
+    mrp_map = {}
+    for entry in mrp_entries:
+        key = f"{entry.get('product_id')}_{entry.get('variant_id')}"
+        mrp_map[key] = entry.get('mrp', 0)
+    
+    return mrp_map
+
+
+# ==================== BLINKIT PRICE SCRAPER ====================
+
+@router.get("/blinkit-prices")
+async def get_blinkit_prices(
+    date: str = None,
+    pincode: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get scraped Blinkit prices for a date"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    query = {"date": date}
+    if pincode:
+        query["pincode"] = pincode
+    
+    prices = await db.blinkit_prices.find(query, {"_id": 0}).to_list(1000)
+    return prices
+
+
+@router.get("/blinkit-prices/latest")
+async def get_latest_blinkit_prices(
+    pincode: str = "411045",
+    current_user: dict = Depends(get_current_user)
+):
+    """Get the most recent Blinkit prices for each product"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get the latest prices using aggregation
+    pipeline = [
+        {"$match": {"pincode": pincode}},
+        {"$sort": {"scraped_at": -1}},
+        {"$group": {
+            "_id": "$product_id",
+            "product_id": {"$first": "$product_id"},
+            "product_name": {"$first": "$product_name"},
+            "blinkit_name": {"$first": "$blinkit_name"},
+            "blinkit_price": {"$first": "$blinkit_price"},
+            "quantity": {"$first": "$quantity"},
+            "pincode": {"$first": "$pincode"},
+            "date": {"$first": "$date"},
+            "scraped_at": {"$first": "$scraped_at"}
+        }},
+        {"$project": {"_id": 0}}
+    ]
+    
+    prices = await db.blinkit_prices.aggregate(pipeline).to_list(1000)
+    
+    # Convert to dict keyed by product_id for easy lookup
+    price_map = {p["product_id"]: p for p in prices}
+    return price_map
+
+
+@router.post("/blinkit-prices/scrape")
+async def trigger_blinkit_scrape(
+    pincode: str = "411045",
+    background_tasks: BackgroundTasks = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Trigger a manual Blinkit price scrape"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can trigger scrape")
+    
+    # Get all active products
+    products = await db.products.find(
+        {"is_active": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "category": 1}
+    ).to_list(500)
+    
+    if not products:
+        raise HTTPException(status_code=400, detail="No products found")
+    
+    # Start scraping in background
+    if background_tasks:
+        background_tasks.add_task(run_blinkit_scrape, pincode, products)
+        return {"message": f"Scrape started for {len(products)} products with pincode {pincode}", "status": "started"}
+    else:
+        # Run synchronously if no background tasks available
+        result = await run_blinkit_scrape_async(pincode, products)
+        return result
+
+
+async def run_blinkit_scrape_async(pincode: str, products: list):
+    """Run Blinkit scrape asynchronously"""
+    from blinkit_scraper import scrape_blinkit_prices
+    
+    product_names = [p["name"] for p in products]
+    product_map = {p["name"]: p for p in products}
+    
+    try:
+        results = await scrape_blinkit_prices(pincode, product_names)
+        
+        return {
+            "results": results,
+            "product_map": product_map,
+            "pincode": pincode,
+            "total_products": len(products)
+        }
+        
+    except Exception as e:
+        logger.error(f"Blinkit scrape failed: {e}")
+        return {"error": str(e)}
+
+
+def run_blinkit_scrape(pincode: str, products: list):
+    """Wrapper to run async scrape in background task and save results"""
+    import asyncio
+    from motor.motor_asyncio import AsyncIOMotorClient
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        # Run the scraper
+        scrape_result = loop.run_until_complete(run_blinkit_scrape_async(pincode, products))
+        
+        if "error" in scrape_result:
+            logger.error(f"Blinkit scrape error: {scrape_result['error']}")
+            return
+        
+        results = scrape_result.get("results", {})
+        product_map = scrape_result.get("product_map", {})
+        
+        if not results:
+            logger.warning("No Blinkit prices found")
+            return
+        
+        # Save results to database synchronously
+        async def save_results():
+            # Create a new MongoDB connection for this loop
+            mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+            db_name = os.environ.get('DB_NAME', 'freshflow_db')
+            client = AsyncIOMotorClient(mongo_url)
+            local_db = client[db_name]
+            
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            scraped_at = datetime.now(timezone.utc).isoformat()
+            saved_count = 0
+            
+            for product_name, data in results.items():
+                if product_name in product_map:
+                    product = product_map[product_name]
+                    
+                    price_doc = {
+                        "id": str(uuid.uuid4()),
+                        "product_id": product["id"],
+                        "product_name": product_name,
+                        "category": product.get("category"),
+                        "blinkit_name": data.get("blinkit_name"),
+                        "blinkit_price": data.get("price"),
+                        "quantity": data.get("quantity"),
+                        "pincode": pincode,
+                        "date": date_str,
+                        "scraped_at": scraped_at
+                    }
+                    
+                    await local_db.blinkit_prices.update_one(
+                        {"product_id": product["id"], "date": date_str, "pincode": pincode},
+                        {"$set": price_doc},
+                        upsert=True
+                    )
+                    saved_count += 1
+            
+            client.close()
+            return saved_count
+        
+        saved = loop.run_until_complete(save_results())
+        logger.info(f"Blinkit scrape completed: {len(results)} prices found, {saved} saved")
+        
+    except Exception as e:
+        logger.error(f"Blinkit background scrape failed: {e}")
+    finally:
+        loop.close()
+
+
+@router.get("/blinkit-prices/mapping")
+async def get_product_mapping(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get product name mappings for Blinkit search"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    mappings = await db.blinkit_product_mapping.find({}, {"_id": 0}).to_list(500)
+    return mappings
+
+
+@router.put("/blinkit-prices/mapping/{product_id}")
+async def update_product_mapping(
+    product_id: str,
+    mapping: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update Blinkit search term mapping for a product"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can update mappings")
+    
+    update_data = {
+        "product_id": product_id,
+        "blinkit_search_term": mapping.get("blinkit_search_term"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["id"]
+    }
+    
+    await db.blinkit_product_mapping.update_one(
+        {"product_id": product_id},
+        {"$set": update_data},
+        upsert=True
+    )
+    
+    return {"message": "Mapping updated", "product_id": product_id}
+
+
+@router.post("/blinkit-prices/manual")
+async def save_manual_blinkit_price(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Save manually entered Blinkit price"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    price_doc = {
+        "id": str(uuid.uuid4()),
+        "product_id": data.get("product_id"),
+        "product_name": data.get("product_name"),
+        "category": data.get("category"),
+        "blinkit_name": f"{data.get('product_name')} (Manual)",
+        "blinkit_price": float(data.get("blinkit_price", 0)),
+        "quantity": None,
+        "pincode": data.get("pincode", "411045"),
+        "date": data.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
+        "manual_entry": True
+    }
+    
+    await db.blinkit_prices.update_one(
+        {"product_id": data.get("product_id"), "date": price_doc["date"], "pincode": price_doc["pincode"]},
+        {"$set": price_doc},
+        upsert=True
+    )
+    
+    return {"message": "Blinkit price saved", "product_id": data.get("product_id")}
+
+
+def run_blinkit_scrape_scheduled():
+    """Scheduled job to scrape Blinkit prices daily at 6 AM IST"""
+    import asyncio
+    
+    async def _run_scheduled_scrape():
+        try:
+            # Get all active retailers with pincodes
+            retailers = await db.retailers.find(
+                {"is_active": {"$ne": False}},
+                {"_id": 0, "id": 1, "pincode": 1, "name": 1}
+            ).to_list(100)
+            
+            # Get unique pincodes
+            pincodes = list(set([r.get("pincode", "411045") for r in retailers if r.get("pincode")]))
+            if not pincodes:
+                pincodes = ["411045"]  # Default pincode
+            
+            # Get all active products
+            products = await db.products.find(
+                {"is_active": {"$ne": False}},
+                {"_id": 0, "id": 1, "name": 1, "category": 1}
+            ).to_list(500)
+            
+            if not products:
+                logger.warning("No products found for Blinkit scrape")
+                return
+            
+            logger.info(f"Starting scheduled Blinkit scrape for {len(products)} products across {len(pincodes)} pincodes")
+            
+            # Scrape for each pincode (limit to first 3 to avoid overload)
+            for pincode in pincodes[:3]:
+                try:
+                    result = await run_blinkit_scrape_async(pincode, products)
+                    logger.info(f"Blinkit scrape for pincode {pincode}: {result}")
+                except Exception as e:
+                    logger.error(f"Blinkit scrape failed for pincode {pincode}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Scheduled Blinkit scrape failed: {e}")
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_run_scheduled_scrape())
+    except Exception as e:
+        logger.error(f"Blinkit scheduled job error: {e}")
+    finally:
+        loop.close()
+
+
+# Get uninvoiced dispatches for a retailer (for creating invoices)
+# Now returns items that haven't been invoiced yet (item-level filtering)
+@router.get("/retailer-dispatches/uninvoiced")
+async def get_uninvoiced_dispatches(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can view uninvoiced dispatches")
+    
+    # Get all dispatches for this retailer
+    dispatches = await db.retailer_dispatches.find({
+        "retailer_id": retailer_id
+    }, {"_id": 0}).sort("dispatch_date", -1).to_list(500)
+    
+    # Get all invoices for this retailer to find which items are already invoiced
+    invoices = await db.retailer_invoices.find({
+        "retailer_id": retailer_id
+    }, {"_id": 0, "items": 1}).to_list(500)
+    
+    # Build a set of already invoiced items (dispatch_id + product_id combo)
+    # Using dispatch_id + product_id + variant as key since item_index may not be reliable
+    invoiced_item_keys = set()
+    for invoice in invoices:
+        for item in invoice.get("items", []):
+            dispatch_id = item.get("dispatch_id", "")
+            product_id = item.get("product_id", "")
+            variant = item.get("variant_name", "") or ""
+            if dispatch_id and product_id:
+                invoiced_item_keys.add(f"{dispatch_id}_{product_id}_{variant}")
+    
+    # Filter dispatches to only include uninvoiced items
+    result = []
+    for dispatch in dispatches:
+        uninvoiced_items = []
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id", "")
+            variant = item.get("variant_name", "") or ""
+            item_key = f"{dispatch['id']}_{product_id}_{variant}"
+            
+            if item_key not in invoiced_item_keys:
+                uninvoiced_items.append(item)
+        
+        # Only include dispatch if it has uninvoiced items
+        if uninvoiced_items:
+            dispatch_copy = dict(dispatch)
+            dispatch_copy["items"] = uninvoiced_items
+            result.append(dispatch_copy)
+    
+    return result
+
+# ------------ RETAILER DASHBOARD ------------
+@router.get("/retailer-dashboard")
+async def get_retailer_dashboard(
+    retailer_id: str = None,
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    # Determine which retailer's data to show
+    if current_user["role"] == "retailer":
+        target_retailer_id = current_user["user_id"]
+    elif retailer_id:
+        target_retailer_id = retailer_id
+    else:
+        raise HTTPException(status_code=400, detail="Retailer ID required")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": target_retailer_id}, {"_id": 0, "password": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    # Build date filter for queries
+    dispatch_date_filter = {"retailer_id": target_retailer_id}
+    rejection_date_filter = {"retailer_id": target_retailer_id}
+    payment_date_filter = {"retailer_id": target_retailer_id}
+    
+    if from_date:
+        dispatch_date_filter["dispatch_date"] = {"$gte": from_date}
+        rejection_date_filter["rejection_date"] = {"$gte": from_date}
+        payment_date_filter["payment_date"] = {"$gte": from_date}
+    
+    if to_date:
+        if "dispatch_date" in dispatch_date_filter:
+            dispatch_date_filter["dispatch_date"]["$lte"] = to_date
+        else:
+            dispatch_date_filter["dispatch_date"] = {"$lte": to_date}
+        
+        if "rejection_date" in rejection_date_filter:
+            rejection_date_filter["rejection_date"]["$lte"] = to_date
+        else:
+            rejection_date_filter["rejection_date"] = {"$lte": to_date}
+        
+        if "payment_date" in payment_date_filter:
+            payment_date_filter["payment_date"]["$lte"] = to_date
+        else:
+            payment_date_filter["payment_date"] = {"$lte": to_date}
+    
+    # Get all dispatches for this retailer (filtered by date if provided)
+    dispatches = await db.retailer_dispatches.find(
+        dispatch_date_filter, 
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get all rejections (filtered by date if provided)
+    rejections = await db.retailer_rejections.find(
+        rejection_date_filter,
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get all payments (filtered by date if provided)
+    payments = await db.retailer_payments.find(
+        payment_date_filter,
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # Get pending indents
+    pending_indents = await db.retailer_indents.count_documents({
+        "retailer_id": target_retailer_id,
+        "status": {"$in": ["pending", "partial"]}
+    })
+    
+    # Calculate totals
+    total_mrp_value = sum(d.get("total_mrp_value", 0) for d in dispatches)
+    total_net_payable = sum(d.get("net_payable", 0) for d in dispatches)
+    total_rejection_value = sum(r.get("rejection_value", 0) for r in rejections)
+    total_paid = sum(p.get("amount", 0) for p in payments)
+    
+    # Adjusted payable after rejections
+    adjusted_payable = total_net_payable - total_rejection_value
+    pending_amount = max(0, adjusted_payable - total_paid)
+    
+    # Total items received
+    total_items_received = 0
+    for d in dispatches:
+        for item in d.get("items", []):
+            total_items_received += item.get("supplied_qty", 0)
+    
+    # Total items rejected
+    total_items_rejected = sum(r.get("quantity", 0) for r in rejections)
+    
+    return {
+        "retailer": {
+            "id": retailer.get("id"),
+            "name": retailer.get("name"),
+            "email": retailer.get("email"),
+            "contact": retailer.get("contact"),
+            "address": retailer.get("address"),
+            "company_name": retailer.get("company_name"),
+            "commission_percentage": retailer.get("commission_percentage", 0),
+            "upfront_collection_percentage": retailer.get("upfront_collection_percentage", 50),
+            "referral_code": retailer.get("referral_code")
+        },
+        "summary": {
+            "total_mrp_value": round(total_mrp_value, 2),
+            "total_net_payable": round(total_net_payable, 2),
+            "total_rejection_value": round(total_rejection_value, 2),
+            "adjusted_payable": round(adjusted_payable, 2),
+            "total_paid": round(total_paid, 2),
+            "pending_amount": round(pending_amount, 2),
+            "total_items_received": total_items_received,
+            "total_items_rejected": total_items_rejected,
+            "pending_indents": pending_indents,
+            "total_dispatches": len(dispatches),
+            "total_payments": len(payments)
+        }
+    }
+
+# ============================================================================
+# ============================================================================
+# SECTION: BACKUP & DATA MANAGEMENT ROUTES - MOVED TO routes/backup_data.py
+# ============================================================================
+# The following routes have been extracted to routes/backup_data.py:
+# - POST /backup/trigger
+# - GET /backup/download
+# - GET /backup/status
+# - POST /admin/reset-data
+# - POST /sync-from-production
+# - POST /admin/run-migration/fix-uuid-variants
+# - POST /admin/run-migration/sync-product-translations
+# Import: from routes import backup_data_router
+# Include: app.include_router(backup_data_router, prefix="/api")
+# ============================================================================
+
+# ============================================================================
+# SECTION: GMAIL INTEGRATION ROUTES - MOVED TO routes/gmail_integration.py
+# ============================================================================
+# The following routes have been extracted to routes/gmail_integration.py:
+# - GET /gmail/auth-url
+# - GET /gmail/callback
+# - GET /gmail/status
+# - DELETE /gmail/disconnect
+# - POST /gmail/auto-sync
+# Import: from routes import gmail_integration_router
+# Include: app.include_router(gmail_integration_router, prefix="/api")
+# ============================================================================
+
+
+
+# ==================== AUTO INDENT GENERATION ====================
+
+def extract_weight_from_variant(variant_name: str) -> str:
+    """
+    Extract normalized weight from variant name for grouping.
+    Handles formats like: '1kg', '1 kg', '500g', '500 gm', '1 Kg', '500 GM', '250gm', '2.5kg', '500+ gm'
+    Also handles range formats: '240-260 gm' (uses average), '300-350gm'
+    Returns a normalized weight string like '1000g', '500g', etc.
+    If no weight found, returns empty string.
+    """
+    if not variant_name:
+        return ""
+    
+    variant_lower = variant_name.lower().strip()
+    
+    # First, try to match range format: "240-260 gm", "300-350gm", "190-210 gm Packet"
+    range_pattern = r'(\d+)\s*[-–]\s*(\d+)\s*\+?\s*(kg|kgs|g|gm|gms|gram|grams)'
+    range_match = re.search(range_pattern, variant_lower)
+    if range_match:
+        low = float(range_match.group(1))
+        high = float(range_match.group(2))
+        unit = range_match.group(3)
+        # Use average of range
+        avg = (low + high) / 2
+        if unit in ('kg', 'kgs'):
+            grams = int(avg * 1000)
+        else:
+            grams = int(avg)
+        return f"{grams}g"
+    
+    # Pattern to match single weight: number (with optional decimal) followed by optional + and unit
+    # Handles: 1kg, 1 kg, 500g, 500gm, 500 gm, 2.5kg, 500+ gm, etc.
+    weight_pattern = r'(\d+(?:\.\d+)?)\s*\+?\s*(kg|kgs|kilogram|kilograms|g|gm|gms|gram|grams)'
+    
+    match = re.search(weight_pattern, variant_lower)
+    if not match:
+        return ""
+    
+    number = float(match.group(1))
+    unit = match.group(2)
+    
+    # Normalize to grams
+    if unit in ('kg', 'kgs', 'kilogram', 'kilograms'):
+        grams = int(number * 1000)
+    else:  # g, gm, gms, gram, grams
+        grams = int(number)
+    
+    return f"{grams}g"
+
+
+def normalize_weight_to_bucket(weight_gm: float) -> int:
+    """
+    Normalize weight to a standard bucket for grouping similar weights.
+    This groups weights that are close to each other into the same bucket.
+    
+    Standard buckets are chosen based on common produce packaging sizes.
+    The algorithm finds the closest bucket to the given weight.
+    
+    Examples:
+    - 475g, 450g, 500g → 500g bucket (all ~500g category)
+    - 325g, 350g, 300g → 300g bucket (all ~300g category)
+    - 1000g → 1000g bucket
+    """
+    if weight_gm <= 0:
+        return 0
+    
+    # Define standard weight buckets (in grams) based on common produce packaging
+    # These represent typical weight categories used in retail
+    standard_buckets = [
+        50, 75, 100, 150, 200, 250, 300, 400, 500, 
+        700, 750, 1000, 1500, 2000, 2500, 3000, 5000
+    ]
+    
+    # Find the closest bucket
+    closest_bucket = standard_buckets[0]
+    min_distance = abs(weight_gm - closest_bucket)
+    
+    for bucket in standard_buckets:
+        distance = abs(weight_gm - bucket)
+        if distance < min_distance:
+            min_distance = distance
+            closest_bucket = bucket
+    
+    return closest_bucket
+
+
+def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 300) -> dict:
+    """
+    Post-process product_weight_totals to merge variants of the same product
+    that have weights close together (within max_gap_gm).
+    
+    For example:
+    - Broccoli 200g, 300g, 400g → Merge into one (all within 200g of each other)
+    - Potato 500g, 1000g → Keep separate (500g gap is too large)
+    - Fresh Mint 75g, 100g → Merge into one (25g gap)
+    
+    Args:
+        product_weight_totals: Dict keyed by "product_id_weightg" with aggregation data
+        max_gap_gm: Maximum gap between adjacent weights to consider them "close" (default 300g)
+    
+    Returns:
+        Merged dict with combined entries
+    """
+    from collections import defaultdict
+    
+    # Group entries by product_id
+    product_entries = defaultdict(list)
+    for key, data in product_weight_totals.items():
+        product_id = data["product_id"]
+        weight_bucket = data.get("weight_bucket", 0)
+        product_entries[product_id].append({
+            "key": key,
+            "weight_bucket": weight_bucket,
+            "data": data
+        })
+    
+    merged_result = {}
+    
+    for product_id, entries in product_entries.items():
+        if len(entries) == 1:
+            # Only one entry, keep as-is
+            merged_result[entries[0]["key"]] = entries[0]["data"]
+            continue
+        
+        # Sort by weight bucket
+        entries.sort(key=lambda x: x["weight_bucket"])
+        
+        # Find clusters of close weights
+        clusters = []
+        current_cluster = [entries[0]]
+        
+        for i in range(1, len(entries)):
+            prev_weight = entries[i-1]["weight_bucket"]
+            curr_weight = entries[i]["weight_bucket"]
+            
+            # If gap is small enough, add to current cluster
+            if curr_weight - prev_weight <= max_gap_gm:
+                current_cluster.append(entries[i])
+            else:
+                # Gap too large, start new cluster
+                clusters.append(current_cluster)
+                current_cluster = [entries[i]]
+        
+        # Don't forget the last cluster
+        clusters.append(current_cluster)
+        
+        # Process each cluster
+        for cluster in clusters:
+            if len(cluster) == 1:
+                # Single entry cluster, keep as-is
+                merged_result[cluster[0]["key"]] = cluster[0]["data"]
+            else:
+                # Multiple entries in cluster - merge them
+                # Find the middle weight variant
+                weights = [e["weight_bucket"] for e in cluster]
+                mid_weight = weights[len(weights) // 2]  # Use median weight
+                
+                # Find the entry closest to mid weight
+                mid_entry = min(cluster, key=lambda x: abs(x["weight_bucket"] - mid_weight))
+                
+                # Combine all data
+                combined_total_qty = sum(e["data"]["total_qty"] for e in cluster)
+                combined_dates = set()
+                for e in cluster:
+                    combined_dates.update(e["data"]["dates"])
+                
+                # Find the latest variant across all entries
+                latest_entry = max(cluster, key=lambda x: x["data"]["latest_invoice_date"])
+                
+                # Create merged entry using mid variant's key but latest variant name
+                merged_key = mid_entry["key"]
+                merged_data = mid_entry["data"].copy()
+                merged_data["total_qty"] = combined_total_qty
+                merged_data["dates"] = combined_dates
+                merged_data["latest_variant_name"] = latest_entry["data"]["latest_variant_name"]
+                merged_data["latest_variant_id"] = latest_entry["data"]["latest_variant_id"]
+                merged_data["latest_invoice_date"] = latest_entry["data"]["latest_invoice_date"]
+                
+                merged_result[merged_key] = merged_data
+    
+    return merged_result
+
+
+async def generate_auto_indents_for_tomorrow():
+    """
+    Auto-generate retailer indents for the next day based on invoice history.
+    Runs at 11 PM daily.
+    
+    Logic:
+    1. Calculate tomorrow's day of week (e.g., Monday)
+    2. For each retailer, find invoice quantities on the same weekday in the last 7 weeks
+    3. Group products by product_id + actual weight (from packaging database)
+    4. Calculate average based on count of days with data and increase by 10%
+    5. Create auto-generated indent
+    
+    Note: Invoice quantity = Dispatch - Rejections (the net final number)
+    """
+    try:
+        logger.info("Starting auto-indent generation for tomorrow (using invoice data)...")
+        
+        # Get tomorrow's date
+        now = datetime.now(timezone.utc)
+        tomorrow = now + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime('%Y-%m-%d')
+        tomorrow_weekday = tomorrow.weekday()  # 0=Monday, 6=Sunday
+        weekday_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        
+        # Get all retailers
+        retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
+        logger.info(f"Found {len(retailers)} retailers to process")
+        
+        # Get all products for reference
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        product_map = {p["id"]: p for p in products}
+        
+        # Get packaging variants for weight lookup
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        packaging_weight_map = {}
+        for p in packaging_variants:
+            name = p.get('name', '').strip().lower()
+            weight = p.get('weight_gm', 0)
+            if name and weight:
+                packaging_weight_map[name] = weight
+        
+        auto_indents_created = 0
+        
+        for retailer in retailers:
+            retailer_id = retailer["id"]
+            retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
+            
+            try:
+                # Check if indent already exists for tomorrow
+                existing_indent = await db.retailer_indents.find_one({
+                    "retailer_id": retailer_id,
+                    "indent_date": {"$regex": f"^{tomorrow_str}"}
+                })
+                
+                if existing_indent:
+                    logger.info(f"Indent already exists for {retailer_name} on {tomorrow_str}, skipping")
+                    continue
+                
+                # Get all invoices for this retailer
+                invoices = await db.retailer_invoices.find({
+                    "retailer_id": retailer_id
+                }).to_list(500)
+                
+                if not invoices:
+                    logger.info(f"No invoice history for {retailer_name}, skipping")
+                    continue
+                
+                # Filter invoices for the same weekday in the last 7 weeks
+                same_weekday_invoices = []
+                cutoff_date = tomorrow.date() - timedelta(days=49)  # 7 weeks
+                
+                for inv in invoices:
+                    try:
+                        inv_date_str = inv.get("invoice_date", "")
+                        if isinstance(inv_date_str, str):
+                            inv_date = datetime.fromisoformat(inv_date_str.replace('Z', '+00:00')).date()
+                        else:
+                            inv_date = inv_date_str.date() if hasattr(inv_date_str, 'date') else None
+                        
+                        if inv_date and inv_date.weekday() == tomorrow_weekday:
+                            if inv_date >= cutoff_date and inv_date < tomorrow.date():
+                                same_weekday_invoices.append(inv)
+                    except Exception as e:
+                        continue
+                
+                if not same_weekday_invoices:
+                    logger.info(f"No {weekday_names[tomorrow_weekday]} invoices for {retailer_name} in last 7 weeks, skipping")
+                    continue
+                
+                logger.info(f"Analyzing {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoices for {retailer_name}")
+                
+                # Calculate average invoice quantity per product+weight combination
+                # Group by product_id + actual weight from packaging database
+                product_weight_totals = {}
+                
+                for inv in same_weekday_invoices:
+                    inv_date_str = inv.get("invoice_date", "")[:10]
+                    inv_date = datetime.fromisoformat(inv.get("invoice_date", "").replace('Z', '+00:00'))
+                    
+                    for item in inv.get("items", []):
+                        product_id = item.get("product_id")
+                        product_name = item.get("product_name", "")
+                        variant_id = item.get("variant_id") or ""
+                        variant_name = item.get("variant_name") or ""
+                        # Invoice quantity = final dispatched qty after rejections
+                        invoice_qty = item.get("quantity", 0) or 0
+                        
+                        if product_id and invoice_qty > 0:
+                            # Get actual weight - first try packaging database, then extract from name
+                            variant_key = variant_name.strip().lower()
+                            actual_weight_gm = packaging_weight_map.get(variant_key, 0)
+                            
+                            # If not found in DB, try extracting from variant name
+                            if actual_weight_gm == 0:
+                                extracted_weight = extract_weight_from_variant(variant_name)
+                                if extracted_weight:
+                                    # Parse extracted weight (e.g., "250g" -> 250)
+                                    actual_weight_gm = int(extracted_weight.replace('g', ''))
+                            
+                            # Key by product_id + normalized weight bucket
+                            # Normalize weight to a standard bucket (e.g., 475g → 500g bucket)
+                            # This groups similar weights (within 15%) together
+                            if actual_weight_gm > 0:
+                                weight_bucket = normalize_weight_to_bucket(actual_weight_gm)
+                                key = f"{product_id}_{weight_bucket}g"
+                            else:
+                                key = f"{product_id}_{variant_name}"
+                            
+                            if key not in product_weight_totals:
+                                product_weight_totals[key] = {
+                                    "product_id": product_id,
+                                    "product_name": product_name,
+                                    "variant_id": variant_id,
+                                    "variant_name": variant_name,
+                                    "actual_weight_gm": actual_weight_gm,
+                                    "weight_bucket": weight_bucket if actual_weight_gm > 0 else 0,
+                                    "total_qty": 0,
+                                    "dates": set(),
+                                    "latest_invoice_date": inv_date,
+                                    "latest_variant_name": variant_name,
+                                    "latest_variant_id": variant_id
+                                }
+                            
+                            product_weight_totals[key]["total_qty"] += invoice_qty
+                            product_weight_totals[key]["dates"].add(inv_date_str)
+                            
+                            # Track the most recent variant name for display
+                            if inv_date > product_weight_totals[key]["latest_invoice_date"]:
+                                product_weight_totals[key]["latest_invoice_date"] = inv_date
+                                product_weight_totals[key]["latest_variant_name"] = variant_name
+                                product_weight_totals[key]["latest_variant_id"] = variant_id
+                
+                if not product_weight_totals:
+                    logger.info(f"No invoice items for {retailer_name}, skipping")
+                    continue
+                
+                # Merge close weight variants (within 300g of each other)
+                # This combines entries like Broccoli 200g, 300g, 400g into one
+                # But keeps Potato 500g and 1000g separate (500g gap)
+                product_weight_totals = merge_close_weight_variants(product_weight_totals, max_gap_gm=300)
+                
+                # Fetch retailer catalogue to get purchase_unit info for each product
+                catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
+                catalogue_map = {}
+                for cat in catalogue_items:
+                    catalogue_map[cat.get("product_id")] = {
+                        "purchase_unit": cat.get("purchase_unit", ""),
+                        "purchase_weight_variant": cat.get("purchase_weight_variant", "")
+                    }
+                
+                # Build packaging name map for resolving weight variant names
+                packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
+                
+                # Calculate average and add 10% buffer
+                # Use the latest variant name for display (most recent invoice)
+                indent_items = []
+                for key, data in product_weight_totals.items():
+                    days_count = len(data["dates"])
+                    avg_qty = data["total_qty"] / days_count
+                    recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
+                    
+                    if recommended_qty > 0:
+                        product = product_map.get(data["product_id"], {})
+                        product_id = data["product_id"]
+                        
+                        # Check catalogue for this product - override variant for Piece/Packet products
+                        cat_info = catalogue_map.get(product_id, {})
+                        purchase_unit = cat_info.get("purchase_unit", "")
+                        
+                        if purchase_unit == "Piece":
+                            final_variant_id = "unit_piece"
+                            final_variant_name = "Pieces"
+                        elif purchase_unit == "Packet":
+                            final_variant_id = "unit_packet"
+                            final_variant_name = "Packets"
+                        else:
+                            # Keep original variant but resolve UUID if needed
+                            final_variant_id = data["latest_variant_id"]
+                            final_variant_name = data["latest_variant_name"]
+                            # If variant_name looks like UUID, try to resolve it
+                            if final_variant_name and len(final_variant_name) == 36 and '-' in final_variant_name:
+                                resolved = packaging_name_map.get(final_variant_name, "")
+                                if resolved:
+                                    final_variant_name = resolved
+                        
+                        indent_items.append({
+                            "product_id": product_id,
+                            "product_name": product.get("name", data["product_name"]),
+                            "variant_id": final_variant_id,
+                            "variant_name": final_variant_name,
+                            "quantity": recommended_qty,
+                            "status": "pending"
+                        })
+                
+                if not indent_items:
+                    logger.info(f"No items to indent for {retailer_name}, skipping")
+                    continue
+                
+                # Create the auto-generated indent
+                indent_doc = {
+                    "id": str(uuid.uuid4()),
+                    "retailer_id": retailer_id,
+                    "retailer_name": retailer_name,
+                    "indent_date": tomorrow.isoformat(),
+                    "items": indent_items,
+                    "status": "pending",
+                    "created_by": "system",
+                    "created_by_role": "system",
+                    "remarks": f"Auto-generated based on last {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoice data",
+                    "is_auto_generated": True,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                await db.retailer_indents.insert_one(indent_doc)
+                auto_indents_created += 1
+                logger.info(f"Created auto-indent for {retailer_name} with {len(indent_items)} items")
+                
+            except Exception as e:
+                logger.error(f"Error processing retailer {retailer_name}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        logger.info(f"Auto-indent generation completed. Created {auto_indents_created} indents.")
+        return {"indents_created": auto_indents_created}
+        
+    except Exception as e:
+        logger.error(f"Auto-indent generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
+
+def generate_auto_indents_wrapper():
+    """Wrapper to run async auto-indent generation from scheduler"""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(generate_auto_indents_for_tomorrow())
+    finally:
+        loop.close()
+
+
+@router.post("/admin/generate-auto-indents")
+async def trigger_auto_indent_generation(current_user: dict = Depends(get_current_user)):
+    """Manually trigger auto-indent generation for testing"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can trigger auto-indent generation")
+    
+    result = await generate_auto_indents_for_tomorrow()
+    return result
+
+
+@router.post("/admin/generate-auto-indent")
+async def generate_single_auto_indent(
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate auto-indent for a single retailer based on sales history OR retail plan"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can generate auto indents")
+    
+    retailer_id = request.get("retailer_id")
+    target_date_str = request.get("target_date")
+    basis = request.get("basis", "sales")  # 'sales' or 'plan'
+    
+    if not retailer_id:
+        raise HTTPException(status_code=400, detail="retailer_id is required")
+    
+    try:
+        # Parse target date
+        if target_date_str:
+            target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        else:
+            target_date = (datetime.now(timezone.utc) + timedelta(days=1)).date()
+        
+        # Get retailer info
+        retailer = await db.users.find_one({"id": retailer_id, "role": "retailer"}, {"_id": 0})
+        if not retailer:
+            raise HTTPException(status_code=404, detail="Retailer not found")
+        
+        retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
+        
+        # Check if indent already exists for this retailer and date
+        existing_indent = await db.retailer_indents.find_one({
+            "retailer_id": retailer_id,
+            "indent_date": target_date.isoformat()
+        })
+        
+        if existing_indent:
+            return {
+                "success": False,
+                "message": f"An indent already exists for {retailer_name} on {target_date.isoformat()}. Delete it first to regenerate."
+            }
+        
+        # Handle Plan-based generation
+        if basis == "plan":
+            return await generate_plan_based_indent(retailer, retailer_name, target_date, current_user)
+        
+        # Otherwise, proceed with Sales-based generation (existing logic)
+        
+        # Get packaging variants for weight lookup
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
+        packaging_weight_map = {}
+        for p in packaging_variants:
+            name = p.get('name', '').strip().lower()
+            weight = p.get('weight_gm', 0)
+            if name and weight:
+                packaging_weight_map[name] = weight
+        
+        # Get the target weekday (0=Monday, 6=Sunday)
+        target_weekday = target_date.weekday()
+        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        # Calculate the dates for the last 7 identical weekdays
+        historical_dates = []
+        check_date = target_date - timedelta(days=7)  # Start from 1 week ago
+        while len(historical_dates) < 7 and check_date >= target_date - timedelta(days=56):  # Max 8 weeks back
+            if check_date.weekday() == target_weekday:
+                historical_dates.append(check_date.isoformat())
+            check_date -= timedelta(days=1)
+        
+        # Find invoices for this retailer on those weekdays
+        # Invoice dates are stored as ISO datetime strings
+        invoices = await db.retailer_invoices.find({
+            "retailer_id": retailer_id
+        }).to_list(500)
+        
+        # Filter invoices for the same weekday in the last 7 weeks
+        same_weekday_invoices = []
+        for inv in invoices:
+            try:
+                inv_date_str = inv.get("invoice_date", "")
+                if isinstance(inv_date_str, str):
+                    inv_date = datetime.fromisoformat(inv_date_str.replace('Z', '+00:00')).date()
+                else:
+                    inv_date = inv_date_str.date() if hasattr(inv_date_str, 'date') else None
+                
+                if inv_date and inv_date.weekday() == target_weekday and inv_date < target_date:
+                    # Only consider last 7 weeks
+                    if inv_date >= target_date - timedelta(days=49):
+                        same_weekday_invoices.append(inv)
+            except Exception as e:
+                logger.warning(f"Error parsing invoice date: {e}")
+                continue
+        
+        # Use whatever data is available (even 1 invoice is fine)
+        if len(same_weekday_invoices) == 0:
+            return {
+                "success": False,
+                "message": f"No historical invoice data found for {retailer_name} on this weekday. The retailer needs to have at least one invoice for a {weekday_names[target_weekday]}."
+            }
+        
+        # Calculate average invoice quantity per product+weight combination
+        # Group by product_id + actual weight from packaging database
+        # Invoice quantity = Dispatch - Rejections (the net final number)
+        product_weight_totals = {}
+        dates_with_data = set()
+        
+        for inv in same_weekday_invoices:
+            inv_date_str = inv.get("invoice_date", "")[:10]
+            inv_date = datetime.fromisoformat(inv.get("invoice_date", "").replace('Z', '+00:00'))
+            
+            for item in inv.get("items", []):
+                product_id = item.get("product_id")
+                product_name = item.get("product_name", "")
+                variant_id = item.get("variant_id") or ""
+                variant_name = item.get("variant_name") or ""
+                # Use quantity from invoice (this is the final dispatched qty after rejections)
+                invoice_qty = item.get("quantity", 0) or 0
+                
+                if product_id and invoice_qty > 0:
+                    # Get actual weight - first try packaging database, then extract from name
+                    variant_key = variant_name.strip().lower()
+                    actual_weight_gm = packaging_weight_map.get(variant_key, 0)
+                    
+                    # If not found in DB, try extracting from variant name
+                    if actual_weight_gm == 0:
+                        extracted_weight = extract_weight_from_variant(variant_name)
+                        if extracted_weight:
+                            # Parse extracted weight (e.g., "250g" -> 250)
+                            actual_weight_gm = int(extracted_weight.replace('g', ''))
+                    
+                    # Key by product_id + normalized weight bucket
+                    # Normalize weight to a standard bucket (e.g., 475g → 500g bucket)
+                    # This groups similar weights (within 15%) together
+                    if actual_weight_gm > 0:
+                        weight_bucket = normalize_weight_to_bucket(actual_weight_gm)
+                        key = f"{product_id}_{weight_bucket}g"
+                    else:
+                        key = f"{product_id}_{variant_name}"
+                    
+                    if key not in product_weight_totals:
+                        product_weight_totals[key] = {
+                            "product_id": product_id,
+                            "product_name": product_name,
+                            "variant_id": variant_id,
+                            "variant_name": variant_name,
+                            "actual_weight_gm": actual_weight_gm,
+                            "weight_bucket": weight_bucket if actual_weight_gm > 0 else 0,
+                            "total_qty": 0,
+                            "dates": set(),
+                            "latest_invoice_date": inv_date,
+                            "latest_variant_name": variant_name,
+                            "latest_variant_id": variant_id
+                        }
+                    
+                    product_weight_totals[key]["total_qty"] += invoice_qty
+                    product_weight_totals[key]["dates"].add(inv_date_str)
+                    dates_with_data.add(inv_date_str)
+                    
+                    # Track the most recent variant name for display
+                    if inv_date > product_weight_totals[key]["latest_invoice_date"]:
+                        product_weight_totals[key]["latest_invoice_date"] = inv_date
+                        product_weight_totals[key]["latest_variant_name"] = variant_name
+                        product_weight_totals[key]["latest_variant_id"] = variant_id
+        
+        if not product_weight_totals:
+            return {
+                "success": False,
+                "message": f"No invoice data found for {retailer_name} on this weekday"
+            }
+        
+        # Merge close weight variants (within 300g of each other)
+        # This combines entries like Broccoli 200g, 300g, 400g into one
+        # But keeps Potato 500g and 1000g separate (500g gap)
+        product_weight_totals = merge_close_weight_variants(product_weight_totals, max_gap_gm=300)
+        
+        # Create indent items with average + 10% buffer
+        # Use the latest variant name for display (most recent invoice)
+        # Look up variant_id from variant_name if not available
+        indent_items = []
+        for key, data in product_weight_totals.items():
+            days_count = len(data["dates"])
+            avg_qty = data["total_qty"] / days_count
+            recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
+            
+            if recommended_qty > 0:
+                variant_id = data["latest_variant_id"] or ""
+                variant_name = data["latest_variant_name"] or ""
+                
+                # If no variant_id but have variant_name, look it up
+                if not variant_id and variant_name:
+                    variant_name_lower = variant_name.strip().lower()
+                    for pkg in packaging_variants:
+                        if pkg.get("name", "").strip().lower() == variant_name_lower:
+                            variant_id = pkg.get("id", "")
+                            break
+                
+                indent_items.append({
+                    "product_id": data["product_id"],
+                    "product_name": data["product_name"],
+                    "variant_id": variant_id,
+                    "variant_name": variant_name,
+                    "quantity": recommended_qty,
+                    "status": "pending"
+                })
+        
+        if not indent_items:
+            return {
+                "success": False,
+                "message": f"No products with positive quantities found for {retailer_name}"
+            }
+        
+        # Sort by product name
+        indent_items.sort(key=lambda x: x["product_name"])
+        
+        # Create the indent
+        new_indent = {
+            "id": str(uuid.uuid4()),
+            "retailer_id": retailer_id,
+            "retailer_name": retailer_name,
+            "indent_date": target_date.isoformat(),
+            "items": indent_items,
+            "total_qty": sum(item["quantity"] for item in indent_items),
+            "status": "pending",
+            "remarks": f"Auto-generated based on {len(same_weekday_invoices)} weeks of {weekday_names[target_weekday]} invoice data",
+            "is_auto_generated": True,
+            "generation_basis": "sales",  # Historical sales based
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.retailer_indents.insert_one(new_indent)
+        
+        return {
+            "success": True,
+            "message": f"Auto indent created for {retailer_name} with {len(indent_items)} products (Sales Based)",
+            "retailer_name": retailer_name,
+            "indent_id": new_indent["id"],
+            "products_count": len(indent_items),
+            "total_qty": new_indent["total_qty"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error generating auto indent: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_date, current_user: dict):
+    """Generate indent based on retailer's subscribed plan minus closing inventory"""
+    retailer_id = retailer.get("id")
+    
+    # Check if retailer has a subscribed plan
+    subscribed_plan_id = retailer.get("subscribed_plan_id")
+    if not subscribed_plan_id:
+        return {
+            "success": False,
+            "message": f"{retailer_name} is not subscribed to any Retail Plan. Please assign a plan first."
+        }
+    
+    # Get the subscribed plan
+    plan = await db.retail_plans.find_one({"id": subscribed_plan_id}, {"_id": 0})
+    if not plan:
+        return {
+            "success": False,
+            "message": f"Subscribed plan not found. Please reassign a plan to {retailer_name}."
+        }
+    
+    plan_products = plan.get("products", [])
+    if not plan_products:
+        return {
+            "success": False,
+            "message": f"Plan '{plan.get('name')}' has no products configured."
+        }
+    
+    # Get yesterday's closing inventory
+    yesterday = (target_date - timedelta(days=1)).isoformat()
+    closing_records = await db.retailer_closing_inventory.find({
+        "retailer_id": retailer_id,
+        "closing_date": yesterday
+    }, {"_id": 0}).to_list(500)
+    
+    if not closing_records:
+        return {
+            "success": False,
+            "message": f"No closing inventory found for {retailer_name} on {yesterday}. Closing inventory is mandatory for Plan-based orders."
+        }
+    
+    # Create a map of closing inventory by product_id + variant_id
+    closing_map = {}
+    for record in closing_records:
+        product_id = record.get("product_id")
+        variant_id = record.get("variant_id") or ""
+        closing_qty = record.get("closing_qty", 0)
+        key = f"{product_id}_{variant_id}"
+        closing_map[key] = closing_qty
+    
+    # Fetch retailer catalogue to get purchase_unit info for each product
+    catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
+    catalogue_map = {}
+    for cat in catalogue_items:
+        catalogue_map[cat.get("product_id")] = {
+            "purchase_unit": cat.get("purchase_unit", ""),
+            "purchase_weight_variant": cat.get("purchase_weight_variant", "")
+        }
+    
+    # Build packaging name map for resolving UUID variant names
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
+    
+    # Calculate pending quantities
+    indent_items = []
+    for plan_item in plan_products:
+        product_id = plan_item.get("product_id")
+        product_name = plan_item.get("product_name", "Unknown")
+        variant_id = plan_item.get("variant_id") or ""
+        variant_name = plan_item.get("variant_name") or ""
+        plan_qty = plan_item.get("quantity", 0)
+        
+        # Check catalogue for this product - override variant for Piece/Packet products
+        cat_info = catalogue_map.get(product_id, {})
+        purchase_unit = cat_info.get("purchase_unit", "")
+        
+        if purchase_unit == "Piece":
+            final_variant_id = "unit_piece"
+            final_variant_name = "Pieces"
+        elif purchase_unit == "Packet":
+            final_variant_id = "unit_packet"
+            final_variant_name = "Packets"
+        else:
+            # Keep original variant but resolve UUID if needed
+            final_variant_id = variant_id
+            final_variant_name = variant_name
+            # If variant_name looks like UUID, try to resolve it
+            if final_variant_name and len(final_variant_name) == 36 and '-' in final_variant_name:
+                resolved = packaging_name_map.get(final_variant_name, "")
+                if resolved:
+                    final_variant_name = resolved
+        
+        # Get closing inventory for this product+variant (use original variant_id for lookup)
+        key = f"{product_id}_{variant_id}"
+        closing_qty = closing_map.get(key, 0)
+        
+        # Also check with normalized variant_id for Piece/Packet products
+        if purchase_unit in ["Piece", "Packet"] and closing_qty == 0:
+            # Try lookup with unit_piece/unit_packet
+            normalized_key = f"{product_id}_{final_variant_id}"
+            closing_qty = closing_map.get(normalized_key, 0)
+        
+        # Calculate pending qty (Plan qty - Closing qty)
+        pending_qty = max(0, plan_qty - closing_qty)
+        
+        if pending_qty > 0:
+            indent_items.append({
+                "product_id": product_id,
+                "product_name": product_name,
+                "variant_id": final_variant_id,
+                "variant_name": final_variant_name,
+                "quantity": round(pending_qty),
+                "plan_qty": plan_qty,
+                "closing_qty": closing_qty,
+                "status": "pending"
+            })
+    
+    if not indent_items:
+        return {
+            "success": False,
+            "message": "All products in plan are fully stocked (closing inventory >= plan qty). No indent needed."
+        }
+    
+    # Sort by product name
+    indent_items.sort(key=lambda x: x["product_name"])
+    
+    # Create the indent
+    new_indent = {
+        "id": str(uuid.uuid4()),
+        "retailer_id": retailer_id,
+        "retailer_name": retailer_name,
+        "indent_date": target_date.isoformat(),
+        "items": indent_items,
+        "total_qty": sum(item["quantity"] for item in indent_items),
+        "status": "pending",
+        "remarks": f"Plan-based indent from '{plan.get('name')}' (Closing date: {yesterday})",
+        "is_auto_generated": True,
+        "generation_basis": "plan",  # Plan based
+        "plan_id": subscribed_plan_id,
+        "plan_name": plan.get("name"),
+        "closing_date_used": yesterday,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.retailer_indents.insert_one(new_indent)
+    
+    return {
+        "success": True,
+        "message": f"Plan-based indent created for {retailer_name} with {len(indent_items)} products",
+        "retailer_name": retailer_name,
+        "indent_id": new_indent["id"],
+        "products_count": len(indent_items),
+        "total_qty": new_indent["total_qty"],
+        "plan_name": plan.get("name")
+    }
+
+
+@router.post("/admin/populate-hindi-names")
+async def populate_hindi_product_names(current_user: dict = Depends(get_current_user)):
+    """Populate Hindi names for all products in the database"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate Hindi names")
+    
+    try:
+        products = await db.products.find({}).to_list(1000)
+        updated_count = 0
+        missing = []
+        
+        for product in products:
+            name = product.get("name", "")
+            product_id = product.get("id")
+            
+            if name in HINDI_PRODUCT_NAMES:
+                hindi_name = HINDI_PRODUCT_NAMES[name]
+                result = await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": {"name_hi": hindi_name}}
+                )
+                if result.modified_count > 0:
+                    updated_count += 1
+            else:
+                missing.append(name)
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_products": len(products),
+            "missing_translations": missing[:10] if missing else [],
+            "message": f"Updated {updated_count} products with Hindi names"
+        }
+    except Exception as e:
+        print(f"Error populating Hindi names: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/populate-marathi-names")
+async def populate_marathi_product_names(current_user: dict = Depends(get_current_user)):
+    """Populate Marathi names for all products in the database"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate Marathi names")
+    
+    try:
+        products = await db.products.find({}).to_list(1000)
+        updated_count = 0
+        missing = []
+        
+        for product in products:
+            name = product.get("name", "")
+            product_id = product.get("id")
+            
+            if name in MARATHI_PRODUCT_NAMES:
+                marathi_name = MARATHI_PRODUCT_NAMES[name]
+                result = await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": {"name_mr": marathi_name}}
+                )
+                if result.modified_count > 0:
+                    updated_count += 1
+            else:
+                missing.append(name)
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_products": len(products),
+            "missing_translations": missing[:10] if missing else [],
+            "message": f"Updated {updated_count} products with Marathi names"
+        }
+    except Exception as e:
+        print(f"Error populating Marathi names: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/populate-all-translations")
+async def populate_all_translations(current_user: dict = Depends(get_current_user)):
+    """Populate both Hindi and Marathi names for all products in one call"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate translations")
+    
+    try:
+        products = await db.products.find({}).to_list(1000)
+        updated_hindi = 0
+        updated_marathi = 0
+        missing_hindi = []
+        missing_marathi = []
+        
+        for product in products:
+            name = product.get("name", "").strip()
+            product_id = product.get("id")
+            update_fields = {}
+            
+            # Check Hindi translation
+            current_hi = product.get("name_hi", "") or ""
+            if not current_hi:
+                # Try exact match first, then try with/without trailing spaces
+                hindi_name = HINDI_PRODUCT_NAMES.get(name) or HINDI_PRODUCT_NAMES.get(name + " ") or HINDI_PRODUCT_NAMES.get(name.rstrip())
+                if hindi_name:
+                    update_fields["name_hi"] = hindi_name
+                else:
+                    missing_hindi.append(name)
+            
+            # Check Marathi translation
+            current_mr = product.get("name_mr", "") or ""
+            if not current_mr:
+                marathi_name = MARATHI_PRODUCT_NAMES.get(name) or MARATHI_PRODUCT_NAMES.get(name + " ") or MARATHI_PRODUCT_NAMES.get(name.rstrip())
+                if marathi_name:
+                    update_fields["name_mr"] = marathi_name
+                else:
+                    missing_marathi.append(name)
+            
+            # Update if we have any new translations
+            if update_fields:
+                result = await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": update_fields}
+                )
+                if result.modified_count > 0:
+                    if "name_hi" in update_fields:
+                        updated_hindi += 1
+                    if "name_mr" in update_fields:
+                        updated_marathi += 1
+        
+        return {
+            "success": True,
+            "total_products": len(products),
+            "updated_hindi": updated_hindi,
+            "updated_marathi": updated_marathi,
+            "missing_hindi": missing_hindi[:20] if missing_hindi else [],
+            "missing_marathi": missing_marathi[:20] if missing_marathi else [],
+            "message": f"Updated {updated_hindi} Hindi and {updated_marathi} Marathi translations"
+        }
+    except Exception as e:
+        print(f"Error populating translations: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Hindi translation dictionary for common vegetables, fruits, and produce
+HINDI_TRANSLATIONS = {
+    # Leafy Vegetables
+    "amaranthus green": "हरा चौलाई",
+    "amaranthus red": "लाल चौलाई",
+    "spinach": "पालक",
+    "palak": "पालक",
+    "fenugreek": "मेथी",
+    "methi": "मेथी",
+    "coriander": "धनिया",
+    "mint": "पुदीना",
+    "pudina": "पुदीना",
+    "curry leaves": "कड़ी पत्ता",
+    "lettuce": "सलाद पत्ता",
+    "iceberg lettuce": "आइसबर्ग सलाद पत्ता",
+    "cabbage": "पत्ता गोभी",
+    "cauliflower": "फूल गोभी",
+    
+    # Root Vegetables
+    "potato": "आलू",
+    "onion": "प्याज",
+    "garlic": "लहसुन",
+    "ginger": "अदरक",
+    "carrot": "गाजर",
+    "radish": "मूली",
+    "beetroot": "चुकंदर",
+    "sweet potato": "शकरकंद",
+    "turnip": "शलगम",
+    "raw groundnut": "कच्ची मूंगफली",
+    
+    # Gourds
+    "bottle gourd": "लौकी",
+    "lauki": "लौकी",
+    "bitter gourd": "करेला",
+    "karela": "करेला",
+    "ridge gourd": "तोरई",
+    "tori": "तोरई",
+    "sponge gourd": "नेनुआ",
+    "snake gourd": "चिचिंडा",
+    "ash gourd": "पेठा",
+    "ivy gourd": "कुंदरू",
+    "pointed gourd": "परवल",
+    "parwal": "परवल",
+    
+    # Beans & Legumes
+    "french beans": "फ्रेंच बीन्स",
+    "cluster beans": "ग्वार फली",
+    "broad beans": "सेम",
+    "green peas": "हरी मटर",
+    "chana": "चना",
+    
+    # Brinjal Family
+    "brinjal": "बैंगन",
+    "eggplant": "बैंगन",
+    "brinjal bharta": "भरता बैंगन",
+    "brinjal green": "हरा बैंगन",
+    
+    # Tomatoes & Peppers
+    "tomato": "टमाटर",
+    "cherry tomato": "चेरी टमाटर",
+    "capsicum": "शिमला मिर्च",
+    "green capsicum": "हरी शिमला मिर्च",
+    "red capsicum": "लाल शिमला मिर्च",
+    "yellow capsicum": "पीली शिमला मिर्च",
+    "red yellow capsicum": "लाल पीली शिमला मिर्च",
+    "green chilli": "हरी मिर्च",
+    "red chilli": "लाल मिर्च",
+    
+    # Cucumbers
+    "cucumber": "खीरा",
+    "green cucumber": "हरा खीरा",
+    "english cucumber": "अंग्रेजी खीरा",
+    
+    # Other Vegetables
+    "drumstick": "सहजन",
+    "moringa": "सहजन",
+    "ladyfinger": "भिंडी",
+    "okra": "भिंडी",
+    "bhindi": "भिंडी",
+    "pumpkin": "कद्दू",
+    "zucchini": "जुकिनी",
+    "green & yellow zucchini": "हरी और पीली जुकिनी",
+    "broccoli": "ब्रोकली",
+    "baby corn": "बेबी कॉर्न",
+    "sweet corn": "स्वीट कॉर्न",
+    "mushroom": "मशरूम",
+    "green onion": "हरा प्याज",
+    "spring onion": "स्प्रिंग प्याज",
+    
+    # Fruits
+    "apple": "सेब",
+    "apple - royal gala": "रॉयल गाला सेब",
+    "banana": "केला",
+    "elaichi banana": "इलायची केला",
+    "mango": "आम",
+    "mango - hapus": "हापुस आम",
+    "mango - kesar": "केसर आम",
+    "orange": "संतरा",
+    "mini orange": "मिनी संतरा",
+    "papaya": "पपीता",
+    "guava": "अमरूद",
+    "watermelon": "तरबूज",
+    "muskmelon": "खरबूजा",
+    "grapes": "अंगूर",
+    "pomegranate": "अनार",
+    "pineapple": "अनानास",
+    "coconut": "नारियल",
+    "lemon": "नींबू",
+    "lime": "नींबू",
+    "kiwi": "कीवी",
+    "strawberry": "स्ट्रॉबेरी",
+    "fig": "अंजीर",
+    "custard apple": "सीताफल",
+    "jackfruit": "कटहल",
+    "chikoo": "चीकू",
+    "sapota": "चीकू",
+}
+
+# Marathi translation dictionary
+MARATHI_TRANSLATIONS = {
+    # Leafy Vegetables
+    "amaranthus green": "हिरवी माठ",
+    "amaranthus red": "लाल माठ",
+    "spinach": "पालक",
+    "palak": "पालक",
+    "fenugreek": "मेथी",
+    "methi": "मेथी",
+    "coriander": "कोथिंबीर",
+    "mint": "पुदिना",
+    "curry leaves": "कढीपत्ता",
+    "lettuce": "सलाद पत्ता",
+    "iceberg lettuce": "आइसबर्ग सलाद पत्ता",
+    "cabbage": "कोबी",
+    "cauliflower": "फुलकोबी",
+    
+    # Root Vegetables
+    "potato": "बटाटा",
+    "onion": "कांदा",
+    "garlic": "लसूण",
+    "ginger": "आले",
+    "carrot": "गाजर",
+    "radish": "मुळा",
+    "beetroot": "बीट",
+    "sweet potato": "रताळे",
+    "turnip": "सलगम",
+    "raw groundnut": "कच्चा शेंगदाणा",
+    
+    # Gourds
+    "bottle gourd": "दुधी भोपळा",
+    "lauki": "दुधी भोपळा",
+    "bitter gourd": "कारले",
+    "karela": "कारले",
+    "ridge gourd": "दोडका",
+    "tori": "दोडका",
+    "sponge gourd": "घोसाळे",
+    "snake gourd": "पडवळ",
+    "ash gourd": "कोहळा",
+    "ivy gourd": "तोंडली",
+    "pointed gourd": "परवर",
+    "parwal": "परवर",
+    
+    # Beans & Legumes
+    "french beans": "फ्रेंच बीन्स",
+    "cluster beans": "गवार",
+    "broad beans": "पावटा",
+    "green peas": "हिरवे वाटाणे",
+    
+    # Brinjal Family
+    "brinjal": "वांगे",
+    "eggplant": "वांगे",
+    "brinjal bharta": "भरीत वांगे",
+    "brinjal green": "हिरवे वांगे",
+    
+    # Tomatoes & Peppers
+    "tomato": "टोमॅटो",
+    "cherry tomato": "चेरी टोमॅटो",
+    "capsicum": "ढोबळी मिरची",
+    "green capsicum": "हिरवी ढोबळी मिरची",
+    "red capsicum": "लाल ढोबळी मिरची",
+    "yellow capsicum": "पिवळी ढोबळी मिरची",
+    "red yellow capsicum": "लाल पिवळी ढोबळी मिरची",
+    "green chilli": "हिरवी मिरची",
+    
+    # Cucumbers
+    "cucumber": "काकडी",
+    "green cucumber": "हिरवी काकडी",
+    
+    # Other Vegetables
+    "drumstick": "शेवगा",
+    "moringa": "शेवगा",
+    "ladyfinger": "भेंडी",
+    "okra": "भेंडी",
+    "bhindi": "भेंडी",
+    "pumpkin": "भोपळा",
+    "zucchini": "झुकिनी",
+    "green & yellow zucchini": "हिरवी आणि पिवळी झुकिनी",
+    "broccoli": "ब्रोकोली",
+    "baby corn": "बेबी कॉर्न",
+    "sweet corn": "गोड मका",
+    "mushroom": "अळंबी",
+    
+    # Fruits
+    "apple": "सफरचंद",
+    "apple - royal gala": "रॉयल गाला सफरचंद",
+    "banana": "केळे",
+    "elaichi banana": "वेलची केळे",
+    "mango": "आंबा",
+    "mango - hapus": "हापूस आंबा",
+    "mango - kesar": "केशर आंबा",
+    "orange": "संत्रे",
+    "mini orange": "लहान संत्रे",
+    "papaya": "पपई",
+    "guava": "पेरू",
+    "watermelon": "कलिंगड",
+    "muskmelon": "खरबूज",
+    "grapes": "द्राक्षे",
+    "pomegranate": "डाळिंब",
+    "pineapple": "अननस",
+    "coconut": "नारळ",
+    "lemon": "लिंबू",
+    "kiwi": "किवी",
+    "strawberry": "स्ट्रॉबेरी",
+    "fig": "अंजीर",
+    "custard apple": "सीताफळ",
+    "jackfruit": "फणस",
+    "chikoo": "चिक्कू",
+    "sapota": "चिक्कू",
+}
+
+
+@router.post("/admin/auto-translate-products")
+async def auto_translate_products(current_user: dict = Depends(get_current_user)):
+    """
+    Automatically translate product names to Hindi and Marathi using built-in dictionary.
+    Updates both the products table and retailer_catalogue.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can auto-translate")
+    
+    try:
+        # Get all products
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        
+        updated_products = 0
+        translations_applied = []
+        
+        for product in products:
+            product_name = product.get("name", "").lower().strip()
+            product_id = product.get("id")
+            current_name_hi = product.get("name_hi")
+            current_name_mr = product.get("name_mr")
+            
+            update_fields = {}
+            
+            # Check if Hindi translation is missing
+            if not current_name_hi:
+                # Try exact match first
+                if product_name in HINDI_TRANSLATIONS:
+                    update_fields["name_hi"] = HINDI_TRANSLATIONS[product_name]
+                else:
+                    # Try partial match
+                    for key, value in HINDI_TRANSLATIONS.items():
+                        if key in product_name or product_name in key:
+                            update_fields["name_hi"] = value
+                            break
+            
+            # Check if Marathi translation is missing
+            if not current_name_mr:
+                if product_name in MARATHI_TRANSLATIONS:
+                    update_fields["name_mr"] = MARATHI_TRANSLATIONS[product_name]
+                else:
+                    for key, value in MARATHI_TRANSLATIONS.items():
+                        if key in product_name or product_name in key:
+                            update_fields["name_mr"] = value
+                            break
+            
+            # Update product if translations found
+            if update_fields:
+                await db.products.update_one(
+                    {"id": product_id},
+                    {"$set": update_fields}
+                )
+                updated_products += 1
+                translations_applied.append({
+                    "product": product.get("name"),
+                    "hindi": update_fields.get("name_hi"),
+                    "marathi": update_fields.get("name_mr")
+                })
+        
+        # Now sync to retailer_catalogue
+        catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+        updated_catalogue = 0
+        
+        # Re-fetch updated products
+        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "name_hi": 1, "name_mr": 1}).to_list(1000)
+        product_map = {p.get("id"): p for p in products}
+        product_name_map = {p.get("name", "").lower().strip(): p for p in products}
+        
+        for item in catalogue_items:
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "").lower().strip()
+            
+            product = product_map.get(product_id) or product_name_map.get(product_name)
+            
+            if product:
+                update_fields = {}
+                if product.get("name_hi") and not item.get("product_name_hi"):
+                    update_fields["product_name_hi"] = product["name_hi"]
+                if product.get("name_mr") and not item.get("product_name_mr"):
+                    update_fields["product_name_mr"] = product["name_mr"]
+                
+                if update_fields:
+                    await db.retailer_catalogue.update_one(
+                        {"product_id": item.get("product_id")},
+                        {"$set": update_fields}
+                    )
+                    updated_catalogue += 1
+        
+        return {
+            "success": True,
+            "updated_products": updated_products,
+            "updated_catalogue": updated_catalogue,
+            "translations_applied": translations_applied[:30],  # Show first 30
+            "message": f"Auto-translated {updated_products} products and synced {updated_catalogue} catalogue items"
+        }
+    except Exception as e:
+        logger.error(f"Auto-translate error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+async def sync_catalogue_translations(current_user: dict = Depends(get_current_user)):
+    """Sync Hindi and Marathi translations from products table to retailer_catalogue"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can sync translations")
+    
+    try:
+        # Get all products with translations
+        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "name_hi": 1, "name_mr": 1}).to_list(1000)
+        product_map = {p.get("id"): p for p in products}
+        product_name_map = {p.get("name", "").lower().strip(): p for p in products}
+        
+        # Get all catalogue items
+        catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+        
+        updated_count = 0
+        for item in catalogue_items:
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            
+            # Find matching product
+            product = product_map.get(product_id) or product_name_map.get(product_name.lower().strip())
+            
+            if product:
+                update_fields = {}
+                
+                # Update Hindi if missing or empty
+                if product.get("name_hi") and not item.get("product_name_hi"):
+                    update_fields["product_name_hi"] = product["name_hi"]
+                
+                # Update Marathi if missing or empty
+                if product.get("name_mr") and not item.get("product_name_mr"):
+                    update_fields["product_name_mr"] = product["name_mr"]
+                
+                # Also update translations object if it exists
+                if update_fields:
+                    translations = item.get("translations", {})
+                    if product.get("name_hi"):
+                        translations["hi"] = product["name_hi"]
+                    if product.get("name_mr"):
+                        translations["mr"] = product["name_mr"]
+                    update_fields["translations"] = translations
+                    
+                    await db.retailer_catalogue.update_one(
+                        {"product_id": product_id},
+                        {"$set": update_fields}
+                    )
+                    updated_count += 1
+                    print(f"Updated catalogue: {product_name} -> Hi: {update_fields.get('product_name_hi', 'N/A')}")
+        
+        return {
+            "success": True,
+            "total_catalogue_items": len(catalogue_items),
+            "updated_count": updated_count,
+            "message": f"Synced translations for {updated_count} catalogue items"
+        }
+    except Exception as e:
+        print(f"Error syncing catalogue translations: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/populate-referral-codes")
+async def populate_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
+    """Populate referral codes for all retailers that don't have one"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can populate referral codes")
+    
+    try:
+        # Find all retailers without referral codes
+        retailers = await db.users.find({
+            "role": "retailer",
+            "$or": [
+                {"referral_code": {"$exists": False}},
+                {"referral_code": None},
+                {"referral_code": ""}
+            ]
+        }).to_list(1000)
+        
+        updated_count = 0
+        
+        for retailer in retailers:
+            # Generate unique 5-digit referral code
+            referral_code = ''.join(random.choices(string.digits, k=5))
+            
+            # Make sure it's unique
+            while await db.users.find_one({"referral_code": referral_code}):
+                referral_code = ''.join(random.choices(string.digits, k=5))
+            
+            result = await db.users.update_one(
+                {"id": retailer["id"]},
+                {"$set": {"referral_code": referral_code}}
+            )
+            
+            if result.modified_count > 0:
+                updated_count += 1
+        
+        # Count total retailers
+        total_retailers = await db.users.count_documents({"role": "retailer"})
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_retailers": total_retailers,
+            "message": f"Generated referral codes for {updated_count} retailers"
+        }
+    except Exception as e:
+        print(f"Error populating referral codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/reset-all-referral-codes")
+async def reset_all_retailer_referral_codes(current_user: dict = Depends(get_current_user)):
+    """Reset ALL retailer referral codes to 5-digit format"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can reset referral codes")
+    
+    try:
+        # Find ALL retailers
+        retailers = await db.users.find({"role": "retailer"}).to_list(1000)
+        
+        updated_count = 0
+        used_codes = set()
+        
+        for retailer in retailers:
+            # Generate unique 5-digit referral code
+            referral_code = ''.join(random.choices(string.digits, k=5))
+            
+            # Make sure it's unique (check both DB and already-assigned in this batch)
+            while referral_code in used_codes or await db.users.find_one({"referral_code": referral_code, "id": {"$ne": retailer["id"]}}):
+                referral_code = ''.join(random.choices(string.digits, k=5))
+            
+            used_codes.add(referral_code)
+            
+            result = await db.users.update_one(
+                {"id": retailer["id"]},
+                {"$set": {"referral_code": referral_code}}
+            )
+            
+            if result.modified_count > 0:
+                updated_count += 1
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "total_retailers": len(retailers),
+            "message": f"Reset referral codes for {updated_count} retailers to 5-digit format"
+        }
+    except Exception as e:
+        print(f"Error resetting referral codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/run-migration/fix-uuid-variants")
+async def run_uuid_variant_migration(current_user: dict = Depends(get_current_user)):
+    """
+    Admin endpoint to run the UUID variant fix migration.
+    This fixes existing data where variant_name was stored as a UUID.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run migrations")
+    
+    import re
+    UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+    
+    results = {
+        "plans_fixed": 0,
+        "products_fixed": 0,
+        "indents_fixed": 0,
+        "indent_items_fixed": 0,
+        "dispatches_fixed": 0,
+        "dispatch_items_fixed": 0,
+        "details": []
+    }
+    
+    try:
+        # Step 1: Build packaging lookup
+        packagings = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+        packaging_map = {p.get("id"): p.get("name", "") for p in packagings}
+        results["details"].append(f"Loaded {len(packaging_map)} packaging variants")
+        
+        # Step 2: Fix retail_plans
+        plans = await db.retail_plans.find({}, {"_id": 0}).to_list(500)
+        for plan in plans:
+            plan_updated = False
+            products = plan.get("products", [])
+            
+            for product in products:
+                variant_name = product.get("variant_name", "")
+                variant_id = product.get("variant_id", "")
+                
+                if variant_name and UUID_PATTERN.match(str(variant_name)):
+                    resolved = packaging_map.get(variant_name, "") or packaging_map.get(variant_id, "")
+                    if resolved:
+                        product["variant_name"] = resolved
+                        plan_updated = True
+                        results["products_fixed"] += 1
+            
+            if plan_updated:
+                await db.retail_plans.update_one(
+                    {"id": plan.get("id")},
+                    {"$set": {"products": products}}
+                )
+                results["plans_fixed"] += 1
+        
+        # Step 3: Fix retailer_indents (auto-generated)
+        indents = await db.retailer_indents.find({"is_auto_generated": True}, {"_id": 0}).to_list(5000)
+        for indent in indents:
+            indent_updated = False
+            items = indent.get("items", [])
+            
+            for item in items:
+                variant_name = item.get("variant_name", "")
+                variant_id = item.get("variant_id", "")
+                
+                if variant_name and UUID_PATTERN.match(str(variant_name)):
+                    resolved = packaging_map.get(variant_name, "") or packaging_map.get(variant_id, "")
+                    if resolved:
+                        item["variant_name"] = resolved
+                        indent_updated = True
+                        results["indent_items_fixed"] += 1
+            
+            if indent_updated:
+                await db.retailer_indents.update_one(
+                    {"id": indent.get("id")},
+                    {"$set": {"items": items}}
+                )
+                results["indents_fixed"] += 1
+        
+        # Step 4: Fix retailer_dispatches
+        dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+        for dispatch in dispatches:
+            dispatch_updated = False
+            items = dispatch.get("items", [])
+            
+            for item in items:
+                variant_name = item.get("variant_name", "")
+                variant_id = item.get("variant_id", "")
+                
+                if variant_name and UUID_PATTERN.match(str(variant_name)):
+                    resolved = packaging_map.get(variant_name, "") or packaging_map.get(variant_id, "")
+                    if resolved:
+                        item["variant_name"] = resolved
+                        dispatch_updated = True
+                        results["dispatch_items_fixed"] += 1
+            
+            if dispatch_updated:
+                await db.retailer_dispatches.update_one(
+                    {"id": dispatch.get("id")},
+                    {"$set": {"items": items}}
+                )
+                results["dispatches_fixed"] += 1
+        
+        results["success"] = True
+        results["message"] = f"Migration complete! Fixed {results['products_fixed']} plan products, {results['indent_items_fixed']} indent items, {results['dispatch_items_fixed']} dispatch items"
+        
+    except Exception as e:
+        results["success"] = False
+        results["error"] = str(e)
+        logger.error(f"Migration error: {e}")
+    
+    return results
+
+
+# ==================== IMMEDIATELY PAYABLE CALCULATION ====================
+@router.get("/retailer-immediately-payable")
+async def get_retailer_immediately_payable(
+    retailer_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate immediately payable amounts based on 5-day credit period:
+    1. 50% of today's invoice amounts (delivery today)
+    2. Remaining 50% of invoices delivered 5 days ago (adjusted for rejections/commission)
+    3. Any overdue amounts (>5 days with pending/partial status)
+    
+    NOTE: Final payable = gross_value - rejection_amount - commission_amount
+    Rejections are fetched from retailer_rejections collection by date+retailer
+    """
+    from datetime import timedelta
+    
+    # Determine retailer ID
+    if current_user.get("role") == "retailer":
+        retailer_id = current_user.get("user_id")
+    elif not retailer_id:
+        pass
+    
+    # Get today's date in IST
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date()
+    
+    # Build query for invoices
+    query = {"status": {"$in": ["pending", "partial"]}}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Fetch all invoices
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).to_list(1000)
+    
+    # Fetch all rejections for these retailers to calculate actual rejection amounts
+    retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
+    
+    # Fetch upfront_collection_percentage for all retailers involved
+    retailers_data = await db.users.find(
+        {"id": {"$in": retailer_ids}},
+        {"_id": 0, "id": 1, "upfront_collection_percentage": 1}
+    ).to_list(1000)
+    retailer_upfront_map = {r["id"]: r.get("upfront_collection_percentage", 50) for r in retailers_data}
+    rejections = await db.retailer_rejections.find(
+        {"retailer_id": {"$in": retailer_ids}},
+        {"_id": 0, "retailer_id": 1, "rejection_date": 1, "rejection_value": 1}
+    ).to_list(5000)
+    
+    # Group rejections by retailer_id and date
+    rejection_map = {}  # (retailer_id, date_str) -> total_rejection
+    for rej in rejections:
+        rej_date = rej.get("rejection_date")
+        if isinstance(rej_date, datetime):
+            rej_date_str = rej_date.date().isoformat()
+        elif isinstance(rej_date, str):
+            rej_date_str = rej_date[:10]
+        else:
+            continue
+        
+        key = (rej.get("retailer_id"), rej_date_str)
+        if key not in rejection_map:
+            rejection_map[key] = 0
+        rejection_map[key] += (rej.get("rejection_value", 0) or 0)
+    
+    # Initialize result structure
+    result = {
+        "today_50_percent": [],
+        "pending_50_percent_recent": [],  # 50% not paid from last 1-4 days
+        "due_today_remaining": [],
+        "overdue": [],
+        "totals": {
+            "today_50_percent_total": 0,
+            "pending_50_percent_recent_total": 0,
+            "due_today_remaining_total": 0,
+            "overdue_total": 0,
+            "grand_total": 0
+        }
+    }
+    
+    for inv in invoices:
+        # Parse invoice date
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            inv_date_str = inv_date[:10]
+            inv_date = datetime.fromisoformat(inv_date_str).date()
+        elif isinstance(inv_date, datetime):
+            inv_date_str = inv_date.date().isoformat()
+            inv_date = inv_date.date()
+        else:
+            continue
+        
+        # Use the invoice's stored values for consistency with Payment Summary
+        gross_value = inv.get("gross_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        
+        # Use stored net_payable if available, otherwise calculate
+        final_payable = inv.get("net_payable", 0) or 0
+        if final_payable <= 0:
+            # Fallback calculation
+            final_payable = gross_value - rejection_amount - commission_amount
+        
+        # Pending amount
+        pending_amount = max(0, final_payable - paid_amount)
+        if pending_amount <= 0:
+            continue
+        
+        # Get retailer's upfront percentage (100 = 100% upfront, 50 = standard 50% upfront)
+        upfront_pct = retailer_upfront_map.get(inv.get("retailer_id"), 50)
+        is_full_upfront = upfront_pct == 100
+        
+        # Days since invoice
+        days_since = (today - inv_date).days
+        upfront_portion = final_payable * (upfront_pct / 100)
+        
+        entry = {
+            "invoice_id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "invoice_date": inv_date_str,
+            "retailer_id": inv.get("retailer_id"),
+            "retailer_name": inv.get("retailer_name"),
+            "gross_value": gross_value,
+            "rejection_amount": rejection_amount,
+            "commission_amount": round(commission_amount, 2),
+            "final_payable": round(final_payable, 2),
+            "paid_amount": paid_amount,
+            "pending_amount": round(pending_amount, 2),
+            "status": inv.get("status"),
+            "days_since_invoice": days_since
+        }
+        
+        # For 100% upfront retailers: ALL pending amount is due immediately
+        if is_full_upfront:
+            entry["due_amount"] = round(pending_amount, 2)
+            if days_since == 0:
+                entry["reason"] = "100% upfront on delivery"
+            else:
+                entry["reason"] = f"100% upfront - {days_since} day(s) overdue"
+                entry["overdue_days"] = days_since
+            result["today_50_percent"].append(entry)
+            result["totals"]["today_50_percent_total"] += pending_amount
+        else:
+            # Standard logic for partial upfront (50% or other)
+            # First, always check if upfront portion was paid
+            unpaid_upfront = max(0, upfront_portion - paid_amount)
+            
+            if days_since == 0:
+                due_amount = min(upfront_portion, pending_amount)
+                entry["due_amount"] = round(due_amount, 2)
+                entry["reason"] = f"{upfront_pct}% upfront on delivery"
+                result["today_50_percent"].append(entry)
+                result["totals"]["today_50_percent_total"] += due_amount
+            
+            elif days_since >= 1 and days_since <= 4:
+                # Check if upfront was paid
+                if unpaid_upfront > 0:
+                    entry["due_amount"] = round(unpaid_upfront, 2)
+                    entry["reason"] = f"Unpaid {upfront_pct}% from {days_since} day(s) ago"
+                    entry["days_ago"] = days_since
+                    result["pending_50_percent_recent"].append(entry)
+                    result["totals"]["pending_50_percent_recent_total"] += unpaid_upfront
+                
+            elif days_since == 5:
+                # Day 5: Credit period ends
+                # If upfront was never paid, it still counts as pending upfront
+                if unpaid_upfront > 0:
+                    entry_upfront = {**entry}
+                    entry_upfront["due_amount"] = round(unpaid_upfront, 2)
+                    entry_upfront["reason"] = f"Unpaid {upfront_pct}% from {days_since} day(s) ago (credit period ended)"
+                    entry_upfront["days_ago"] = days_since
+                    result["pending_50_percent_recent"].append(entry_upfront)
+                    result["totals"]["pending_50_percent_recent_total"] += unpaid_upfront
+                    # The remaining credit portion is due today
+                    remaining_credit = pending_amount - unpaid_upfront
+                    if remaining_credit > 0:
+                        entry_credit = {**entry}
+                        entry_credit["due_amount"] = round(remaining_credit, 2)
+                        entry_credit["reason"] = "Remaining credit after 5-day period"
+                        result["due_today_remaining"].append(entry_credit)
+                        result["totals"]["due_today_remaining_total"] += remaining_credit
+                else:
+                    # Upfront was paid, only credit portion is due
+                    entry["due_amount"] = round(pending_amount, 2)
+                    entry["reason"] = "Remaining amount after 5-day credit period"
+                    result["due_today_remaining"].append(entry)
+                    result["totals"]["due_today_remaining_total"] += pending_amount
+                    
+            elif days_since > 5:
+                # Overdue: If upfront was never paid, track it separately
+                if unpaid_upfront > 0:
+                    entry_upfront = {**entry}
+                    entry_upfront["due_amount"] = round(unpaid_upfront, 2)
+                    entry_upfront["reason"] = f"Unpaid {upfront_pct}% from {days_since} day(s) ago (overdue)"
+                    entry_upfront["days_ago"] = days_since
+                    result["pending_50_percent_recent"].append(entry_upfront)
+                    result["totals"]["pending_50_percent_recent_total"] += unpaid_upfront
+                    # The remaining is overdue credit
+                    remaining_overdue = pending_amount - unpaid_upfront
+                    if remaining_overdue > 0:
+                        entry_overdue = {**entry}
+                        entry_overdue["due_amount"] = round(remaining_overdue, 2)
+                        entry_overdue["reason"] = f"Overdue credit by {days_since - 5} days"
+                        entry_overdue["overdue_days"] = days_since - 5
+                        result["overdue"].append(entry_overdue)
+                        result["totals"]["overdue_total"] += remaining_overdue
+                else:
+                    # Upfront was paid, full pending is overdue credit
+                    entry["due_amount"] = round(pending_amount, 2)
+                    entry["reason"] = f"Overdue by {days_since - 5} days"
+                    entry["overdue_days"] = days_since - 5
+                    result["overdue"].append(entry)
+                    result["totals"]["overdue_total"] += pending_amount
+    
+    # Sort
+    result["today_50_percent"].sort(key=lambda x: x["invoice_date"], reverse=True)
+    result["pending_50_percent_recent"].sort(key=lambda x: x.get("days_ago", 0))  # Sort by days ago (oldest first)
+    result["due_today_remaining"].sort(key=lambda x: x["invoice_date"], reverse=True)
+    result["overdue"].sort(key=lambda x: x.get("overdue_days", 0), reverse=True)
+    
+    # Calculate grand total (include pending 50% from recent days)
+    result["totals"]["grand_total"] = round(
+        result["totals"]["today_50_percent_total"] + 
+        result["totals"]["pending_50_percent_recent_total"] +
+        result["totals"]["due_today_remaining_total"] + 
+        result["totals"]["overdue_total"], 2
+    )
+    result["totals"]["today_50_percent_total"] = round(result["totals"]["today_50_percent_total"], 2)
+    result["totals"]["pending_50_percent_recent_total"] = round(result["totals"]["pending_50_percent_recent_total"], 2)
+    result["totals"]["due_today_remaining_total"] = round(result["totals"]["due_today_remaining_total"], 2)
+    result["totals"]["overdue_total"] = round(result["totals"]["overdue_total"], 2)
+    
+    return result
+
+
+@router.get("/retailer-payment-details")
+async def get_retailer_payment_details(
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get payment details aggregated by date for the retailer portal.
+    Shows dates where payment is pending (either 50% upfront or final payment).
+    Each row: Date, 50% Upfront Payment, Final Payment
+    Click on a row to see item-level breakdown.
+    """
+    from datetime import timedelta
+    
+    # Get retailer ID from current user
+    if current_user.get("role") != "retailer":
+        raise HTTPException(status_code=403, detail="Only retailers can access this endpoint")
+    
+    retailer_id = current_user.get("user_id")
+    if not retailer_id:
+        raise HTTPException(status_code=400, detail="Retailer ID not found")
+    
+    # Get retailer info for commission percentage and upfront collection percentage
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "commission_percentage": 1, "upfront_collection_percentage": 1})
+    commission_percentage = retailer.get("commission_percentage", 0) if retailer else 0
+    upfront_pct = retailer.get("upfront_collection_percentage", 50) if retailer else 50
+    is_full_upfront = upfront_pct == 100
+    
+    # Get today's date in IST
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date()
+    
+    # Build query - include all invoices if date filter is applied, otherwise only pending/partial
+    query = {
+        "retailer_id": retailer_id
+    }
+    
+    # If date filters are provided, show all invoices in that range (including paid ones)
+    # Otherwise, only show pending/partial invoices
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["invoice_date"] = date_query
+    else:
+        # Default: only pending/partial invoices
+        query["status"] = {"$in": ["pending", "partial"]}
+    
+    # Fetch invoices
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
+    
+    # Fetch all rejections for this retailer to enrich item data
+    all_rejections = await db.retailer_rejections.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0, "product_id": 1, "product_name": 1, "rejection_date": 1, "quantity": 1, "rejection_value": 1}
+    ).to_list(5000)
+    
+    # Group rejections by date and product for quick lookup
+    rejection_map = {}  # (date_str, product_id_or_name) -> {qty, value}
+    for rej in all_rejections:
+        rej_date = rej.get("rejection_date")
+        if isinstance(rej_date, datetime):
+            rej_date_str = rej_date.date().isoformat()
+        elif isinstance(rej_date, str):
+            rej_date_str = rej_date[:10]
+        else:
+            continue
+        
+        product_key = rej.get("product_id") or rej.get("product_name", "").strip()
+        if not product_key:
+            continue
+            
+        key = (rej_date_str, product_key)
+        if key not in rejection_map:
+            rejection_map[key] = {"qty": 0, "value": 0}
+        rejection_map[key]["qty"] += rej.get("quantity", 0) or 0
+        rejection_map[key]["value"] += rej.get("rejection_value", 0) or 0
+    
+    # Also fetch payments for this retailer to show payment history
+    all_payments = await db.retailer_payments.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0, "invoice_id": 1, "amount": 1, "payment_date": 1, "payment_mode": 1, "remarks": 1}
+    ).to_list(5000)
+    
+    # Group payments by invoice_id
+    payments_map = {}  # invoice_id -> [{amount, date, mode, remarks}]
+    for pmt in all_payments:
+        inv_id = pmt.get("invoice_id")
+        if not inv_id:
+            continue
+        if inv_id not in payments_map:
+            payments_map[inv_id] = []
+        payments_map[inv_id].append({
+            "amount": pmt.get("amount", 0),
+            "payment_date": pmt.get("payment_date"),
+            "payment_mode": pmt.get("payment_mode", ""),
+            "remarks": pmt.get("remarks", "")
+        })
+    
+    # Fetch pending credit notes for ALL retailers (not just 100% upfront)
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Group invoices by date and aggregate
+    date_aggregates = {}  # date_str -> {invoices: [...], totals: {...}}
+    
+    for inv in invoices:
+        # Parse invoice date
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            date_str = inv_date[:10]
+            inv_date_obj = datetime.fromisoformat(date_str).date()
+        elif isinstance(inv_date, datetime):
+            date_str = inv_date.date().isoformat()
+            inv_date_obj = inv_date.date()
+        else:
+            continue
+        
+        # Get invoice values
+        gross_value = inv.get("gross_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
+        final_payable = inv.get("net_payable", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        
+        # If net_payable is 0, calculate it
+        if final_payable <= 0:
+            final_payable = gross_value - rejection_amount - commission_amount
+        
+        pending_amount = max(0, final_payable - paid_amount)
+        is_all_clear = pending_amount <= 0
+        
+        # Calculate days since invoice
+        days_since = (today - inv_date_obj).days
+        upfront_portion = final_payable * (upfront_pct / 100)
+        
+        # Determine upfront due and final payment due
+        upfront_due = 0
+        final_due = 0
+        
+        if not is_all_clear:
+            if is_full_upfront:
+                # 100% upfront: ALL pending amount is due immediately (upfront)
+                upfront_due = pending_amount
+            else:
+                # Standard logic (50% upfront or dynamic percentage)
+                if days_since == 0:
+                    # Today's invoice: upfront portion due
+                    upfront_due = min(upfront_portion, pending_amount)
+                elif days_since >= 1 and days_since <= 4:
+                    # 1-4 days ago: check if upfront portion was paid
+                    if paid_amount < upfront_portion:
+                        upfront_due = max(0, upfront_portion - paid_amount)
+                elif days_since >= 5:
+                    # 5+ days: all remaining is final payment due
+                    final_due = pending_amount
+        
+        # Initialize date entry if not exists
+        if date_str not in date_aggregates:
+            date_aggregates[date_str] = {
+                "date": date_str,
+                "invoices": [],
+                "upfront_50_total": 0,
+                "final_payment_total": 0,
+                "total_pending": 0
+            }
+        
+        # Enrich items with rejection data - PRIORITY: item's own data first, then lookup
+        enriched_items = []
+        for item in inv.get("items", []):
+            product_id = item.get("product_id")
+            product_name = (item.get("product_name") or "").strip()
+            supplied_qty = item.get("supplied_qty") or item.get("quantity") or 0
+            
+            # Clone item
+            enriched_item = dict(item)
+            
+            # PRIORITY 1: Use item's own rejection data if it exists (from invoice sync)
+            # Check both field names: rejected_qty and rejection_qty (inconsistency in codebase)
+            item_rejected_qty = item.get("rejected_qty") or item.get("rejection_qty")
+            item_rejection_value = item.get("rejection_value")
+            
+            if item_rejected_qty is not None and item_rejected_qty > 0:
+                # Use the synced data from the invoice item itself
+                # Cap at supplied qty to prevent negative billable
+                enriched_item["rejected_qty"] = min(float(item_rejected_qty), float(supplied_qty))
+                enriched_item["rejection_value"] = item_rejection_value or 0
+            else:
+                # PRIORITY 2: Look up rejection by product_id first, then by name
+                item_rejection = None
+                if product_id:
+                    item_rejection = rejection_map.get((date_str, product_id))
+                if not item_rejection and product_name:
+                    item_rejection = rejection_map.get((date_str, product_name))
+                
+                if item_rejection:
+                    # Cap rejection at supplied qty - never more than what was supplied
+                    rejected_qty = min(float(item_rejection["qty"]), float(supplied_qty))
+                    enriched_item["rejected_qty"] = rejected_qty
+                    # Recalculate rejection value based on capped qty
+                    mrp = item.get("mrp", 0) or 0
+                    enriched_item["rejection_value"] = rejected_qty * mrp
+                else:
+                    enriched_item["rejected_qty"] = 0
+                    enriched_item["rejection_value"] = 0
+            
+            enriched_items.append(enriched_item)
+        
+        # Get payment history for this invoice
+        invoice_payments = payments_map.get(inv.get("id"), [])
+        
+        # Add invoice to the date
+        date_aggregates[date_str]["invoices"].append({
+            "invoice_id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "gross_value": round(gross_value, 2),
+            "rejection_amount": round(rejection_amount, 2),
+            "net_value": round(gross_value - rejection_amount, 2),
+            "commission_amount": round(commission_amount, 2),
+            "final_payable": round(final_payable, 2),
+            "paid_amount": round(paid_amount, 2),
+            "pending_amount": round(pending_amount, 2),
+            "upfront_due": round(upfront_due, 2),
+            "final_due": round(final_due, 2),
+            "days_since": days_since,
+            "items": enriched_items,
+            "payments": invoice_payments,
+            "is_all_clear": is_all_clear
+        })
+        
+        date_aggregates[date_str]["upfront_50_total"] += upfront_due
+        date_aggregates[date_str]["final_payment_total"] += final_due
+        date_aggregates[date_str]["total_pending"] += pending_amount
+    
+    # Convert to list and sort by date descending
+    result_list = []
+    for date_str, data in date_aggregates.items():
+        # Check if all invoices for this date are all_clear
+        all_invoices_clear = all(inv.get("is_all_clear", False) for inv in data["invoices"])
+        result_list.append({
+            "date": date_str,
+            "upfront_50_total": round(data["upfront_50_total"], 2),
+            "final_payment_total": round(data["final_payment_total"], 2),
+            "total_pending": round(data["total_pending"], 2),
+            "invoice_count": len(data["invoices"]),
+            "invoices": data["invoices"],
+            "is_all_clear": all_invoices_clear
+        })
+    
+    # Sort by date descending
+    result_list.sort(key=lambda x: x["date"], reverse=True)
+    
+    # Calculate grand totals
+    grand_upfront = sum(d["upfront_50_total"] for d in result_list)
+    grand_final = sum(d["final_payment_total"] for d in result_list)
+    grand_pending = sum(d["total_pending"] for d in result_list)
+    
+    # Calculate total pending credit from credit notes
+    total_pending_credit = sum(cn.get("pending_amount", 0) or 0 for cn in credit_notes)
+    
+    return {
+        "dates": result_list,
+        "totals": {
+            "upfront_50_total": round(grand_upfront, 2),
+            "final_payment_total": round(grand_final, 2),
+            "grand_total": round(grand_upfront + grand_final, 2),
+            "total_pending": round(grand_pending, 2),
+            "total_pending_credit": round(total_pending_credit, 2),
+            "net_payable": round(max(0, grand_upfront + grand_final - total_pending_credit), 2)
+        },
+        "commission_percentage": commission_percentage,
+        "upfront_collection_percentage": upfront_pct,
+        "is_full_upfront": is_full_upfront,
+        "credit_notes": credit_notes
+    }
+
+
+@router.get("/retailer-payment-summary")
+async def get_retailer_payment_summary(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get payment summary for a retailer with all invoices and their payment status.
+    Used by both admin and retailer portal.
+    Returns full invoice breakdown: Gross, Reject, MRP, Comm, Payable, Paid, Net Due
+    """
+    # Determine retailer_id based on role
+    if current_user.get("role") == "retailer":
+        retailer_id = current_user.get("user_id")
+    elif not retailer_id:
+        raise HTTPException(status_code=400, detail="retailer_id is required for admin")
+    
+    # Build query
+    query = {"retailer_id": retailer_id}
+    
+    # Date filtering
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["invoice_date"] = date_query
+    
+    # Fetch invoices with full details
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
+    
+    # Calculate totals - use final_payable if credit notes were adjusted
+    total_gross = sum(inv.get("gross_value", 0) or 0 for inv in invoices)
+    total_reject = sum(inv.get("rejection_amount", 0) or 0 for inv in invoices)
+    total_mrp = sum(inv.get("total_mrp_value", 0) or 0 for inv in invoices)
+    total_commission = sum(inv.get("commission_amount", 0) or 0 for inv in invoices)
+    total_credit_adjusted = sum(inv.get("total_credit_adjusted", 0) or 0 for inv in invoices)
+    # Use final_payable (after credit notes) if available, otherwise net_payable
+    total_payable = sum((inv.get("final_payable") if inv.get("final_payable") is not None else inv.get("net_payable", 0)) or 0 for inv in invoices)
+    total_paid = sum(inv.get("paid_amount", 0) or 0 for inv in invoices)
+    total_net_due = total_payable - total_paid
+    
+    # Full invoice data for table display
+    invoice_list = []
+    for idx, inv in enumerate(invoices):
+        gross = inv.get("gross_value", 0) or 0
+        reject = inv.get("rejection_amount", 0) or 0
+        mrp = inv.get("total_mrp_value", 0) or 0
+        commission = inv.get("commission_amount", 0) or 0
+        credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
+        # Use final_payable (after credit notes) if available, otherwise net_payable
+        payable = (inv.get("final_payable") if inv.get("final_payable") is not None else inv.get("net_payable", 0)) or 0
+        paid = inv.get("paid_amount", 0) or 0
+        net_due = payable - paid
+        
+        invoice_list.append({
+            "serial_num": idx + 1,
+            "id": inv.get("id"),
+            "invoice_number": inv.get("invoice_number"),
+            "invoice_date": inv.get("invoice_date"),
+            "dispatch_date": inv.get("dispatch_date") or inv.get("invoice_date"),
+            "gross_value": round(gross, 2),
+            "rejection_amount": round(reject, 2),
+            "total_mrp_value": round(mrp, 2),
+            "commission_amount": round(commission, 2),
+            "net_payable": round(inv.get("net_payable", 0) or 0, 2),
+            "total_credit_adjusted": round(credit_adjusted, 2),
+            "final_payable": round(payable, 2),
+            "paid_amount": round(paid, 2),
+            "net_due": round(net_due, 2),
+            "payment_status": inv.get("payment_status", inv.get("status", "pending")),
+            "payment_date": inv.get("payment_date")
+        })
+    
+    return {
+        "retailer_id": retailer_id,
+        "total_invoices": len(invoice_list),
+        "totals": {
+            "gross_value": round(total_gross, 2),
+            "rejection_amount": round(total_reject, 2),
+            "total_mrp_value": round(total_mrp, 2),
+            "commission_amount": round(total_commission, 2),
+            "total_credit_adjusted": round(total_credit_adjusted, 2),
+            "net_payable": round(total_payable, 2),
+            "paid_amount": round(total_paid, 2),
+            "net_due": round(total_net_due, 2)
+        },
+        "invoices": invoice_list
+    }
+
+
+@router.get("/retailer-payment-ledger")
+async def get_retailer_payment_ledger(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get payment ledger for a retailer showing all payments received date-wise.
+    Payments with same reference number are grouped together.
+    Also shows which invoices each payment was adjusted against.
+    """
+    # Determine retailer_id based on role
+    if current_user.get("role") == "retailer":
+        retailer_id = current_user.get("user_id")
+    elif not retailer_id:
+        raise HTTPException(status_code=400, detail="retailer_id is required for admin")
+    
+    # Build query for payments
+    query = {"retailer_id": retailer_id}
+    
+    # Date filtering on payment_date
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["payment_date"] = date_query
+    
+    # Fetch all payments for this retailer
+    payments = await db.retailer_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    
+    # Also fetch credit note adjustments
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["adjusted", "partial"]}},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Fetch all invoices for this retailer to get invoice numbers
+    invoices = await db.retailer_invoices.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0, "id": 1, "invoice_number": 1, "invoice_date": 1, "net_payable": 1}
+    ).to_list(1000)
+    invoice_map = {inv["id"]: inv for inv in invoices}
+    
+    # Group payments by date and then by reference number
+    date_groups = {}
+    
+    for payment in payments:
+        payment_date = payment.get("payment_date", "")[:10] if payment.get("payment_date") else "Unknown"
+        ref_num = payment.get("reference_number") or payment.get("remarks") or "No Reference"
+        
+        if payment_date not in date_groups:
+            date_groups[payment_date] = {
+                "date": payment_date,
+                "total_amount": 0,
+                "payment_groups": {},  # Grouped by reference number
+                "credit_notes": []
+            }
+        
+        # Group by reference number
+        if ref_num not in date_groups[payment_date]["payment_groups"]:
+            date_groups[payment_date]["payment_groups"][ref_num] = {
+                "reference_number": ref_num,
+                "payment_mode": payment.get("payment_mode", ""),
+                "total_amount": 0,
+                "payments": [],
+                "invoice_adjustments": []
+            }
+        
+        group = date_groups[payment_date]["payment_groups"][ref_num]
+        group["total_amount"] += payment.get("amount", 0)
+        date_groups[payment_date]["total_amount"] += payment.get("amount", 0)
+        
+        # Add invoice adjustment info
+        invoice_id = payment.get("invoice_id")
+        if invoice_id and invoice_id in invoice_map:
+            inv = invoice_map[invoice_id]
+            group["invoice_adjustments"].append({
+                "invoice_id": invoice_id,
+                "invoice_number": inv.get("invoice_number"),
+                "invoice_date": inv.get("invoice_date"),
+                "invoice_payable": inv.get("net_payable", 0),
+                "amount_adjusted": payment.get("amount", 0),
+                "payment_date": payment.get("payment_date"),
+                "payment_mode": payment.get("payment_mode", "")
+            })
+        
+        group["payments"].append({
+            "id": payment.get("id"),
+            "amount": payment.get("amount", 0),
+            "payment_mode": payment.get("payment_mode", ""),
+            "payment_date": payment.get("payment_date"),
+            "invoice_id": invoice_id,
+            "invoice_number": invoice_map.get(invoice_id, {}).get("invoice_number") if invoice_id else None,
+            "remarks": payment.get("remarks", "")
+        })
+    
+    # Add credit notes to respective dates
+    for cn in credit_notes:
+        for adj in cn.get("adjusted_against_invoices", []):
+            adj_date = adj.get("adjusted_at", "")[:10] if adj.get("adjusted_at") else "Unknown"
+            if adj_date in date_groups:
+                date_groups[adj_date]["credit_notes"].append({
+                    "credit_note_id": cn.get("id"),
+                    "credit_note_number": cn.get("credit_note_number"),
+                    "original_invoice": cn.get("original_invoice_number"),
+                    "amount": adj.get("amount", 0),
+                    "adjusted_against_invoice_id": adj.get("invoice_id"),
+                    "adjusted_against_invoice_number": invoice_map.get(adj.get("invoice_id"), {}).get("invoice_number"),
+                    "adjusted_at": adj.get("adjusted_at")
+                })
+    
+    # Convert to list and sort by date descending
+    result_list = []
+    for date_str, data in sorted(date_groups.items(), reverse=True):
+        # Convert payment_groups dict to list
+        payment_groups_list = list(data["payment_groups"].values())
+        result_list.append({
+            "date": date_str,
+            "total_amount": round(data["total_amount"], 2),
+            "payment_count": sum(len(pg["payments"]) for pg in payment_groups_list),
+            "payment_groups": payment_groups_list,
+            "credit_notes": data["credit_notes"]
+        })
+    
+    # Calculate grand totals
+    grand_total = sum(d["total_amount"] for d in result_list)
+    total_credit_notes = sum(sum(cn["amount"] for cn in d["credit_notes"]) for d in result_list)
+    
+    return {
+        "retailer_id": retailer_id,
+        "date_range": {
+            "start": start_date,
+            "end": end_date
+        },
+        "grand_total": round(grand_total, 2),
+        "total_credit_notes_applied": round(total_credit_notes, 2),
+        "total_transactions": sum(d["payment_count"] for d in result_list),
+        "dates": result_list
+    }
+
+
+@router.get("/admin/all-retailers-immediately-payable")
+async def get_all_retailers_immediately_payable(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get immediately payable summary for all retailers OR a specific retailer (Admin only)
+    Uses dynamic rejection lookup to calculate actual final payable amounts.
+    Final payable = gross_value - rejections - commission (on net after rejections)
+    """
+    # Check if admin
+    if current_user.get("role") not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from datetime import timedelta
+    
+    # Get today's date in IST
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).date()
+    
+    # Fetch all retailers to get company_name (shop name) and upfront_collection_percentage
+    all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0, "id": 1, "name": 1, "company_name": 1, "upfront_collection_percentage": 1}).to_list(1000)
+    retailer_map = {r["id"]: r.get("company_name") or r.get("name", "Unknown") for r in all_retailers}
+    retailer_upfront_map = {r["id"]: r.get("upfront_collection_percentage", 50) for r in all_retailers}
+    
+    # Build invoice query - filter by retailer if specified
+    invoice_query = {"status": {"$in": ["pending", "partial"]}}
+    if retailer_id:
+        invoice_query["retailer_id"] = retailer_id
+    
+    # Fetch unpaid/partial invoices
+    invoices = await db.retailer_invoices.find(
+        invoice_query,
+        {"_id": 0}
+    ).to_list(5000)
+    
+    # Fetch all rejections to calculate actual rejection amounts per date+retailer
+    retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
+    rejections = await db.retailer_rejections.find(
+        {"retailer_id": {"$in": retailer_ids}},
+        {"_id": 0, "retailer_id": 1, "rejection_date": 1, "rejection_value": 1}
+    ).to_list(10000)
+    
+    # Group rejections by (retailer_id, date_str)
+    rejection_map = {}
+    for rej in rejections:
+        rej_date = rej.get("rejection_date")
+        if isinstance(rej_date, datetime):
+            rej_date_str = rej_date.date().isoformat()
+        elif isinstance(rej_date, str):
+            rej_date_str = rej_date[:10]
+        else:
+            continue
+        
+        key = (rej.get("retailer_id"), rej_date_str)
+        if key not in rejection_map:
+            rejection_map[key] = 0
+        rejection_map[key] += (rej.get("rejection_value", 0) or 0)
+    
+    # Group by retailer AND collect detailed entries for expandable breakdown
+    retailer_payables = {}
+    detailed_entries = {
+        "upfront": [],      # Today's 50% + pending 50% from 1-4 days
+        "credit_due": [],   # 5-day credit due
+        "overdue": []       # Overdue > 5 days
+    }
+    
+    for inv in invoices:
+        retailer_id = inv.get("retailer_id")
+        if not retailer_id:
+            continue
+            
+        shop_name = retailer_map.get(retailer_id) or inv.get("retailer_name", "Unknown")
+        
+        if retailer_id not in retailer_payables:
+            retailer_payables[retailer_id] = {
+                "retailer_id": retailer_id,
+                "retailer_name": shop_name,
+                "today_50_percent": 0,
+                "pending_50_recent": 0,  # Unpaid 50% from days 1-4
+                "due_today_remaining": 0,
+                "overdue": 0,
+                "total": 0,
+                "invoice_count": 0
+            }
+        
+        # Parse invoice date
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            inv_date_str = inv_date[:10]
+            inv_date = datetime.fromisoformat(inv_date_str).date()
+        elif isinstance(inv_date, datetime):
+            inv_date_str = inv_date.date().isoformat()
+            inv_date = inv_date.date()
+        else:
+            continue
+        
+        # Use the invoice's stored values for consistency with Payment Summary
+        # The invoice already has the correct net_payable calculated
+        gross_value = inv.get("gross_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        
+        # Use stored net_payable if available, otherwise calculate
+        final_payable = inv.get("net_payable", 0) or 0
+        if final_payable <= 0:
+            # Fallback calculation if net_payable not stored
+            final_payable = gross_value - rejection_amount - commission_amount
+        
+        pending_amount = max(0, final_payable - paid_amount)
+        
+        if pending_amount <= 0:
+            continue
+        
+        # Get retailer's upfront percentage (100 = 100% upfront, 50 = standard 50% upfront)
+        upfront_pct = retailer_upfront_map.get(retailer_id, 50)
+        is_full_upfront = upfront_pct == 100
+        
+        upfront_portion = final_payable * (upfront_pct / 100)
+        days_since = (today - inv_date).days
+        
+        retailer_payables[retailer_id]["invoice_count"] += 1
+        
+        # Create entry for detailed breakdown
+        entry = {
+            "retailer_id": retailer_id,
+            "retailer_name": shop_name,
+            "invoice_date": inv_date_str,
+            "invoice_number": inv.get("invoice_number", "N/A"),
+            "days_since": days_since
+        }
+        
+        # For 100% upfront retailers: ALL pending amount is due immediately regardless of days
+        if is_full_upfront:
+            # Full amount is due on delivery day itself
+            if pending_amount > 0:
+                retailer_payables[retailer_id]["today_50_percent"] += pending_amount
+                entry["amount"] = round(pending_amount, 2)
+                entry["type"] = "today" if days_since == 0 else "pending"
+                if days_since > 0:
+                    entry["overdue_days"] = days_since  # Any day past delivery is technically overdue for 100% upfront
+                detailed_entries["upfront"].append(entry)
+        else:
+            # Standard logic for partial upfront (50% or other)
+            # First, always check if upfront portion was paid
+            unpaid_upfront = max(0, upfront_portion - paid_amount)
+            
+            if days_since == 0:
+                # Today's invoice: upfront % is due
+                if unpaid_upfront > 0:
+                    retailer_payables[retailer_id]["today_50_percent"] += unpaid_upfront
+                    entry["amount"] = round(unpaid_upfront, 2)
+                    entry["type"] = "today"
+                    detailed_entries["upfront"].append(entry)
+            elif days_since >= 1 and days_since <= 4:
+                # Check if upfront portion was paid
+                if unpaid_upfront > 0:
+                    retailer_payables[retailer_id]["pending_50_recent"] += unpaid_upfront
+                    entry["amount"] = round(unpaid_upfront, 2)
+                    entry["type"] = "pending"
+                    detailed_entries["upfront"].append(entry)
+            elif days_since == 5:
+                # Day 5: Credit period ends
+                # If 50% upfront was never paid, it still counts as pending upfront
+                if unpaid_upfront > 0:
+                    retailer_payables[retailer_id]["pending_50_recent"] += unpaid_upfront
+                    entry_upfront = {**entry, "amount": round(unpaid_upfront, 2), "type": "pending", "overdue_days": 1}
+                    detailed_entries["upfront"].append(entry_upfront)
+                    # The remaining credit portion (after upfront) is due today
+                    remaining_credit = pending_amount - unpaid_upfront
+                    if remaining_credit > 0:
+                        entry_credit = {**entry, "amount": round(remaining_credit, 2)}
+                        retailer_payables[retailer_id]["due_today_remaining"] += remaining_credit
+                        detailed_entries["credit_due"].append(entry_credit)
+                else:
+                    # Upfront was paid, only credit portion is due
+                    retailer_payables[retailer_id]["due_today_remaining"] += pending_amount
+                    entry["amount"] = round(pending_amount, 2)
+                    detailed_entries["credit_due"].append(entry)
+            elif days_since > 5:
+                # Overdue: If 50% upfront was never paid, track it separately
+                if unpaid_upfront > 0:
+                    retailer_payables[retailer_id]["pending_50_recent"] += unpaid_upfront
+                    entry_upfront = {**entry, "amount": round(unpaid_upfront, 2), "type": "pending", "overdue_days": days_since - 4}
+                    detailed_entries["upfront"].append(entry_upfront)
+                    # The remaining is overdue credit
+                    remaining_overdue = pending_amount - unpaid_upfront
+                    if remaining_overdue > 0:
+                        entry_overdue = {**entry, "amount": round(remaining_overdue, 2), "overdue_days": days_since - 5}
+                        retailer_payables[retailer_id]["overdue"] += remaining_overdue
+                        detailed_entries["overdue"].append(entry_overdue)
+                else:
+                    # Upfront was paid, full pending is overdue credit
+                    retailer_payables[retailer_id]["overdue"] += pending_amount
+                    entry["amount"] = round(pending_amount, 2)
+                    entry["overdue_days"] = days_since - 5
+                    detailed_entries["overdue"].append(entry)
+    
+    # Sort detailed entries by amount descending
+    detailed_entries["upfront"].sort(key=lambda x: x["amount"], reverse=True)
+    detailed_entries["credit_due"].sort(key=lambda x: x["amount"], reverse=True)
+    detailed_entries["overdue"].sort(key=lambda x: x.get("overdue_days", 0), reverse=True)
+    
+    # Calculate totals and sort
+    result = []
+    for data in retailer_payables.values():
+        data["total"] = round(
+            data["today_50_percent"] + data["pending_50_recent"] + data["due_today_remaining"] + data["overdue"], 2
+        )
+        data["today_50_percent"] = round(data["today_50_percent"], 2)
+        data["pending_50_recent"] = round(data["pending_50_recent"], 2)
+        data["due_today_remaining"] = round(data["due_today_remaining"], 2)
+        data["overdue"] = round(data["overdue"], 2)
+        if data["total"] > 0:
+            result.append(data)
+    
+    # Sort by total (highest first)
+    result.sort(key=lambda x: x["total"], reverse=True)
+    
+    # Grand totals
+    grand_totals = {
+        "today_50_percent": round(sum(r["today_50_percent"] for r in result), 2),
+        "pending_50_recent": round(sum(r["pending_50_recent"] for r in result), 2),
+        "due_today_remaining": round(sum(r["due_today_remaining"] for r in result), 2),
+        "overdue": round(sum(r["overdue"] for r in result), 2),
+        "total": round(sum(r["total"] for r in result), 2),
+        # Combined totals for simplified 2-block view
+        "upfront_50_total": round(sum(r["today_50_percent"] + r["pending_50_recent"] for r in result), 2),
+        "final_payment_total": round(sum(r["due_today_remaining"] + r["overdue"] for r in result), 2)
+    }
+    
+    # Add combined totals to each retailer for "By Outlet" display
+    for r in result:
+        r["upfront_50_total"] = round(r["today_50_percent"] + r["pending_50_recent"], 2)
+        r["final_payment_total"] = round(r["due_today_remaining"] + r["overdue"], 2)
+    
+    return {
+        "retailers": result,
+        "grand_totals": grand_totals,
+        "detailed_entries": detailed_entries
+    }
+
+
+# ==================== RETAILER CATALOGUE API ====================
+# This manages the product catalogue available for retailers to order from
+
+@router.get("/retailer-catalogue")
+async def get_retailer_catalogue(
+    include_images: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all products in the retailer catalogue with their allowed variants"""
+    items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(1000)
+    
+    # Only fetch product images if explicitly requested (for performance)
+    if include_images:
+        product_ids = [item.get("product_id") for item in items if item.get("product_id")]
+        products = await db.products.find(
+            {"id": {"$in": product_ids}}, 
+            {"_id": 0, "id": 1, "image_url": 1}
+        ).to_list(1000)
+        product_image_map = {p["id"]: p.get("image_url", "") for p in products}
+        
+        # Add image_url from products if not present in catalogue
+        for item in items:
+            if not item.get("image_url") and item.get("product_id"):
+                item["image_url"] = product_image_map.get(item["product_id"], "")
+    else:
+        # Remove any existing image_url to reduce payload size
+        for item in items:
+            item.pop("image_url", None)
+    
+    return items
+
+@router.get("/retailer-catalogue/mrp")
+async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_user)):
+    """Get MRP data for retailer catalogue products - checks today first, then yesterday"""
+    from datetime import timedelta
+    
+    # Get today and yesterday dates
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    # Fetch today's MRP entries
+    today_mrp = await db.daily_mrp.find({"date": today}, {"_id": 0}).to_list(1000)
+    yesterday_mrp = await db.daily_mrp.find({"date": yesterday}, {"_id": 0}).to_list(1000)
+    
+    # Build MRP lookup: key = "product_id_variant_id" -> mrp
+    mrp_lookup = {}
+    
+    # First, add yesterday's MRP (will be overwritten by today's if exists)
+    for entry in yesterday_mrp:
+        product_id = entry.get("product_id", "")
+        variant_id = entry.get("variant_id", "")
+        mrp = entry.get("mrp", 0)
+        if product_id and variant_id and mrp and mrp > 0:
+            key = f"{product_id}_{variant_id}"
+            mrp_lookup[key] = {
+                "mrp": mrp,
+                "date": yesterday,
+                "product_name": entry.get("product_name", ""),
+                "variant_name": entry.get("variant_name", "")
+            }
+    
+    # Then, add/overwrite with today's MRP
+    for entry in today_mrp:
+        product_id = entry.get("product_id", "")
+        variant_id = entry.get("variant_id", "")
+        mrp = entry.get("mrp", 0)
+        if product_id and variant_id and mrp and mrp > 0:
+            key = f"{product_id}_{variant_id}"
+            mrp_lookup[key] = {
+                "mrp": mrp,
+                "date": today,
+                "product_name": entry.get("product_name", ""),
+                "variant_name": entry.get("variant_name", "")
+            }
+    
+    return {
+        "mrp_data": mrp_lookup,
+        "today": today,
+        "yesterday": yesterday,
+        "today_count": len([e for e in today_mrp if e.get("mrp", 0) > 0]),
+        "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0])
+    }
+
+@router.post("/retailer-catalogue")
+async def add_catalogue_item(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add or update a product in the retailer catalogue"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    product_id = input.get("product_id")
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Product ID is required")
+    
+    # Check if product already exists in catalogue
+    existing = await db.retailer_catalogue.find_one({"product_id": product_id})
+    
+    catalogue_item = {
+        "product_id": product_id,
+        "product_name": input.get("product_name", ""),
+        "product_name_hi": input.get("product_name_hi", ""),
+        "product_name_mr": input.get("product_name_mr", ""),
+        "category": input.get("category", ""),
+        "image_url": input.get("image_url", ""),
+        "variants": input.get("variants", []),  # List of variant IDs (Customer Display Variant) - can include unit_piece, unit_packet
+        "purchase_unit": input.get("purchase_unit", ""),  # Unit for purchasing (e.g., Pieces, Box)
+        "purchase_weights": input.get("purchase_weights", []),  # Multiple weight variant IDs
+        "display_unit": input.get("display_unit", ""),  # Unit shown as variant on portal (Piece/Packet)
+        "purchase_weight_variant": input.get("purchase_weight_variant", ""),  # Legacy: single weight (deprecated)
+        "is_active": input.get("is_active", True),
+        "show_on_portal": input.get("show_on_portal", True),  # Visibility on retailer portal
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    if existing:
+        # Update existing
+        await db.retailer_catalogue.update_one(
+            {"product_id": product_id},
+            {"$set": catalogue_item}
+        )
+        return {"message": "Catalogue item updated", "item": catalogue_item}
+    else:
+        # Create new
+        catalogue_item["id"] = str(uuid.uuid4())
+        catalogue_item["created_at"] = datetime.now(timezone.utc).isoformat()
+        await db.retailer_catalogue.insert_one(catalogue_item)
+        catalogue_item.pop("_id", None)
+        return {"message": "Catalogue item created", "item": catalogue_item}
+
+@router.put("/retailer-catalogue/{product_id}")
+async def update_catalogue_item(
+    product_id: str,
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a specific product in the retailer catalogue"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    existing = await db.retailer_catalogue.find_one({"product_id": product_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Catalogue item not found")
+    
+    update_data = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["user_id"]
+    }
+    
+    # Update fields if provided
+    if "variants" in input:
+        update_data["variants"] = input["variants"]
+    if "is_active" in input:
+        update_data["is_active"] = input["is_active"]
+    if "show_on_portal" in input:
+        update_data["show_on_portal"] = input["show_on_portal"]
+    if "product_name" in input:
+        update_data["product_name"] = input["product_name"]
+    if "product_name_hi" in input:
+        update_data["product_name_hi"] = input["product_name_hi"]
+    if "product_name_mr" in input:
+        update_data["product_name_mr"] = input["product_name_mr"]
+    if "category" in input:
+        update_data["category"] = input["category"]
+    if "image_url" in input:
+        update_data["image_url"] = input["image_url"]
+    if "purchase_unit" in input:
+        update_data["purchase_unit"] = input["purchase_unit"]
+    if "purchase_weights" in input:
+        update_data["purchase_weights"] = input["purchase_weights"]
+    if "purchase_weight_variant" in input:
+        update_data["purchase_weight_variant"] = input["purchase_weight_variant"]
+    
+    await db.retailer_catalogue.update_one(
+        {"product_id": product_id},
+        {"$set": update_data}
+    )
+    
+    updated = await db.retailer_catalogue.find_one({"product_id": product_id}, {"_id": 0})
+    return updated
+
+@router.delete("/retailer-catalogue/{product_id}")
+async def delete_catalogue_item(
+    product_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a product from the retailer catalogue"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.retailer_catalogue.delete_one({"product_id": product_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Catalogue item not found")
+    
+    return {"message": "Catalogue item deleted", "product_id": product_id}
+
+@router.post("/retailer-catalogue/bulk-add")
+async def bulk_add_catalogue_items(
+    input: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add multiple products to catalogue at once"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    items = input.get("items", [])
+    if not items:
+        raise HTTPException(status_code=400, detail="No items provided")
+    
+    added_count = 0
+    updated_count = 0
+    
+    for item in items:
+        product_id = item.get("product_id")
+        if not product_id:
+            continue
+        
+        existing = await db.retailer_catalogue.find_one({"product_id": product_id})
+        
+        catalogue_item = {
+            "product_id": product_id,
+            "product_name": item.get("product_name", ""),
+            "product_name_hi": item.get("product_name_hi", ""),
+            "product_name_mr": item.get("product_name_mr", ""),
+            "category": item.get("category", ""),
+            "image_url": item.get("image_url", ""),
+            "variants": item.get("variants", []),
+            "is_active": item.get("is_active", True),
+            "show_on_portal": item.get("show_on_portal", True),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user["user_id"]
+        }
+        
+        if existing:
+            await db.retailer_catalogue.update_one(
+                {"product_id": product_id},
+                {"$set": catalogue_item}
+            )
+            updated_count += 1
+        else:
+            catalogue_item["id"] = str(uuid.uuid4())
+            catalogue_item["created_at"] = datetime.now(timezone.utc).isoformat()
+            await db.retailer_catalogue.insert_one(catalogue_item)
+            added_count += 1
+    
+    return {"message": f"Added {added_count}, updated {updated_count} catalogue items"}

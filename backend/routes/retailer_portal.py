@@ -160,7 +160,6 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
     
     # Validate and resolve variant_ids from variant_names if needed
     resolved_items = []
-    missing_variants = []
     for item in input.items:
         item_dict = item.model_dump()
         variant_id = item_dict.get("variant_id") or ""
@@ -173,17 +172,13 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
             if variant_id:
                 item_dict["variant_id"] = variant_id
         
-        # Still no variant_id? Add to missing list
+        # If still no variant_id, set a default (don't block update)
         if not item_dict.get("variant_id"):
-            missing_variants.append(item_dict.get("product_name") or 'Unknown product')
+            item_dict["variant_id"] = ""
+            if not item_dict.get("variant_name"):
+                item_dict["variant_name"] = "Kg"
         
         resolved_items.append(item_dict)
-    
-    if missing_variants:
-        detail = f"Missing variant for: {', '.join(missing_variants[:5])}"
-        if len(missing_variants) > 5:
-            detail += f" and {len(missing_variants) - 5} more"
-        raise HTTPException(status_code=400, detail=detail)
     
     # Retailers can only update their own pending indents
     if current_user["role"] == "retailer":
@@ -223,7 +218,22 @@ async def update_retailer_indent(indent_id: str, input: RetailerIndentCreate, cu
     else:
         new_status = "partial"
     
+    # Get the new retailer info if retailer_id changed
+    new_retailer_id = input.retailer_id
+    new_retailer_name = existing.get("retailer_name", "Unknown")
+    
+    if new_retailer_id and new_retailer_id != existing.get("retailer_id"):
+        # Retailer is being changed - get new retailer name
+        new_retailer = await db.users.find_one({"id": new_retailer_id, "role": "retailer"}, {"_id": 0})
+        if not new_retailer:
+            raise HTTPException(status_code=404, detail="New retailer not found")
+        new_retailer_name = new_retailer.get("company_name") or new_retailer.get("name") or "Unknown"
+    else:
+        new_retailer_id = existing.get("retailer_id")
+    
     update_data = {
+        "retailer_id": new_retailer_id,
+        "retailer_name": new_retailer_name,
         "indent_date": input.indent_date.strftime("%Y-%m-%d") if isinstance(input.indent_date, datetime) else str(input.indent_date)[:10],
         "items": new_items,
         "remarks": input.remarks,

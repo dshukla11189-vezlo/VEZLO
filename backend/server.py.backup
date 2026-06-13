@@ -79,7 +79,9 @@ from starlette.responses import RedirectResponse
 from apscheduler.triggers.cron import CronTrigger
 
 # Import modular routers
-from routes import auth_router, labour_router, health_router, users_router, farmers_router
+from routes import auth_router, labour_router
+
+# Import modular routers (now handled via routes/__init__.py)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -466,43 +468,645 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # ============================================================================
-# SECTION: HEALTH & DIAGNOSTICS ROUTES - MOVED TO routes/health.py
+# SECTION: HEALTH & DIAGNOSTICS ROUTES (Lines ~140-190)
 # ============================================================================
-# The following routes have been extracted to routes/health.py:
-# - GET /health
-# - GET /health/detailed
-# - GET /diagnostics
-# - GET /system-logs
-# - GET /error-logs
-# - GET /error-logs/summary
-# - DELETE /error-logs/clear
-# Import: from routes import health_router
-# Include: app.include_router(health_router, prefix="/api")
-# ============================================================================
+@api_router.get("/health")
+async def health_check():
+    """Basic health check endpoint"""
+    db_status = "unknown"
+    db_ping_ms = -1
+    db_query_ms = -1
+    products_count = -1
+    
+    try:
+        # Test MongoDB ping
+        start = time.time()
+        await db.command("ping")
+        db_ping_ms = round((time.time() - start) * 1000, 2)
+        db_status = "connected"
+        
+        # Test actual query
+        query_start = time.time()
+        products_count = await db.products.count_documents({})
+        db_query_ms = round((time.time() - query_start) * 1000, 2)
+    except Exception as e:
+        db_status = f"error: {str(e)[:100]}"
+        system_health_metrics["consecutive_db_failures"] += 1
+        system_health_metrics["last_db_error"] = datetime.now(timezone.utc).isoformat()
+    
+    is_healthy = db_status == "connected" and system_health_metrics["consecutive_db_failures"] < 5
+    
+    return {
+        "status": "healthy" if is_healthy else "degraded",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "database": db_status,
+        "db_ping_ms": db_ping_ms,
+        "db_query_ms": db_query_ms,
+        "products_count": products_count,
+        "consecutive_failures": system_health_metrics["consecutive_db_failures"],
+        "version": "1.0.0"
+    }
+
+@api_router.get("/health/detailed")
+async def health_check_detailed():
+    """Detailed health check - no auth required, for monitoring"""
+    try:
+        start = time.time()
+        await db.command("ping")
+        db_ping_ms = round((time.time() - start) * 1000, 2)
+        db_status = "connected"
+        
+        # Test a simple query
+        query_start = time.time()
+        await db.users.find_one({}, {"_id": 1})
+        query_ms = round((time.time() - query_start) * 1000, 2)
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+        db_ping_ms = -1
+        query_ms = -1
+    
+    # Calculate metrics
+    startup = datetime.fromisoformat(system_health_metrics["startup_time"].replace("Z", "+00:00"))
+    uptime_seconds = (datetime.now(timezone.utc) - startup).total_seconds()
+    
+    total_req = system_health_metrics["total_requests"]
+    total_err = system_health_metrics["total_errors"]
+    error_rate = round((total_err / total_req * 100), 2) if total_req > 0 else 0
+    
+    is_healthy = db_status == "connected" and system_health_metrics["consecutive_db_failures"] < 5
+    
+    return {
+        "status": "healthy" if is_healthy else "degraded",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "uptime_seconds": int(uptime_seconds),
+        "database": {
+            "status": db_status,
+            "ping_ms": db_ping_ms,
+            "query_ms": query_ms
+        },
+        "metrics": {
+            "total_requests": total_req,
+            "total_errors": total_err,
+            "error_rate_percent": error_rate,
+            "consecutive_db_failures": system_health_metrics["consecutive_db_failures"],
+            "last_error": system_health_metrics["last_db_error"]
+        },
+        "recent_errors_count": len([e for e in recent_errors if e.get("status_code", 0) >= 500])
+    }
+
+@api_router.get("/diagnostics")
+async def get_diagnostics(current_user: dict = Depends(get_current_user)):
+    """Get recent error logs and system diagnostics (admin only)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        # Test MongoDB connection with timeout
+        start = time.time()
+        await db.command("ping")
+        db_ping_ms = round((time.time() - start) * 1000, 2)
+        db_status = "connected"
+        
+        # Get collection stats
+        collections = await db.list_collection_names()
+        collection_counts = {}
+        for coll in collections[:10]:  # Limit to 10 collections
+            count = await db[coll].count_documents({})
+            collection_counts[coll] = count
+        
+        # Get persisted logs from DB (last 50)
+        db_logs = await db.system_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(50).to_list(50)
+        total_db_logs = await db.system_logs.count_documents({})
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+        db_ping_ms = -1
+        collection_counts = {}
+        db_logs = []
+        total_db_logs = 0
+    
+    # Calculate uptime
+    startup = datetime.fromisoformat(system_health_metrics["startup_time"].replace("Z", "+00:00"))
+    uptime_seconds = (datetime.now(timezone.utc) - startup).total_seconds()
+    uptime_str = f"{int(uptime_seconds // 3600)}h {int((uptime_seconds % 3600) // 60)}m"
+    
+    # Error rate calculation
+    total_req = system_health_metrics["total_requests"]
+    total_err = system_health_metrics["total_errors"]
+    error_rate = round((total_err / total_req * 100), 2) if total_req > 0 else 0
+    
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system_health": {
+            "status": "critical" if system_health_metrics["consecutive_db_failures"] > 5 else ("degraded" if db_status != "connected" else "healthy"),
+            "uptime": uptime_str,
+            "startup_time": system_health_metrics["startup_time"],
+            "total_requests": total_req,
+            "total_errors": total_err,
+            "error_rate_percent": error_rate,
+            "consecutive_db_failures": system_health_metrics["consecutive_db_failures"],
+            "last_db_error": system_health_metrics["last_db_error"]
+        },
+        "database": {
+            "status": db_status,
+            "ping_ms": db_ping_ms,
+            "collections": collection_counts
+        },
+        "recent_errors_memory": recent_errors[-30:],  # Last 30 errors in memory
+        "persisted_errors": {
+            "total_count": total_db_logs,
+            "recent": db_logs[:20]  # Last 20 from database
+        },
+        "error_count_memory": len(recent_errors),
+        "note": "Memory logs reset on server restart. DB logs persist."
+    }
+
+
+@api_router.get("/system-logs")
+async def get_system_logs(
+    limit: int = 100,
+    log_type: str = None,
+    from_time: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get system logs from database with optional filters"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        query = {}
+        if log_type:
+            query["type"] = log_type
+        if from_time:
+            query["timestamp"] = {"$gte": from_time}
+        
+        logs = await db.system_logs.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+        
+        # Get summary stats
+        total_count = await db.system_logs.count_documents({})
+        error_count = await db.system_logs.count_documents({"status_code": {"$gte": 500}})
+        slow_count = await db.system_logs.count_documents({"type": "slow_request"})
+        
+        return {
+            "logs": logs,
+            "summary": {
+                "total_logs": total_count,
+                "server_errors_5xx": error_count,
+                "slow_requests": slow_count
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
-# SECTION: AUTHENTICATION ROUTES - MOVED TO routes/auth.py
+# ERROR LOGS ANALYSIS ENDPOINTS (For Production Error Analysis)
 # ============================================================================
-# The following routes have been extracted to routes/auth.py:
-# - POST /auth/register
-# - POST /auth/login  
-# - GET /auth/me
-# Import: from routes import auth_router
-# Include: app.include_router(auth_router, prefix="/api")
+@api_router.get("/error-logs")
+async def get_error_logs(
+    limit: int = 100,
+    error_type: str = None,  # exception, http_error, slow_request
+    from_date: str = None,   # YYYY-MM-DD
+    to_date: str = None,     # YYYY-MM-DD
+    environment: str = None, # production, preview
+    critical_only: bool = False,
+    path_filter: str = None, # Filter by API path
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get error logs from MongoDB for cross-environment analysis.
+    Production errors are stored in the same DB and can be viewed from preview.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        query = {}
+        
+        if error_type:
+            query["type"] = error_type
+        if environment:
+            query["environment"] = environment
+        if critical_only:
+            query["is_critical"] = True
+        if path_filter:
+            query["path"] = {"$regex": path_filter, "$options": "i"}
+        
+        # Date filters
+        if from_date or to_date:
+            query["timestamp"] = {}
+            if from_date:
+                query["timestamp"]["$gte"] = f"{from_date}T00:00:00"
+            if to_date:
+                query["timestamp"]["$lte"] = f"{to_date}T23:59:59"
+        
+        # Get logs
+        logs = await db.error_logs.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+        
+        # Get summary stats
+        total_count = await db.error_logs.count_documents({})
+        critical_count = await db.error_logs.count_documents({"is_critical": True})
+        
+        # Get counts by environment
+        env_pipeline = [
+            {"$group": {"_id": "$environment", "count": {"$sum": 1}}}
+        ]
+        env_stats = await db.error_logs.aggregate(env_pipeline).to_list(10)
+        env_counts = {e["_id"]: e["count"] for e in env_stats if e["_id"]}
+        
+        # Get counts by error type
+        type_pipeline = [
+            {"$group": {"_id": "$type", "count": {"$sum": 1}}}
+        ]
+        type_stats = await db.error_logs.aggregate(type_pipeline).to_list(10)
+        type_counts = {t["_id"]: t["count"] for t in type_stats if t["_id"]}
+        
+        # Get most common error paths
+        path_pipeline = [
+            {"$match": {"status_code": {"$gte": 500}}},
+            {"$group": {"_id": "$path", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        path_stats = await db.error_logs.aggregate(path_pipeline).to_list(10)
+        
+        return {
+            "logs": logs,
+            "summary": {
+                "total_logs": total_count,
+                "critical_errors": critical_count,
+                "by_environment": env_counts,
+                "by_type": type_counts,
+                "most_error_prone_paths": path_stats
+            },
+            "filters_applied": {
+                "error_type": error_type,
+                "from_date": from_date,
+                "to_date": to_date,
+                "environment": environment,
+                "critical_only": critical_only,
+                "path_filter": path_filter
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/error-logs/summary")
+async def get_error_logs_summary(
+    hours: int = 24,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get error summary for last N hours - useful for quick health check"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        cutoff_time = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        
+        # Get recent errors
+        recent_query = {"timestamp": {"$gte": cutoff_time}}
+        recent_count = await db.error_logs.count_documents(recent_query)
+        critical_recent = await db.error_logs.count_documents({**recent_query, "is_critical": True})
+        
+        # Get hourly breakdown
+        hourly_pipeline = [
+            {"$match": {"timestamp": {"$gte": cutoff_time}}},
+            {"$addFields": {
+                "hour": {"$substr": ["$timestamp", 0, 13]}  # Extract YYYY-MM-DDTHH
+            }},
+            {"$group": {
+                "_id": "$hour",
+                "count": {"$sum": 1},
+                "critical": {"$sum": {"$cond": ["$is_critical", 1, 0]}}
+            }},
+            {"$sort": {"_id": -1}},
+            {"$limit": 24}
+        ]
+        hourly_stats = await db.error_logs.aggregate(hourly_pipeline).to_list(24)
+        
+        # Get sample of recent critical errors
+        recent_critical = await db.error_logs.find(
+            {**recent_query, "is_critical": True},
+            {"_id": 0, "timestamp": 1, "path": 1, "error_message": 1, "error_type": 1, "environment": 1}
+        ).sort("timestamp", -1).limit(10).to_list(10)
+        
+        return {
+            "time_range": f"Last {hours} hours",
+            "cutoff_time": cutoff_time,
+            "summary": {
+                "total_errors": recent_count,
+                "critical_errors": critical_recent,
+                "error_rate_per_hour": round(recent_count / hours, 2) if hours > 0 else 0
+            },
+            "hourly_breakdown": hourly_stats,
+            "recent_critical_errors": recent_critical
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/error-logs/clear")
+async def clear_error_logs(
+    older_than_days: int = 7,
+    current_user: dict = Depends(get_current_user)
+):
+    """Clear error logs older than specified days"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        result = await db.error_logs.delete_many({"timestamp": {"$lt": cutoff}})
+        
+        return {
+            "message": f"Cleared {result.deleted_count} logs older than {older_than_days} days",
+            "deleted_count": result.deleted_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============================================================================
+# SECTION: AUTHENTICATION ROUTES (Lines ~190-305)
 # ============================================================================
-# SECTION: USER MANAGEMENT ROUTES - MOVED TO routes/users.py
+@api_router.post("/auth/register", response_model=AuthResponse)
+async def register(input: RegisterRequest):
+    existing = await db.users.find_one({"email": input.email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user_dict = input.model_dump()
+    user_dict["password"] = hash_password(user_dict.pop("password"))
+    user = User(**user_dict)
+    
+    doc = user.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.users.insert_one(doc)
+    
+    token = create_token(user.id, user.email, user.role)
+    return AuthResponse(token=token, user=UserResponse(**user.model_dump()))
+
+@api_router.post("/auth/login", response_model=AuthResponse)
+async def login(input: LoginRequest):
+    import re
+    # Check if identifier is email or mobile number
+    identifier = input.identifier.strip()
+    
+    # Search by email first (case-insensitive)
+    # Escape special regex characters in email
+    escaped_email = re.escape(identifier)
+    user = await db.users.find_one(
+        {"email": {"$regex": f"^{escaped_email}$", "$options": "i"}}, 
+        {"_id": 0}
+    )
+    
+    if not user:
+        # Try searching by mobile/contact number
+        # Normalize the input: remove spaces, dashes, and handle +91 prefix
+        normalized_contact = identifier.replace(" ", "").replace("-", "").replace("+91", "")
+        # If number starts with 91 and is longer than 10 digits, strip 91
+        if normalized_contact.startswith("91") and len(normalized_contact) > 10:
+            normalized_contact = normalized_contact[2:]
+        
+        # Search with exact match first
+        user = await db.users.find_one({"contact": identifier}, {"_id": 0})
+        
+        # If not found, try normalized version
+        if not user and normalized_contact != identifier:
+            user = await db.users.find_one({"contact": normalized_contact}, {"_id": 0})
+        
+        # Also try searching with stored contact that may have different format
+        # by normalizing both sides before comparison
+        if not user:
+            # Use aggregation pipeline to normalize stored contacts and compare
+            pipeline = [
+                {
+                    "$addFields": {
+                        "normalized_contact": {
+                            "$replaceAll": {
+                                "input": {
+                                    "$replaceAll": {
+                                        "input": {
+                                            "$replaceAll": {
+                                                "input": {"$ifNull": ["$contact", ""]},
+                                                "find": " ",
+                                                "replacement": ""
+                                            }
+                                        },
+                                        "find": "-",
+                                        "replacement": ""
+                                    }
+                                },
+                                "find": "+91",
+                                "replacement": ""
+                            }
+                        }
+                    }
+                },
+                {
+                    "$match": {
+                        "$expr": {
+                            "$or": [
+                                {"$eq": ["$normalized_contact", normalized_contact]},
+                                {"$regexMatch": {"input": "$normalized_contact", "regex": f"{normalized_contact}$"}}
+                            ]
+                        }
+                    }
+                },
+                {"$project": {"_id": 0}}
+            ]
+            
+            try:
+                result = await db.users.aggregate(pipeline).to_list(1)
+                if result:
+                    user = result[0]
+            except Exception as e:
+                logger.error(f"Phone aggregation error: {e}")
+                # Fallback to regex if aggregation fails
+                escaped_contact = re.escape(normalized_contact)
+                user = await db.users.find_one(
+                    {"contact": {"$regex": f"{escaped_contact}$"}}, 
+                    {"_id": 0}
+                )
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not user.get("password"):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    if not verify_password(input.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    token = create_token(user["id"], user["email"], user["role"])
+    user.pop("password")
+    return AuthResponse(token=token, user=UserResponse(**user))
+
+@api_router.get("/auth/me", response_model=UserResponse)
+async def get_me(current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["user_id"]}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserResponse(**user)
+
 # ============================================================================
-# The following routes have been extracted to routes/users.py:
-# - GET /employees
-# - GET /users
-# - POST /users
-# - PUT /users/{user_id}
-# - DELETE /users/{user_id}
-# - POST /users/normalize-contacts
-# Import: from routes import users_router
-# Include: app.include_router(users_router, prefix="/api")
+# SECTION: USER MANAGEMENT ROUTES - Admin Only (Lines ~225-305)
 # ============================================================================
+@api_router.get("/employees")
+async def get_employees(current_user: dict = Depends(get_current_user)):
+    """Get list of employees (staff and admin users) for dropdowns - accessible by all authenticated users"""
+    users = await db.users.find(
+        {"role": {"$in": ["staff", "admin"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+    ).to_list(1000)
+    return users
+
+@api_router.get("/users")
+async def get_users(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage users")
+    
+    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
+    return users
+
+@api_router.post("/users")
+async def create_user(input: RegisterRequest, current_user: dict = Depends(get_current_user)):
+    import re
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create users")
+    
+    # Case-insensitive email check (escape special characters)
+    escaped_email = re.escape(input.email)
+    existing = await db.users.find_one(
+        {"email": {"$regex": f"^{escaped_email}$", "$options": "i"}}, 
+        {"_id": 0}
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user_dict = input.model_dump()
+    user_dict["password"] = hash_password(user_dict.pop("password"))
+    
+    # Normalize contact number - remove spaces, dashes, and +91/91 prefix
+    if user_dict.get("contact"):
+        contact = user_dict["contact"].replace(" ", "").replace("-", "").replace("+91", "")
+        if contact.startswith("91") and len(contact) > 10:
+            contact = contact[2:]
+        user_dict["contact"] = contact
+    
+    # Store email in lowercase for consistent searching
+    if user_dict.get("email"):
+        user_dict["email"] = user_dict["email"].lower()
+    
+    # Generate 5-digit referral code for retailers
+    if user_dict.get("role") == "retailer":
+        referral_code = ''.join(random.choices(string.digits, k=5))
+        # Ensure uniqueness
+        while await db.users.find_one({"referral_code": referral_code}):
+            referral_code = ''.join(random.choices(string.digits, k=5))
+        user_dict["referral_code"] = referral_code
+    
+    user = User(**user_dict)
+    
+    doc = user.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.users.insert_one(doc)
+    
+    return {"id": user.id, "message": "User created successfully"}
+
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depends(get_current_user)):
+    import re
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can update users")
+    
+    existing = await db.users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Build update data
+    update_data = {}
+    if input.name:
+        update_data["name"] = input.name
+    if input.email:
+        # Check if email is already taken by another user (case-insensitive)
+        escaped_email = re.escape(input.email)
+        email_check = await db.users.find_one({
+            "email": {"$regex": f"^{escaped_email}$", "$options": "i"}, 
+            "id": {"$ne": user_id}
+        })
+        if email_check:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        # Store email in lowercase
+        update_data["email"] = input.email.lower()
+    if input.password:
+        update_data["password"] = hash_password(input.password)
+    if input.role:
+        update_data["role"] = input.role
+    if input.company_name is not None:
+        update_data["company_name"] = input.company_name
+    if input.contact is not None:
+        # Normalize contact number
+        contact = input.contact.replace(" ", "").replace("-", "").replace("+91", "")
+        if contact.startswith("91") and len(contact) > 10:
+            contact = contact[2:]
+        update_data["contact"] = contact
+    if input.address is not None:
+        update_data["address"] = input.address
+    if input.commission_percentage is not None:
+        update_data["commission_percentage"] = input.commission_percentage
+    if input.upfront_collection_percentage is not None:
+        update_data["upfront_collection_percentage"] = input.upfront_collection_percentage
+    
+    if update_data:
+        await db.users.update_one({"id": user_id}, {"$set": update_data})
+    
+    return {"id": user_id, "message": "User updated successfully"}
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete users")
+    
+    # Prevent deleting self
+    if user_id == current_user["user_id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    result = await db.users.delete_one({"id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "User deleted successfully"}
+
+
+@api_router.post("/users/normalize-contacts")
+async def normalize_user_contacts(current_user: dict = Depends(get_current_user)):
+    """Admin-only endpoint to normalize all users' contact numbers and emails"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run this")
+    
+    users = await db.users.find({}, {"_id": 0, "id": 1, "contact": 1, "email": 1}).to_list(10000)
+    updated_count = 0
+    
+    for user in users:
+        update_data = {}
+        
+        # Normalize contact number
+        if user.get("contact"):
+            contact = user["contact"].replace(" ", "").replace("-", "").replace("+91", "")
+            if contact.startswith("91") and len(contact) > 10:
+                contact = contact[2:]
+            if contact != user["contact"]:
+                update_data["contact"] = contact
+        
+        # Normalize email to lowercase
+        if user.get("email") and user["email"] != user["email"].lower():
+            update_data["email"] = user["email"].lower()
+        
+        if update_data:
+            await db.users.update_one({"id": user["id"]}, {"$set": update_data})
+            updated_count += 1
+    
+    return {"message": f"Normalized {updated_count} user records"}
+
 
 # ============================================================================
 # SECTION: PRODUCTS & PACKAGING ROUTES (Lines ~310-375)
@@ -2034,16 +2638,55 @@ async def generate_orders_from_plans(request: GenerateOrdersRequest, current_use
 
 
 # ============================================================================
-# SECTION: FARMER ROUTES - MOVED TO routes/farmers.py
+# SECTION: FARMER ROUTES (Lines ~375-425)
 # ============================================================================
-# The following routes have been extracted to routes/farmers.py:
-# - GET /farmers
-# - POST /farmers
-# - PUT /farmers/{farmer_id}
-# - DELETE /farmers/{farmer_id}
-# Import: from routes import farmers_router
-# Include: app.include_router(farmers_router)
-# ============================================================================
+@api_router.get("/farmers", response_model=List[Farmer])
+async def get_farmers(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    farmers = await db.farmers.find({}, {"_id": 0}).to_list(1000)
+    return [Farmer(**f) for f in farmers]
+
+@api_router.post("/farmers", response_model=Farmer, status_code=status.HTTP_201_CREATED)
+async def create_farmer(input: FarmerCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    
+    farmer = Farmer(**input.model_dump())
+    doc = farmer.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.farmers.insert_one(doc)
+    return farmer
+
+@api_router.put("/farmers/{farmer_id}", response_model=Farmer)
+async def update_farmer(farmer_id: str, input: FarmerCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    
+    update_data = input.model_dump()
+    result = await db.farmers.find_one_and_update(
+        {"id": farmer_id},
+        {"$set": update_data},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Farmer not found")
+    
+    return Farmer(**result)
+
+@api_router.delete("/farmers/{farmer_id}")
+async def delete_farmer(farmer_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    
+    result = await db.farmers.delete_one({"id": farmer_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Farmer not found")
+    
+    return {"message": "Farmer deleted successfully"}
 
 # ============================================================================
 # SECTION: PROCUREMENT ROUTES (Lines ~425-590)
@@ -18236,9 +18879,6 @@ app.include_router(api_router)
 # Include modular routers (refactored from server.py)
 app.include_router(auth_router, prefix="/api")
 app.include_router(labour_router)
-app.include_router(health_router, prefix="/api")
-app.include_router(users_router, prefix="/api")
-app.include_router(farmers_router)  # has /api prefix built-in
 
 # Add no-cache middleware for API responses
 from starlette.middleware.base import BaseHTTPMiddleware

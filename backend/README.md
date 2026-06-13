@@ -4,7 +4,7 @@
 
 ```
 /app/backend/
-├── server.py              # Main API server (~21,000 lines)
+├── server.py              # Main API server (~20,300 lines, being modularized)
 ├── dependencies.py        # Shared utilities (db, auth, constants)
 ├── models.py              # Pydantic models for request/response
 ├── pdf_generator.py       # Invoice PDF generation
@@ -14,11 +14,29 @@
 ├── gmail_integration.py   # Gmail API for NinjaCat integration
 ├── routes/
 │   ├── __init__.py        # Routes package documentation
-│   ├── labour.py          # Labour/attendance management (ACTIVE)
-│   └── [future modules]   # Planned route extractions
+│   ├── auth.py            # Authentication routes (ACTIVE) ✅
+│   ├── health.py          # Health & Diagnostics routes (ACTIVE) ✅
+│   ├── users.py           # User management routes (ACTIVE) ✅
+│   ├── farmers.py         # Farmer management routes (ACTIVE) ✅
+│   ├── labour.py          # Labour/attendance management (ACTIVE) ✅
+│   └── [legacy files]     # Pre-existing files not yet wired up
 └── migrations/
     └── fix_uuid_variants.py # Data migration scripts
 ```
+
+## Refactoring Status
+
+| Module | Status | Routes Extracted |
+|--------|--------|------------------|
+| Auth | ✅ ACTIVE | `/auth/login`, `/auth/register`, `/auth/me` |
+| Health | ✅ ACTIVE | `/health`, `/health/detailed`, `/diagnostics`, `/error-logs/*`, `/system-logs` |
+| Users | ✅ ACTIVE | `/users/*`, `/employees` |
+| Farmers | ✅ ACTIVE | `/farmers/*` |
+| Labour | ✅ ACTIVE | `/labour/*` |
+| Products | ❌ In server.py | Complex routes with retry logic |
+| QC | ❌ In server.py | Orders, Dispatches, Invoices, GRN |
+| Retail | ❌ In server.py | Plans, Indents, Catalogue |
+| Admin | ❌ In server.py | Utilities, migrations |
 
 ## Server.py Structure (Table of Contents)
 
@@ -85,9 +103,16 @@ When adding new endpoints:
 
 The codebase is being gradually modularized:
 
-1. **Phase 1 (Current)**: Shared utilities extracted to `dependencies.py`
-2. **Phase 2 (Planned)**: Extract high-change routes to separate files
-3. **Phase 3 (Future)**: Full modular structure
+1. **Phase 1 (COMPLETE)**: Shared utilities extracted to `dependencies.py`
+2. **Phase 2 (IN PROGRESS)**: Extract routes to separate files
+   - ✅ Auth routes → `routes/auth.py`
+   - ✅ Health routes → `routes/health.py`
+   - ✅ User routes → `routes/users.py`
+   - ✅ Farmer routes → `routes/farmers.py`
+   - ❌ Products (complex, needs careful extraction)
+   - ❌ QC routes (multiple interdependent modules)
+   - ❌ Retail routes (large section)
+3. **Phase 3 (FUTURE)**: Full modular structure with service layer
 
 ## Environment Variables
 

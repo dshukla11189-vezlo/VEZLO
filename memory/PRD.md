@@ -2,6 +2,29 @@
 
 ## Changelog (June 2025)
 
+### June 13, 2025 - Backend Codebase Refactoring Phase 1 (In Progress) ✅
+- **REFACTORING**: Extracted multiple route modules from the 20,800-line `server.py`:
+  - ✅ **Health Routes** → `routes/health.py`
+    - `/api/health`, `/api/health/detailed`
+    - `/api/diagnostics`, `/api/system-logs`
+    - `/api/error-logs`, `/api/error-logs/summary`, `/api/error-logs/clear`
+  - ✅ **User Routes** → `routes/users.py`
+    - `/api/users`, `/api/employees`
+    - `/api/users/{user_id}`, `/api/users/normalize-contacts`
+  - ✅ **Farmer Routes** → `routes/farmers.py`
+    - `/api/farmers`, `/api/farmers/{farmer_id}`
+  - ✅ **Auth Routes** (Previously done) → `routes/auth.py`
+    - `/api/auth/login`, `/api/auth/register`, `/api/auth/me`
+  - ✅ **Labour Routes** (Previously done) → `routes/labour.py`
+- **Files Modified**:
+  - `/app/backend/server.py` (reduced from ~20,841 to ~20,312 lines, -529 lines)
+  - `/app/backend/routes/__init__.py` (added health_router, users_router, farmers_router)
+  - `/app/backend/routes/health.py` (NEW - 330 lines)
+  - `/app/backend/routes/users.py` (NEW - 170 lines)
+  - `/app/backend/dependencies.py` (added shared health metrics exports)
+  - `/app/backend/README.md` (updated with refactoring status)
+- **Testing**: All extracted endpoints verified via curl
+
 ### June 10, 2025 - Root Cause Fix: Variant Consistency in Auto-Generated Orders ✅
 - **ROOT CAUSE FIX**: Auto-generated indents now use consistent variant IDs for Piece/Packet products
   - **`generate_auto_indents_for_tomorrow`** (line ~16371): 

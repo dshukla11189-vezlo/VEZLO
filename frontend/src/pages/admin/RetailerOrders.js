@@ -343,6 +343,12 @@ export default function RetailerOrders() {
   });
   const [rejectionDispatchItems, setRejectionDispatchItems] = useState([]); // Dispatch items for selected date
   
+  // Daily Rejection Summary state (view by recorded date)
+  const [rejectionViewMode, setRejectionViewMode] = useState('by-invoice'); // 'by-invoice' or 'by-recorded'
+  const [dailyRejectionSummary, setDailyRejectionSummary] = useState([]);
+  const [loadingDailySummary, setLoadingDailySummary] = useState(false);
+  const [expandedDailyDates, setExpandedDailyDates] = useState({});
+  
   // Credit Notes state
   const [creditNotes, setCreditNotes] = useState([]);
   const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
@@ -717,6 +723,23 @@ export default function RetailerOrders() {
       setRejections(response.data);
     } catch (error) {
       console.error('Failed to load rejections:', error);
+    }
+  }, [selectedRetailer, rejectionLossDateFrom, rejectionLossDateTo]);
+
+  // Load daily rejection summary (grouped by recorded date)
+  const loadDailyRejectionSummary = useCallback(async () => {
+    try {
+      setLoadingDailySummary(true);
+      const params = new URLSearchParams();
+      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
+      params.append('start_date', rejectionLossDateFrom);
+      params.append('end_date', rejectionLossDateTo);
+      const response = await api.get(`/api/retailer-rejections/daily-summary?${params.toString()}`);
+      setDailyRejectionSummary(response.data?.daily_summary || []);
+    } catch (error) {
+      console.error('Failed to load daily rejection summary:', error);
+    } finally {
+      setLoadingDailySummary(false);
     }
   }, [selectedRetailer, rejectionLossDateFrom, rejectionLossDateTo]);
 
@@ -10367,7 +10390,35 @@ export default function RetailerOrders() {
           <Card>
             <CardHeader className="py-3 flex flex-col gap-3">
               <div className="flex flex-row items-center justify-between">
-                <CardTitle className="text-sm">Rejections</CardTitle>
+                <div className="flex items-center gap-3">
+                  <CardTitle className="text-sm">Rejections</CardTitle>
+                  {/* View Mode Toggle */}
+                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setRejectionViewMode('by-invoice')}
+                      className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                        rejectionViewMode === 'by-invoice' 
+                          ? 'bg-white text-gray-900 shadow-sm' 
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      By Invoice Date
+                    </button>
+                    <button
+                      onClick={() => {
+                        setRejectionViewMode('by-recorded');
+                        if (dailyRejectionSummary.length === 0) loadDailyRejectionSummary();
+                      }}
+                      className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                        rejectionViewMode === 'by-recorded' 
+                          ? 'bg-white text-gray-900 shadow-sm' 
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      By Recorded Date
+                    </button>
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <Button 
                     size="sm" 
@@ -10434,13 +10485,15 @@ export default function RetailerOrders() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
+              {/* BY INVOICE DATE VIEW (Existing) */}
+              {rejectionViewMode === 'by-invoice' && (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
                       <th className="p-3 text-center font-medium text-gray-500 w-10">#</th>
                       <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
-                      <th className="p-3 text-left font-medium text-gray-500">DATE / PRODUCT</th>
+                      <th className="p-3 text-left font-medium text-gray-500">INVOICE DATE / PRODUCT</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">QTY</th>
                       <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
@@ -10554,6 +10607,110 @@ export default function RetailerOrders() {
                   )}
                 </table>
               </div>
+              )}
+              
+              {/* BY RECORDED DATE VIEW (Daily Summary) */}
+              {rejectionViewMode === 'by-recorded' && (
+              <div className="overflow-x-auto">
+                {loadingDailySummary ? (
+                  <div className="p-8 text-center text-gray-400">Loading daily summary...</div>
+                ) : dailyRejectionSummary.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400">No rejections found for selected period</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="p-3 text-center font-medium text-gray-500 w-10">#</th>
+                        <th className="p-3 text-left font-medium text-gray-500 w-8"></th>
+                        <th className="p-3 text-left font-medium text-gray-500">RECORDED DATE</th>
+                        <th className="p-3 text-left font-medium text-gray-500">RETAILERS</th>
+                        <th className="p-3 text-center font-medium text-gray-500">QTY</th>
+                        <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
+                        <th className="p-3 text-left font-medium text-gray-500">DETAILS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyRejectionSummary.map((dayData, dateIdx) => {
+                        const isExpanded = expandedDailyDates[dayData.date];
+                        return (
+                          <React.Fragment key={dayData.date}>
+                            {/* Date Row - Clickable */}
+                            <tr 
+                              className="border-b bg-orange-50 hover:bg-orange-100 cursor-pointer"
+                              onClick={() => setExpandedDailyDates(prev => ({ ...prev, [dayData.date]: !prev[dayData.date] }))}
+                            >
+                              <td className="p-3 text-center text-gray-500">{dateIdx + 1}</td>
+                              <td className="p-3 text-center">
+                                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                              </td>
+                              <td className="p-3 font-semibold text-gray-800">{formatDate(dayData.date)}</td>
+                              <td className="p-3 text-gray-600 text-xs">
+                                {dayData.retailers.length === 1 
+                                  ? dayData.retailers[0].retailer_name 
+                                  : `${dayData.retailers.length} retailers`}
+                              </td>
+                              <td className="p-3 text-center text-orange-600 font-semibold">{dayData.total_qty}</td>
+                              <td className="p-3 text-right text-orange-600 font-semibold">{formatCurrency(dayData.total_value)}</td>
+                              <td className="p-3 text-gray-500 text-xs">{dayData.rejection_count} rejection(s)</td>
+                            </tr>
+                            
+                            {/* Expanded: Per-Retailer Breakdown */}
+                            {isExpanded && dayData.retailers.map((retailer) => (
+                              <React.Fragment key={retailer.retailer_id}>
+                                {/* Retailer Sub-header */}
+                                <tr className="border-b bg-gray-50">
+                                  <td colSpan={2}></td>
+                                  <td className="p-2 pl-6 font-medium text-gray-700 text-sm" colSpan={2}>
+                                    {retailer.retailer_name}
+                                  </td>
+                                  <td className="p-2 text-center text-orange-500 font-medium">{retailer.total_qty}</td>
+                                  <td className="p-2 text-right text-orange-500 font-medium">{formatCurrency(retailer.total_value)}</td>
+                                  <td className="p-2 text-gray-400 text-xs">{retailer.items.length} item(s)</td>
+                                </tr>
+                                {/* Individual Items */}
+                                {retailer.items.map((item, itemIdx) => (
+                                  <tr key={item.id || itemIdx} className="border-b bg-white hover:bg-gray-50">
+                                    <td colSpan={2}></td>
+                                    <td className="p-2 pl-10">
+                                      <span className="text-sm text-gray-700">{item.product_name}</span>
+                                      {item.variant_name && (
+                                        <span className="text-xs text-gray-400 ml-1">({item.variant_name})</span>
+                                      )}
+                                      <div className="text-[10px] text-gray-400 mt-0.5">
+                                        Against Invoice: {formatDate(item.invoice_date)}
+                                      </div>
+                                    </td>
+                                    <td className="p-2"></td>
+                                    <td className="p-2 text-center text-red-500">{item.quantity}</td>
+                                    <td className="p-2 text-right text-red-500">{formatCurrency(item.rejection_value)}</td>
+                                    <td className="p-2 text-gray-500 text-xs">{item.reason || '-'}</td>
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                    {dailyRejectionSummary.length > 0 && (
+                      <tfoot className="bg-gray-100 font-semibold">
+                        <tr>
+                          <td className="p-3"></td>
+                          <td colSpan={3} className="p-3 text-right">Total Rejected:</td>
+                          <td className="p-3 text-center text-orange-600">
+                            {dailyRejectionSummary.reduce((sum, d) => sum + d.total_qty, 0)}
+                          </td>
+                          <td className="p-3 text-right text-orange-600">
+                            {formatCurrency(dailyRejectionSummary.reduce((sum, d) => sum + d.total_value, 0))}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                )}
+              </div>
+              )}
             </CardContent>
           </Card>
         )}

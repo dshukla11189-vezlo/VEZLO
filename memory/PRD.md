@@ -2,6 +2,21 @@
 
 ## Changelog (June 2025)
 
+### June 13, 2025 - Rejection Daily Summary & Payment Integration ✅
+- **FEATURE**: Daily Rejection Summary View
+  - New endpoint `/api/retailer-rejections/daily-summary` groups rejections by RECORDED date (created_at)
+  - Frontend toggle: "By Invoice Date" (existing) vs "By Recorded Date" (new)
+  - Shows: Recorded Date → Retailers → Products with qty, value, reason
+  - Answers: "On June 12, what products were rejected and what was the total amount?"
+- **BUG FIX**: Fixed missing `os` import in `backup_data.py` (caused sync errors)
+- **VERIFIED**: Rejection amounts already properly reflected in Payment Summary
+  - Formula: `net_payable = (gross_value - rejection_amount) - commission`
+  - Invoice items have `rejected_qty`, `billable_qty`, `amount` properly calculated
+- **FILES MODIFIED**:
+  - `/app/backend/routes/backup_data.py` - Added missing `os` import
+  - `/app/backend/routes/retailer_portal.py` - Added `/api/retailer-rejections/daily-summary` endpoint
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added view toggle and daily summary UI
+
 ### June 13, 2025 - Post-Refactoring Fixes & Auto-Indent Enhancements ✅
 - **BUG FIX**: Fixed dashboard blank page after deployment
   - Missing startup functions: `seed_default_units_on_startup`, `seed_default_categories_types_on_startup`, `initialize_default_plans`

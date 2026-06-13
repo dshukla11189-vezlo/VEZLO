@@ -1229,6 +1229,143 @@ async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depe
     
     return {"message": message, "credit_note_deleted": credit_note_deleted}
 
+
+@router.get("/retailer-rejections/daily-summary")
+async def get_rejection_daily_summary(
+    retailer_id: str = None,
+    date: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get daily rejection summary grouped by the date rejections were RECORDED (created_at).
+    
+    This is different from the existing view which shows rejections against invoice dates.
+    This view answers: "On June 12, what products were rejected and what was the total amount?"
+    
+    Query params:
+    - retailer_id: Filter by retailer (required for admin, auto-filled for retailer role)
+    - date: Single date to filter (YYYY-MM-DD)
+    - start_date, end_date: Date range filter (YYYY-MM-DD)
+    
+    Returns daily breakdown with:
+    - Date (when rejection was recorded)
+    - Per retailer: list of products rejected with qty, value, reason
+    - Daily totals
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Build query
+    query = {}
+    
+    # Handle retailer filtering
+    if current_user["role"] == "retailer":
+        query["retailer_id"] = current_user["user_id"]
+    elif retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Date filtering on created_at (when rejection was recorded)
+    if date:
+        # Single date
+        query["created_at"] = {"$regex": f"^{date}"}
+    elif start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["created_at"] = date_query
+    
+    # Fetch rejections sorted by created_at
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Group by date (from created_at)
+    daily_summary = {}
+    
+    for rej in rejections:
+        created_at = rej.get("created_at", "")
+        if isinstance(created_at, str):
+            record_date = created_at[:10]  # Extract YYYY-MM-DD
+        else:
+            record_date = created_at.strftime("%Y-%m-%d") if created_at else "Unknown"
+        
+        if record_date not in daily_summary:
+            daily_summary[record_date] = {
+                "date": record_date,
+                "retailers": {},
+                "total_qty": 0,
+                "total_value": 0,
+                "rejection_count": 0
+            }
+        
+        # Group by retailer within each date
+        ret_id = rej.get("retailer_id")
+        ret_name = rej.get("retailer_name", "Unknown")
+        
+        if ret_id not in daily_summary[record_date]["retailers"]:
+            daily_summary[record_date]["retailers"][ret_id] = {
+                "retailer_id": ret_id,
+                "retailer_name": ret_name,
+                "items": [],
+                "total_qty": 0,
+                "total_value": 0
+            }
+        
+        # Add item to retailer's list
+        qty = rej.get("quantity", 0) or 0
+        value = rej.get("rejection_value", 0) or 0
+        
+        daily_summary[record_date]["retailers"][ret_id]["items"].append({
+            "id": rej.get("id"),
+            "product_id": rej.get("product_id"),
+            "product_name": rej.get("product_name"),
+            "variant_name": rej.get("variant_name"),
+            "quantity": qty,
+            "rejection_value": value,
+            "reason": rej.get("reason", ""),
+            "mrp": rej.get("mrp", 0),
+            "invoice_date": rej.get("rejection_date", "")[:10] if rej.get("rejection_date") else "",
+            "recorded_by": rej.get("recorded_by")
+        })
+        
+        # Update retailer totals
+        daily_summary[record_date]["retailers"][ret_id]["total_qty"] += qty
+        daily_summary[record_date]["retailers"][ret_id]["total_value"] += value
+        
+        # Update daily totals
+        daily_summary[record_date]["total_qty"] += qty
+        daily_summary[record_date]["total_value"] += value
+        daily_summary[record_date]["rejection_count"] += 1
+    
+    # Convert to list and sort by date descending
+    result = []
+    for date_key in sorted(daily_summary.keys(), reverse=True):
+        day_data = daily_summary[date_key]
+        # Convert retailers dict to list
+        day_data["retailers"] = list(day_data["retailers"].values())
+        # Round totals
+        day_data["total_value"] = round(day_data["total_value"], 2)
+        for ret in day_data["retailers"]:
+            ret["total_value"] = round(ret["total_value"], 2)
+        result.append(day_data)
+    
+    # Calculate grand totals
+    grand_total_qty = sum(d["total_qty"] for d in result)
+    grand_total_value = sum(d["total_value"] for d in result)
+    
+    return {
+        "daily_summary": result,
+        "grand_totals": {
+            "total_qty": round(grand_total_qty, 2),
+            "total_value": round(grand_total_value, 2),
+            "total_rejection_count": sum(d["rejection_count"] for d in result),
+            "days_with_rejections": len(result)
+        }
+    }
+
+
 @router.get("/retailer-rejections/history")
 async def get_rejection_history(
     dispatch_id: str = None,

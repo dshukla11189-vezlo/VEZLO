@@ -9,11 +9,13 @@
   - Shows: Recorded Date → Retailers → Products with qty, value, reason
   - Answers: "On June 12, what products were rejected and what was the total amount?"
 - **BUG FIX**: Fixed missing `os` import in `backup_data.py` (caused sync errors)
+- **BUG FIX**: Fixed missing `timedelta` import in `procurement_new.py` (broke Record Purchase historical data)
 - **VERIFIED**: Rejection amounts already properly reflected in Payment Summary
   - Formula: `net_payable = (gross_value - rejection_amount) - commission`
   - Invoice items have `rejected_qty`, `billable_qty`, `amount` properly calculated
 - **FILES MODIFIED**:
   - `/app/backend/routes/backup_data.py` - Added missing `os` import
+  - `/app/backend/routes/procurement_new.py` - Added missing `timedelta` import
   - `/app/backend/routes/retailer_portal.py` - Added `/api/retailer-rejections/daily-summary` endpoint
   - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added view toggle and daily summary UI
 

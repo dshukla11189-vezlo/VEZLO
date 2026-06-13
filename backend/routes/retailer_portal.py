@@ -4405,13 +4405,97 @@ async def generate_auto_indents_for_tomorrow():
                 # Build packaging name map for resolving weight variant names
                 packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
                 
-                # Calculate average and add 10% buffer
-                # Use the latest variant name for display (most recent invoice)
+                # ============================================
+                # GET YESTERDAY'S CLOSING WITH TIMING ADJUSTMENT
+                # ============================================
+                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+                
+                # Get yesterday's closing inventory for this retailer
+                closing_records = await db.retailer_closing_inventory.find({
+                    "retailer_id": retailer_id,
+                    "closing_date": yesterday_str
+                }, {"_id": 0}).to_list(500)
+                
+                # Get yesterday's dispatches for this retailer
+                yesterday_dispatches = await db.retailer_dispatches.find({
+                    "retailer_id": retailer_id,
+                    "dispatch_date": {"$regex": f"^{yesterday_str}"}
+                }, {"_id": 0}).to_list(100)
+                
+                # Build closing map (product_id + variant_id -> closing_qty)
+                closing_map = {}
+                dispatch_adjustment_applied = False
+                last_closing_time = ""
+                last_dispatch_time = ""
+                
+                if closing_records:
+                    # Find max closing timestamp
+                    closing_timestamps = [r.get("created_at", "") for r in closing_records if r.get("created_at")]
+                    last_closing_time = max(closing_timestamps) if closing_timestamps else ""
+                    
+                    # Find max dispatch timestamp
+                    dispatch_timestamps = []
+                    for d in yesterday_dispatches:
+                        created = d.get("created_at", "")
+                        updated = d.get("updated_at", "")
+                        ts = max(created, updated) if updated else created
+                        if ts:
+                            dispatch_timestamps.append(ts)
+                    last_dispatch_time = max(dispatch_timestamps) if dispatch_timestamps else ""
+                    
+                    # Build closing map
+                    for record in closing_records:
+                        product_id = record.get("product_id")
+                        variant_id = record.get("variant_id") or ""
+                        closing_qty = record.get("closing_qty", 0) or 0
+                        key = f"{product_id}_{variant_id}"
+                        closing_map[key] = closing_qty
+                    
+                    # If closing was recorded BEFORE dispatch, add dispatch items to get true ending inventory
+                    if last_closing_time and last_dispatch_time and last_closing_time < last_dispatch_time:
+                        dispatch_adjustment_applied = True
+                        for dispatch in yesterday_dispatches:
+                            for item in dispatch.get("items", []):
+                                product_id = item.get("product_id")
+                                variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+                                supplied_qty = item.get("supplied_qty", 0) or 0
+                                
+                                key = f"{product_id}_{variant_id}"
+                                if key in closing_map:
+                                    closing_map[key] += supplied_qty
+                                else:
+                                    key_default = f"{product_id}_"
+                                    if key_default in closing_map:
+                                        closing_map[key_default] += supplied_qty
+                                    else:
+                                        closing_map[key] = supplied_qty
+                
+                has_closing_data = len(closing_map) > 0
+                
+                # Calculate average (NO 10% buffer anymore)
+                # Then subtract closing inventory to get actual requirement
                 indent_items = []
                 for key, data in product_weight_totals.items():
                     days_count = len(data["dates"])
                     avg_qty = data["total_qty"] / days_count
-                    recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
+                    base_qty = round(avg_qty)  # Removed 10% buffer
+                    
+                    # Subtract closing inventory if available
+                    product_id = data["product_id"]
+                    variant_id = data["latest_variant_id"] or ""
+                    closing_key = f"{product_id}_{variant_id}"
+                    closing_qty = closing_map.get(closing_key, 0)
+                    
+                    # Also try without variant for generic match
+                    if closing_qty == 0:
+                        for ck, cq in closing_map.items():
+                            if ck.startswith(f"{product_id}_"):
+                                closing_qty = cq
+                                break
+                    
+                    # Calculate final quantity needed: average - closing
+                    recommended_qty = max(0, base_qty - closing_qty)
                     
                     if recommended_qty > 0:
                         product = product_map.get(data["product_id"], {})
@@ -4450,6 +4534,15 @@ async def generate_auto_indents_for_tomorrow():
                     logger.info(f"No items to indent for {retailer_name}, skipping")
                     continue
                 
+                # Build remarks with closing adjustment info
+                base_remarks = f"Auto-generated based on last {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoice data"
+                if has_closing_data:
+                    base_remarks += f" (Closing: {yesterday_str})"
+                    if dispatch_adjustment_applied:
+                        base_remarks += " [Dispatch items added to closing]"
+                else:
+                    base_remarks += " (No closing data - full historical avg)"
+                
                 # Create the auto-generated indent
                 indent_doc = {
                     "id": str(uuid.uuid4()),
@@ -4460,8 +4553,13 @@ async def generate_auto_indents_for_tomorrow():
                     "status": "pending",
                     "created_by": "system",
                     "created_by_role": "system",
-                    "remarks": f"Auto-generated based on last {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoice data",
+                    "remarks": base_remarks,
                     "is_auto_generated": True,
+                    "generation_basis": "sales",  # Sales-based
+                    "closing_date_used": yesterday_str if has_closing_data else None,
+                    "dispatch_adjustment_applied": dispatch_adjustment_applied,
+                    "last_closing_time": last_closing_time if has_closing_data else None,
+                    "last_dispatch_time": last_dispatch_time if dispatch_adjustment_applied else None,
                     "created_at": datetime.now(timezone.utc).isoformat()
                 }
                 
@@ -4681,32 +4779,114 @@ async def generate_single_auto_indent(
         # But keeps Potato 500g and 1000g separate (500g gap)
         product_weight_totals = merge_close_weight_variants(product_weight_totals, max_gap_gm=300)
         
-        # Create indent items with average + 10% buffer
-        # Use the latest variant name for display (most recent invoice)
-        # Look up variant_id from variant_name if not available
+        # ============================================
+        # GET YESTERDAY'S CLOSING WITH TIMING ADJUSTMENT
+        # ============================================
+        yesterday_date = target_date - timedelta(days=1)
+        yesterday_str = yesterday_date.isoformat()
+        
+        # Get yesterday's closing inventory for this retailer
+        closing_records = await db.retailer_closing_inventory.find({
+            "retailer_id": retailer_id,
+            "closing_date": yesterday_str
+        }, {"_id": 0}).to_list(500)
+        
+        # Get yesterday's dispatches for this retailer
+        yesterday_dispatches = await db.retailer_dispatches.find({
+            "retailer_id": retailer_id,
+            "dispatch_date": {"$regex": f"^{yesterday_str}"}
+        }, {"_id": 0}).to_list(100)
+        
+        # Build closing map (product_id + variant_id -> closing_qty)
+        closing_map = {}
+        dispatch_adjustment_applied = False
+        last_closing_time = ""
+        last_dispatch_time = ""
+        
+        if closing_records:
+            # Find max closing timestamp
+            closing_timestamps = [r.get("created_at", "") for r in closing_records if r.get("created_at")]
+            last_closing_time = max(closing_timestamps) if closing_timestamps else ""
+            
+            # Find max dispatch timestamp
+            dispatch_timestamps = []
+            for d in yesterday_dispatches:
+                created = d.get("created_at", "")
+                updated = d.get("updated_at", "")
+                ts = max(created, updated) if updated else created
+                if ts:
+                    dispatch_timestamps.append(ts)
+            last_dispatch_time = max(dispatch_timestamps) if dispatch_timestamps else ""
+            
+            # Build closing map
+            for record in closing_records:
+                product_id = record.get("product_id")
+                variant_id = record.get("variant_id") or ""
+                closing_qty = record.get("closing_qty", 0) or 0
+                key = f"{product_id}_{variant_id}"
+                closing_map[key] = closing_qty
+            
+            # If closing was recorded BEFORE dispatch, add dispatch items to get true ending inventory
+            if last_closing_time and last_dispatch_time and last_closing_time < last_dispatch_time:
+                dispatch_adjustment_applied = True
+                for dispatch in yesterday_dispatches:
+                    for item in dispatch.get("items", []):
+                        product_id = item.get("product_id")
+                        variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+                        supplied_qty = item.get("supplied_qty", 0) or 0
+                        
+                        key = f"{product_id}_{variant_id}"
+                        if key in closing_map:
+                            closing_map[key] += supplied_qty
+                        else:
+                            key_default = f"{product_id}_"
+                            if key_default in closing_map:
+                                closing_map[key_default] += supplied_qty
+                            else:
+                                closing_map[key] = supplied_qty
+        
+        has_closing_data = len(closing_map) > 0
+        
+        # Create indent items: average - closing (NO 10% buffer)
         indent_items = []
         for key, data in product_weight_totals.items():
             days_count = len(data["dates"])
             avg_qty = data["total_qty"] / days_count
-            recommended_qty = round(avg_qty * 1.1)  # Add 10% buffer
+            base_qty = round(avg_qty)  # Removed 10% buffer
+            
+            # Subtract closing inventory if available
+            product_id = data["product_id"]
+            variant_id = data["latest_variant_id"] or ""
+            closing_key = f"{product_id}_{variant_id}"
+            closing_qty = closing_map.get(closing_key, 0)
+            
+            # Also try without variant for generic match
+            if closing_qty == 0:
+                for ck, cq in closing_map.items():
+                    if ck.startswith(f"{product_id}_"):
+                        closing_qty = cq
+                        break
+            
+            # Calculate final quantity needed: average - closing
+            recommended_qty = max(0, base_qty - closing_qty)
             
             if recommended_qty > 0:
-                variant_id = data["latest_variant_id"] or ""
-                variant_name = data["latest_variant_name"] or ""
+                final_variant_id = data["latest_variant_id"] or ""
+                final_variant_name = data["latest_variant_name"] or ""
                 
                 # If no variant_id but have variant_name, look it up
-                if not variant_id and variant_name:
-                    variant_name_lower = variant_name.strip().lower()
+                if not final_variant_id and final_variant_name:
+                    variant_name_lower = final_variant_name.strip().lower()
                     for pkg in packaging_variants:
                         if pkg.get("name", "").strip().lower() == variant_name_lower:
-                            variant_id = pkg.get("id", "")
+                            final_variant_id = pkg.get("id", "")
                             break
                 
                 indent_items.append({
-                    "product_id": data["product_id"],
+                    "product_id": product_id,
                     "product_name": data["product_name"],
-                    "variant_id": variant_id,
-                    "variant_name": variant_name,
+                    "variant_id": final_variant_id,
+                    "variant_name": final_variant_name,
                     "quantity": recommended_qty,
                     "status": "pending"
                 })
@@ -4714,11 +4894,20 @@ async def generate_single_auto_indent(
         if not indent_items:
             return {
                 "success": False,
-                "message": f"No products with positive quantities found for {retailer_name}"
+                "message": f"No products with positive quantities found for {retailer_name}" + (" (all items fully stocked per closing)" if has_closing_data else "")
             }
         
         # Sort by product name
         indent_items.sort(key=lambda x: x["product_name"])
+        
+        # Build remarks with closing adjustment info
+        base_remarks = f"Auto-generated based on {len(same_weekday_invoices)} weeks of {weekday_names[target_weekday]} invoice data"
+        if has_closing_data:
+            base_remarks += f" (Closing: {yesterday_str})"
+            if dispatch_adjustment_applied:
+                base_remarks += " [Dispatch items added to closing]"
+        else:
+            base_remarks += " (No closing data - full historical avg)"
         
         # Create the indent
         new_indent = {
@@ -4729,9 +4918,13 @@ async def generate_single_auto_indent(
             "items": indent_items,
             "total_qty": sum(item["quantity"] for item in indent_items),
             "status": "pending",
-            "remarks": f"Auto-generated based on {len(same_weekday_invoices)} weeks of {weekday_names[target_weekday]} invoice data",
+            "remarks": base_remarks,
             "is_auto_generated": True,
             "generation_basis": "sales",  # Historical sales based
+            "closing_date_used": yesterday_str if has_closing_data else None,
+            "dispatch_adjustment_applied": dispatch_adjustment_applied,
+            "last_closing_time": last_closing_time if has_closing_data else None,
+            "last_dispatch_time": last_dispatch_time if dispatch_adjustment_applied else None,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         }

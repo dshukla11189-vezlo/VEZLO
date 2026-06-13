@@ -2,7 +2,7 @@
 
 ## Changelog (June 2025)
 
-### June 13, 2025 - Post-Refactoring Fixes & Closing Inventory Filter ✅
+### June 13, 2025 - Post-Refactoring Fixes & Auto-Indent Enhancements ✅
 - **BUG FIX**: Fixed dashboard blank page after deployment
   - Missing startup functions: `seed_default_units_on_startup`, `seed_default_categories_types_on_startup`, `initialize_default_plans`
   - Added missing imports from `routes/retail_plans.py` and `routes/retailer_portal.py`
@@ -11,17 +11,24 @@
   - Added `filter_inactive` query parameter to `/api/retailer-closing-inventory/summary/{retailer_id}`
   - When `filter_inactive=true`, only returns products with non-zero opening OR non-zero closing quantities
   - Frontend `loadClosingHistory()` now uses this filter for historical dates
-  - Today's view shows all products; historical views show only products with activity
-- **FEATURE**: Plan-Based Auto-Indent Timing Adjustment
-  - When generating plan-based indents, system now considers timing relationship between closing and dispatch
-  - If closing was recorded BEFORE dispatch arrived: Dispatch items are added to closing to get true ending inventory
-  - This handles the case where retailer records closing, then receives dispatch later same day
-  - New fields in indent: `dispatch_adjustment_applied`, `last_closing_time`, `last_dispatch_time`
-  - Remarks include "[Dispatch items added to closing...]" when adjustment is applied
+- **FEATURE**: Enhanced Auto-Indent Generation (Both Sales-Based and Plan-Based)
+  - **Sales-Based Changes:**
+    1. Removed 10% buffer - now uses exact historical average
+    2. Subtracts closing inventory from historical average to get actual requirement
+    3. Applies same timing logic: if closing < dispatch time, dispatch items added to closing
+  - **Plan-Based Changes (already done):**
+    1. Uses closing inventory with timing adjustment
+    2. If closing < dispatch time, adds dispatch to get true ending inventory
+  - **New Fields in Indent Documents:**
+    - `generation_basis`: "sales" or "plan"
+    - `closing_date_used`: Yesterday's date if closing was available
+    - `dispatch_adjustment_applied`: Boolean indicating if dispatch was added
+    - `last_closing_time`, `last_dispatch_time`: Timestamps used for timing comparison
+  - **Remarks Format:** Now includes "(Closing: YYYY-MM-DD)" and "[Dispatch items added to closing]" when applicable
 - **FILES MODIFIED**:
   - `/app/backend/server.py` - Added startup seed functions, filter_inactive parameter
   - `/app/backend/routes/dashboard_analytics.py` - Import calculate_grn_loss from qc_grn
-  - `/app/backend/routes/retailer_portal.py` - Timing-based adjustment for plan-based indent generation
+  - `/app/backend/routes/retailer_portal.py` - Enhanced auto-indent with closing adjustment
   - `/app/frontend/src/pages/retailer/Dashboard.js` - Use filter_inactive for historical closings
 
 ### June 13, 2025 - Backend Codebase Refactoring COMPLETE ✅

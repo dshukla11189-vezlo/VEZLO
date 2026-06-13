@@ -1949,7 +1949,12 @@ export default function RetailerDashboard() {
     if (!dashboardData?.retailer?.id) return;
     setLoadingClosing(true);
     try {
-      const res = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}`);
+      // For historical dates, use filter_inactive to only show products with non-zero opening OR closing
+      const today = getLocalDateString();
+      const isHistorical = date !== today;
+      const filterParam = isHistorical ? '&filter_inactive=true' : '';
+      
+      const res = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}${filterParam}`);
       // Filter to only show items that have a closing qty recorded
       const recordedItems = (res.data.items || []).filter(item => item.closing_qty !== null && item.closing_qty !== undefined);
       setClosingHistory(recordedItems);

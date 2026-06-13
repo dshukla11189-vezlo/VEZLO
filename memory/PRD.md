@@ -2,6 +2,21 @@
 
 ## Changelog (June 2025)
 
+### June 13, 2025 - Post-Refactoring Fixes & Closing Inventory Filter ✅
+- **BUG FIX**: Fixed dashboard blank page after deployment
+  - Missing startup functions: `seed_default_units_on_startup`, `seed_default_categories_types_on_startup`, `initialize_default_plans`
+  - Added missing imports from `routes/retail_plans.py` and `routes/retailer_portal.py`
+  - Fixed cross-module dependency: `calculate_grn_loss` imported from `qc_grn.py` to `dashboard_analytics.py`
+- **FEATURE**: Historical Closing Inventory Filter
+  - Added `filter_inactive` query parameter to `/api/retailer-closing-inventory/summary/{retailer_id}`
+  - When `filter_inactive=true`, only returns products with non-zero opening OR non-zero closing quantities
+  - Frontend `loadClosingHistory()` now uses this filter for historical dates
+  - Today's view shows all products; historical views show only products with activity
+- **FILES MODIFIED**:
+  - `/app/backend/server.py` - Added startup seed functions, filter_inactive parameter
+  - `/app/backend/routes/dashboard_analytics.py` - Import calculate_grn_loss from qc_grn
+  - `/app/frontend/src/pages/retailer/Dashboard.js` - Use filter_inactive for historical closings
+
 ### June 13, 2025 - Backend Codebase Refactoring COMPLETE ✅
 - **MASSIVE REFACTORING**: Extracted 18 route modules from `server.py`:
   - ✅ **Auth Routes** → `routes/auth.py`

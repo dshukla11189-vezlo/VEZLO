@@ -80,6 +80,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 # Import modular routers
 from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router
+from routes.retail_plans import initialize_default_plans
+from routes.retailer_portal import run_blinkit_scrape_scheduled, generate_auto_indents_wrapper
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -801,6 +803,85 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# STARTUP SEED FUNCTIONS
+# ============================================================================
+async def seed_default_units_on_startup():
+    """Seed default units if none exist (called on startup)"""
+    existing_count = await db.units.count_documents({})
+    if existing_count > 0:
+        return  # Units already exist
+    
+    default_units = [
+        {"name": "Kg", "symbol": "Kg", "description": "Kilogram - standard weight unit"},
+        {"name": "Gram", "symbol": "g", "description": "Gram - small weight unit"},
+        {"name": "Piece", "symbol": "Pc", "description": "Individual piece/item"},
+        {"name": "Pieces", "symbol": "Pcs", "description": "Multiple pieces/items"},
+        {"name": "Bunch", "symbol": "Bunch", "description": "Bundle of items tied together"},
+        {"name": "Packet", "symbol": "Pkt", "description": "Packaged unit"},
+        {"name": "Box", "symbol": "Box", "description": "Box container"},
+        {"name": "Crate", "symbol": "Crate", "description": "Crate container"},
+        {"name": "Dozen", "symbol": "Dz", "description": "12 pieces"},
+        {"name": "Litre", "symbol": "L", "description": "Liquid volume unit"},
+    ]
+    
+    for unit in default_units:
+        unit["id"] = str(uuid.uuid4())
+        unit["created_at"] = datetime.now(timezone.utc).isoformat()
+        await db.units.insert_one(unit)
+    
+    logger.info(f"Seeded {len(default_units)} default units")
+
+
+async def seed_default_categories_types_on_startup():
+    """Seed default product categories and types if none exist (called on startup)"""
+    # Seed product categories
+    cat_count = await db.product_categories.count_documents({})
+    if cat_count == 0:
+        default_categories = [
+            "Leafy Greens",
+            "Fruits",
+            "Root Vegetables",
+            "Gourds",
+            "Beans & Legumes",
+            "Herbs",
+            "Exotic Vegetables",
+            "Mushrooms",
+            "Salad Greens",
+            "Other"
+        ]
+        for cat_name in default_categories:
+            cat_doc = {
+                "id": str(uuid.uuid4()),
+                "name": cat_name,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.product_categories.insert_one(cat_doc)
+        logger.info(f"Seeded {len(default_categories)} default product categories")
+    
+    # Seed product types
+    type_count = await db.product_types.count_documents({})
+    if type_count == 0:
+        default_types = [
+            "Fresh",
+            "Organic",
+            "Hydroponic",
+            "Imported",
+            "Local",
+            "Seasonal",
+            "Premium"
+        ]
+        for type_name in default_types:
+            type_doc = {
+                "id": str(uuid.uuid4()),
+                "name": type_name,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.product_types.insert_one(type_doc)
+        logger.info(f"Seeded {len(default_types)} default product types")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -1598,6 +1679,7 @@ async def record_retailer_closing_inventory(
 async def get_retailer_closing_summary(
     retailer_id: str,
     date: str,
+    filter_inactive: bool = False,
     current_user: dict = Depends(get_current_user)
 ):
     """Get full inventory summary including opening, received, rejection, and closing"""
@@ -1827,6 +1909,14 @@ async def get_retailer_closing_summary(
     
     # Determine if there's actual closing data for this date
     has_closing_data = len(closing_items) > 0
+    
+    # Filter out inactive items if requested (items with zero opening AND zero closing)
+    # This is useful for viewing historical closings
+    if filter_inactive:
+        result = [
+            item for item in result 
+            if (item.get("opening_qty") or 0) > 0 or (item.get("closing_qty") or 0) > 0
+        ]
     
     return {
         "closing_date": date,

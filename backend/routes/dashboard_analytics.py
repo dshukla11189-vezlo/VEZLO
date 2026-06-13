@@ -26,6 +26,7 @@ from dependencies import (
     MARATHI_PRODUCT_NAMES,
 )
 from models import StockClosingEntry, StockClosingBulkEntry
+from routes.qc_grn import calculate_grn_loss
 
 router = APIRouter(tags=["dashboard_analytics"])
 

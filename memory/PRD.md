@@ -2,6 +2,26 @@
 
 ## Changelog (June 2025)
 
+
+### June 14, 2025 - Print Bug Fix & Labour UX Improvements ✅
+- **BUG FIX**: Fixed Stickers & MRP Print showing "undefined" products
+  - Root cause: Field name mismatch between `stickersData` structure and `printStickersMrp()` function
+  - Fixed: `product.product_name` → `product.productName`, `product.sticker_count` → `product.quantity`
+  - Print now correctly shows product names, sticker counts, MRP values, and unit types
+- **ENHANCEMENT**: Labour Inactive State Visual Clarity
+  - Added "Show inactive" toggle checkbox (only appears when inactive labourers exist)
+  - Improved status badges: "✓ Active" (green) / "✗ Inactive" (red) with hover color transitions
+  - Inactive labourers now show: strikethrough name + "Deactivated" badge + gray background
+  - Count display improved: "15 active • 2 inactive" format
+- **ENHANCEMENT**: Add Product / Override MRP button in Stickers & MRP
+  - Renamed button from "Add MRP Override" to "Add Product / Override MRP" with tooltip
+  - Products added via MRP overrides now appear in the Stickers list (even without day's indents)
+  - Print function includes override-only products with quantity 0
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, button rename, mrpProductsByCategory enhancement
+  - `/app/frontend/src/pages/admin/LaborCosts.js` - Inactive state toggle, visual improvements
+
+
 ### June 13, 2025 - Retailer Portal Rejections & Admin Chart Defaults ✅
 - **FEATURE**: Added Rejections tab to Retailer Portal hamburger menu (below Payment Ledger)
   - Same view modes as Admin: "By Invoice Date" and "By Recorded Date"

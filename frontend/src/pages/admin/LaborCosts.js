@@ -47,6 +47,7 @@ export default function LaborCosts() {
   // Labours state
   const [labours, setLabours] = useState([]);
   const [loadingLabours, setLoadingLabours] = useState(false);
+  const [showInactiveLabourers, setShowInactiveLabourers] = useState(false); // Toggle to show/hide inactive
   const [showLabourModal, setShowLabourModal] = useState(false);
   const [editingLabour, setEditingLabour] = useState(null);
   const [labourForm, setLabourForm] = useState({
@@ -1056,10 +1057,28 @@ export default function LaborCosts() {
         {/* Manage Labourers Tab */}
         {activeTab === 'labours' && (
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-gray-500">
-                {labours.filter(l => l.is_active !== false).length} active labourers
-              </p>
+            <div className="flex justify-between items-center flex-wrap gap-2">
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-gray-600">
+                  <span className="font-semibold text-green-700">{labours.filter(l => l.is_active !== false).length}</span> active
+                  {labours.filter(l => l.is_active === false).length > 0 && (
+                    <span className="text-gray-400 ml-2">
+                      • <span className="text-red-500">{labours.filter(l => l.is_active === false).length}</span> inactive
+                    </span>
+                  )}
+                </p>
+                {labours.filter(l => l.is_active === false).length > 0 && (
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showInactiveLabourers}
+                      onChange={(e) => setShowInactiveLabourers(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-gray-600 focus:ring-gray-500"
+                    />
+                    Show inactive
+                  </label>
+                )}
+              </div>
               <Button size="sm" onClick={openAddLabour} data-testid="add-labour-btn">
                 <Plus size={16} className="mr-1" /> Add Labourer
               </Button>
@@ -1081,9 +1100,22 @@ export default function LaborCosts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {labours.map((labour) => (
-                    <tr key={labour.id} className={labour.is_active === false ? 'opacity-50' : ''} data-testid={`labour-row-${labour.id}`}>
-                      <td className="font-medium">{labour.name}</td>
+                  {labours
+                    .filter(labour => showInactiveLabourers || labour.is_active !== false)
+                    .map((labour) => (
+                    <tr 
+                      key={labour.id} 
+                      className={labour.is_active === false ? 'bg-gray-50' : ''} 
+                      data-testid={`labour-row-${labour.id}`}
+                    >
+                      <td className={`font-medium ${labour.is_active === false ? 'text-gray-400 line-through' : ''}`}>
+                        {labour.name}
+                        {labour.is_active === false && (
+                          <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-600 text-[9px] rounded font-semibold uppercase">
+                            Deactivated
+                          </span>
+                        )}
+                      </td>
                       <td className="text-gray-600">
                         {labour.phone ? (
                           <span className="flex items-center gap-1">
@@ -1114,13 +1146,14 @@ export default function LaborCosts() {
                       <td className="text-center">
                         <button
                           onClick={() => toggleLabourActive(labour)}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                          className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
                             labour.is_active !== false 
-                              ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                              ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-600 border border-green-200 hover:border-red-200' 
+                              : 'bg-red-50 text-red-600 hover:bg-green-100 hover:text-green-700 border border-red-200 hover:border-green-200'
                           }`}
+                          title={labour.is_active !== false ? 'Click to deactivate' : 'Click to reactivate'}
                         >
-                          {labour.is_active !== false ? 'Active' : 'Inactive'}
+                          {labour.is_active !== false ? '✓ Active' : '✗ Inactive'}
                         </button>
                       </td>
                       <td>

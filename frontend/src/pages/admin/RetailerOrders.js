@@ -4034,10 +4034,34 @@ export default function RetailerOrders() {
   }, [packagings]);
 
   // Group products by category for MRP - filtered to only products from day's indents
+  // Also include products with MRP overrides that aren't in the day's indents
   const mrpProductsByCategory = useMemo(() => {
     // Prefer stickersData which has correct aggregation keys and retailer details
     // Fall back to mrpIndentProducts for backward compatibility
-    const productsToShow = stickersData.length > 0 ? stickersData : (mrpIndentProducts.length > 0 ? mrpIndentProducts : []);
+    const productsToShow = stickersData.length > 0 ? [...stickersData] : (mrpIndentProducts.length > 0 ? [...mrpIndentProducts] : []);
+    
+    // Add products from stickerMrpOverrides that aren't already in the list
+    // This allows users to see products they manually added via "Add Product / Override MRP"
+    stickerMrpOverrides.forEach(override => {
+      const existsInList = productsToShow.some(p => 
+        (p.productId === override.product_id || p.product_id === override.product_id) && 
+        (p.variantId === override.variant_id || p.variant_id === override.variant_id)
+      );
+      
+      if (!existsInList) {
+        // Find product info from products list
+        const productInfo = products.find(p => p.id === override.product_id) || {};
+        productsToShow.push({
+          productId: override.product_id,
+          productName: override.product_name || productInfo.name || 'Unknown',
+          variantId: override.variant_id,
+          variantName: override.variant_name || '',
+          category: productInfo.category || 'Others',
+          quantity: 0, // No indent quantity since this is an override-only product
+          isOverrideOnly: true // Flag to indicate this product has no indents
+        });
+      }
+    });
     
     const grouped = {};
     productsToShow.forEach(p => {
@@ -4054,7 +4078,7 @@ export default function RetailerOrders() {
       });
     });
     return grouped;
-  }, [stickersData, mrpIndentProducts]);
+  }, [stickersData, mrpIndentProducts, stickerMrpOverrides, products]);
 
   // Auto-expand categories when indent products load
   useEffect(() => {
@@ -4482,6 +4506,165 @@ export default function RetailerOrders() {
     } finally {
       setSavingMrp(false);
     }
+  };
+
+  // Print Stickers & MRP data
+  const printStickersMrp = () => {
+    // Get the data to print - combine stickersData with any MRP-override-only products
+    let productsToShow = stickersData.length > 0 ? [...stickersData] : [];
+    
+    // Add products from stickerMrpOverrides that aren't already in the list
+    stickerMrpOverrides.forEach(override => {
+      const existsInList = productsToShow.some(p => 
+        p.productId === override.product_id && p.variantId === override.variant_id
+      );
+      
+      if (!existsInList) {
+        const productInfo = products.find(p => p.id === override.product_id) || {};
+        productsToShow.push({
+          productId: override.product_id,
+          productName: override.product_name || productInfo.name || 'Unknown',
+          variantId: override.variant_id,
+          variantName: override.variant_name || '',
+          category: productInfo.category || 'Others',
+          quantity: 0,
+          purchaseUnit: '',
+          isOverrideOnly: true
+        });
+      }
+    });
+    
+    if (productsToShow.length === 0) {
+      toast.error('No data to print. Please select a date with indents or add products.');
+      return;
+    }
+    
+    // Create print content
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow popups to print');
+      return;
+    }
+    
+    // Group by category
+    const byCategory = productsToShow.reduce((acc, item) => {
+      const category = item.category || 'Uncategorized';
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(item);
+      return acc;
+    }, {});
+    
+    // Calculate totals - stickersData uses 'quantity' not 'sticker_count'
+    const totalStickers = productsToShow.reduce((sum, p) => sum + (p.quantity || 0), 0);
+    
+    let tableRows = '';
+    let rowNum = 1;
+    
+    Object.keys(byCategory).sort().forEach(category => {
+      const categoryProducts = byCategory[category];
+      // Category header row
+      tableRows += `
+        <tr style="background-color: #f3f4f6;">
+          <td colspan="5" style="padding: 8px; font-weight: bold; border: 1px solid #e5e7eb;">${category} (${categoryProducts.length})</td>
+        </tr>
+      `;
+      
+      categoryProducts.forEach(product => {
+        // stickersData uses productId/variantId, mrpData uses product_id/variant_id
+        const mrpEntry = mrpData.find(m => m.product_id === product.productId && m.variant_id === product.variantId);
+        // Also check stickerMrpOverrides for saved MRP
+        const overrideEntry = stickerMrpOverrides.find(o => o.product_id === product.productId && o.variant_id === product.variantId);
+        const mrpValue = overrideEntry?.mrp || mrpEntry?.mrp || '-';
+        // stickersData uses 'quantity' for sticker count
+        const stickerCount = product.quantity || 0;
+        // Determine unit based on purchaseUnit or default to Kg
+        const unit = product.purchaseUnit === 'Piece' ? 'Pcs' : (product.purchaseUnit === 'Packet' ? 'Pkt' : (product.purchaseUnit || 'Kg'));
+        
+        tableRows += `
+          <tr>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; text-align: center;">${rowNum++}</td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb;">${product.productName || 'Unknown'}${product.variantName ? ` (${product.variantName})` : ''}</td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; text-align: center; font-weight: bold; font-size: 16px;">${stickerCount}</td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; text-align: right; font-weight: bold;">₹${mrpValue}</td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; text-align: center;">${unit}</td>
+          </tr>
+        `;
+      });
+    });
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Stickers & MRP - ${dailyReqDate}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { font-size: 20px; margin-bottom: 5px; }
+          h2 { font-size: 14px; color: #666; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th { background-color: #14532D; color: white; padding: 10px; text-align: left; border: 1px solid #14532D; }
+          .summary { margin-top: 20px; padding: 15px; background-color: #f0fdf4; border-radius: 8px; }
+          .summary-item { display: inline-block; margin-right: 30px; }
+          .summary-label { color: #666; font-size: 12px; }
+          .summary-value { font-size: 24px; font-weight: bold; color: #14532D; }
+          @media print {
+            body { padding: 10px; }
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>🏷️ Stickers & MRP List</h1>
+        <h2>Date: ${dailyReqDate} • Total Products: ${productsToShow.length}</h2>
+        
+        <div class="summary">
+          <div class="summary-item">
+            <div class="summary-label">Total Stickers Required</div>
+            <div class="summary-value">${totalStickers}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Categories</div>
+            <div class="summary-value">${Object.keys(byCategory).length}</div>
+          </div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th>Product</th>
+              <th style="width: 100px; text-align: center;">Stickers</th>
+              <th style="width: 100px; text-align: right;">MRP</th>
+              <th style="width: 80px; text-align: center;">Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+          <tfoot>
+            <tr style="background-color: #14532D; color: white; font-weight: bold;">
+              <td colspan="2" style="padding: 10px; border: 1px solid #14532D;">TOTAL</td>
+              <td style="padding: 10px; border: 1px solid #14532D; text-align: center; font-size: 18px;">${totalStickers}</td>
+              <td colspan="2" style="padding: 10px; border: 1px solid #14532D;"></td>
+            </tr>
+          </tfoot>
+        </table>
+        
+        <div style="margin-top: 30px; text-align: center;">
+          <button onclick="window.print()" style="padding: 10px 30px; background-color: #14532D; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
+            🖨️ Print
+          </button>
+        </div>
+        
+        <p style="margin-top: 20px; font-size: 11px; color: #999; text-align: center;">
+          Generated on ${new Date().toLocaleString()} • Mr Organix
+        </p>
+      </body>
+      </html>
+    `;
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   // Copy MRP from previous date
@@ -8634,14 +8817,15 @@ export default function RetailerOrders() {
                       )}
                     </div>
                     <div className="flex gap-2 ml-auto flex-wrap">
-                      {/* Add MRP Override Button */}
+                      {/* Add New Product / MRP Override Button */}
                       <Button 
                         onClick={openAddStickerOverrideModal}
                         variant="outline"
                         className="h-9 border-purple-300 text-purple-600 hover:bg-purple-50"
+                        title="Add a product not in today's indents, or set custom MRP override"
                       >
                         <Plus size={14} className="mr-1" />
-                        Add MRP Override
+                        Add Product / Override MRP
                       </Button>
                       <Button 
                         onClick={copyMrpFromPreviousDate}
@@ -8725,6 +8909,18 @@ export default function RetailerOrders() {
                               Save MRP {mrpHasUnsavedChanges && `(${Object.keys(pendingMrpChanges).length})`}
                             </span>
                           )}
+                        </Button>
+                      )}
+                      {/* Print Stickers & MRP Button */}
+                      {(mrpData.length > 0 || stickersData.length > 0) && (
+                        <Button 
+                          onClick={printStickersMrp}
+                          variant="outline"
+                          className="h-9 border-gray-300 text-gray-700 hover:bg-gray-50"
+                          data-testid="print-stickers-mrp-btn"
+                        >
+                          <Printer size={14} className="mr-1" />
+                          Print Stickers
                         </Button>
                       )}
                     </div>

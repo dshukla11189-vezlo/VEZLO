@@ -3,6 +3,26 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Retailer Portal Statement & Final Summary Tabs ✅
+- **FEATURE**: Ported Statement and Final Summary tabs from Admin panel to Retailer Portal
+  - Statement Tab: Complete financial ledger showing invoices, payments, rejections, and credit notes
+    - Date range filter with Apply button
+    - Summary cards (Total Debit, Total Credit, Balance Due/Excess Paid)
+    - Ledger table with expandable grouped rows (same-day items collapsed)
+    - Color-coded entry types (INV, PMT, CN, REJ)
+  - Final Summary Tab: Detailed invoice reconciliation view
+    - Date range filter with Apply button
+    - Main table: Date, Invoice #, Gross Value, Rejections, Net MRP, Commission, Payable, Credit Notes, Paid, Final Payable, Status
+    - Expandable item details showing Supply vs Rejection breakdown
+    - Totals row at bottom
+  - Both tabs are mobile-responsive with scrollable tables
+- **TECHNICAL**:
+  - State hooks and loading functions were already added (`loadStatementData`, `loadFinalSummaryData`)
+  - Added complete JSX rendering for both tabs in `/app/frontend/src/pages/retailer/Dashboard.js`
+  - Uses existing backend endpoints: `/api/retailer-statement` and `/api/retailer-invoices/final-summary`
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/retailer/Dashboard.js` - Added Statement and Final Summary tab UI (~450 lines)
+
 ### June 14, 2025 - Statement Invoice Amount Fix for 100% Upfront Retailers ✅
 - **FIX**: For 100% upfront retailers, Statement now uses `paid_amount` (what they actually paid) as invoice debit
   - Previously used `net_payable` which excluded rejections - causing mismatch

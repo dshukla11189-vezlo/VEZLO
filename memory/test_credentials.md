@@ -10,6 +10,6 @@
 - **Password**: retailer123
 
 ## Notes
-- Admin password was reset in the preview environment on June 7, 2025
-- Retailer (Savtamali) password was reset on June 7, 2025
+- Admin and Retailer accounts were re-seeded on June 14, 2025 (database was reset)
 - Production credentials may differ - this file is for preview/testing only
+- The database `test_database` is used in preview (not `mr_organix`)

@@ -11144,18 +11144,16 @@ export default function RetailerOrders() {
                     </div>
                   </div>
                   
-                  {/* Ledger Table */}
-                  <div className="overflow-x-auto border rounded-lg">
+                  {/* Ledger Table - Compact */}
+                  <div className="border rounded-lg">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-100 sticky top-0">
                         <tr>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">DATE</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">TYPE</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">REFERENCE</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">DESCRIPTION</th>
-                          <th className="px-3 py-2 text-right font-medium text-red-600">DEBIT (₹)</th>
-                          <th className="px-3 py-2 text-right font-medium text-green-600">CREDIT (₹)</th>
-                          <th className="px-3 py-2 text-right font-medium text-gray-600">BALANCE (₹)</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">DATE</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">PARTICULARS</th>
+                          <th className="px-2 py-2 text-right font-medium text-red-600">DEBIT</th>
+                          <th className="px-2 py-2 text-right font-medium text-green-600">CREDIT</th>
+                          <th className="px-2 py-2 text-right font-medium text-gray-600">BALANCE</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -11166,40 +11164,38 @@ export default function RetailerOrders() {
                             entry.type === 'credit_note' ? 'bg-blue-50/30' :
                             entry.type === 'rejection' ? 'bg-yellow-50/30' : ''
                           }`}>
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              {new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            <td className="px-2 py-1.5 whitespace-nowrap text-gray-600">
+                              {new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                             </td>
-                            <td className="px-3 py-2">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                entry.type === 'invoice' ? 'bg-red-100 text-red-700' :
-                                entry.type === 'payment' ? 'bg-green-100 text-green-700' :
-                                entry.type === 'credit_note' ? 'bg-blue-100 text-blue-700' :
-                                entry.type === 'rejection' ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-gray-100 text-gray-700'
-                              }`}>
-                                {entry.type === 'invoice' ? 'Invoice' : 
-                                 entry.type === 'payment' ? 'Payment' :
-                                 entry.type === 'credit_note' ? 'Credit Note' :
-                                 entry.type === 'rejection' ? 'Rejection' :
-                                 entry.type}
-                              </span>
+                            <td className="px-2 py-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  entry.type === 'invoice' ? 'bg-red-100 text-red-700' :
+                                  entry.type === 'payment' ? 'bg-green-100 text-green-700' :
+                                  entry.type === 'credit_note' ? 'bg-blue-100 text-blue-700' :
+                                  entry.type === 'rejection' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {entry.type === 'invoice' ? 'INV' : 
+                                   entry.type === 'payment' ? 'PMT' :
+                                   entry.type === 'credit_note' ? 'CN' :
+                                   entry.type === 'rejection' ? 'REJ' :
+                                   entry.type.substring(0, 3).toUpperCase()}
+                                </span>
+                                <span className="font-medium text-gray-800">{entry.reference}</span>
+                              </div>
                             </td>
-                            <td className="px-3 py-2 font-mono text-gray-700">{entry.reference}</td>
-                            <td className="px-3 py-2 text-gray-600 max-w-xs truncate" title={entry.description}>
-                              {entry.description}
+                            <td className="px-2 py-1.5 text-right font-medium text-red-600">
+                              {entry.debit > 0 ? entry.debit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
                             </td>
-                            <td className="px-3 py-2 text-right font-medium text-red-600">
-                              {entry.debit > 0 ? entry.debit.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '-'}
+                            <td className="px-2 py-1.5 text-right font-medium text-green-600">
+                              {entry.credit > 0 ? entry.credit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
                             </td>
-                            <td className="px-3 py-2 text-right font-medium text-green-600">
-                              {entry.credit > 0 ? entry.credit.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '-'}
-                            </td>
-                            <td className={`px-3 py-2 text-right font-semibold ${
+                            <td className={`px-2 py-1.5 text-right font-semibold ${
                               entry.balance > 0 ? 'text-orange-600' : entry.balance < 0 ? 'text-blue-600' : 'text-gray-600'
                             }`}>
-                              {entry.balance > 0 ? '' : entry.balance < 0 ? '(' : ''}
-                              {Math.abs(entry.balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              {entry.balance < 0 ? ')' : ''}
+                              {Math.abs(entry.balance).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                              {entry.balance < 0 ? ' Cr' : ''}
                             </td>
                           </tr>
                         ))}
@@ -11207,19 +11203,18 @@ export default function RetailerOrders() {
                         {/* Closing Row */}
                         {statementData.entries?.length > 0 && (
                           <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
-                            <td colSpan="4" className="px-3 py-2 text-right">CLOSING BALANCE</td>
-                            <td className="px-3 py-2 text-right text-red-700">
-                              {statementData.summary?.total_debit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <td colSpan="2" className="px-2 py-2 text-right">CLOSING BALANCE</td>
+                            <td className="px-2 py-2 text-right text-red-700">
+                              {statementData.summary?.total_debit?.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
                             </td>
-                            <td className="px-3 py-2 text-right text-green-700">
-                              {statementData.summary?.total_credit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <td className="px-2 py-2 text-right text-green-700">
+                              {statementData.summary?.total_credit?.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
                             </td>
-                            <td className={`px-3 py-2 text-right ${
+                            <td className={`px-2 py-2 text-right ${
                               statementData.summary?.closing_balance > 0 ? 'text-orange-700' : 'text-blue-700'
                             }`}>
-                              {statementData.summary?.closing_balance > 0 ? '' : '('}
-                              {Math.abs(statementData.summary?.closing_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              {statementData.summary?.closing_balance > 0 ? '' : ')'}
+                              {Math.abs(statementData.summary?.closing_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                              {statementData.summary?.closing_balance < 0 ? ' Cr' : ''}
                             </td>
                           </tr>
                         )}
@@ -11419,6 +11414,7 @@ export default function RetailerOrders() {
                                         <th className="p-2 text-center">Qty</th>
                                         <th className="p-2 text-right">Amount</th>
                                         <th className="p-2 text-right text-green-600">Adjusted</th>
+                                        <th className="p-2 text-left text-blue-600">Against Invoice</th>
                                         <th className="p-2 text-right text-amber-600">Pending</th>
                                         <th className="p-2 text-center">Status</th>
                                         <th className="p-2 text-center">Actions</th>
@@ -11452,6 +11448,22 @@ export default function RetailerOrders() {
                                               )}
                                             </td>
                                             <td className="p-2 text-right text-green-600">₹{(cn.adjusted_amount || 0).toLocaleString()}</td>
+                                            <td className="p-2 text-left text-blue-600 text-xs">
+                                              {cn.adjusted_against_invoices && cn.adjusted_against_invoices.length > 0 ? (
+                                                <div className="space-y-0.5">
+                                                  {cn.adjusted_against_invoices.map((adj, i) => (
+                                                    <div key={i} className="flex items-center gap-1">
+                                                      <span className="font-medium">{adj.invoice_number}</span>
+                                                      <span className="text-gray-400">(₹{adj.amount})</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              ) : cn.status === 'adjusted' ? (
+                                                <span className="text-gray-400 italic">-</span>
+                                              ) : (
+                                                <span className="text-gray-400">-</span>
+                                              )}
+                                            </td>
                                             <td className="p-2 text-right text-amber-600">₹{(cn.pending_amount || 0).toLocaleString()}</td>
                                             <td className="p-2 text-center">
                                               <span className={`px-2 py-0.5 rounded text-xs ${

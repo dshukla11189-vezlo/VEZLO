@@ -2784,7 +2784,8 @@ async def get_invoice_final_summary(
         for inv_item in inv.get("items", []):
             supplied_qty = inv_item.get("supplied_qty", 0) or inv_item.get("quantity", 0) or 0
             rejected_qty = inv_item.get("rejected_qty", 0) or inv_item.get("rejection_qty", 0) or 0
-            billable_qty = inv_item.get("billable_qty", 0) or (supplied_qty - rejected_qty)
+            # ALWAYS calculate billable_qty dynamically - stored value may be incorrect
+            billable_qty = supplied_qty - rejected_qty
             mrp = inv_item.get("mrp", 0) or inv_item.get("rate", 0) or 0
             
             supply_value = supplied_qty * mrp
@@ -2826,7 +2827,8 @@ async def get_invoice_final_summary(
         items.sort(key=lambda x: x["product_name"])
         
         # Calculate values using invoice's stored data
-        gross_value = inv.get("total_mrp_value", 0) or inv.get("gross_value", 0) or 0
+        # gross_value is the INITIAL invoice amount (before rejections)
+        gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
         total_mrp = gross_value - rejection_amount  # Net MRP after rejections
         commission = inv.get("commission_amount", 0) or inv.get("commission_value", 0) or inv.get("total_commission", 0) or 0
         payable = inv.get("net_payable", 0) or 0

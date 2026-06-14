@@ -10,11 +10,17 @@
 - **BUG FIX**: Final Summary expanded view now shows correct variant names instead of UUIDs
   - Root cause: Invoice items stored variant_id in `variant_name` field
   - Solution: Backend now looks up actual variant names from `qc_packaging` collection
+- **BUG FIX**: Final Summary gross_value now shows INITIAL invoice amount (before rejections)
+  - Root cause: Was using `total_mrp_value` (after rejections) instead of `gross_value` (initial)
+  - Example: NAR-INV-10JUN2026-001 now shows ₹4,595 gross (was showing ₹2,693)
+- **BUG FIX**: Item-level billable_qty now calculated dynamically as `supplied_qty - rejected_qty`
+  - Root cause: Stored `billable_qty` in invoice items was incorrect (copied from supplied instead of calculated)
+  - Example: Amaranthus Green now shows billable=0 (1-1=0, was showing 1)
 - **ENHANCEMENT**: Final Summary item details table reorganized with columns: Supplied Qty, MRP, Supplied Value, Rejection Qty, Rejection Amt, Billable Qty, Billable Value
 - **ENHANCEMENT**: Added TOTAL row at bottom of item details showing sum of all quantities and values
 - **FILES MODIFIED**:
   - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed pending amount calculation, reorganized item columns, added totals footer
-  - `/app/backend/routes/retailer_portal.py` - Added qc_packaging lookup, item_totals in response
+  - `/app/backend/routes/retailer_portal.py` - Added qc_packaging lookup, item_totals, fixed gross_value and billable_qty calculations
 
 ### June 14, 2025 - Credit Notes Against Invoice Display Fix ✅
 - **BUG FIX**: Credit Notes "Against Invoice" column now properly displays which invoice each credit note was adjusted against

@@ -574,9 +574,10 @@ async def sync_from_production_direct(
             
             # Reset passwords if requested
             if request.reset_passwords:
+                hashed_password = hash_password(request.default_password)
                 await db.users.update_many(
                     {},
-                    {"$set": {"password": pwd_context.hash(request.default_password)}}
+                    {"$set": {"password": hashed_password}}
                 )
             
             return {

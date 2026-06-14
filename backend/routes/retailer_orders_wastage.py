@@ -5,9 +5,11 @@ Extracted from server.py for modular organization.
 Handles retailer orders, rejections, and wastage management.
 """
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from datetime import datetime, timezone
 from typing import List, Optional
 import uuid
+import io
 
 from dependencies import (
     db,
@@ -26,6 +28,7 @@ from models import (
     Invoice,
     InvoiceCreate,
 )
+from pdf_generator import generate_invoice_pdf
 
 router = APIRouter(tags=["retailer_orders_wastage"])
 

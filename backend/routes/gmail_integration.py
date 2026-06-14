@@ -17,6 +17,18 @@ from dependencies import (
     get_current_user,
     logger,
 )
+from gmail_integration import (
+    get_authorization_url,
+    exchange_code_for_tokens,
+    get_gmail_service,
+    search_ninjacart_emails,
+    get_email_content,
+    download_attachment,
+    parse_ninjacart_csv,
+    parse_ninjacart_email_body,
+    mark_email_as_read,
+    add_label_to_email,
+)
 
 router = APIRouter(tags=["gmail_integration"])
 

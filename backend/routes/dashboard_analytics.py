@@ -27,6 +27,7 @@ from dependencies import (
 )
 from models import StockClosingEntry, StockClosingBulkEntry
 from routes.qc_grn import calculate_grn_loss
+from routes.products_packaging import extract_weight_from_packaging_name
 
 router = APIRouter(tags=["dashboard_analytics"])
 

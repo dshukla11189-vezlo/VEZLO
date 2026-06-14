@@ -3,6 +3,16 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Credit Notes Against Invoice Display Fix ✅
+- **BUG FIX**: Credit Notes "Against Invoice" column now properly displays which invoice each credit note was adjusted against
+  - Root cause: Frontend was reading `adjusted_against_invoices` but data was stored in `adjusted_in_invoices`
+  - Solution: Updated frontend to check both fields for adjustment data
+- **BUG FIX**: Fixed discrepancy in credit note totals (₹1,517.6 issued vs ₹1,349.6 showing in invoices)
+  - Root cause: Two invoices (NAR-INV-10JUN2026-001 and SAV-INV-12JUN2026-001) had credit notes adjusted but the invoice documents weren't updated
+  - Solution: Fixed the invoice documents to include `total_credit_adjusted` and `credit_note_adjustments` arrays
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Credit Notes tab now reads from `adjusted_in_invoices` field
+
 ### June 14, 2025 - Final Summary Tab Rejection Data Fix ✅
 - **BUG FIX**: Fixed Final Summary tab not showing rejection data
   - Root cause: The endpoint was trying to match rejections to invoices by `retailer_id + date`, but rejection dates don't always match invoice dates

@@ -11489,20 +11489,29 @@ export default function RetailerOrders() {
                                             </td>
                                             <td className="p-2 text-right text-green-600">₹{(cn.adjusted_amount || 0).toLocaleString()}</td>
                                             <td className="p-2 text-left text-blue-600 text-xs">
-                                              {cn.adjusted_against_invoices && cn.adjusted_against_invoices.length > 0 ? (
-                                                <div className="space-y-0.5">
-                                                  {cn.adjusted_against_invoices.map((adj, i) => (
-                                                    <div key={i} className="flex items-center gap-1">
-                                                      <span className="font-medium">{adj.invoice_number}</span>
-                                                      <span className="text-gray-400">(₹{adj.amount})</span>
+                                              {/* Check both adjusted_against_invoices and adjusted_in_invoices */}
+                                              {(() => {
+                                                const adjustments = cn.adjusted_against_invoices?.length > 0 
+                                                  ? cn.adjusted_against_invoices 
+                                                  : cn.adjusted_in_invoices;
+                                                
+                                                if (adjustments && adjustments.length > 0) {
+                                                  return (
+                                                    <div className="space-y-0.5">
+                                                      {adjustments.map((adj, i) => (
+                                                        <div key={i} className="flex items-center gap-1">
+                                                          <span className="font-medium">{adj.invoice_number}</span>
+                                                          <span className="text-gray-400">(₹{adj.adjusted_amount || adj.amount})</span>
+                                                        </div>
+                                                      ))}
                                                     </div>
-                                                  ))}
-                                                </div>
-                                              ) : cn.status === 'adjusted' ? (
-                                                <span className="text-gray-400 italic">-</span>
-                                              ) : (
-                                                <span className="text-gray-400">-</span>
-                                              )}
+                                                  );
+                                                } else if (cn.status === 'adjusted') {
+                                                  return <span className="text-gray-400 italic">-</span>;
+                                                } else {
+                                                  return <span className="text-gray-400">-</span>;
+                                                }
+                                              })()}
                                             </td>
                                             <td className="p-2 text-right text-amber-600">₹{(cn.pending_amount || 0).toLocaleString()}</td>
                                             <td className="p-2 text-center">

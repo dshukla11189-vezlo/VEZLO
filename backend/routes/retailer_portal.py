@@ -6709,12 +6709,16 @@ async def get_retailer_immediately_payable(
         rejection_amount = inv.get("rejection_amount", 0) or 0
         commission_amount = inv.get("commission_amount", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
+        total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
         
         # Use stored net_payable if available, otherwise calculate
-        final_payable = inv.get("net_payable", 0) or 0
-        if final_payable <= 0:
+        net_payable = inv.get("net_payable", 0) or 0
+        if net_payable <= 0:
             # Fallback calculation
-            final_payable = gross_value - rejection_amount - commission_amount
+            net_payable = gross_value - rejection_amount - commission_amount
+        
+        # Final payable after credit notes adjustment
+        final_payable = net_payable - total_credit_adjusted
         
         # Pending amount
         pending_amount = max(0, final_payable - paid_amount)
@@ -6738,6 +6742,8 @@ async def get_retailer_immediately_payable(
             "gross_value": gross_value,
             "rejection_amount": rejection_amount,
             "commission_amount": round(commission_amount, 2),
+            "net_payable": round(net_payable, 2),
+            "credit_adjusted": round(total_credit_adjusted, 2),
             "final_payable": round(final_payable, 2),
             "paid_amount": paid_amount,
             "pending_amount": round(pending_amount, 2),

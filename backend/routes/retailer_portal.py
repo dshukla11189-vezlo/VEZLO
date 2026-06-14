@@ -3524,6 +3524,164 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
         "fixed_count": fixed_count
     }
 
+# ==================== RETAILER STATEMENT/LEDGER ====================
+@router.get("/retailer-statement")
+async def get_retailer_statement(
+    retailer_id: str,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get retailer statement (ledger) with all debits and credits.
+    
+    Entries include:
+    - Invoices: DEBIT (payable amount)
+    - Rejections (without credit note): CREDIT (reduces what retailer owes)  
+    - Credit Notes: CREDIT (credit to retailer)
+    - Payments: CREDIT (payment received)
+    
+    Returns date-wise sorted entries with running balance.
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # For retailer role, restrict to own data
+    if current_user["role"] == "retailer":
+        retailer_id = current_user["user_id"]
+    
+    if not retailer_id:
+        raise HTTPException(status_code=400, detail="retailer_id is required")
+    
+    # Default date range: last 90 days
+    if not end_date:
+        end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    if not start_date:
+        start_date = (datetime.now(timezone.utc) - timedelta(days=90)).strftime('%Y-%m-%d')
+    
+    entries = []
+    
+    # 1. Get Invoices (DEBIT entries - amount retailer owes)
+    invoices = await db.retailer_invoices.find({
+        "retailer_id": retailer_id,
+        "invoice_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for inv in invoices:
+        invoice_date = inv.get("invoice_date", "")[:10]
+        # Use net_payable (after commission, before credit note adjustments)
+        amount = inv.get("net_payable", 0) or 0
+        entries.append({
+            "date": invoice_date,
+            "type": "invoice",
+            "reference": inv.get("invoice_number", ""),
+            "description": f"Invoice {inv.get('invoice_number', '')}",
+            "debit": round(amount, 2),
+            "credit": 0,
+            "id": inv.get("id"),
+            "created_at": inv.get("created_at", invoice_date)
+        })
+    
+    # 2. Get Rejections WITHOUT credit notes (CREDIT entries - reduces retailer's debt)
+    # These are rejections where auto_credit_note_id is null/empty
+    rejections = await db.retailer_rejections.find({
+        "retailer_id": retailer_id,
+        "rejection_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
+        "$or": [
+            {"auto_credit_note_id": {"$exists": False}},
+            {"auto_credit_note_id": None},
+            {"auto_credit_note_id": ""}
+        ]
+    }, {"_id": 0}).to_list(1000)
+    
+    for rej in rejections:
+        rej_date = rej.get("rejection_date", "")[:10]
+        amount = rej.get("total_value", 0) or 0
+        if amount > 0:
+            entries.append({
+                "date": rej_date,
+                "type": "rejection",
+                "reference": rej.get("id", "")[:8],
+                "description": f"Rejection (reduces payable)",
+                "debit": 0,
+                "credit": round(amount, 2),
+                "id": rej.get("id"),
+                "created_at": rej.get("created_at", rej_date)
+            })
+    
+    # 3. Get Credit Notes (CREDIT entries)
+    credit_notes = await db.retailer_credit_notes.find({
+        "retailer_id": retailer_id,
+        "created_at": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
+        "status": {"$ne": "voided"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for cn in credit_notes:
+        cn_date = cn.get("created_at", "")[:10]
+        amount = cn.get("amount", 0) or 0
+        entries.append({
+            "date": cn_date,
+            "type": "credit_note",
+            "reference": cn.get("credit_note_number", ""),
+            "description": f"Credit Note {cn.get('credit_note_number', '')} - {cn.get('reason', '')}",
+            "debit": 0,
+            "credit": round(amount, 2),
+            "id": cn.get("id"),
+            "created_at": cn.get("created_at", cn_date)
+        })
+    
+    # 4. Get Payments (CREDIT entries - money received from retailer)
+    payments = await db.retailer_payments.find({
+        "retailer_id": retailer_id,
+        "payment_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    for pmt in payments:
+        pmt_date = pmt.get("payment_date", "")[:10]
+        amount = pmt.get("amount", 0) or 0
+        entries.append({
+            "date": pmt_date,
+            "type": "payment",
+            "reference": pmt.get("reference_number", "") or pmt.get("id", "")[:8],
+            "description": f"Payment received ({pmt.get('payment_mode', 'cash')})",
+            "debit": 0,
+            "credit": round(amount, 2),
+            "id": pmt.get("id"),
+            "created_at": pmt.get("created_at", pmt_date)
+        })
+    
+    # Sort by date and created_at
+    entries.sort(key=lambda x: (x["date"], x.get("created_at", "")))
+    
+    # Calculate running balance (Debit - Credit = Amount retailer owes)
+    running_balance = 0
+    for entry in entries:
+        running_balance += entry["debit"] - entry["credit"]
+        entry["balance"] = round(running_balance, 2)
+    
+    # Calculate totals
+    total_debit = sum(e["debit"] for e in entries)
+    total_credit = sum(e["credit"] for e in entries)
+    closing_balance = total_debit - total_credit
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "company_name": 1, "name": 1})
+    retailer_name = retailer.get("company_name", retailer.get("name", "Unknown")) if retailer else "Unknown"
+    
+    return {
+        "retailer_id": retailer_id,
+        "retailer_name": retailer_name,
+        "start_date": start_date,
+        "end_date": end_date,
+        "entries": entries,
+        "summary": {
+            "total_debit": round(total_debit, 2),
+            "total_credit": round(total_credit, 2),
+            "closing_balance": round(closing_balance, 2),  # Positive = retailer owes, Negative = excess paid
+            "entry_count": len(entries)
+        }
+    }
+
 # ==================== DAILY MRP MANAGEMENT ====================
 @router.get("/daily-mrp")
 async def get_daily_mrp(

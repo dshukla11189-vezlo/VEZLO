@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -327,6 +328,17 @@ export default function RetailerOrders() {
     invoice_date: new Date().toISOString().split('T')[0],
     remarks: ''
   });
+  
+  // Statement/Ledger state
+  const [statementData, setStatementData] = useState(null);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementRetailerId, setStatementRetailerId] = useState('');
+  const [statementStartDate, setStatementStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [statementEndDate, setStatementEndDate] = useState(new Date().toISOString().split('T')[0]);
   
   // Rejections state
   const [rejections, setRejections] = useState([]);
@@ -710,6 +722,29 @@ export default function RetailerOrders() {
       console.error('Failed to load invoices:', error);
     }
   }, [selectedRetailer]);
+
+  // Load retailer statement/ledger
+  const loadStatement = useCallback(async (retailerId, startDate, endDate) => {
+    if (!retailerId) {
+      toast.error('Please select a retailer first');
+      return;
+    }
+    setStatementLoading(true);
+    try {
+      const params = new URLSearchParams({
+        retailer_id: retailerId,
+        start_date: startDate,
+        end_date: endDate
+      });
+      const response = await api.get(`/api/retailer-statement?${params.toString()}`);
+      setStatementData(response.data);
+    } catch (error) {
+      console.error('Failed to load statement:', error);
+      toast.error('Failed to load statement');
+    } finally {
+      setStatementLoading(false);
+    }
+  }, []);
 
   const loadRejections = useCallback(async () => {
     try {
@@ -7300,6 +7335,7 @@ export default function RetailerOrders() {
     { id: 'indents', label: 'Indents', icon: Package, count: indents.length },
     { id: 'dispatches', label: 'Dispatches', icon: Truck, count: dispatches.length },
     { id: 'invoices', label: 'Invoices', icon: FileText, count: invoices.length },
+    { id: 'statement', label: 'Statement', icon: FileSpreadsheet, count: null },
     { id: 'creditNotes', label: 'Credit Notes', icon: CreditCard, count: creditNotes.length },
     { id: 'rejections', label: 'Rejections', icon: AlertTriangle, count: rejections.length },
     { id: 'closingInventory', label: 'Closing Inventory', icon: ClipboardList, count: null }
@@ -11005,6 +11041,203 @@ export default function RetailerOrders() {
                   </table>
                 )}
               </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ==================== STATEMENT/LEDGER TAB ==================== */}
+        {activeTab === 'statement' && (
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  <div>
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <FileSpreadsheet size={18} className="text-blue-600" />
+                      Statement / Ledger
+                    </CardTitle>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Complete financial ledger showing invoices, payments, rejections, and credit notes
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Filters */}
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs text-gray-500 mb-1 block">Retailer</label>
+                    <Select 
+                      value={statementRetailerId} 
+                      onValueChange={(val) => setStatementRetailerId(val)}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Select Retailer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {retailers.map(r => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.company_name || r.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">From Date</label>
+                    <Input
+                      type="date"
+                      value={statementStartDate}
+                      onChange={(e) => setStatementStartDate(e.target.value)}
+                      className="h-9 text-sm w-40"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">To Date</label>
+                    <Input
+                      type="date"
+                      value={statementEndDate}
+                      onChange={(e) => setStatementEndDate(e.target.value)}
+                      className="h-9 text-sm w-40"
+                    />
+                  </div>
+                  <Button 
+                    onClick={() => loadStatement(statementRetailerId, statementStartDate, statementEndDate)}
+                    disabled={!statementRetailerId || statementLoading}
+                    className="h-9"
+                  >
+                    {statementLoading ? (
+                      <RefreshCw size={14} className="animate-spin mr-2" />
+                    ) : (
+                      <Search size={14} className="mr-2" />
+                    )}
+                    Load Statement
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            
+            <CardContent className="pt-0">
+              {statementData ? (
+                <div>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">Retailer</div>
+                      <div className="font-semibold text-sm">{statementData.retailer_name}</div>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-3">
+                      <div className="text-xs text-red-600">Total Debit</div>
+                      <div className="font-semibold text-red-700">₹{statementData.summary?.total_debit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3">
+                      <div className="text-xs text-green-600">Total Credit</div>
+                      <div className="font-semibold text-green-700">₹{statementData.summary?.total_credit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div className={`rounded-lg p-3 ${statementData.summary?.closing_balance > 0 ? 'bg-orange-50' : 'bg-blue-50'}`}>
+                      <div className={`text-xs ${statementData.summary?.closing_balance > 0 ? 'text-orange-600' : 'text-blue-600'}`}>
+                        {statementData.summary?.closing_balance > 0 ? 'Balance Due' : 'Excess Paid'}
+                      </div>
+                      <div className={`font-semibold ${statementData.summary?.closing_balance > 0 ? 'text-orange-700' : 'text-blue-700'}`}>
+                        ₹{Math.abs(statementData.summary?.closing_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Ledger Table */}
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-100 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">DATE</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">TYPE</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">REFERENCE</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">DESCRIPTION</th>
+                          <th className="px-3 py-2 text-right font-medium text-red-600">DEBIT (₹)</th>
+                          <th className="px-3 py-2 text-right font-medium text-green-600">CREDIT (₹)</th>
+                          <th className="px-3 py-2 text-right font-medium text-gray-600">BALANCE (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {statementData.entries?.map((entry, idx) => (
+                          <tr key={idx} className={`border-t hover:bg-gray-50 ${
+                            entry.type === 'invoice' ? 'bg-red-50/30' : 
+                            entry.type === 'payment' ? 'bg-green-50/30' : 
+                            entry.type === 'credit_note' ? 'bg-blue-50/30' :
+                            entry.type === 'rejection' ? 'bg-yellow-50/30' : ''
+                          }`}>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              {new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                entry.type === 'invoice' ? 'bg-red-100 text-red-700' :
+                                entry.type === 'payment' ? 'bg-green-100 text-green-700' :
+                                entry.type === 'credit_note' ? 'bg-blue-100 text-blue-700' :
+                                entry.type === 'rejection' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {entry.type === 'invoice' ? 'Invoice' : 
+                                 entry.type === 'payment' ? 'Payment' :
+                                 entry.type === 'credit_note' ? 'Credit Note' :
+                                 entry.type === 'rejection' ? 'Rejection' :
+                                 entry.type}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-gray-700">{entry.reference}</td>
+                            <td className="px-3 py-2 text-gray-600 max-w-xs truncate" title={entry.description}>
+                              {entry.description}
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium text-red-600">
+                              {entry.debit > 0 ? entry.debit.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium text-green-600">
+                              {entry.credit > 0 ? entry.credit.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '-'}
+                            </td>
+                            <td className={`px-3 py-2 text-right font-semibold ${
+                              entry.balance > 0 ? 'text-orange-600' : entry.balance < 0 ? 'text-blue-600' : 'text-gray-600'
+                            }`}>
+                              {entry.balance > 0 ? '' : entry.balance < 0 ? '(' : ''}
+                              {Math.abs(entry.balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              {entry.balance < 0 ? ')' : ''}
+                            </td>
+                          </tr>
+                        ))}
+                        
+                        {/* Closing Row */}
+                        {statementData.entries?.length > 0 && (
+                          <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
+                            <td colSpan="4" className="px-3 py-2 text-right">CLOSING BALANCE</td>
+                            <td className="px-3 py-2 text-right text-red-700">
+                              {statementData.summary?.total_debit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-right text-green-700">
+                              {statementData.summary?.total_credit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className={`px-3 py-2 text-right ${
+                              statementData.summary?.closing_balance > 0 ? 'text-orange-700' : 'text-blue-700'
+                            }`}>
+                              {statementData.summary?.closing_balance > 0 ? '' : '('}
+                              {Math.abs(statementData.summary?.closing_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              {statementData.summary?.closing_balance > 0 ? '' : ')'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {statementData.entries?.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      No transactions found for the selected period
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <FileSpreadsheet size={48} className="mx-auto mb-4 text-gray-300" />
+                  <p>Select a retailer and date range, then click "Load Statement" to view the ledger</p>
+                </div>
               )}
             </CardContent>
           </Card>

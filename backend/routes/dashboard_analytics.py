@@ -1734,188 +1734,182 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    logger.info(f"Fetching today's stock status for date: {today}")
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+    try:
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        logger.info(f"Fetching today's stock status for date: {today}")
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # Get all products - only fetch needed fields
+        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "unit": 1, "price_per_kg": 1, "cost_alias_product_id": 1}).to_list(1000)
     
-    # Get all products
-    products = await db.products.find({}, {"_id": 0}).to_list(1000)
-    
-    # Get yesterday's closing stock (for opening)
-    yesterday_status = await db.daily_stock_status.find(
-        {"date": yesterday, "status": "closed"},
-        {"_id": 0}
-    ).to_list(1000)
-    yesterday_map = {s["product_id"]: s for s in yesterday_status}
-    
-    # Get today's existing status
-    today_status = await db.daily_stock_status.find(
-        {"date": today},
-        {"_id": 0}
-    ).to_list(1000)
-    today_map = {s["product_id"]: s for s in today_status}
-    
-    # Get today's procurements (purchases from farmers)
-    # Use regex to match today's date (handles different timezone formats)
-    procurements = await db.procurements.find({
-        "date": {"$regex": f"^{today}"}
-    }, {"_id": 0}).to_list(1000)
-    
-    # Calculate purchases by product
-    purchases_by_product = {}
-    for proc in procurements:
-        # Note: Procurement uses 'products' field, not 'items'
-        for item in proc.get("products", []):
-            product_id = item.get("product_id")
-            qty = item.get("quantity", 0)
-            unit = item.get("unit", "Kg")
-            unit_size = item.get("unit_size", "")  # e.g., "350" for 350gm per bunch
-            rate = item.get("rate", 0)  # rate per unit (per Kg or per Bunch)
-            total_value = item.get("total", qty * rate)
-            
-            # Convert to Kg if unit is Bunch/Piece/Packet etc. with a unit_size (weight in grams)
-            unit_lower = unit.lower().strip()
-            if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
-                weight_gm = None
-                if unit_size:
-                    try:
-                        weight_gm = float(unit_size)
-                    except (ValueError, TypeError):
-                        pass
-                if not weight_gm:
-                    defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
-                    weight_gm = defaults.get(unit_lower)
-                if weight_gm:
-                    qty_kg = (qty * weight_gm) / 1000
+        # Get yesterday's closing stock (for opening)
+        yesterday_status = await db.daily_stock_status.find(
+            {"date": yesterday, "status": "closed"},
+            {"_id": 0}
+        ).to_list(1000)
+        yesterday_map = {s["product_id"]: s for s in yesterday_status}
+        
+        # Get today's existing status
+        today_status = await db.daily_stock_status.find(
+            {"date": today},
+            {"_id": 0}
+        ).to_list(1000)
+        today_map = {s["product_id"]: s for s in today_status}
+        
+        # Get today's procurements (purchases from farmers)
+        procurements = await db.procurements.find({
+            "date": {"$regex": f"^{today}"}
+        }, {"_id": 0}).to_list(1000)
+        
+        # Calculate purchases by product
+        purchases_by_product = {}
+        for proc in procurements:
+            for item in proc.get("products", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0)
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                rate = item.get("rate", 0)
+                total_value = item.get("total", qty * rate)
+                
+                unit_lower = unit.lower().strip()
+                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                    weight_gm = None
+                    if unit_size:
+                        try:
+                            weight_gm = float(unit_size)
+                        except (ValueError, TypeError):
+                            pass
+                    if not weight_gm:
+                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
+                        weight_gm = defaults.get(unit_lower)
+                    if weight_gm:
+                        qty_kg = (qty * weight_gm) / 1000
+                    else:
+                        qty_kg = qty
                 else:
                     qty_kg = qty
-            else:
-                qty_kg = qty  # already in Kg
-            
-            if product_id not in purchases_by_product:
-                purchases_by_product[product_id] = {"qty": 0, "value": 0}
-            purchases_by_product[product_id]["qty"] += qty_kg
-            purchases_by_product[product_id]["value"] += total_value
-    
-    # Get today's QC dispatches - handle both string dates and datetime objects
-    # Use indexed query with date filter
-    qc_dispatches_cursor = await db.qc_dispatches.find({
-        "$or": [
-            {"dispatch_date": {"$regex": f"^{today}"}},
-            {"dispatch_date": {"$gte": today + "T00:00:00", "$lte": today + "T23:59:59"}}
-        ]
-    }, {"_id": 0}).to_list(500)
-    qc_dispatches = qc_dispatches_cursor
-    
-    # Get today's retailer dispatches using indexed query
-    retailer_dispatches_cursor = await db.retailer_dispatches.find({
-        "$or": [
-            {"dispatch_date": {"$regex": f"^{today}"}},
-            {"dispatch_date": {"$gte": today + "T00:00:00", "$lte": today + "T23:59:59"}}
-        ]
-    }, {"_id": 0}).to_list(500)
-    retailer_dispatches = retailer_dispatches_cursor
-    
-    # Get packaging weights for unit conversion from QC packaging table
-    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
-    # Build packaging map: name -> weight_gm
-    packaging_map = {}
-    for p in packaging_variants:
-        name = p['name']
-        name_lower = name.lower().strip()
-        # Use stored weight_gm if available, otherwise extract from name
-        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
-        if weight > 0:
-            packaging_map[name_lower] = weight
-            # Also store without common suffixes for flexible matching
-            if 'packet' in name_lower:
-                packaging_map[name_lower.replace('packet', '').strip()] = weight
-            # Store just the number version (e.g., "500 gm" also stored as "500")
-            number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
-            if number_match:
-                packaging_map[number_match.group(1)] = weight
-    
-    # Build cost_alias mapping: product_id -> aliased_product_id
-    # This ensures products like Spinach are combined with their alias (Palak)
-    cost_alias_id_map = {}
-    for product in products:
-        alias_id = product.get("cost_alias_product_id")
-        if alias_id:
-            cost_alias_id_map[product["id"]] = alias_id
-    
-    # Build historical price map for products (fallback when no purchase today)
-    # Get recent stock status with non-zero avg_price
-    historical_prices = await db.daily_stock_status.find(
-        {"avg_price": {"$gt": 0}},
-        {"_id": 0, "product_id": 1, "date": 1, "avg_price": 1}
-    ).sort("date", -1).to_list(5000)
-    
-    # Build map: product_id -> most recent avg_price
-    product_historical_price = {}
-    for h in historical_prices:
-        pid = h.get("product_id")
-        if pid and pid not in product_historical_price:
-            product_historical_price[pid] = h.get("avg_price", 0)
-    
-    # Calculate dispatches by product (convert units to Kg)
-    # Use cost_alias_id_map to combine aliased products
-    dispatches_by_product = {}
-    for dispatch in qc_dispatches + retailer_dispatches:
-        for item in dispatch.get("items", []):
-            product_name = item.get("product_name", "").lower()
-            product_id = item.get("product_id")
-            
-            # Map to aliased product if applicable (e.g., Spinach → Palak)
-            target_product_id = cost_alias_id_map.get(product_id, product_id)
-            
-            supplied_qty = item.get("supplied_qty", 0)  # in units
-            # Check both packaging_name (QC) and variant_name (Retail)
-            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
-            
-            # Look up weight from packaging map first
-            weight_gm = packaging_map.get(packaging_name)
-            
-            # If not found, try extracting from the packaging name
-            if not weight_gm:
-                weight_gm = extract_weight_from_packaging_name(packaging_name)
-            
-            # If still not found, assume bulk (1kg)
-            if not weight_gm:
-                weight_gm = 1000
-            
-            # Convert units to Kg based on packaging weight
-            qty_kg = (supplied_qty * weight_gm) / 1000
-            
-            # Handle None rate
-            rate = item.get("rate") or 0
-            value = supplied_qty * rate
-            
-            # Use the target_product_id (mapped from alias) for aggregation
-            if target_product_id not in dispatches_by_product:
-                dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
-            dispatches_by_product[target_product_id]["qty"] += qty_kg
-            dispatches_by_product[target_product_id]["value"] += value
-    
-    # Build stock status for each product
-    result = []
-    for product in products:
-        product_id = product["id"]
-        product_name = product["name"]
-        
-        # Always get fresh purchase and dispatch data
-        purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
-        dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
-        
-        # Get or create today's status
-        if product_id in today_map:
-            status = today_map[product_id]
-            
-            # For open entries, always update purchase and dispatch values (real-time sync)
-            if status.get("status") == "open":
-                opening_qty = status.get("opening_qty", 0) or 0
-                opening_price = status.get("opening_price", 0) or 0
                 
-                # Calculate weighted average price
+                if product_id not in purchases_by_product:
+                    purchases_by_product[product_id] = {"qty": 0, "value": 0}
+                purchases_by_product[product_id]["qty"] += qty_kg
+                purchases_by_product[product_id]["value"] += total_value
+        
+        # Get today's dispatches - optimized queries
+        qc_dispatches = await db.qc_dispatches.find({
+            "dispatch_date": {"$regex": f"^{today}"}
+        }, {"_id": 0, "items": 1}).to_list(200)
+        
+        retailer_dispatches = await db.retailer_dispatches.find({
+            "dispatch_date": {"$regex": f"^{today}"}
+        }, {"_id": 0, "items": 1}).to_list(200)
+        
+        # Get packaging weights
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+        packaging_map = {}
+        for p in packaging_variants:
+            name = p['name']
+            name_lower = name.lower().strip()
+            weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+            if weight > 0:
+                packaging_map[name_lower] = weight
+                if 'packet' in name_lower:
+                    packaging_map[name_lower.replace('packet', '').strip()] = weight
+                number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+                if number_match:
+                    packaging_map[number_match.group(1)] = weight
+        
+        # Build cost_alias mapping
+        cost_alias_id_map = {}
+        for product in products:
+            alias_id = product.get("cost_alias_product_id")
+            if alias_id:
+                cost_alias_id_map[product["id"]] = alias_id
+        
+        # Get historical prices - OPTIMIZED: only last 7 days
+        seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d')
+        historical_prices = await db.daily_stock_status.find(
+            {"avg_price": {"$gt": 0}, "date": {"$gte": seven_days_ago}},
+            {"_id": 0, "product_id": 1, "date": 1, "avg_price": 1}
+        ).sort("date", -1).to_list(1000)
+        
+        product_historical_price = {}
+        for h in historical_prices:
+            pid = h.get("product_id")
+            if pid and pid not in product_historical_price:
+                product_historical_price[pid] = h.get("avg_price", 0)
+        
+        # Calculate dispatches by product
+        dispatches_by_product = {}
+        for dispatch in qc_dispatches + retailer_dispatches:
+            for item in dispatch.get("items", []):
+                product_id = item.get("product_id")
+                target_product_id = cost_alias_id_map.get(product_id, product_id)
+                supplied_qty = item.get("supplied_qty", 0)
+                packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+                
+                weight_gm = packaging_map.get(packaging_name)
+                if not weight_gm:
+                    weight_gm = extract_weight_from_packaging_name(packaging_name)
+                if not weight_gm:
+                    weight_gm = 1000
+                
+                qty_kg = (supplied_qty * weight_gm) / 1000
+                rate = item.get("rate") or 0
+                value = supplied_qty * rate
+                
+                if target_product_id not in dispatches_by_product:
+                    dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
+                dispatches_by_product[target_product_id]["qty"] += qty_kg
+                dispatches_by_product[target_product_id]["value"] += value
+        
+        # Build stock status for each product
+        result = []
+        for product in products:
+            product_id = product["id"]
+            product_name = product["name"]
+            
+            purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
+            dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
+            
+            if product_id in today_map:
+                status = today_map[product_id]
+                
+                if status.get("status") == "open":
+                    opening_qty = status.get("opening_qty", 0) or 0
+                    opening_price = status.get("opening_price", 0) or 0
+                    
+                    total_qty = opening_qty + purchase_data["qty"]
+                    if total_qty > 0:
+                        opening_value = opening_qty * opening_price
+                        avg_price = (opening_value + purchase_data["value"]) / total_qty
+                    else:
+                        avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
+                    
+                    if avg_price == 0:
+                        avg_price = product_historical_price.get(product_id, 0)
+                    
+                    update_data = {
+                        "purchase_qty": round(purchase_data["qty"], 2),
+                        "purchase_value": round(purchase_data["value"], 2),
+                        "dispatch_qty": round(dispatch_data["qty"], 2),
+                        "dispatch_value": round(dispatch_data["value"], 2),
+                        "avg_price": round(avg_price, 2)
+                    }
+                    
+                    await db.daily_stock_status.update_one(
+                        {"id": status["id"]},
+                        {"$set": update_data}
+                    )
+                    status.update(update_data)
+            else:
+                if product_id in yesterday_map:
+                    opening_qty = yesterday_map[product_id].get("closing_qty", 0) or 0
+                    opening_price = yesterday_map[product_id].get("avg_price", 0) or 0
+                else:
+                    opening_qty = 0
+                    opening_price = product.get("price_per_kg", 0) or 0
+                
                 total_qty = opening_qty + purchase_data["qty"]
                 if total_qty > 0:
                     opening_value = opening_qty * opening_price
@@ -1923,78 +1917,40 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 else:
                     avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
                 
-                # Fallback to historical price if avg_price is still 0
                 if avg_price == 0:
                     avg_price = product_historical_price.get(product_id, 0)
                 
-                # Update the status with fresh data
-                update_data = {
+                status = {
+                    "id": str(uuid.uuid4()),
+                    "date": today,
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "product_unit": product.get("unit", "Kg"),
+                    "opening_qty": round(opening_qty, 2),
+                    "opening_price": round(opening_price, 2),
                     "purchase_qty": round(purchase_data["qty"], 2),
                     "purchase_value": round(purchase_data["value"], 2),
                     "dispatch_qty": round(dispatch_data["qty"], 2),
                     "dispatch_value": round(dispatch_data["value"], 2),
-                    "avg_price": round(avg_price, 2)
+                    "closing_qty": None,
+                    "wastage_qty": 0,
+                    "wastage_value": 0,
+                    "wastage_percent": 0,
+                    "avg_price": round(avg_price, 2),
+                    "status": "open"
                 }
                 
-                # Update in database
-                await db.daily_stock_status.update_one(
-                    {"id": status["id"]},
-                    {"$set": update_data}
-                )
-                
-                # Update local status for response
-                status.update(update_data)
-        else:
-            # Calculate opening from yesterday's closing or start with 0
-            if product_id in yesterday_map:
-                opening_qty = yesterday_map[product_id].get("closing_qty", 0) or 0
-                opening_price = yesterday_map[product_id].get("avg_price", 0) or 0
-            else:
-                opening_qty = 0
-                opening_price = product.get("price_per_kg", 0) or 0
+                await db.daily_stock_status.insert_one(status.copy())
             
-            # Calculate weighted average price
-            total_qty = opening_qty + purchase_data["qty"]
-            if total_qty > 0:
-                opening_value = opening_qty * opening_price
-                avg_price = (opening_value + purchase_data["value"]) / total_qty
-            else:
-                avg_price = opening_price or (purchase_data["value"] / purchase_data["qty"] if purchase_data["qty"] > 0 else 0)
-            
-            # Fallback to historical price if avg_price is still 0
-            if avg_price == 0:
-                avg_price = product_historical_price.get(product_id, 0)
-            
-            status = {
-                "id": str(uuid.uuid4()),
-                "date": today,
-                "product_id": product_id,
-                "product_name": product_name,
-                "product_unit": product.get("unit", "Kg"),
-                "opening_qty": round(opening_qty, 2),
-                "opening_price": round(opening_price, 2),
-                "purchase_qty": round(purchase_data["qty"], 2),
-                "purchase_value": round(purchase_data["value"], 2),
-                "dispatch_qty": round(dispatch_data["qty"], 2),
-                "dispatch_value": round(dispatch_data["value"], 2),
-                "closing_qty": None,
-                "wastage_qty": 0,
-                "wastage_value": 0,
-                "wastage_percent": 0,
-                "avg_price": round(avg_price, 2),
-                "status": "open"
-            }
-            
-            # Save to database (creates a copy internally, but mutates status with _id)
-            await db.daily_stock_status.insert_one(status.copy())
+            if "_id" in status:
+                del status["_id"]
+            result.append(status)
         
-        # Ensure no _id field in response (MongoDB insert_one mutates the dict)
-        if "_id" in status:
-            del status["_id"]
-        result.append(status)
-    
-    logger.info(f"Successfully fetched {len(result)} stock status records for today")
-    return result
+        logger.info(f"Successfully fetched {len(result)} stock status records for today")
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_today_stock_status: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load stock status: {str(e)}")
 
 @router.post("/stock-status/close")
 async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str] = None, current_user: dict = Depends(get_current_user)):

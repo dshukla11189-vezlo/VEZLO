@@ -3804,7 +3804,7 @@ async def get_retailer_statement(
     Entries include:
     - Invoices: DEBIT (payable amount)
     - Rejections (without credit note): CREDIT (reduces what retailer owes)  
-    - Credit Notes: CREDIT (credit to retailer)
+    - Credit Notes: CREDIT (credit to retailer) - excluded from totals for 100% upfront retailers
     - Payments: CREDIT (payment received)
     
     Returns date-wise sorted entries with running balance.
@@ -3818,6 +3818,14 @@ async def get_retailer_statement(
     
     if not retailer_id:
         raise HTTPException(status_code=400, detail="retailer_id is required")
+    
+    # Get retailer info including upfront collection percentage
+    retailer = await db.users.find_one(
+        {"id": retailer_id}, 
+        {"_id": 0, "company_name": 1, "name": 1, "upfront_collection_percentage": 1}
+    )
+    retailer_name = retailer.get("company_name", retailer.get("name", "Unknown")) if retailer else "Unknown"
+    is_100_percent_upfront = (retailer.get("upfront_collection_percentage", 0) or 0) == 100 if retailer else False
     
     # Default date range: last 90 days
     if not end_date:
@@ -3876,6 +3884,8 @@ async def get_retailer_statement(
             })
     
     # 3. Get Credit Notes (CREDIT entries)
+    # For 100% upfront retailers, credit notes are excluded from totals since
+    # they represent overpayments that are already included in the payment amounts
     credit_notes = await db.retailer_credit_notes.find({
         "retailer_id": retailer_id,
         "created_at": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
@@ -3893,7 +3903,8 @@ async def get_retailer_statement(
             "debit": 0,
             "credit": round(amount, 2),
             "id": cn.get("id"),
-            "created_at": cn.get("created_at", cn_date)
+            "created_at": cn.get("created_at", cn_date),
+            "exclude_from_totals": is_100_percent_upfront  # Exclude for 100% upfront retailers
         })
     
     # 4. Get Payments (CREDIT entries - money received from retailer)
@@ -3922,16 +3933,19 @@ async def get_retailer_statement(
     # Calculate running balance (Debit - Credit = Amount retailer owes)
     running_balance = 0
     for entry in entries:
+        # For running balance, always include all entries
         running_balance += entry["debit"] - entry["credit"]
         entry["balance"] = round(running_balance, 2)
     
-    # Calculate totals
+    # Calculate totals (excluding credit notes for 100% upfront retailers to avoid double-counting)
+    # For 100% upfront retailers: their payments already include the full gross amount,
+    # so credit notes (which come from overpayments) shouldn't be counted again in totals
     total_debit = sum(e["debit"] for e in entries)
-    total_credit = sum(e["credit"] for e in entries)
+    total_credit = sum(e["credit"] for e in entries if not e.get("exclude_from_totals", False))
+    excluded_credit = sum(e["credit"] for e in entries if e.get("exclude_from_totals", False))
     closing_balance = total_debit - total_credit
     
     # Get retailer info
-    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "company_name": 1, "name": 1})
     retailer_name = retailer.get("company_name", retailer.get("name", "Unknown")) if retailer else "Unknown"
     
     return {
@@ -3943,8 +3957,10 @@ async def get_retailer_statement(
         "summary": {
             "total_debit": round(total_debit, 2),
             "total_credit": round(total_credit, 2),
+            "excluded_credit": round(excluded_credit, 2),  # Credit notes excluded for 100% upfront
             "closing_balance": round(closing_balance, 2),  # Positive = retailer owes, Negative = excess paid
-            "entry_count": len(entries)
+            "entry_count": len(entries),
+            "is_100_percent_upfront": is_100_percent_upfront
         }
     }
 

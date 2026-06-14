@@ -3,6 +3,17 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Statement Double-Counting Fix ✅
+- **BUG FIX**: Fixed double-counting of credit notes in Statement for 100% upfront retailers
+  - Issue: For 100% upfront retailers, payments include full gross amount, and overpayments become credit notes. Counting both caused double-deduction.
+  - Solution: Credit notes are now excluded from Total Credit calculation for 100% upfront retailers
+  - Backend now returns `excluded_credit` and `is_100_percent_upfront` in summary
+  - Frontend shows "(excl. ₹X CN)" note under Total Credit
+  - Example (Narang): Balance Due now shows ₹5,548 instead of ₹4,030.40
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Updated `/api/retailer-statement` to detect 100% upfront and exclude credit notes from totals
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added excluded credit note info display
+
 ### June 14, 2025 - Final Summary Overpayment Double-Counting Fix ✅
 - **BUG FIX**: Fixed double-counting of overpayments in Final Summary totals
   - Issue: For 100% upfront retailers, overpayments (negative Final Payable) were being counted twice:

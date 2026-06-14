@@ -988,6 +988,33 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"Credit notes index creation warning: {e}")
         
+        # One-time migration: Fix credit notes where status is 'adjusted' but adjusted_amount is 0
+        try:
+            affected = await db.retailer_credit_notes.find({
+                "status": {"$in": ["adjusted", "partial"]},
+                "$or": [
+                    {"adjusted_amount": 0},
+                    {"adjusted_amount": None},
+                    {"adjusted_amount": {"$exists": False}}
+                ],
+                "pending_amount": {"$lte": 0.01}  # Only fix those that are actually adjusted
+            }).to_list(1000)
+            
+            if affected:
+                for cn in affected:
+                    amount = cn.get("amount", 0)
+                    pending = cn.get("pending_amount", 0)
+                    adjusted = round(amount - pending, 2)
+                    
+                    if adjusted > 0:
+                        await db.retailer_credit_notes.update_one(
+                            {"id": cn["id"]},
+                            {"$set": {"adjusted_amount": adjusted}}
+                        )
+                logger.info(f"Fixed {len(affected)} credit notes with missing adjusted_amount")
+        except Exception as e:
+            logger.warning(f"Credit notes adjusted_amount migration warning: {e}")
+        
         backup_scheduler = setup_backup_scheduler(db)
         logger.info("Backup scheduler initialized successfully")
         

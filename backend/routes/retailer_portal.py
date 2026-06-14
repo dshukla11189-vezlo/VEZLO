@@ -2867,6 +2867,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
             
             # Update the credit note
             new_pending = pending_amount - adjust_amount
+            new_adjusted = cn.get("adjusted_amount", 0) + adjust_amount  # Track total adjusted
             new_status = "adjusted" if new_pending <= 0 else "partial"
             
             # Add to adjusted_in_invoices array
@@ -2881,6 +2882,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
             await db.retailer_credit_notes.update_one(
                 {"id": cn.get("id")},
                 {"$set": {
+                    "adjusted_amount": round(new_adjusted, 2),  # Update adjusted_amount
                     "pending_amount": round(new_pending, 2),
                     "status": new_status,
                     "adjusted_in_invoices": adjusted_invoices
@@ -4054,15 +4056,23 @@ async def get_uninvoiced_dispatches(
     }, {"_id": 0, "items": 1}).to_list(500)
     
     # Build a set of already invoiced items (dispatch_id + product_id combo)
-    # Using dispatch_id + product_id + variant as key since item_index may not be reliable
+    # Use multiple key formats for robust matching
     invoiced_item_keys = set()
     for invoice in invoices:
         for item in invoice.get("items", []):
             dispatch_id = item.get("dispatch_id", "")
             product_id = item.get("product_id", "")
-            variant = item.get("variant_name", "") or ""
+            variant_name = item.get("variant_name", "") or ""
+            variant_id = item.get("variant_id", "") or ""
             if dispatch_id and product_id:
-                invoiced_item_keys.add(f"{dispatch_id}_{product_id}_{variant}")
+                # Add multiple key formats for matching
+                # Key 1: dispatch_id + product_id + variant_name
+                invoiced_item_keys.add(f"{dispatch_id}_{product_id}_{variant_name}")
+                # Key 2: dispatch_id + product_id + variant_id (in case variant_name stores variant_id)
+                if variant_id:
+                    invoiced_item_keys.add(f"{dispatch_id}_{product_id}_{variant_id}")
+                # Key 3: dispatch_id + product_id only (most robust)
+                invoiced_item_keys.add(f"{dispatch_id}_{product_id}")
     
     # Filter dispatches to only include uninvoiced items
     result = []
@@ -4070,10 +4080,23 @@ async def get_uninvoiced_dispatches(
         uninvoiced_items = []
         for item in dispatch.get("items", []):
             product_id = item.get("product_id", "")
-            variant = item.get("variant_name", "") or ""
-            item_key = f"{dispatch['id']}_{product_id}_{variant}"
+            variant_name = item.get("variant_name", "") or ""
+            variant_id = item.get("variant_id", "") or ""
             
-            if item_key not in invoiced_item_keys:
+            # Check all possible key formats
+            key1 = f"{dispatch['id']}_{product_id}_{variant_name}"
+            key2 = f"{dispatch['id']}_{product_id}_{variant_id}" if variant_id else None
+            key3 = f"{dispatch['id']}_{product_id}"
+            
+            # Item is uninvoiced if none of the keys match
+            # Use the most specific match available: try variant-level first, then product-level
+            is_invoiced = (
+                key1 in invoiced_item_keys or 
+                (key2 and key2 in invoiced_item_keys) or
+                key3 in invoiced_item_keys
+            )
+            
+            if not is_invoiced:
                 uninvoiced_items.append(item)
         
         # Only include dispatch if it has uninvoiced items

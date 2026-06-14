@@ -1708,19 +1708,25 @@ async def get_all_stock_status(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    query = {}
-    
-    # Default to last 6 months if no dates provided
-    if not from_date:
-        from_date = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%d')
-    if not to_date:
-        to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    
-    query["date"] = {"$gte": from_date, "$lte": to_date}
-    
-    stock_status = await db.daily_stock_status.find(query, {"_id": 0}).to_list(10000)
-    
-    return stock_status
+    try:
+        query = {}
+        
+        # Default to last 6 months if no dates provided
+        if not from_date:
+            from_date = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%d')
+        if not to_date:
+            to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        
+        query["date"] = {"$gte": from_date, "$lte": to_date}
+        
+        logger.info(f"Fetching stock status from {from_date} to {to_date}")
+        stock_status = await db.daily_stock_status.find(query, {"_id": 0}).to_list(10000)
+        logger.info(f"Found {len(stock_status)} stock status records")
+        
+        return stock_status
+    except Exception as e:
+        logger.error(f"Error in get_all_stock_status: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch stock status: {str(e)}")
 
 @router.get("/stock-status/today")
 async def get_today_stock_status(current_user: dict = Depends(get_current_user)):
@@ -1729,6 +1735,7 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
         raise HTTPException(status_code=403, detail="Not authorized")
     
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    logger.info(f"Fetching today's stock status for date: {today}")
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
     
     # Get all products
@@ -1986,6 +1993,7 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             del status["_id"]
         result.append(status)
     
+    logger.info(f"Successfully fetched {len(result)} stock status records for today")
     return result
 
 @router.post("/stock-status/close")

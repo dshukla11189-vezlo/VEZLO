@@ -944,10 +944,15 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     
     await db.retailer_rejections.insert_one(doc)
     
-    # NOTE: Rejection sync to invoices is DISABLED for 100% upfront model
-    # Invoice amounts remain fixed once created. Rejections create credit notes instead.
-    # rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
-    # await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
+    # Get retailer to check payment model
+    retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
+    is_100_upfront = retailer and retailer.get("upfront_collection_percentage") == 100
+    
+    # Sync rejection to invoice ONLY for non-100% upfront retailers
+    # For 100% upfront model: Invoice amounts remain fixed once created. Rejections create credit notes instead.
+    rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
+    if not is_100_upfront:
+        await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
     
     # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
     auto_credit_note = None
@@ -1236,12 +1241,14 @@ async def delete_retailer_rejection(rejection_id: str, current_user: dict = Depe
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Rejection not found")
     
-    # NOTE: Rejection sync to invoices is DISABLED for 100% upfront model
-    # Invoice amounts remain fixed once created.
-    # rej_date = rejection.get("rejection_date", "")[:10]
-    # retailer_id = rejection.get("retailer_id")
-    # if rej_date and retailer_id:
-    #     await sync_invoice_rejection_amount(retailer_id, rej_date)
+    # Re-sync the invoice for this rejection's date/retailer (ONLY for non-100% upfront retailers)
+    rej_date = rejection.get("rejection_date", "")[:10]
+    retailer_id = rejection.get("retailer_id")
+    if rej_date and retailer_id:
+        retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0})
+        is_100_upfront = retailer and retailer.get("upfront_collection_percentage") == 100
+        if not is_100_upfront:
+            await sync_invoice_rejection_amount(retailer_id, rej_date)
     
     message = "Rejection deleted successfully"
     if credit_note:
@@ -1568,17 +1575,25 @@ async def update_retailer_rejection(rejection_id: str, rejection: RetailerReject
         {"$set": update_data}
     )
     
-    # NOTE: Rejection sync to invoices is DISABLED for 100% upfront model
-    # Invoice amounts remain fixed once created.
-    # old_date = existing.get("rejection_date", "")[:10]
-    # old_retailer = existing.get("retailer_id")
-    # new_date = rejection.rejection_date[:10] if rejection.rejection_date else ""
-    # new_retailer = rejection.retailer_id
-    # 
-    # if old_date and old_retailer:
-    #     await sync_invoice_rejection_amount(old_retailer, old_date)
-    # if new_date and new_retailer and (new_date != old_date or new_retailer != old_retailer):
-    #     await sync_invoice_rejection_amount(new_retailer, new_date)
+    # Re-sync the invoice for both old and new dates (ONLY for non-100% upfront retailers)
+    old_date = existing.get("rejection_date", "")[:10]
+    old_retailer = existing.get("retailer_id")
+    new_date = rejection.rejection_date[:10] if rejection.rejection_date else ""
+    new_retailer = rejection.retailer_id
+    
+    # Check if old retailer is 100% upfront
+    if old_date and old_retailer:
+        old_retailer_data = await db.users.find_one({"id": old_retailer}, {"_id": 0})
+        old_is_100_upfront = old_retailer_data and old_retailer_data.get("upfront_collection_percentage") == 100
+        if not old_is_100_upfront:
+            await sync_invoice_rejection_amount(old_retailer, old_date)
+    
+    # Check if new retailer is 100% upfront (if different from old)
+    if new_date and new_retailer and (new_date != old_date or new_retailer != old_retailer):
+        new_retailer_data = await db.users.find_one({"id": new_retailer}, {"_id": 0})
+        new_is_100_upfront = new_retailer_data and new_retailer_data.get("upfront_collection_percentage") == 100
+        if not new_is_100_upfront:
+            await sync_invoice_rejection_amount(new_retailer, new_date)
     
     return {"id": rejection_id, "message": "Rejection updated successfully"}
 
@@ -2939,20 +2954,23 @@ async def update_retailer_invoice(invoice_id: str, input: dict, current_user: di
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    # Enforce same-day edit rule for non-admin users
-    # Admin can edit any invoice, staff can only edit same-day invoices
-    if current_user["role"] != "admin":
+    # Get retailer to check payment model
+    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    is_100_upfront = retailer and retailer.get("upfront_collection_percentage") == 100
+    
+    # Enforce same-day edit rule for non-admin users ONLY for 100% upfront retailers
+    # Admin can edit any invoice, staff can only edit same-day invoices for 100% upfront retailers
+    if current_user["role"] != "admin" and is_100_upfront:
         today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         invoice_date = invoice.get("invoice_date", "")[:10]
         if invoice_date != today:
-            raise HTTPException(status_code=403, detail="Staff can only edit same-day invoices. Contact admin for older invoices.")
+            raise HTTPException(status_code=403, detail="Staff can only edit same-day invoices for 100% upfront retailers. Contact admin for older invoices.")
     
     # Process items if provided
     items = input.get("items", invoice.get("items", []))
     total_mrp_value = sum(item.get("total_value", 0) for item in items)
     
-    # Get retailer for commission calculation
-    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    # Use already-fetched retailer for commission calculation
     commission_percentage = retailer.get("commission_percentage", 0) if retailer else invoice.get("commission_percentage", 0)
     commission_amount = total_mrp_value * (commission_percentage / 100)
     net_payable = total_mrp_value - commission_amount
@@ -2985,13 +3003,17 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    # Enforce same-day delete rule for non-admin users
-    # Admin can delete any invoice, staff can only delete same-day invoices
-    if current_user["role"] != "admin":
+    # Get retailer to check payment model
+    retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
+    is_100_upfront = retailer and retailer.get("upfront_collection_percentage") == 100
+    
+    # Enforce same-day delete rule for non-admin users ONLY for 100% upfront retailers
+    # Admin can delete any invoice, staff can only delete same-day invoices for 100% upfront retailers
+    if current_user["role"] != "admin" and is_100_upfront:
         today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         invoice_date = invoice.get("invoice_date", "")[:10]
         if invoice_date != today:
-            raise HTTPException(status_code=403, detail="Staff can only delete same-day invoices. Contact admin for older invoices.")
+            raise HTTPException(status_code=403, detail="Staff can only delete same-day invoices for 100% upfront retailers. Contact admin for older invoices.")
     
     # Remove invoice reference from dispatches
     await db.retailer_dispatches.update_many(

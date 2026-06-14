@@ -1055,18 +1055,25 @@ export default function RetailerOrders() {
     return 'staff';
   };
 
-  // Check if invoice can be edited/deleted based on date and user role
-  // Same-day invoices: editable by staff/admin
-  // Older invoices: editable only by admin
+  // Check if invoice can be edited/deleted based on date, user role, and retailer payment model
+  // For 100% upfront retailers: Same-day invoices editable by staff/admin, older invoices only by admin
+  // For other retailers: Always editable by staff/admin (no date restriction)
   const canEditDeleteInvoice = (invoice) => {
     const userRole = getCurrentUserRole();
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const invoiceDate = invoice.invoice_date?.split('T')[0] || '';
     
     // Admin can always edit/delete
     if (userRole === 'admin') return true;
     
-    // Staff can only edit/delete same-day invoices
+    // Find the retailer for this invoice
+    const retailer = retailers.find(r => r.id === invoice.retailer_id);
+    const isUpfront100 = retailer?.upfront_collection_percentage === 100 || retailer?.upfront_collection_percentage === 100.0;
+    
+    // For non-100% upfront retailers, staff can always edit/delete
+    if (!isUpfront100) return true;
+    
+    // For 100% upfront retailers, staff can only edit/delete same-day invoices
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const invoiceDate = invoice.invoice_date?.split('T')[0] || '';
     return invoiceDate === today;
   };
 

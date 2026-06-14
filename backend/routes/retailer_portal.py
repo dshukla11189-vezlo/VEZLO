@@ -2682,16 +2682,17 @@ async def get_retailer_invoice(invoice_id: str, current_user: dict = Depends(get
 
 @router.post("/retailer-invoices")
 async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: dict = Depends(get_current_user)):
-    if current_user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="Only admin/staff can create invoices")
-    
-    if not input.dispatch_ids:
-        raise HTTPException(status_code=400, detail="At least one dispatch is required")
-    
-    # Get retailer info
-    retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
-    if not retailer:
-        raise HTTPException(status_code=404, detail="Retailer not found")
+    try:
+        if current_user["role"] not in ["admin", "staff"]:
+            raise HTTPException(status_code=403, detail="Only admin/staff can create invoices")
+        
+        if not input.dispatch_ids:
+            raise HTTPException(status_code=400, detail="At least one dispatch is required")
+        
+        # Get retailer info
+        retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
+        if not retailer:
+            raise HTTPException(status_code=404, detail="Retailer not found")
     
     commission = retailer.get("commission_percentage", 0)
     
@@ -2732,7 +2733,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                 existing = combined_items[combine_key]
                 existing['net_qty'] += item.net_qty
                 existing['supplied_qty'] += item.supplied_qty
-                existing['rejected_qty'] += item.rejected_qty if item.rejected_qty else 0
+                existing['rejected_qty'] += item.rejected_qty if item.rejected_qty is not None else 0
                 existing['total_value'] += item.total_value
                 existing['dispatch_ids'].append(item.dispatch_id)
             else:
@@ -2745,7 +2746,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                     'variant_name': item.variant_name,
                     'net_qty': item.net_qty,
                     'supplied_qty': item.supplied_qty,
-                    'rejected_qty': item.rejected_qty if item.rejected_qty else 0,
+                    'rejected_qty': item.rejected_qty if item.rejected_qty is not None else 0,
                     'mrp': item.mrp,
                     'total_value': item.total_value
                 }
@@ -2759,7 +2760,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                 variant_name=item_data['variant_name'],
                 quantity=item_data['net_qty'],  # Use net_qty (after rejection deduction)
                 supplied_qty=item_data['supplied_qty'],
-                rejected_qty=item_data['rejected_qty'],
+                rejected_qty=item_data['rejected_qty'] if item_data.get('rejected_qty') is not None else 0,
                 mrp=item_data['mrp'],
                 total_value=item_data['total_value']  # This is net_value from frontend
             ))
@@ -2767,7 +2768,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
             item_gross = item_data['supplied_qty'] * item_data['mrp']
             gross_value += item_gross
             # Calculate rejection value (rejected_qty * mrp)
-            item_rejection = item_data['rejected_qty'] * item_data['mrp'] if item_data['rejected_qty'] else 0
+            item_rejection = (item_data.get('rejected_qty') or 0) * item_data['mrp']
             rejection_amount += item_rejection
     else:
         # Fallback: aggregate items from all dispatches (legacy behavior)
@@ -2909,15 +2910,22 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
         {"$set": {"invoice_number": invoice_number, "invoice_id": invoice.id}}
     )
     
-    return {
-        "id": invoice.id, 
-        "invoice_number": invoice_number, 
-        "message": "Invoice created successfully",
-        "net_payable": round(net_payable, 2),
-        "credit_note_adjustments": credit_note_adjustments,
-        "total_credit_adjusted": round(total_credit_adjusted, 2),
-        "final_payable": round(net_payable - total_credit_adjusted, 2)
-    }
+        return {
+            "id": invoice.id, 
+            "invoice_number": invoice_number, 
+            "message": "Invoice created successfully",
+            "net_payable": round(net_payable, 2),
+            "credit_note_adjustments": credit_note_adjustments,
+            "total_credit_adjusted": round(total_credit_adjusted, 2),
+            "final_payable": round(net_payable - total_credit_adjusted, 2)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Invoice creation failed: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Log to console for debugging
+        raise HTTPException(status_code=500, detail=f"Internal error creating invoice: {str(e)}")
 
 
 @router.put("/retailer-invoices/{invoice_id}")

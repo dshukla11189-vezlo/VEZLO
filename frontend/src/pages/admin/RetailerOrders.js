@@ -13806,6 +13806,10 @@ export default function RetailerOrders() {
                     <p className="text-gray-400 text-center py-4">No uninvoiced items found for this retailer</p>
                   ) : (
                     <div className="border rounded max-h-80 overflow-y-auto">
+                      {(() => {
+                        // Check if any item has rejections
+                        const hasAnyRejections = uninvoicedItems.some(item => item.rejected_qty > 0);
+                        return (
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 sticky top-0">
                           <tr>
@@ -13815,7 +13819,7 @@ export default function RetailerOrders() {
                             <th className="p-2 text-left">Dispatch Date</th>
                             <th className="p-2 text-left">Product</th>
                             <th className="p-2 text-center">Supplied</th>
-                            <th className="p-2 text-center text-red-600">Rejected</th>
+                            {hasAnyRejections && <th className="p-2 text-center text-red-600">Rejected</th>}
                             <th className="p-2 text-center text-green-700 font-semibold">Net Qty</th>
                             <th className="p-2 text-right">MRP</th>
                             <th className="p-2 text-right">Net Amount</th>
@@ -13841,9 +13845,11 @@ export default function RetailerOrders() {
                                 {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                               </td>
                               <td className="p-2 text-center">{item.supplied_qty}</td>
+                              {hasAnyRejections && (
                               <td className="p-2 text-center text-red-600 font-medium">
                                 {item.rejected_qty > 0 ? `-${item.rejected_qty}` : '-'}
                               </td>
+                              )}
                               <td className="p-2 text-center text-green-700 font-bold">{item.net_qty}</td>
                               <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
                               <td className="p-2 text-right font-medium">₹{item.net_value?.toFixed(2)}</td>
@@ -13851,6 +13857,8 @@ export default function RetailerOrders() {
                           ))}
                         </tbody>
                       </table>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

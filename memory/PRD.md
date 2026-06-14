@@ -30,6 +30,10 @@
   - Frontend: Updated `getIndentRemainingQtys()` and indent display to use precise keys
   - Backend: Updated `create_retailer_dispatch()` to check full dispatch status per variant
   - Model: Added `indent_variant_id` to `RetailerDispatchItem` for tracking
+- **BUG FIX**: Invoice creation failure with better error handling
+  - Fixed null check for `rejected_qty` field (was causing error when `None` instead of `0`)
+  - Added try-except with detailed error logging for debugging
+  - Invoice modal now only shows "Rejected" column when any item actually has rejections
 - **ENHANCEMENT**: Labour Inactive State Visual Clarity
   - Added "Show inactive" toggle checkbox (only appears when inactive labourers exist)
   - Improved status badges: "✓ Active" (green) / "✗ Inactive" (red) with hover color transitions
@@ -40,9 +44,9 @@
   - Products added via MRP overrides now appear in the Stickers list (even without day's indents)
   - Print function includes override-only products with quantity 0
 - **FILES MODIFIED**:
-  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting, excess amount calculation, rejection display, variant-aware dispatch matching
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting, excess amount calculation, rejection display, variant-aware dispatch matching, conditional rejection column in invoice modal
   - `/app/frontend/src/pages/admin/LaborCosts.js` - Inactive state toggle, visual improvements
-  - `/app/backend/routes/retailer_portal.py` - Invoice enrichment logic fix, variant-aware dispatch status
+  - `/app/backend/routes/retailer_portal.py` - Invoice enrichment logic fix, variant-aware dispatch status, invoice creation error handling
   - `/app/backend/models.py` - Added `indent_variant_id` to `RetailerDispatchItem`
 
 

@@ -3,6 +3,16 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Final Summary Overpayment Double-Counting Fix ✅
+- **BUG FIX**: Fixed double-counting of overpayments in Final Summary totals
+  - Issue: For 100% upfront retailers, overpayments (negative Final Payable) were being counted twice:
+    1. As negative amounts in the Final Payable column
+    2. AND as Credit Notes when adjusted against other invoices
+  - Solution: Negative Final Payable values are now excluded from totals (`max(0, final_payable)`)
+  - Example (Narang): Overpayments of -₹1,349.6 (on invoices 03-09 Jun) were already converted to credit notes and adjusted against NAR-INV-14JUN2026-001. Now the totals correctly show ₹5,380 instead of ₹4,030.4
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Fixed totals calculation in `/api/retailer-invoices/final-summary`
+
 ### June 14, 2025 - Statement Tab Grouping Feature ✅
 - **FEATURE**: Multiple line items on the same day + same category now show as a collapsed group
   - Groups payments, credit notes, invoices, rejections when multiple occur on same date

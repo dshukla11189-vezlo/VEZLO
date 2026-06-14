@@ -2873,7 +2873,10 @@ async def get_invoice_final_summary(
         totals["payable"] += payable
         totals["credit_notes"] += credit_adjusted
         totals["paid"] += paid
-        totals["final_payable"] += final_payable
+        # For final_payable total: Don't count negative values (overpayments)
+        # because overpayments have already been converted to credit notes 
+        # and adjusted against other invoices - counting them would be double-deduction
+        totals["final_payable"] += max(0, final_payable)
     
     # Round totals
     for key in totals:

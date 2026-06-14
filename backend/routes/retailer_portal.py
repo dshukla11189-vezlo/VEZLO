@@ -15,6 +15,9 @@ import asyncio
 import io
 import re
 import csv
+import os
+import random
+import string
 from collections import defaultdict
 
 from dependencies import (
@@ -1147,7 +1150,7 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
                     "items": updated_items
                 }}
             )
-            logger.info(f"Synced rejection amount ₹{total_rejection_value} and {len(rejection_by_item)} item rejections to invoice {invoice.get('invoice_number')}")
+            logger.info(f"Synced rejection amount ₹{total_rejection_value} and {len(updated_items)} item rejections to invoice {invoice.get('invoice_number')}")
     except Exception as e:
         logger.error(f"Failed to sync invoice rejection amount: {e}")
 

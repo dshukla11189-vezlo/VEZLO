@@ -1055,6 +1055,21 @@ export default function RetailerOrders() {
     return 'staff';
   };
 
+  // Check if invoice can be edited/deleted based on date and user role
+  // Same-day invoices: editable by staff/admin
+  // Older invoices: editable only by admin
+  const canEditDeleteInvoice = (invoice) => {
+    const userRole = getCurrentUserRole();
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const invoiceDate = invoice.invoice_date?.split('T')[0] || '';
+    
+    // Admin can always edit/delete
+    if (userRole === 'admin') return true;
+    
+    // Staff can only edit/delete same-day invoices
+    return invoiceDate === today;
+  };
+
   // Load Payment Ledger Data
   const loadPaymentLedger = async (retailerId, startDate, endDate) => {
     if (!retailerId) {
@@ -10421,9 +10436,11 @@ export default function RetailerOrders() {
                                 <Button size="sm" variant="ghost" onClick={() => openPrintLanguageDialog(invoice)}>
                                   <Download size={14} className="text-blue-600" />
                                 </Button>
-                                <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)}>
-                                  <Edit size={14} className="text-amber-600" />
-                                </Button>
+                                {canEditDeleteInvoice(invoice) && (
+                                  <Button size="sm" variant="ghost" onClick={() => openEditInvoiceModal(invoice)} title="Edit Invoice">
+                                    <Edit size={14} className="text-amber-600" />
+                                  </Button>
+                                )}
                                 <Button 
                                   size="sm" 
                                   variant="ghost" 
@@ -10432,9 +10449,11 @@ export default function RetailerOrders() {
                                 >
                                   <RefreshCw size={14} className="text-purple-600" />
                                 </Button>
-                                <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)}>
-                                  <Trash2 size={14} className="text-red-600" />
-                                </Button>
+                                {canEditDeleteInvoice(invoice) && (
+                                  <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)} title="Delete Invoice">
+                                    <Trash2 size={14} className="text-red-600" />
+                                  </Button>
+                                )}
                               </div>
                             </td>
                           </tr>

@@ -2700,7 +2700,7 @@ async def get_invoice_final_summary(
 ):
     """
     Get detailed invoice summary with rejections, credit notes reconciliation.
-    Columns: S.No, Date, Invoice#, Gross Value, Rejections, Total MRP, Commission, Payable, Credit Notes, Paid, Final Payable, Status
+    Includes item-level details for expandable rows showing supply vs rejection.
     """
     if current_user["role"] not in ["admin", "staff", "retailer"]:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -2721,7 +2721,7 @@ async def get_invoice_final_summary(
     
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(1000)
     
-    # Get retailer info for names
+    # Get retailer info for names and upfront percentage
     retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
     retailers_data = await db.users.find(
         {"id": {"$in": retailer_ids}},
@@ -2729,19 +2729,49 @@ async def get_invoice_final_summary(
     ).to_list(100)
     retailer_map = {r["id"]: r for r in retailers_data}
     
-    # Get rejection amounts by invoice date and retailer
+    # Get dispatches for the date range to build item-level supply data
+    dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
+        "retailer_id": {"$in": retailer_ids} if retailer_ids else {"$exists": True}
+    }, {"_id": 0}).to_list(5000)
+    
+    # Build dispatch items map: retailer_id + date -> list of items with supply qty
+    dispatch_items_map = {}
+    for disp in dispatches:
+        key = f"{disp.get('retailer_id')}_{disp.get('dispatch_date', '')[:10]}"
+        if key not in dispatch_items_map:
+            dispatch_items_map[key] = []
+        for item in disp.get("items", []):
+            dispatch_items_map[key].append({
+                "product_name": item.get("product_name", ""),
+                "variant_name": item.get("variant_name", ""),
+                "supplied_qty": item.get("supplied_qty", 0),
+                "rate": item.get("rate", 0),
+                "amount": item.get("supplied_qty", 0) * (item.get("rate", 0) or 0)
+            })
+    
+    # Get rejections by date and retailer with item details
     rejections = await db.retailer_rejections.find({
         "rejection_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
         "retailer_id": {"$in": retailer_ids} if retailer_ids else {"$exists": True}
     }, {"_id": 0}).to_list(5000)
     
-    # Build rejection map: retailer_id + date -> total_rejection
+    # Build rejection map: retailer_id + date -> {total, items}
     rejection_map = {}
     for rej in rejections:
         key = f"{rej.get('retailer_id')}_{rej.get('rejection_date', '')[:10]}"
         if key not in rejection_map:
-            rejection_map[key] = 0
-        rejection_map[key] += rej.get("total_value", 0) or 0
+            rejection_map[key] = {"total": 0, "items": []}
+        rejection_map[key]["total"] += rej.get("total_value", 0) or 0
+        # Add rejection items
+        for item in rej.get("items", []):
+            rejection_map[key]["items"].append({
+                "product_name": item.get("product_name", ""),
+                "variant_name": item.get("variant_name", ""),
+                "rejected_qty": item.get("quantity", 0),
+                "rate": item.get("rate", 0),
+                "value": item.get("value", 0) or (item.get("quantity", 0) * (item.get("rate", 0) or 0))
+            })
     
     # Get credit notes adjusted against each invoice
     credit_notes = await db.retailer_credit_notes.find({
@@ -2759,7 +2789,7 @@ async def get_invoice_final_summary(
                     cn_by_invoice[inv_id] = 0
                 cn_by_invoice[inv_id] += adj.get("amount", 0)
     
-    # Build summary rows
+    # Build summary rows with item details
     rows = []
     totals = {
         "gross_value": 0,
@@ -2777,9 +2807,69 @@ async def get_invoice_final_summary(
         inv_date = inv.get("invoice_date", "")[:10]
         rejection_key = f"{inv.get('retailer_id')}_{inv_date}"
         
+        # Get rejection data for this date/retailer
+        rej_data = rejection_map.get(rejection_key, {"total": 0, "items": []})
+        rejection_amount = rej_data["total"]
+        rejection_items = rej_data["items"]
+        
+        # Get dispatch items for this date/retailer
+        dispatch_items = dispatch_items_map.get(rejection_key, [])
+        
+        # Merge supply and rejection data at item level
+        # Create a map of product+variant -> {supplied, rejected}
+        item_summary = {}
+        for di in dispatch_items:
+            key = f"{di['product_name']}|{di['variant_name']}"
+            if key not in item_summary:
+                item_summary[key] = {
+                    "product_name": di["product_name"],
+                    "variant_name": di["variant_name"],
+                    "supplied_qty": 0,
+                    "rejected_qty": 0,
+                    "rate": di["rate"],
+                    "supply_value": 0,
+                    "rejection_value": 0
+                }
+            item_summary[key]["supplied_qty"] += di["supplied_qty"]
+            item_summary[key]["supply_value"] += di["amount"]
+        
+        for ri in rejection_items:
+            key = f"{ri['product_name']}|{ri['variant_name']}"
+            if key not in item_summary:
+                item_summary[key] = {
+                    "product_name": ri["product_name"],
+                    "variant_name": ri["variant_name"],
+                    "supplied_qty": 0,
+                    "rejected_qty": 0,
+                    "rate": ri["rate"],
+                    "supply_value": 0,
+                    "rejection_value": 0
+                }
+            item_summary[key]["rejected_qty"] += ri["rejected_qty"]
+            item_summary[key]["rejection_value"] += ri["value"]
+        
+        # Convert to list and calculate billable qty
+        items = []
+        for key, item in item_summary.items():
+            billable_qty = item["supplied_qty"] - item["rejected_qty"]
+            billable_value = billable_qty * (item["rate"] or 0)
+            items.append({
+                "product_name": item["product_name"],
+                "variant_name": item["variant_name"],
+                "supplied_qty": item["supplied_qty"],
+                "rejected_qty": item["rejected_qty"],
+                "billable_qty": billable_qty,
+                "rate": item["rate"],
+                "supply_value": round(item["supply_value"], 2),
+                "rejection_value": round(item["rejection_value"], 2),
+                "billable_value": round(billable_value, 2)
+            })
+        
+        # Sort items by product name
+        items.sort(key=lambda x: x["product_name"])
+        
         # Calculate values
         gross_value = inv.get("total_mrp_value", 0) or 0
-        rejection_amount = rejection_map.get(rejection_key, 0)
         total_mrp = gross_value - rejection_amount
         commission = inv.get("commission_value", 0) or inv.get("total_commission", 0) or 0
         payable = inv.get("net_payable", 0) or 0
@@ -2800,6 +2890,7 @@ async def get_invoice_final_summary(
             "date": inv_date,
             "invoice_number": inv.get("invoice_number", ""),
             "invoice_id": inv.get("id"),
+            "retailer_id": inv.get("retailer_id"),
             "retailer_name": retailer.get("company_name", retailer.get("name", "Unknown")),
             "gross_value": round(gross_value, 2),
             "rejections": round(rejection_amount, 2),
@@ -2809,7 +2900,8 @@ async def get_invoice_final_summary(
             "credit_notes": round(credit_adjusted, 2),
             "paid": round(paid, 2),
             "final_payable": round(final_payable, 2),
-            "status": status
+            "status": status,
+            "items": items  # Item-level details for expandable view
         }
         rows.append(row)
         
@@ -3709,10 +3801,17 @@ async def fix_100_upfront_rejection(current_user: dict = Depends(get_current_use
         net_payable = inv.get("net_payable", 0) or 0
         total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
         
+        # Clear rejection data from items array as well
+        items = inv.get("items", [])
+        for item in items:
+            item["rejected_qty"] = 0
+            item["rejection_value"] = 0
+        
         update_data = {
             "rejection_amount": 0,
             "final_payable": net_payable - total_credit_adjusted,
-            "pending_amount": net_payable - total_credit_adjusted
+            "pending_amount": net_payable - total_credit_adjusted,
+            "items": items  # Update items with cleared rejection data
         }
         
         await db.retailer_invoices.update_one(
@@ -3720,7 +3819,7 @@ async def fix_100_upfront_rejection(current_user: dict = Depends(get_current_use
             {"$set": update_data}
         )
         fixed_count += 1
-        logger.info(f"Fixed invoice {inv.get('invoice_number')}: reset rejection_amount, set pending={net_payable - total_credit_adjusted}")
+        logger.info(f"Fixed invoice {inv.get('invoice_number')}: reset rejection_amount and item rejections, set pending={net_payable - total_credit_adjusted}")
     
     return {
         "message": f"Fixed {fixed_count} invoices for 100% upfront retailers",

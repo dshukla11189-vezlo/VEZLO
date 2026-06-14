@@ -545,6 +545,7 @@ export default function RetailerOrders() {
     return d.toISOString().split('T')[0];
   });
   const [finalSummaryEndDate, setFinalSummaryEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expandedFinalSummaryRows, setExpandedFinalSummaryRows] = useState({}); // Track expanded rows
   
   // Immediately Payable state (5-day credit)
   const [immediatelyPayable, setImmediatelyPayable] = useState(null);
@@ -12060,43 +12061,106 @@ export default function RetailerOrders() {
                       </thead>
                       <tbody>
                         {finalSummaryData.rows?.map((row) => (
-                          <tr key={row.invoice_id} className="border-b hover:bg-gray-50">
-                            <td className="px-2 py-1.5 text-gray-500">{row.sno}</td>
-                            <td className="px-2 py-1.5 whitespace-nowrap">
-                              {new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                            </td>
-                            <td className="px-2 py-1.5 font-medium text-blue-700">{row.invoice_number}</td>
-                            <td className="px-2 py-1.5 truncate max-w-[120px]" title={row.retailer_name}>{row.retailer_name}</td>
-                            <td className="px-2 py-1.5 text-right">₹{row.gross_value.toLocaleString('en-IN')}</td>
-                            <td className="px-2 py-1.5 text-right text-red-600">
-                              {row.rejections > 0 ? `-₹${row.rejections.toLocaleString('en-IN')}` : '-'}
-                            </td>
-                            <td className="px-2 py-1.5 text-right">₹{row.total_mrp.toLocaleString('en-IN')}</td>
-                            <td className="px-2 py-1.5 text-right text-purple-600">
-                              {row.commission > 0 ? `-₹${row.commission.toLocaleString('en-IN')}` : '-'}
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-medium">₹{row.payable.toLocaleString('en-IN')}</td>
-                            <td className="px-2 py-1.5 text-right text-blue-600">
-                              {row.credit_notes > 0 ? `-₹${row.credit_notes.toLocaleString('en-IN')}` : '-'}
-                            </td>
-                            <td className="px-2 py-1.5 text-right text-green-600">
-                              {row.paid > 0 ? `₹${row.paid.toLocaleString('en-IN')}` : '-'}
-                            </td>
-                            <td className={`px-2 py-1.5 text-right font-semibold ${
-                              row.final_payable > 0 ? 'text-orange-600' : 'text-green-600'
-                            }`}>
-                              ₹{row.final_payable.toLocaleString('en-IN')}
-                            </td>
-                            <td className="px-2 py-1.5 text-center">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                                row.status === 'settled' ? 'bg-green-100 text-green-700' :
-                                row.status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-orange-100 text-orange-700'
+                          <React.Fragment key={row.invoice_id}>
+                            {/* Main Row - Clickable to expand */}
+                            <tr 
+                              className={`border-b hover:bg-gray-50 cursor-pointer ${expandedFinalSummaryRows[row.invoice_id] ? 'bg-emerald-50' : ''}`}
+                              onClick={() => setExpandedFinalSummaryRows(prev => ({
+                                ...prev,
+                                [row.invoice_id]: !prev[row.invoice_id]
+                              }))}
+                            >
+                              <td className="px-2 py-1.5 text-gray-500">
+                                <div className="flex items-center gap-1">
+                                  {row.items?.length > 0 && (
+                                    <ChevronRight size={12} className={`transition-transform ${expandedFinalSummaryRows[row.invoice_id] ? 'rotate-90' : ''}`} />
+                                  )}
+                                  {row.sno}
+                                </div>
+                              </td>
+                              <td className="px-2 py-1.5 whitespace-nowrap">
+                                {new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                              </td>
+                              <td className="px-2 py-1.5 font-medium text-blue-700">{row.invoice_number}</td>
+                              <td className="px-2 py-1.5 truncate max-w-[120px]" title={row.retailer_name}>{row.retailer_name}</td>
+                              <td className="px-2 py-1.5 text-right">₹{row.gross_value.toLocaleString('en-IN')}</td>
+                              <td className="px-2 py-1.5 text-right text-red-600">
+                                {row.rejections > 0 ? `-₹${row.rejections.toLocaleString('en-IN')}` : '-'}
+                              </td>
+                              <td className="px-2 py-1.5 text-right">₹{row.total_mrp.toLocaleString('en-IN')}</td>
+                              <td className="px-2 py-1.5 text-right text-purple-600">
+                                {row.commission > 0 ? `-₹${row.commission.toLocaleString('en-IN')}` : '-'}
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-medium">₹{row.payable.toLocaleString('en-IN')}</td>
+                              <td className="px-2 py-1.5 text-right text-blue-600">
+                                {row.credit_notes > 0 ? `-₹${row.credit_notes.toLocaleString('en-IN')}` : '-'}
+                              </td>
+                              <td className="px-2 py-1.5 text-right text-green-600">
+                                {row.paid > 0 ? `₹${row.paid.toLocaleString('en-IN')}` : '-'}
+                              </td>
+                              <td className={`px-2 py-1.5 text-right font-semibold ${
+                                row.final_payable > 0 ? 'text-orange-600' : 'text-green-600'
                               }`}>
-                                {row.status}
-                              </span>
-                            </td>
-                          </tr>
+                                ₹{row.final_payable.toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                                  row.status === 'settled' ? 'bg-green-100 text-green-700' :
+                                  row.status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-orange-100 text-orange-700'
+                                }`}>
+                                  {row.status}
+                                </span>
+                              </td>
+                            </tr>
+                            
+                            {/* Expanded Items Row */}
+                            {expandedFinalSummaryRows[row.invoice_id] && row.items?.length > 0 && (
+                              <tr>
+                                <td colSpan="13" className="p-0 bg-gray-50">
+                                  <div className="px-4 py-2 border-l-4 border-emerald-400">
+                                    <div className="text-xs font-medium text-gray-600 mb-2">Item Details - Supply vs Rejection</div>
+                                    <table className="w-full text-xs">
+                                      <thead className="bg-gray-200">
+                                        <tr>
+                                          <th className="px-2 py-1 text-left">Product</th>
+                                          <th className="px-2 py-1 text-left">Variant</th>
+                                          <th className="px-2 py-1 text-right">Supplied</th>
+                                          <th className="px-2 py-1 text-right text-red-600">Rejected</th>
+                                          <th className="px-2 py-1 text-right text-green-600">Billable</th>
+                                          <th className="px-2 py-1 text-right">Rate</th>
+                                          <th className="px-2 py-1 text-right">Supply Value</th>
+                                          <th className="px-2 py-1 text-right text-red-600">Rejection Value</th>
+                                          <th className="px-2 py-1 text-right text-green-600">Billable Value</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {row.items.map((item, idx) => (
+                                          <tr key={idx} className={`${item.rejected_qty > 0 ? 'bg-red-50/50' : ''}`}>
+                                            <td className="px-2 py-1">{item.product_name}</td>
+                                            <td className="px-2 py-1 text-gray-500">{item.variant_name || '-'}</td>
+                                            <td className="px-2 py-1 text-right">{item.supplied_qty}</td>
+                                            <td className="px-2 py-1 text-right text-red-600">
+                                              {item.rejected_qty > 0 ? item.rejected_qty : '-'}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-green-600 font-medium">{item.billable_qty}</td>
+                                            <td className="px-2 py-1 text-right">₹{item.rate?.toLocaleString('en-IN') || 0}</td>
+                                            <td className="px-2 py-1 text-right">₹{item.supply_value?.toLocaleString('en-IN')}</td>
+                                            <td className="px-2 py-1 text-right text-red-600">
+                                              {item.rejection_value > 0 ? `-₹${item.rejection_value?.toLocaleString('en-IN')}` : '-'}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-green-600 font-medium">
+                                              ₹{item.billable_value?.toLocaleString('en-IN')}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                       {finalSummaryData.totals && (

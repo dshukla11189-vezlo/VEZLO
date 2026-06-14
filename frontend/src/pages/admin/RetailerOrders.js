@@ -5164,21 +5164,29 @@ export default function RetailerOrders() {
     // Get all dispatches for this indent
     const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
     
-    // Calculate total dispatched per product (using product_id only, matching backend logic)
-    const totalDispatched = {};
+    // Calculate total dispatched per product using product_id + variant_id for precise matching
+    const totalDispatchedPrecise = {}; // key: product_id_variant_id
+    const totalDispatchedProduct = {}; // key: product_id only (fallback)
     for (const dispatch of indentDispatches) {
       for (const item of (dispatch.items || [])) {
-        // Use product_id only for matching (consistent with backend)
-        const key = item.product_id;
-        totalDispatched[key] = (totalDispatched[key] || 0) + (item.supplied_qty || 0);
+        // Precise key with variant
+        const preciseKey = `${item.product_id}_${item.variant_id || item.indent_variant_id || ''}`;
+        totalDispatchedPrecise[preciseKey] = (totalDispatchedPrecise[preciseKey] || 0) + (item.supplied_qty || 0);
+        // Fallback key with product only
+        const productKey = item.product_id;
+        totalDispatchedProduct[productKey] = (totalDispatchedProduct[productKey] || 0) + (item.supplied_qty || 0);
       }
     }
     
     // Calculate remaining for each indent item
     const remainingItems = [];
     for (const item of (indent.items || [])) {
-      const key = item.product_id;
-      const dispatched = totalDispatched[key] || 0;
+      // Try precise key first, then fallback to product-only key
+      const preciseKey = `${item.product_id}_${item.variant_id || ''}`;
+      const productKey = item.product_id;
+      const dispatched = totalDispatchedPrecise[preciseKey] !== undefined 
+        ? totalDispatchedPrecise[preciseKey] 
+        : (totalDispatchedProduct[productKey] || 0);
       const remaining = (item.quantity || 0) - dispatched;
       
       // Skip items that are marked as done (even if they have remaining qty)
@@ -9518,9 +9526,14 @@ export default function RetailerOrders() {
                                 const dispatchedQtys = {};
                                 for (const dispatch of indentDispatches) {
                                   for (const item of (dispatch.items || [])) {
-                                    // Use product_id only for matching (consistent with backend)
-                                    const key = item.product_id;
+                                    // Use product_id + variant_id for more precise matching
+                                    // This handles cases where same product has multiple variants in one indent
+                                    const key = `${item.product_id}_${item.variant_id || item.indent_variant_id || ''}`;
                                     dispatchedQtys[key] = (dispatchedQtys[key] || 0) + (item.supplied_qty || 0);
+                                    // Also track by product_id only as fallback
+                                    const productKey = item.product_id;
+                                    if (!dispatchedQtys[productKey]) dispatchedQtys[productKey] = 0;
+                                    dispatchedQtys[productKey] += (item.supplied_qty || 0);
                                   }
                                 }
                                 const showDispatchColumns = indent.status === 'partial' || indent.status === 'dispatched';
@@ -9712,8 +9725,13 @@ export default function RetailerOrders() {
                                                 <tbody>
                                                   {items.map((item, idx) => {
                                                     globalIdx++;
-                                                    const key = item.product_id;
-                                                    const dispatched = dispatchedQtys[key] || 0;
+                                                    // Try precise key first (product_id + variant_id), then fallback to product_id only
+                                                    const preciseKey = `${item.product_id}_${item.variant_id || ''}`;
+                                                    const productKey = item.product_id;
+                                                    // Use precise key if it exists, otherwise fallback to product-only key
+                                                    const dispatched = dispatchedQtys[preciseKey] !== undefined 
+                                                      ? dispatchedQtys[preciseKey] 
+                                                      : (dispatchedQtys[productKey] || 0);
                                                     const remaining = (item.quantity || 0) - dispatched;
                                                     return (
                                                       <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
@@ -9747,9 +9765,15 @@ export default function RetailerOrders() {
                                       <span>Qty: {indent.items?.reduce((sum, item) => sum + (item.quantity || 0), 0)}</span>
                                       {showDispatchColumns && (
                                         <>
-                                          <span className="text-green-300">Supplied: {indent.items?.reduce((sum, item) => sum + (dispatchedQtys[item.product_id] || 0), 0)}</span>
+                                          <span className="text-green-300">Supplied: {indent.items?.reduce((sum, item) => {
+                                            const preciseKey = `${item.product_id}_${item.variant_id || ''}`;
+                                            const productKey = item.product_id;
+                                            return sum + (dispatchedQtys[preciseKey] !== undefined ? dispatchedQtys[preciseKey] : (dispatchedQtys[productKey] || 0));
+                                          }, 0)}</span>
                                           <span className="text-amber-300">Pending: {indent.items?.reduce((sum, item) => {
-                                            const dispatched = dispatchedQtys[item.product_id] || 0;
+                                            const preciseKey = `${item.product_id}_${item.variant_id || ''}`;
+                                            const productKey = item.product_id;
+                                            const dispatched = dispatchedQtys[preciseKey] !== undefined ? dispatchedQtys[preciseKey] : (dispatchedQtys[productKey] || 0);
                                             return sum + Math.max(0, (item.quantity || 0) - dispatched);
                                           }, 0)}</span>
                                         </>

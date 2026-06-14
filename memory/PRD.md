@@ -23,6 +23,13 @@
   - Root cause: Enrichment logic skipped invoices with `rejection_amount > 0` even if items didn't have `rejected_qty`
   - Fixed: Backend now checks if items actually have `rejected_qty` before skipping enrichment
   - June 10 invoice now shows: Supplied Qty → Rejection (-X) → Billable Qty correctly
+- **BUG FIX**: Indent Supplied/Pending quantities now correctly match dispatched quantities per variant
+  - Root cause: Both frontend and backend used only `product_id` for matching, ignoring `variant_id`
+  - Fixed: Now uses `product_id + variant_id` for precise matching when same product has multiple variants
+  - "Dispatch Remaining" now correctly identifies items that still need dispatch
+  - Frontend: Updated `getIndentRemainingQtys()` and indent display to use precise keys
+  - Backend: Updated `create_retailer_dispatch()` to check full dispatch status per variant
+  - Model: Added `indent_variant_id` to `RetailerDispatchItem` for tracking
 - **ENHANCEMENT**: Labour Inactive State Visual Clarity
   - Added "Show inactive" toggle checkbox (only appears when inactive labourers exist)
   - Improved status badges: "✓ Active" (green) / "✗ Inactive" (red) with hover color transitions
@@ -33,9 +40,10 @@
   - Products added via MRP overrides now appear in the Stickers list (even without day's indents)
   - Print function includes override-only products with quantity 0
 - **FILES MODIFIED**:
-  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting, excess amount calculation, rejection display
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting, excess amount calculation, rejection display, variant-aware dispatch matching
   - `/app/frontend/src/pages/admin/LaborCosts.js` - Inactive state toggle, visual improvements
-  - `/app/backend/routes/retailer_portal.py` - Invoice enrichment logic fix for item-level rejections
+  - `/app/backend/routes/retailer_portal.py` - Invoice enrichment logic fix, variant-aware dispatch status
+  - `/app/backend/models.py` - Added `indent_variant_id` to `RetailerDispatchItem`
 
 
 ### June 13, 2025 - Retailer Portal Rejections & Admin Chart Defaults ✅

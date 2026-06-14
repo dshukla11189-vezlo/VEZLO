@@ -656,6 +656,7 @@ class RetailerDispatchItem(BaseModel):
     product_name: str
     variant_id: Optional[str] = None
     variant_name: Optional[str] = None
+    indent_variant_id: Optional[str] = None  # Original indent variant_id for precise matching
     indent_qty: float  # Original indent quantity
     supplied_qty: float  # Actually supplied
     mrp: float  # Mandatory MRP per unit

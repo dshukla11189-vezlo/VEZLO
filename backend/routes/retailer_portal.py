@@ -400,17 +400,27 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
     # Get all dispatches for this indent
     all_dispatches = await db.retailer_dispatches.find({"indent_id": input.indent_id}, {"_id": 0}).to_list(100)
     
-    # Calculate total dispatched per product
-    total_dispatched = {}
+    # Calculate total dispatched per product using product_id + variant_id for precise matching
+    total_dispatched_precise = {}  # key: product_id_variant_id
+    total_dispatched_product = {}  # key: product_id only (fallback)
     for d in all_dispatches:
         for item in d.get('items', []):
-            key = item.get('product_id', '')
-            total_dispatched[key] = total_dispatched.get(key, 0) + item.get('supplied_qty', 0)
+            product_id = item.get('product_id', '')
+            variant_id = item.get('variant_id') or item.get('indent_variant_id') or ''
+            # Precise key
+            precise_key = f"{product_id}_{variant_id}"
+            total_dispatched_precise[precise_key] = total_dispatched_precise.get(precise_key, 0) + item.get('supplied_qty', 0)
+            # Fallback key
+            total_dispatched_product[product_id] = total_dispatched_product.get(product_id, 0) + item.get('supplied_qty', 0)
     
-    # Check if fully dispatched
+    # Check if fully dispatched - use precise matching
     fully_dispatched = True
     for item in indent.get('items', []):
-        dispatched = total_dispatched.get(item.get('product_id', ''), 0)
+        product_id = item.get('product_id', '')
+        variant_id = item.get('variant_id', '')
+        precise_key = f"{product_id}_{variant_id}"
+        # Try precise key first, fallback to product-only
+        dispatched = total_dispatched_precise.get(precise_key, total_dispatched_product.get(product_id, 0))
         if dispatched < item.get('quantity', 0):
             fully_dispatched = False
             break

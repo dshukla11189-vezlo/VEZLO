@@ -2690,6 +2690,152 @@ async def get_retailer_invoices(
     
     return invoices
 
+# Final Summary API - shows complete reconciliation view (MUST be before /{invoice_id} route)
+@router.get("/retailer-invoices/final-summary")
+async def get_invoice_final_summary(
+    retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get detailed invoice summary with rejections, credit notes reconciliation.
+    Columns: S.No, Date, Invoice#, Gross Value, Rejections, Total MRP, Commission, Payable, Credit Notes, Paid, Final Payable, Status
+    """
+    if current_user["role"] not in ["admin", "staff", "retailer"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # For retailer role, restrict to own data
+    if current_user["role"] == "retailer":
+        retailer_id = current_user["user_id"]
+    
+    # Default date range
+    if not end_date:
+        end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    if not start_date:
+        start_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime('%Y-%m-%d')
+    
+    query = {"invoice_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"}}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(1000)
+    
+    # Get retailer info for names
+    retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
+    retailers_data = await db.users.find(
+        {"id": {"$in": retailer_ids}},
+        {"_id": 0, "id": 1, "company_name": 1, "name": 1, "upfront_collection_percentage": 1}
+    ).to_list(100)
+    retailer_map = {r["id"]: r for r in retailers_data}
+    
+    # Get rejection amounts by invoice date and retailer
+    rejections = await db.retailer_rejections.find({
+        "rejection_date": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
+        "retailer_id": {"$in": retailer_ids} if retailer_ids else {"$exists": True}
+    }, {"_id": 0}).to_list(5000)
+    
+    # Build rejection map: retailer_id + date -> total_rejection
+    rejection_map = {}
+    for rej in rejections:
+        key = f"{rej.get('retailer_id')}_{rej.get('rejection_date', '')[:10]}"
+        if key not in rejection_map:
+            rejection_map[key] = 0
+        rejection_map[key] += rej.get("total_value", 0) or 0
+    
+    # Get credit notes adjusted against each invoice
+    credit_notes = await db.retailer_credit_notes.find({
+        "retailer_id": {"$in": retailer_ids} if retailer_ids else {"$exists": True},
+        "status": {"$ne": "voided"}
+    }, {"_id": 0}).to_list(5000)
+    
+    # Build credit note map by adjusted invoice
+    cn_by_invoice = {}
+    for cn in credit_notes:
+        for adj in cn.get("adjusted_against_invoices", []):
+            inv_id = adj.get("invoice_id")
+            if inv_id:
+                if inv_id not in cn_by_invoice:
+                    cn_by_invoice[inv_id] = 0
+                cn_by_invoice[inv_id] += adj.get("amount", 0)
+    
+    # Build summary rows
+    rows = []
+    totals = {
+        "gross_value": 0,
+        "rejections": 0,
+        "total_mrp": 0,
+        "commission": 0,
+        "payable": 0,
+        "credit_notes": 0,
+        "paid": 0,
+        "final_payable": 0
+    }
+    
+    for idx, inv in enumerate(invoices, 1):
+        retailer = retailer_map.get(inv.get("retailer_id"), {})
+        inv_date = inv.get("invoice_date", "")[:10]
+        rejection_key = f"{inv.get('retailer_id')}_{inv_date}"
+        
+        # Calculate values
+        gross_value = inv.get("total_mrp_value", 0) or 0
+        rejection_amount = rejection_map.get(rejection_key, 0)
+        total_mrp = gross_value - rejection_amount
+        commission = inv.get("commission_value", 0) or inv.get("total_commission", 0) or 0
+        payable = inv.get("net_payable", 0) or 0
+        credit_adjusted = cn_by_invoice.get(inv.get("id"), 0) or inv.get("total_credit_adjusted", 0) or 0
+        paid = inv.get("paid_amount", 0) or 0
+        final_payable = payable - credit_adjusted - paid
+        
+        # Determine status
+        if final_payable <= 0:
+            status = "settled"
+        elif paid > 0:
+            status = "partial"
+        else:
+            status = "pending"
+        
+        row = {
+            "sno": idx,
+            "date": inv_date,
+            "invoice_number": inv.get("invoice_number", ""),
+            "invoice_id": inv.get("id"),
+            "retailer_name": retailer.get("company_name", retailer.get("name", "Unknown")),
+            "gross_value": round(gross_value, 2),
+            "rejections": round(rejection_amount, 2),
+            "total_mrp": round(total_mrp, 2),
+            "commission": round(commission, 2),
+            "payable": round(payable, 2),
+            "credit_notes": round(credit_adjusted, 2),
+            "paid": round(paid, 2),
+            "final_payable": round(final_payable, 2),
+            "status": status
+        }
+        rows.append(row)
+        
+        # Update totals
+        totals["gross_value"] += gross_value
+        totals["rejections"] += rejection_amount
+        totals["total_mrp"] += total_mrp
+        totals["commission"] += commission
+        totals["payable"] += payable
+        totals["credit_notes"] += credit_adjusted
+        totals["paid"] += paid
+        totals["final_payable"] += final_payable
+    
+    # Round totals
+    for key in totals:
+        totals[key] = round(totals[key], 2)
+    
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "retailer_id": retailer_id,
+        "rows": rows,
+        "totals": totals,
+        "row_count": len(rows)
+    }
+
 @router.get("/retailer-invoices/{invoice_id}")
 async def get_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
     invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
@@ -3522,6 +3668,64 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
     return {
         "message": f"Fixed {fixed_count} invoices",
         "fixed_count": fixed_count
+    }
+
+# Fix rejection sync for 100% upfront retailers
+@router.post("/retailer-invoices/fix-100-upfront-rejection")
+async def fix_100_upfront_rejection(current_user: dict = Depends(get_current_user)):
+    """
+    Fix invoices for 100% upfront retailers where rejection was synced but no payment made.
+    For these invoices, reset rejection_amount to 0 so net_payable = pending_amount.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run this fix")
+    
+    # Get 100% upfront retailers
+    retailers = await db.users.find({
+        "role": "retailer",
+        "$or": [
+            {"upfront_collection_percentage": 100},
+            {"upfront_collection_percentage": 100.0}
+        ]
+    }).to_list(100)
+    
+    upfront_ids = [r["id"] for r in retailers]
+    logger.info(f"Found {len(upfront_ids)} 100% upfront retailers")
+    
+    # Find invoices with rejection_amount > 0 and either no payment or paid_amount = 0/None
+    fixed_count = 0
+    invoices = await db.retailer_invoices.find({
+        "retailer_id": {"$in": upfront_ids},
+        "rejection_amount": {"$gt": 0},
+        "$or": [
+            {"paid_amount": 0},
+            {"paid_amount": None},
+            {"paid_amount": {"$exists": False}}
+        ]
+    }).to_list(1000)
+    
+    for inv in invoices:
+        # Reset rejection_amount to 0 and recalculate pending
+        net_payable = inv.get("net_payable", 0) or 0
+        total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
+        
+        update_data = {
+            "rejection_amount": 0,
+            "final_payable": net_payable - total_credit_adjusted,
+            "pending_amount": net_payable - total_credit_adjusted
+        }
+        
+        await db.retailer_invoices.update_one(
+            {"id": inv["id"]},
+            {"$set": update_data}
+        )
+        fixed_count += 1
+        logger.info(f"Fixed invoice {inv.get('invoice_number')}: reset rejection_amount, set pending={net_payable - total_credit_adjusted}")
+    
+    return {
+        "message": f"Fixed {fixed_count} invoices for 100% upfront retailers",
+        "fixed_count": fixed_count,
+        "retailer_count": len(upfront_ids)
     }
 
 # ==================== RETAILER STATEMENT/LEDGER ====================

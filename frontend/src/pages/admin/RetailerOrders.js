@@ -535,6 +535,17 @@ export default function RetailerOrders() {
   const [showPaymentSummaryModal, setShowPaymentSummaryModal] = useState(false);
   const [showPaymentSummaryPreview, setShowPaymentSummaryPreview] = useState(false); // Preview popup
   
+  // Final Summary state (detailed reconciliation view)
+  const [showFinalSummaryModal, setShowFinalSummaryModal] = useState(false);
+  const [finalSummaryData, setFinalSummaryData] = useState(null);
+  const [finalSummaryLoading, setFinalSummaryLoading] = useState(false);
+  const [finalSummaryStartDate, setFinalSummaryStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [finalSummaryEndDate, setFinalSummaryEndDate] = useState(new Date().toISOString().split('T')[0]);
+  
   // Immediately Payable state (5-day credit)
   const [immediatelyPayable, setImmediatelyPayable] = useState(null);
   const [loadingImmediatelyPayable, setLoadingImmediatelyPayable] = useState(false);
@@ -1130,6 +1141,23 @@ export default function RetailerOrders() {
       toast.error('Failed to load payment ledger');
     } finally {
       setPaymentLedgerLoading(false);
+    }
+  };
+
+  // Load Final Summary Data (detailed reconciliation view)
+  const loadFinalSummary = async (retailerId, startDate, endDate) => {
+    setFinalSummaryLoading(true);
+    try {
+      let url = `/api/retailer-invoices/final-summary?start_date=${startDate}&end_date=${endDate}`;
+      if (retailerId) url += `&retailer_id=${retailerId}`;
+      const response = await api.get(url);
+      setFinalSummaryData(response.data);
+      setShowFinalSummaryModal(true);
+    } catch (error) {
+      console.error('Failed to load final summary:', error);
+      toast.error('Failed to load final summary');
+    } finally {
+      setFinalSummaryLoading(false);
     }
   };
 
@@ -10211,6 +10239,17 @@ export default function RetailerOrders() {
                     size="sm" 
                     variant="outline"
                     onClick={() => {
+                      loadFinalSummary(invoiceForm.retailer_id, finalSummaryStartDate, finalSummaryEndDate);
+                    }}
+                    className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                    disabled={finalSummaryLoading}
+                  >
+                    <FileSpreadsheet size={14} className="mr-1" /> Final Summary
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
                       if (!invoiceForm.retailer_id) {
                         toast.error('Please select a retailer first');
                         return;
@@ -11928,6 +11967,182 @@ export default function RetailerOrders() {
                     Close
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== FINAL SUMMARY MODAL ==================== */}
+        {showFinalSummaryModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b bg-emerald-50">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="text-emerald-600" size={20} />
+                  <h3 className="text-lg font-semibold text-emerald-800">Final Summary - Invoice Reconciliation</h3>
+                </div>
+                <button onClick={() => setShowFinalSummaryModal(false)} className="p-1 hover:bg-emerald-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              {/* Date Filters */}
+              <div className="p-4 border-b bg-gray-50 flex flex-wrap items-center gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Retailer</label>
+                  <Select 
+                    value={invoiceForm.retailer_id || 'all'} 
+                    onValueChange={(val) => setInvoiceForm({...invoiceForm, retailer_id: val === 'all' ? '' : val})}
+                  >
+                    <SelectTrigger className="h-8 text-xs w-48">
+                      <SelectValue placeholder="All Retailers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Retailers</SelectItem>
+                      {retailers.map(r => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.company_name || r.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">From Date</label>
+                  <Input
+                    type="date"
+                    value={finalSummaryStartDate}
+                    onChange={(e) => setFinalSummaryStartDate(e.target.value)}
+                    className="h-8 text-xs w-36"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">To Date</label>
+                  <Input
+                    type="date"
+                    value={finalSummaryEndDate}
+                    onChange={(e) => setFinalSummaryEndDate(e.target.value)}
+                    className="h-8 text-xs w-36"
+                  />
+                </div>
+                <Button 
+                  size="sm"
+                  onClick={() => loadFinalSummary(invoiceForm.retailer_id, finalSummaryStartDate, finalSummaryEndDate)}
+                  disabled={finalSummaryLoading}
+                  className="bg-emerald-600 hover:bg-emerald-700 h-8 mt-4"
+                >
+                  {finalSummaryLoading ? <RefreshCw size={14} className="animate-spin mr-1" /> : <Search size={14} className="mr-1" />}
+                  Load
+                </Button>
+              </div>
+              
+              {/* Summary Table */}
+              <div className="flex-1 overflow-auto p-4">
+                {finalSummaryData ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border">
+                      <thead className="bg-gray-100 sticky top-0">
+                        <tr>
+                          <th className="px-2 py-2 text-left border-b">#</th>
+                          <th className="px-2 py-2 text-left border-b">DATE</th>
+                          <th className="px-2 py-2 text-left border-b">INVOICE #</th>
+                          <th className="px-2 py-2 text-left border-b">RETAILER</th>
+                          <th className="px-2 py-2 text-right border-b">GROSS VALUE</th>
+                          <th className="px-2 py-2 text-right border-b text-red-600">REJECTIONS</th>
+                          <th className="px-2 py-2 text-right border-b">NET MRP</th>
+                          <th className="px-2 py-2 text-right border-b text-purple-600">COMMISSION</th>
+                          <th className="px-2 py-2 text-right border-b">PAYABLE</th>
+                          <th className="px-2 py-2 text-right border-b text-blue-600">CREDIT NOTES</th>
+                          <th className="px-2 py-2 text-right border-b text-green-600">PAID</th>
+                          <th className="px-2 py-2 text-right border-b font-semibold">FINAL PAYABLE</th>
+                          <th className="px-2 py-2 text-center border-b">STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finalSummaryData.rows?.map((row) => (
+                          <tr key={row.invoice_id} className="border-b hover:bg-gray-50">
+                            <td className="px-2 py-1.5 text-gray-500">{row.sno}</td>
+                            <td className="px-2 py-1.5 whitespace-nowrap">
+                              {new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                            </td>
+                            <td className="px-2 py-1.5 font-medium text-blue-700">{row.invoice_number}</td>
+                            <td className="px-2 py-1.5 truncate max-w-[120px]" title={row.retailer_name}>{row.retailer_name}</td>
+                            <td className="px-2 py-1.5 text-right">₹{row.gross_value.toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-1.5 text-right text-red-600">
+                              {row.rejections > 0 ? `-₹${row.rejections.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className="px-2 py-1.5 text-right">₹{row.total_mrp.toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-1.5 text-right text-purple-600">
+                              {row.commission > 0 ? `-₹${row.commission.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-medium">₹{row.payable.toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-1.5 text-right text-blue-600">
+                              {row.credit_notes > 0 ? `-₹${row.credit_notes.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className="px-2 py-1.5 text-right text-green-600">
+                              {row.paid > 0 ? `₹${row.paid.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className={`px-2 py-1.5 text-right font-semibold ${
+                              row.final_payable > 0 ? 'text-orange-600' : 'text-green-600'
+                            }`}>
+                              ₹{row.final_payable.toLocaleString('en-IN')}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                                row.status === 'settled' ? 'bg-green-100 text-green-700' :
+                                row.status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-orange-100 text-orange-700'
+                              }`}>
+                                {row.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {finalSummaryData.totals && (
+                        <tfoot className="bg-gray-100 font-semibold">
+                          <tr className="border-t-2">
+                            <td colSpan="4" className="px-2 py-2 text-right">TOTALS</td>
+                            <td className="px-2 py-2 text-right">₹{finalSummaryData.totals.gross_value.toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-2 text-right text-red-600">
+                              {finalSummaryData.totals.rejections > 0 ? `-₹${finalSummaryData.totals.rejections.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className="px-2 py-2 text-right">₹{finalSummaryData.totals.total_mrp.toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-2 text-right text-purple-600">
+                              -₹{finalSummaryData.totals.commission.toLocaleString('en-IN')}
+                            </td>
+                            <td className="px-2 py-2 text-right">₹{finalSummaryData.totals.payable.toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-2 text-right text-blue-600">
+                              {finalSummaryData.totals.credit_notes > 0 ? `-₹${finalSummaryData.totals.credit_notes.toLocaleString('en-IN')}` : '-'}
+                            </td>
+                            <td className="px-2 py-2 text-right text-green-600">
+                              ₹{finalSummaryData.totals.paid.toLocaleString('en-IN')}
+                            </td>
+                            <td className={`px-2 py-2 text-right ${
+                              finalSummaryData.totals.final_payable > 0 ? 'text-orange-600' : 'text-green-600'
+                            }`}>
+                              ₹{finalSummaryData.totals.final_payable.toLocaleString('en-IN')}
+                            </td>
+                            <td className="px-2 py-2 text-center text-gray-500">
+                              {finalSummaryData.row_count} invoices
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileSpreadsheet size={48} className="mx-auto mb-4 text-gray-300" />
+                    <p>Select date range and click "Load" to view the reconciliation summary</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-4 border-t flex justify-end">
+                <Button variant="outline" onClick={() => setShowFinalSummaryModal(false)}>
+                  Close
+                </Button>
               </div>
             </div>
           </div>

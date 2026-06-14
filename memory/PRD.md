@@ -3,6 +3,19 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Invoice Pending Amount & Final Summary Fixes ✅
+- **BUG FIX**: Invoices tab pending amount now correctly calculated as `net_payable - credit_notes - paid`
+  - Root cause: Frontend was using the stale `final_payable` field from database instead of calculating dynamically
+  - Example: NAR-INV-10JUN2026-001 now shows ₹1,986.40 pending (was incorrectly showing ₹3,676)
+- **BUG FIX**: Final Summary expanded view now shows correct variant names instead of UUIDs
+  - Root cause: Invoice items stored variant_id in `variant_name` field
+  - Solution: Backend now looks up actual variant names from `qc_packaging` collection
+- **ENHANCEMENT**: Final Summary item details table reorganized with columns: Supplied Qty, MRP, Supplied Value, Rejection Qty, Rejection Amt, Billable Qty, Billable Value
+- **ENHANCEMENT**: Added TOTAL row at bottom of item details showing sum of all quantities and values
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed pending amount calculation, reorganized item columns, added totals footer
+  - `/app/backend/routes/retailer_portal.py` - Added qc_packaging lookup, item_totals in response
+
 ### June 14, 2025 - Credit Notes Against Invoice Display Fix ✅
 - **BUG FIX**: Credit Notes "Against Invoice" column now properly displays which invoice each credit note was adjusted against
   - Root cause: Frontend was reading `adjusted_against_invoices` but data was stored in `adjusted_in_invoices`

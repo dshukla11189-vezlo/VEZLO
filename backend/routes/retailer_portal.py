@@ -2730,6 +2730,10 @@ async def get_invoice_final_summary(
     ).to_list(100)
     retailer_map = {r["id"]: r for r in retailers_data}
     
+    # Get qc_packaging for variant name lookup
+    packaging_docs = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    packaging_map = {p["id"]: p.get("name", "") for p in packaging_docs}
+    
     # Get credit notes adjusted against each invoice
     credit_notes = await db.retailer_credit_notes.find({
         "retailer_id": {"$in": retailer_ids} if retailer_ids else {"$exists": True},
@@ -2768,6 +2772,15 @@ async def get_invoice_final_summary(
         
         # Build item-level details from invoice items (which already have rejection data)
         items = []
+        item_totals = {
+            "supplied_qty": 0,
+            "rejected_qty": 0,
+            "billable_qty": 0,
+            "supply_value": 0,
+            "rejection_value": 0,
+            "billable_value": 0
+        }
+        
         for inv_item in inv.get("items", []):
             supplied_qty = inv_item.get("supplied_qty", 0) or inv_item.get("quantity", 0) or 0
             rejected_qty = inv_item.get("rejected_qty", 0) or inv_item.get("rejection_qty", 0) or 0
@@ -2778,17 +2791,36 @@ async def get_invoice_final_summary(
             rejection_value = rejected_qty * mrp
             billable_value = billable_qty * mrp
             
+            # Look up actual variant name from qc_packaging
+            variant_id = inv_item.get("variant_name", "") or inv_item.get("variant_id", "")
+            variant_name = packaging_map.get(variant_id, variant_id) if variant_id else ""
+            # If still looks like a UUID, try to get a cleaner display
+            if variant_name and len(variant_name) > 30 and "-" in variant_name:
+                variant_name = ""  # Clear it if it's still a UUID
+            
             items.append({
                 "product_name": inv_item.get("product_name", ""),
-                "variant_name": inv_item.get("variant_name", ""),
+                "variant_name": variant_name,
                 "supplied_qty": supplied_qty,
-                "rejected_qty": rejected_qty,
-                "billable_qty": billable_qty,
                 "rate": mrp,
                 "supply_value": round(supply_value, 2),
+                "rejected_qty": rejected_qty,
                 "rejection_value": round(rejection_value, 2),
+                "billable_qty": billable_qty,
                 "billable_value": round(billable_value, 2)
             })
+            
+            # Update item totals
+            item_totals["supplied_qty"] += supplied_qty
+            item_totals["rejected_qty"] += rejected_qty
+            item_totals["billable_qty"] += billable_qty
+            item_totals["supply_value"] += supply_value
+            item_totals["rejection_value"] += rejection_value
+            item_totals["billable_value"] += billable_value
+        
+        # Round item totals
+        for key in ["supply_value", "rejection_value", "billable_value"]:
+            item_totals[key] = round(item_totals[key], 2)
         
         # Sort items by product name
         items.sort(key=lambda x: x["product_name"])
@@ -2826,7 +2858,8 @@ async def get_invoice_final_summary(
             "paid": round(paid, 2),
             "final_payable": round(final_payable, 2),
             "status": status,
-            "items": items  # Item-level details from invoice
+            "items": items,  # Item-level details from invoice
+            "item_totals": item_totals  # Totals for items row
         }
         rows.append(row)
         

@@ -10389,14 +10389,14 @@ export default function RetailerOrders() {
                       <tr><td colSpan={11} className="p-8 text-center text-gray-400">No invoices found</td></tr>
                     ) : filteredInvoices.map((invoice, invoiceIdx) => {
                       const paidAmount = invoice.paid_amount || 0;
-                      // Use final_payable if credit notes were adjusted, otherwise net_payable
-                      const invoicePayable = invoice.final_payable || invoice.net_payable || 0;
-                      const netPayable = invoice.net_payable || 0; // Original amount before any adjustments
-                      const pendingAmount = invoicePayable - paidAmount;
-                      // For excess calculation, compare against net_payable (original receivable)
-                      // This handles cases where final_payable was incorrectly set
-                      const excessAmount = paidAmount > netPayable ? paidAmount - netPayable : 0;
-                      const isExcessPaid = paidAmount > netPayable && netPayable > 0;
+                      const netPayable = invoice.net_payable || 0; // Original receivable amount
+                      const creditAdjusted = invoice.total_credit_adjusted || 0;
+                      // Calculate actual pending: net_payable - credit_notes - paid
+                      const actualReceivable = netPayable - creditAdjusted;
+                      const pendingAmount = actualReceivable - paidAmount;
+                      // For excess calculation
+                      const excessAmount = paidAmount > actualReceivable && actualReceivable > 0 ? paidAmount - actualReceivable : 0;
+                      const isExcessPaid = paidAmount > actualReceivable && actualReceivable > 0;
                       const status = invoice.status || 'pending';
                       
                       return (
@@ -10411,14 +10411,14 @@ export default function RetailerOrders() {
                             <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
                             <td className="p-3 text-center">{invoice.items?.length || 0}</td>
                             <td className="p-3 text-right">
-                              {invoice.credit_note_adjustments?.length > 0 ? (
+                              {creditAdjusted > 0 ? (
                                 <div className="text-xs">
-                                  <div className="text-gray-500 line-through">{formatCurrency(invoice.net_payable)}</div>
-                                  <div className="text-red-500">- {formatCurrency(invoice.total_credit_adjusted || 0)} CN</div>
-                                  <div className="font-semibold text-green-700">{formatCurrency(invoice.final_payable || invoice.net_payable)}</div>
+                                  <div className="text-gray-500 line-through">{formatCurrency(netPayable)}</div>
+                                  <div className="text-red-500">- {formatCurrency(creditAdjusted)} CN</div>
+                                  <div className="font-semibold text-green-700">{formatCurrency(actualReceivable)}</div>
                                 </div>
                               ) : (
-                                <span className="font-semibold">{formatCurrency(invoice.net_payable)}</span>
+                                <span className="font-semibold">{formatCurrency(netPayable)}</span>
                               )}
                             </td>
                             <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(paidAmount)}</td>
@@ -12134,12 +12134,12 @@ export default function RetailerOrders() {
                                         <tr>
                                           <th className="px-2 py-1 text-left">Product</th>
                                           <th className="px-2 py-1 text-left">Variant</th>
-                                          <th className="px-2 py-1 text-right">Supplied</th>
-                                          <th className="px-2 py-1 text-right text-red-600">Rejected</th>
-                                          <th className="px-2 py-1 text-right text-green-600">Billable</th>
-                                          <th className="px-2 py-1 text-right">Rate</th>
-                                          <th className="px-2 py-1 text-right">Supply Value</th>
-                                          <th className="px-2 py-1 text-right text-red-600">Rejection Value</th>
+                                          <th className="px-2 py-1 text-right">Supplied Qty</th>
+                                          <th className="px-2 py-1 text-right">MRP</th>
+                                          <th className="px-2 py-1 text-right">Supplied Value</th>
+                                          <th className="px-2 py-1 text-right text-red-600">Rejection Qty</th>
+                                          <th className="px-2 py-1 text-right text-red-600">Rejection Amt</th>
+                                          <th className="px-2 py-1 text-right text-green-600">Billable Qty</th>
                                           <th className="px-2 py-1 text-right text-green-600">Billable Value</th>
                                         </tr>
                                       </thead>
@@ -12149,21 +12149,37 @@ export default function RetailerOrders() {
                                             <td className="px-2 py-1">{item.product_name}</td>
                                             <td className="px-2 py-1 text-gray-500">{item.variant_name || '-'}</td>
                                             <td className="px-2 py-1 text-right">{item.supplied_qty}</td>
-                                            <td className="px-2 py-1 text-right text-red-600">
-                                              {item.rejected_qty > 0 ? item.rejected_qty : '-'}
-                                            </td>
-                                            <td className="px-2 py-1 text-right text-green-600 font-medium">{item.billable_qty}</td>
                                             <td className="px-2 py-1 text-right">₹{item.rate?.toLocaleString('en-IN') || 0}</td>
                                             <td className="px-2 py-1 text-right">₹{item.supply_value?.toLocaleString('en-IN')}</td>
                                             <td className="px-2 py-1 text-right text-red-600">
+                                              {item.rejected_qty > 0 ? item.rejected_qty : '-'}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-red-600">
                                               {item.rejection_value > 0 ? `-₹${item.rejection_value?.toLocaleString('en-IN')}` : '-'}
                                             </td>
+                                            <td className="px-2 py-1 text-right text-green-600 font-medium">{item.billable_qty}</td>
                                             <td className="px-2 py-1 text-right text-green-600 font-medium">
                                               ₹{item.billable_value?.toLocaleString('en-IN')}
                                             </td>
                                           </tr>
                                         ))}
                                       </tbody>
+                                      {row.item_totals && (
+                                        <tfoot className="bg-gray-200 font-semibold border-t-2 border-gray-300">
+                                          <tr>
+                                            <td colSpan="2" className="px-2 py-1 text-right">TOTAL</td>
+                                            <td className="px-2 py-1 text-right">{row.item_totals.supplied_qty}</td>
+                                            <td className="px-2 py-1 text-right">-</td>
+                                            <td className="px-2 py-1 text-right">₹{row.item_totals.supply_value?.toLocaleString('en-IN')}</td>
+                                            <td className="px-2 py-1 text-right text-red-600">{row.item_totals.rejected_qty || '-'}</td>
+                                            <td className="px-2 py-1 text-right text-red-600">
+                                              {row.item_totals.rejection_value > 0 ? `-₹${row.item_totals.rejection_value?.toLocaleString('en-IN')}` : '-'}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-green-600">{row.item_totals.billable_qty}</td>
+                                            <td className="px-2 py-1 text-right text-green-600">₹{row.item_totals.billable_value?.toLocaleString('en-IN')}</td>
+                                          </tr>
+                                        </tfoot>
+                                      )}
                                     </table>
                                   </div>
                                 </td>

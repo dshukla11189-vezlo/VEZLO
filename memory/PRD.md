@@ -11,9 +11,10 @@
 - **BUG FIX**: Dispatch modal now shows retailer/shop name instead of owner name
   - Changed from `selectedIndent?.retailer_name` to `getRetailerNameById(selectedIndent?.retailer_id)`
   - Now correctly shows "Dispatch to Savtamali" instead of "Dispatch to Sonaji Kharat"
-- **BUG FIX**: Dispatch popup product order now matches indent print order
-  - Added sorting by: Category → Product Type (for Vegetables) → Product Name (alphabetical)
-  - Categories: Vegetables (Hard/Semi-hard/Leafy) → Fruits → Exotic → Sprouts → Others
+- **BUG FIX**: Products now sorted alphabetically within categories in both Indent PDF and Dispatch popup
+  - Indent PDF: Added alphabetical sorting within each category/type group
+  - Dispatch popup: Already had category/type sorting, confirmed alphabetical within groups
+  - Order: Vegetables (Hard → Semi-hard → Leafy, each alphabetical) → Fruits (alphabetical) → Exotic → Sprouts
 - **ENHANCEMENT**: Labour Inactive State Visual Clarity
   - Added "Show inactive" toggle checkbox (only appears when inactive labourers exist)
   - Improved status badges: "✓ Active" (green) / "✗ Inactive" (red) with hover color transitions
@@ -24,7 +25,7 @@
   - Products added via MRP overrides now appear in the Stickers list (even without day's indents)
   - Print function includes override-only products with quantity 0
 - **FILES MODIFIED**:
-  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, button rename
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting
   - `/app/frontend/src/pages/admin/LaborCosts.js` - Inactive state toggle, visual improvements
 
 

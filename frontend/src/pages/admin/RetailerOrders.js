@@ -5827,6 +5827,17 @@ export default function RetailerOrders() {
       }
     });
     
+    // Sort items alphabetically within each group
+    Object.keys(groupedItems).forEach(category => {
+      Object.keys(groupedItems[category]).forEach(type => {
+        groupedItems[category][type].sort((a, b) => {
+          const nameA = (a.product_name || '').toLowerCase();
+          const nameB = (b.product_name || '').toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+      });
+    });
+    
     // Sort categories
     const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
       const indexA = categoryOrder.indexOf(a);

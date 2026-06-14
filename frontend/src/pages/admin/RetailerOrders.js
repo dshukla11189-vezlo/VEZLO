@@ -12285,6 +12285,7 @@ export default function RetailerOrders() {
                             <th className="p-2 text-right text-blue-600">Total MRP</th>
                             <th className="p-2 text-right text-orange-600">Commission</th>
                             <th className="p-2 text-right text-green-600">Payable</th>
+                            <th className="p-2 text-right text-pink-600">Credit Notes</th>
                             <th className="p-2 text-right text-purple-600">Paid</th>
                             <th className="p-2 text-right text-blue-800 font-semibold">Net Receivable</th>
                           </tr>
@@ -12297,8 +12298,10 @@ export default function RetailerOrders() {
                             const totalMrp = inv.total_mrp_value || 0;
                             const commission = inv.commission_amount || 0;
                             const payable = inv.net_payable || 0;
+                            const creditNotes = inv.total_credit_adjusted || 0;
                             const paidAmount = inv.paid_amount || 0;
-                            const netReceivable = payable - paidAmount;
+                            // Net Receivable = Payable - Credit Notes - Paid
+                            const netReceivable = payable - creditNotes - paidAmount;
                             
                             // Format date as DD-MM-YYYY
                             const formatDate = (dateStr) => {
@@ -12339,6 +12342,7 @@ export default function RetailerOrders() {
                                 <td className="p-2 text-right text-blue-600">₹{totalMrp.toFixed(2)}</td>
                                 <td className="p-2 text-right text-orange-600">-₹{commission.toFixed(2)}</td>
                                 <td className="p-2 text-right font-medium text-green-600">₹{payable.toFixed(2)}</td>
+                                <td className="p-2 text-right text-pink-600">{creditNotes > 0 ? `-₹${creditNotes.toFixed(2)}` : '₹0.00'}</td>
                                 <td className="p-2 text-right text-purple-600">₹{paidAmount.toFixed(2)}</td>
                                 <td className="p-2 text-right font-semibold text-blue-800">₹{netReceivable.toFixed(2)}</td>
                               </tr>
@@ -12366,11 +12370,14 @@ export default function RetailerOrders() {
                               <td className="p-2 text-right text-green-700">
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.net_payable || 0), 0).toFixed(2)}
                               </td>
+                              <td className="p-2 text-right text-pink-700">
+                                -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.total_credit_adjusted || 0), 0).toFixed(2)}
+                              </td>
                               <td className="p-2 text-right text-purple-700">
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.paid_amount || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-blue-800 font-bold">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + ((inv.net_payable || 0) - (inv.paid_amount || 0)), 0).toFixed(2)}
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + ((inv.net_payable || 0) - (inv.total_credit_adjusted || 0) - (inv.paid_amount || 0)), 0).toFixed(2)}
                               </td>
                             </tr>
                           </tfoot>

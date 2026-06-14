@@ -3,6 +3,15 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Payment Summary Credit Notes Column ✅
+- **FEATURE**: Added "Credit Notes" column to Payment Summary modal
+  - Placed after "Payable" column, before "Paid" column
+  - Shows credit notes adjusted against each invoice (pink color, with - prefix)
+  - Updated Net Receivable calculation: `Payable - Credit Notes - Paid`
+  - Added Credit Notes total to footer row
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added Credit Notes column to Payment Summary modal
+
 ### June 14, 2025 - Invoice Pending Amount & Final Summary Fixes ✅
 - **BUG FIX**: Invoices tab pending amount now correctly calculated as `net_payable - credit_notes - paid`
   - Root cause: Frontend was using the stale `final_payable` field from database instead of calculating dynamically

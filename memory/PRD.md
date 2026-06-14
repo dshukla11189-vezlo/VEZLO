@@ -3,6 +3,16 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Final Summary Tab Rejection Data Fix ✅
+- **BUG FIX**: Fixed Final Summary tab not showing rejection data
+  - Root cause: The endpoint was trying to match rejections to invoices by `retailer_id + date`, but rejection dates don't always match invoice dates
+  - Solution: Now uses the invoice's stored `rejection_amount` field which is already correctly linked
+  - Also fixed item-level breakdown to use invoice items' `rejected_qty` instead of trying to match from separate rejections collection
+  - **Before**: Totals showed `rejections: 0` even when invoices had rejections
+  - **After**: Totals correctly show `rejections: 69683.0` and individual rows display rejection values
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Rewrote `/api/retailer-invoices/final-summary` endpoint to use invoice's stored rejection data
+
 ### June 14, 2025 - Print Bug Fix & Labour UX Improvements ✅
 - **BUG FIX**: Fixed Stickers & MRP Print showing "undefined" products
   - Root cause: Field name mismatch between `stickersData` structure and `printStickersMrp()` function

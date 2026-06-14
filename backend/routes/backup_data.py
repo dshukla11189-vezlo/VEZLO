@@ -7,11 +7,12 @@ Handles backup management, data sync, data reset, and admin utilities.
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 import io
 import os
 import httpx
+import bcrypt
 
 from dependencies import (
     db,

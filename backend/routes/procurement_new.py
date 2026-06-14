@@ -390,6 +390,21 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
     if not result:
         raise HTTPException(status_code=404, detail="Procurement not found")
     
+    # When settlement_status changes to 'settled', also update all associated procurement_payments
+    if "settlement_status" in update_fields:
+        new_settlement_status = update_fields.get("settlement_status")
+        payment_update = {"settlement_status": new_settlement_status}
+        if "settlement_date" in update_fields:
+            payment_update["settlement_date"] = update_fields["settlement_date"]
+        if "is_settled" in update_fields:
+            payment_update["is_settled"] = update_fields["is_settled"]
+        
+        # Update all procurement_payments for this procurement
+        await db.procurement_payments.update_many(
+            {"procurement_id": procurement_id, "paid_by_type": "employee"},
+            {"$set": payment_update}
+        )
+    
     # Update stock status when products or date changes
     if products_changed or date_changed:
         old_date_str = str(old_date)[:10] if old_date else None

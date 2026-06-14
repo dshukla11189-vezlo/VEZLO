@@ -793,15 +793,25 @@ export default function VariableExpenses() {
             <Button variant="outline" size="sm" onClick={loadExpenses}>
               <RefreshCw size={14} className="mr-1" /> Refresh
             </Button>
-            {getVendorsWithPendingPayments().length > 0 && (
+            {/* Settle button - behavior depends on whether items are selected */}
+            {(selectedExpenses.length > 0 || getVendorsWithPendingPayments().length > 0) && (
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={openVendorPaymentModal}
-                className="text-purple-600 border-purple-300"
+                onClick={() => {
+                  if (selectedExpenses.length > 0) {
+                    // Individual items selected - open settlement dialog
+                    setShowSettlementDialog(true);
+                  } else {
+                    // No items selected - open vendor payment modal
+                    openVendorPaymentModal();
+                  }
+                }}
+                className={selectedExpenses.length > 0 ? "text-green-600 border-green-300" : "text-purple-600 border-purple-300"}
                 data-testid="settle-payments-btn"
               >
-                <IndianRupee size={14} className="mr-1" /> Settle
+                <IndianRupee size={14} className="mr-1" /> 
+                {selectedExpenses.length > 0 ? `Settle ${selectedExpenses.length} Selected` : 'Settle'}
               </Button>
             )}
             <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">

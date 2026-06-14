@@ -3,6 +3,17 @@
 ## Changelog (June 2025)
 
 
+### June 14, 2025 - Statement Tab Grouping Feature ✅
+- **FEATURE**: Multiple line items on the same day + same category now show as a collapsed group
+  - Groups payments, credit notes, invoices, rejections when multiple occur on same date
+  - Shows total amount and count (e.g., "9 Payments", "3 Credit Notes")
+  - Click row to expand and see individual items with their references
+  - Click again to collapse
+  - Expanded items show with "↳" prefix for visual hierarchy
+- **Example**: 25 May had 9 payments totaling ₹3,787.7 - now shown as single expandable row
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added `groupStatementEntries` function and expandable row rendering
+
 ### June 14, 2025 - Payment Summary Credit Notes Column ✅
 - **FEATURE**: Added "Credit Notes" column to Payment Summary modal
   - Placed after "Payable" column, before "Paid" column

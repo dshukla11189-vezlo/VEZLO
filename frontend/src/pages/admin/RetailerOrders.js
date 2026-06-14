@@ -339,6 +339,7 @@ export default function RetailerOrders() {
     return d.toISOString().split('T')[0];
   });
   const [statementEndDate, setStatementEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expandedStatementGroups, setExpandedStatementGroups] = useState({});
   
   // Rejections state
   const [rejections, setRejections] = useState([]);
@@ -742,6 +743,7 @@ export default function RetailerOrders() {
       return;
     }
     setStatementLoading(true);
+    setExpandedStatementGroups({}); // Reset expanded groups when loading new data
     try {
       const params = new URLSearchParams({
         retailer_id: retailerId,
@@ -757,6 +759,68 @@ export default function RetailerOrders() {
       setStatementLoading(false);
     }
   }, []);
+
+  // Helper function to group statement entries by date+type for collapsible view
+  const groupStatementEntries = (entries) => {
+    if (!entries || entries.length === 0) return [];
+    
+    const grouped = [];
+    let i = 0;
+    
+    while (i < entries.length) {
+      const current = entries[i];
+      const currentDate = current.date?.split('T')[0];
+      const currentType = current.type;
+      
+      // Find all consecutive entries with same date and type
+      const groupItems = [current];
+      let j = i + 1;
+      
+      while (j < entries.length) {
+        const next = entries[j];
+        const nextDate = next.date?.split('T')[0];
+        const nextType = next.type;
+        
+        if (nextDate === currentDate && nextType === currentType) {
+          groupItems.push(next);
+          j++;
+        } else {
+          break;
+        }
+      }
+      
+      if (groupItems.length > 1) {
+        // Multiple items - create a grouped entry
+        const totalDebit = groupItems.reduce((sum, item) => sum + (item.debit || 0), 0);
+        const totalCredit = groupItems.reduce((sum, item) => sum + (item.credit || 0), 0);
+        const lastBalance = groupItems[groupItems.length - 1].balance;
+        
+        grouped.push({
+          isGroup: true,
+          groupKey: `${currentDate}_${currentType}`,
+          date: current.date,
+          type: currentType,
+          itemCount: groupItems.length,
+          totalDebit,
+          totalCredit,
+          balance: lastBalance,
+          items: groupItems,
+          // For display reference
+          reference: `${groupItems.length} ${currentType === 'payment' ? 'Payments' : currentType === 'credit_note' ? 'Credit Notes' : currentType === 'invoice' ? 'Invoices' : currentType === 'rejection' ? 'Rejections' : 'Items'}`
+        });
+      } else {
+        // Single item - just add it
+        grouped.push({
+          isGroup: false,
+          ...current
+        });
+      }
+      
+      i = j;
+    }
+    
+    return grouped;
+  };
 
   const loadRejections = useCallback(async () => {
     try {
@@ -11197,48 +11261,141 @@ export default function RetailerOrders() {
                         </tr>
                       </thead>
                       <tbody>
-                        {statementData.entries?.map((entry, idx) => (
-                          <tr key={idx} className={`border-t hover:bg-gray-50 ${
-                            entry.type === 'invoice' ? 'bg-red-50/30' : 
-                            entry.type === 'payment' ? 'bg-green-50/30' : 
-                            entry.type === 'credit_note' ? 'bg-blue-50/30' :
-                            entry.type === 'rejection' ? 'bg-yellow-50/30' : ''
-                          }`}>
-                            <td className="px-2 py-1.5 whitespace-nowrap text-gray-600">
-                              {new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <div className="flex items-center gap-2">
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  entry.type === 'invoice' ? 'bg-red-100 text-red-700' :
-                                  entry.type === 'payment' ? 'bg-green-100 text-green-700' :
-                                  entry.type === 'credit_note' ? 'bg-blue-100 text-blue-700' :
-                                  entry.type === 'rejection' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-gray-100 text-gray-700'
+                        {(() => {
+                          const groupedEntries = groupStatementEntries(statementData.entries);
+                          return groupedEntries.map((entry, idx) => {
+                            if (entry.isGroup) {
+                              // Grouped entry with multiple items
+                              const isExpanded = expandedStatementGroups[entry.groupKey];
+                              return (
+                                <React.Fragment key={`group-${idx}`}>
+                                  {/* Collapsed Summary Row */}
+                                  <tr 
+                                    className={`border-t cursor-pointer hover:bg-gray-100 ${
+                                      entry.type === 'invoice' ? 'bg-red-50/50' : 
+                                      entry.type === 'payment' ? 'bg-green-50/50' : 
+                                      entry.type === 'credit_note' ? 'bg-blue-50/50' :
+                                      entry.type === 'rejection' ? 'bg-yellow-50/50' : ''
+                                    }`}
+                                    onClick={() => setExpandedStatementGroups(prev => ({
+                                      ...prev,
+                                      [entry.groupKey]: !prev[entry.groupKey]
+                                    }))}
+                                  >
+                                    <td className="px-2 py-1.5 whitespace-nowrap text-gray-600">
+                                      {new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <div className="flex items-center gap-2">
+                                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-xs ${isExpanded ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-700'}`}>
+                                          {isExpanded ? '−' : '+'}
+                                        </span>
+                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                          entry.type === 'invoice' ? 'bg-red-100 text-red-700' :
+                                          entry.type === 'payment' ? 'bg-green-100 text-green-700' :
+                                          entry.type === 'credit_note' ? 'bg-blue-100 text-blue-700' :
+                                          entry.type === 'rejection' ? 'bg-yellow-100 text-yellow-700' :
+                                          'bg-gray-100 text-gray-700'
+                                        }`}>
+                                          {entry.type === 'invoice' ? 'INV' : 
+                                           entry.type === 'payment' ? 'PMT' :
+                                           entry.type === 'credit_note' ? 'CN' :
+                                           entry.type === 'rejection' ? 'REJ' :
+                                           entry.type.substring(0, 3).toUpperCase()}
+                                        </span>
+                                        <span className="font-medium text-gray-800">{entry.reference}</span>
+                                        <span className="text-xs text-gray-500">(click to {isExpanded ? 'collapse' : 'expand'})</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right font-medium text-red-600">
+                                      {entry.totalDebit > 0 ? entry.totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right font-medium text-green-600">
+                                      {entry.totalCredit > 0 ? entry.totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
+                                    </td>
+                                    <td className={`px-2 py-1.5 text-right font-semibold ${
+                                      entry.balance > 0 ? 'text-orange-600' : entry.balance < 0 ? 'text-blue-600' : 'text-gray-600'
+                                    }`}>
+                                      {Math.abs(entry.balance).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                                      {entry.balance < 0 ? ' Cr' : ''}
+                                    </td>
+                                  </tr>
+                                  
+                                  {/* Expanded Individual Items */}
+                                  {isExpanded && entry.items.map((item, itemIdx) => (
+                                    <tr key={`item-${idx}-${itemIdx}`} className={`border-t border-dashed ${
+                                      entry.type === 'invoice' ? 'bg-red-50/20' : 
+                                      entry.type === 'payment' ? 'bg-green-50/20' : 
+                                      entry.type === 'credit_note' ? 'bg-blue-50/20' :
+                                      entry.type === 'rejection' ? 'bg-yellow-50/20' : 'bg-gray-50'
+                                    }`}>
+                                      <td className="px-2 py-1 text-gray-400 text-xs pl-6">↳</td>
+                                      <td className="px-2 py-1">
+                                        <div className="flex items-center gap-2 pl-6">
+                                          <span className="text-gray-600 text-sm">{item.reference}</span>
+                                        </div>
+                                      </td>
+                                      <td className="px-2 py-1 text-right text-red-500 text-sm">
+                                        {item.debit > 0 ? item.debit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
+                                      </td>
+                                      <td className="px-2 py-1 text-right text-green-500 text-sm">
+                                        {item.credit > 0 ? item.credit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
+                                      </td>
+                                      <td className="px-2 py-1 text-right text-gray-400 text-sm">
+                                        {Math.abs(item.balance).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                                        {item.balance < 0 ? ' Cr' : ''}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
+                              );
+                            } else {
+                              // Single entry - render normally
+                              return (
+                                <tr key={idx} className={`border-t hover:bg-gray-50 ${
+                                  entry.type === 'invoice' ? 'bg-red-50/30' : 
+                                  entry.type === 'payment' ? 'bg-green-50/30' : 
+                                  entry.type === 'credit_note' ? 'bg-blue-50/30' :
+                                  entry.type === 'rejection' ? 'bg-yellow-50/30' : ''
                                 }`}>
-                                  {entry.type === 'invoice' ? 'INV' : 
-                                   entry.type === 'payment' ? 'PMT' :
-                                   entry.type === 'credit_note' ? 'CN' :
-                                   entry.type === 'rejection' ? 'REJ' :
-                                   entry.type.substring(0, 3).toUpperCase()}
-                                </span>
-                                <span className="font-medium text-gray-800">{entry.reference}</span>
-                              </div>
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-medium text-red-600">
-                              {entry.debit > 0 ? entry.debit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-medium text-green-600">
-                              {entry.credit > 0 ? entry.credit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
-                            </td>
-                            <td className={`px-2 py-1.5 text-right font-semibold ${
-                              entry.balance > 0 ? 'text-orange-600' : entry.balance < 0 ? 'text-blue-600' : 'text-gray-600'
-                            }`}>
-                              {Math.abs(entry.balance).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
-                              {entry.balance < 0 ? ' Cr' : ''}
-                            </td>
-                          </tr>
-                        ))}
+                                  <td className="px-2 py-1.5 whitespace-nowrap text-gray-600">
+                                    {new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                        entry.type === 'invoice' ? 'bg-red-100 text-red-700' :
+                                        entry.type === 'payment' ? 'bg-green-100 text-green-700' :
+                                        entry.type === 'credit_note' ? 'bg-blue-100 text-blue-700' :
+                                        entry.type === 'rejection' ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-gray-100 text-gray-700'
+                                      }`}>
+                                        {entry.type === 'invoice' ? 'INV' : 
+                                         entry.type === 'payment' ? 'PMT' :
+                                         entry.type === 'credit_note' ? 'CN' :
+                                         entry.type === 'rejection' ? 'REJ' :
+                                         entry.type.substring(0, 3).toUpperCase()}
+                                      </span>
+                                      <span className="font-medium text-gray-800">{entry.reference}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right font-medium text-red-600">
+                                    {entry.debit > 0 ? entry.debit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right font-medium text-green-600">
+                                    {entry.credit > 0 ? entry.credit.toLocaleString('en-IN', { minimumFractionDigits: 0 }) : '-'}
+                                  </td>
+                                  <td className={`px-2 py-1.5 text-right font-semibold ${
+                                    entry.balance > 0 ? 'text-orange-600' : entry.balance < 0 ? 'text-blue-600' : 'text-gray-600'
+                                  }`}>
+                                    {Math.abs(entry.balance).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                                    {entry.balance < 0 ? ' Cr' : ''}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          });
+                        })()}
                         
                         {/* Closing Row */}
                         {statementData.entries?.length > 0 && (

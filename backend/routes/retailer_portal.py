@@ -32,6 +32,7 @@ from models import (
     RetailerDispatchCreate,
     RetailerInvoice,
     RetailerInvoiceCreate,
+    RetailerInvoiceItem,
     RetailerGRN,
     RetailerGRNCreate,
     RetailerRejection,

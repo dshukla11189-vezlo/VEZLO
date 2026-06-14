@@ -2081,6 +2081,7 @@ export default function VariableExpenses() {
                       <div
                         key={vendor.name}
                         onClick={() => setSelectedVendorForPayment(vendor)}
+                        data-testid={`vendor-payment-row-${vendor.name.replace(/\s+/g, '-').toLowerCase()}`}
                         className={`p-3 rounded-lg cursor-pointer border transition-all ${
                           selectedVendorForPayment?.name === vendor.name 
                             ? 'border-purple-500 bg-purple-50' 

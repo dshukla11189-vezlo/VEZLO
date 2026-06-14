@@ -10269,7 +10269,12 @@ export default function RetailerOrders() {
                       const paidAmount = invoice.paid_amount || 0;
                       // Use final_payable if credit notes were adjusted, otherwise net_payable
                       const invoicePayable = invoice.final_payable || invoice.net_payable || 0;
+                      const netPayable = invoice.net_payable || 0; // Original amount before any adjustments
                       const pendingAmount = invoicePayable - paidAmount;
+                      // For excess calculation, compare against net_payable (original receivable)
+                      // This handles cases where final_payable was incorrectly set
+                      const excessAmount = paidAmount > netPayable ? paidAmount - netPayable : 0;
+                      const isExcessPaid = paidAmount > netPayable && netPayable > 0;
                       const status = invoice.status || 'pending';
                       
                       return (
@@ -10296,10 +10301,14 @@ export default function RetailerOrders() {
                             </td>
                             <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(paidAmount)}</td>
                             <td className="p-3 text-right text-amber-600 font-medium">
-                              {pendingAmount > 0 ? formatCurrency(pendingAmount) : pendingAmount < 0 ? <span className="text-purple-600">{formatCurrency(Math.abs(pendingAmount))} excess</span> : '-'}
+                              {isExcessPaid ? (
+                                <span className="text-purple-600">{formatCurrency(excessAmount)} excess</span>
+                              ) : pendingAmount > 0 ? (
+                                formatCurrency(pendingAmount)
+                              ) : '-'}
                             </td>
                             <td className="p-3 text-center">
-                              {paidAmount > (invoice.net_payable || 0) ? (
+                              {isExcessPaid ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200 animate-pulse">
                                   <AlertTriangle size={12} className="mr-1" /> Excess Paid
                                 </span>
@@ -10319,7 +10328,7 @@ export default function RetailerOrders() {
                             </td>
                             <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
-                                {paidAmount > (invoice.net_payable || 0) ? (
+                                {isExcessPaid ? (
                                   // Excess Paid - show View and Credit Note button
                                   <>
                                     <Button 
@@ -10336,7 +10345,7 @@ export default function RetailerOrders() {
                                         size="sm" 
                                         variant="outline" 
                                         className="text-purple-600 border-purple-300 hover:bg-purple-50"
-                                        onClick={() => handleCreateExcessCreditNote(invoice, paidAmount - (invoice.net_payable || 0))}
+                                        onClick={() => handleCreateExcessCreditNote(invoice, excessAmount)}
                                         title="Create Credit Note for Excess Amount"
                                       >
                                         <FileText size={14} className="mr-1" /> CN

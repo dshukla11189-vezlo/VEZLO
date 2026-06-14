@@ -2512,9 +2512,25 @@ async def get_retailer_invoices(
     
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(limit)
     
-    # PERFORMANCE: Skip heavy enrichment if invoices already have rejection data
-    # Only enrich invoices that were created before the rejection tracking was added
-    invoices_needing_enrichment = [inv for inv in invoices if (inv.get("rejection_amount") or 0) == 0 and inv.get("dispatch_ids")]
+    # PERFORMANCE: Check if items need enrichment with rejected_qty
+    # An invoice needs enrichment if:
+    # 1. It has rejection_amount but items don't have rejected_qty, OR
+    # 2. It doesn't have rejection_amount but has dispatch_ids (old invoice)
+    def needs_item_enrichment(inv):
+        items = inv.get("items", [])
+        has_rejection_amount = (inv.get("rejection_amount") or 0) > 0
+        has_item_rejections = any(item.get("rejected_qty", 0) > 0 for item in items)
+        has_dispatch_ids = bool(inv.get("dispatch_ids"))
+        
+        # If has rejection amount but no item-level rejections, needs enrichment
+        if has_rejection_amount and not has_item_rejections and has_dispatch_ids:
+            return True
+        # If no rejection amount but has dispatch_ids, might need enrichment (old invoice)
+        if not has_rejection_amount and has_dispatch_ids:
+            return True
+        return False
+    
+    invoices_needing_enrichment = [inv for inv in invoices if needs_item_enrichment(inv)]
     
     # Limit enrichment to only 10 invoices per request to avoid timeout
     if len(invoices_needing_enrichment) > 10:

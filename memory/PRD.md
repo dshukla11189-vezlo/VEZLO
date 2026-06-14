@@ -15,6 +15,14 @@
   - Indent PDF: Added alphabetical sorting within each category/type group
   - Dispatch popup: Already had category/type sorting, confirmed alphabetical within groups
   - Order: Vegetables (Hard → Semi-hard → Leafy, each alphabetical) → Fruits (alphabetical) → Exotic → Sprouts
+- **BUG FIX**: Invoice excess amounts now showing correctly for all "Excess Paid" invoices
+  - Root cause: `final_payable` was incorrectly stored in some invoices, making `pendingAmount = 0`
+  - Fixed: Now calculates excess using `net_payable` (original receivable) instead of `final_payable`
+  - June 9, June 3, etc. invoices now show correct excess amounts (e.g., "₹336.00 excess")
+- **BUG FIX**: Invoice item-level rejections now populate correctly
+  - Root cause: Enrichment logic skipped invoices with `rejection_amount > 0` even if items didn't have `rejected_qty`
+  - Fixed: Backend now checks if items actually have `rejected_qty` before skipping enrichment
+  - June 10 invoice now shows: Supplied Qty → Rejection (-X) → Billable Qty correctly
 - **ENHANCEMENT**: Labour Inactive State Visual Clarity
   - Added "Show inactive" toggle checkbox (only appears when inactive labourers exist)
   - Improved status badges: "✓ Active" (green) / "✗ Inactive" (red) with hover color transitions
@@ -25,8 +33,9 @@
   - Products added via MRP overrides now appear in the Stickers list (even without day's indents)
   - Print function includes override-only products with quantity 0
 - **FILES MODIFIED**:
-  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, alphabetical sorting, excess amount calculation, rejection display
   - `/app/frontend/src/pages/admin/LaborCosts.js` - Inactive state toggle, visual improvements
+  - `/app/backend/routes/retailer_portal.py` - Invoice enrichment logic fix for item-level rejections
 
 
 ### June 13, 2025 - Retailer Portal Rejections & Admin Chart Defaults ✅

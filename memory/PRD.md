@@ -8,6 +8,12 @@
   - Root cause: Field name mismatch between `stickersData` structure and `printStickersMrp()` function
   - Fixed: `product.product_name` → `product.productName`, `product.sticker_count` → `product.quantity`
   - Print now correctly shows product names, sticker counts, MRP values, and unit types
+- **BUG FIX**: Dispatch modal now shows retailer/shop name instead of owner name
+  - Changed from `selectedIndent?.retailer_name` to `getRetailerNameById(selectedIndent?.retailer_id)`
+  - Now correctly shows "Dispatch to Savtamali" instead of "Dispatch to Sonaji Kharat"
+- **BUG FIX**: Dispatch popup product order now matches indent print order
+  - Added sorting by: Category → Product Type (for Vegetables) → Product Name (alphabetical)
+  - Categories: Vegetables (Hard/Semi-hard/Leafy) → Fruits → Exotic → Sprouts → Others
 - **ENHANCEMENT**: Labour Inactive State Visual Clarity
   - Added "Show inactive" toggle checkbox (only appears when inactive labourers exist)
   - Improved status badges: "✓ Active" (green) / "✗ Inactive" (red) with hover color transitions
@@ -18,7 +24,7 @@
   - Products added via MRP overrides now appear in the Stickers list (even without day's indents)
   - Print function includes override-only products with quantity 0
 - **FILES MODIFIED**:
-  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, button rename, mrpProductsByCategory enhancement
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Print fix, dispatch modal fixes, button rename
   - `/app/frontend/src/pages/admin/LaborCosts.js` - Inactive state toggle, visual improvements
 
 

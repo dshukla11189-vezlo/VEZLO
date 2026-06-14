@@ -5228,9 +5228,38 @@ export default function RetailerOrders() {
       }));
     }
     
+    // Sort items by category, product_type (for vegetables), and product name to match the print order
+    const categoryOrder = ['Vegetables', 'Fruits', 'Exotic', 'Sprouts', 'Others'];
+    const vegetableTypeOrder = ['Hard', 'Semi-hard', 'Leafy', 'Others'];
+    
+    const sortedItemsToDispatch = [...itemsToDispatch].sort((a, b) => {
+      // Get product info for each item
+      const productA = products.find(p => p.id === a.product_id || p.name?.toLowerCase() === a.product_name?.toLowerCase());
+      const productB = products.find(p => p.id === b.product_id || p.name?.toLowerCase() === b.product_name?.toLowerCase());
+      const catA = productA?.category || 'Others';
+      const catB = productB?.category || 'Others';
+      
+      // Compare by category order first
+      const catIndexA = categoryOrder.indexOf(catA) === -1 ? 99 : categoryOrder.indexOf(catA);
+      const catIndexB = categoryOrder.indexOf(catB) === -1 ? 99 : categoryOrder.indexOf(catB);
+      if (catIndexA !== catIndexB) return catIndexA - catIndexB;
+      
+      // For Vegetables, also compare by product_type
+      if (catA === 'Vegetables' && catB === 'Vegetables') {
+        const typeA = productA?.product_type || 'Others';
+        const typeB = productB?.product_type || 'Others';
+        const typeIndexA = vegetableTypeOrder.indexOf(typeA) === -1 ? 99 : vegetableTypeOrder.indexOf(typeA);
+        const typeIndexB = vegetableTypeOrder.indexOf(typeB) === -1 ? 99 : vegetableTypeOrder.indexOf(typeB);
+        if (typeIndexA !== typeIndexB) return typeIndexA - typeIndexB;
+      }
+      
+      // Then compare alphabetically by product name
+      return (a.product_name || '').localeCompare(b.product_name || '');
+    });
+    
     setDispatchForm({
       dispatch_date: dispatchDate,
-      items: itemsToDispatch.map(item => {
+      items: sortedItemsToDispatch.map(item => {
         // Look up variant_id from variant_name if not set
         let variantId = item.variant_id;
         let variantName = item.variant_name || '';
@@ -13393,7 +13422,7 @@ export default function RetailerOrders() {
               <div className="flex items-center justify-between p-4 border-b">
                 <div>
                   <h3 className="text-lg font-semibold">
-                    {editingDispatch ? 'Edit Dispatch' : `Dispatch to ${selectedIndent?.retailer_name}`}
+                    {editingDispatch ? 'Edit Dispatch' : `Dispatch to ${getRetailerNameById(selectedIndent?.retailer_id) || selectedIndent?.retailer_name}`}
                   </h3>
                   {selectedIndent && <p className="text-sm text-gray-500">Indent: {formatDate(selectedIndent?.indent_date)}</p>}
                 </div>

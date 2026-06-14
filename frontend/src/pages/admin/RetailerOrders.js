@@ -11237,11 +11237,6 @@ export default function RetailerOrders() {
                     <div className="bg-green-50 rounded-lg p-3">
                       <div className="text-xs text-green-600">Total Credit</div>
                       <div className="font-semibold text-green-700">₹{statementData.summary?.total_credit?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-                      {statementData.summary?.excluded_credit > 0 && (
-                        <div className="text-[10px] text-gray-500 mt-0.5">
-                          (excl. ₹{statementData.summary.excluded_credit.toLocaleString('en-IN')} CN)
-                        </div>
-                      )}
                     </div>
                     <div className={`rounded-lg p-3 ${statementData.summary?.closing_balance > 0 ? 'bg-orange-50' : 'bg-blue-50'}`}>
                       <div className={`text-xs ${statementData.summary?.closing_balance > 0 ? 'text-orange-600' : 'text-blue-600'}`}>

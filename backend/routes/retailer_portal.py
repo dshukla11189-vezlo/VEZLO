@@ -2682,17 +2682,16 @@ async def get_retailer_invoice(invoice_id: str, current_user: dict = Depends(get
 
 @router.post("/retailer-invoices")
 async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: dict = Depends(get_current_user)):
-    try:
-        if current_user["role"] not in ["admin", "staff"]:
-            raise HTTPException(status_code=403, detail="Only admin/staff can create invoices")
-        
-        if not input.dispatch_ids:
-            raise HTTPException(status_code=400, detail="At least one dispatch is required")
-        
-        # Get retailer info
-        retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
-        if not retailer:
-            raise HTTPException(status_code=404, detail="Retailer not found")
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can create invoices")
+    
+    if not input.dispatch_ids:
+        raise HTTPException(status_code=400, detail="At least one dispatch is required")
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
     
     commission = retailer.get("commission_percentage", 0)
     
@@ -2910,22 +2909,15 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
         {"$set": {"invoice_number": invoice_number, "invoice_id": invoice.id}}
     )
     
-        return {
-            "id": invoice.id, 
-            "invoice_number": invoice_number, 
-            "message": "Invoice created successfully",
-            "net_payable": round(net_payable, 2),
-            "credit_note_adjustments": credit_note_adjustments,
-            "total_credit_adjusted": round(total_credit_adjusted, 2),
-            "final_payable": round(net_payable - total_credit_adjusted, 2)
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        error_detail = f"Invoice creation failed: {str(e)}\n{traceback.format_exc()}"
-        print(error_detail)  # Log to console for debugging
-        raise HTTPException(status_code=500, detail=f"Internal error creating invoice: {str(e)}")
+    return {
+        "id": invoice.id, 
+        "invoice_number": invoice_number, 
+        "message": "Invoice created successfully",
+        "net_payable": round(net_payable, 2),
+        "credit_note_adjustments": credit_note_adjustments,
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "final_payable": round(net_payable - total_credit_adjusted, 2)
+    }
 
 
 @router.put("/retailer-invoices/{invoice_id}")

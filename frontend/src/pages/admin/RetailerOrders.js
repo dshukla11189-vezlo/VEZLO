@@ -15414,6 +15414,22 @@ export default function RetailerOrders() {
               </div>
               <form onSubmit={handleInvoicePayment} className="p-4 space-y-4 overflow-y-auto flex-1">
                 {/* Invoice Summary */}
+                {(() => {
+                  // Check if this invoice's retailer is 100% upfront
+                  const retailer = retailers.find(r => r.id === selectedInvoiceForPayment.retailer_id);
+                  const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                  
+                  // For 100% upfront retailers: use gross value minus commission (no rejection deduction)
+                  const grossValue = selectedInvoiceForPayment.gross_value || selectedInvoiceForPayment.total_mrp_value || 0;
+                  const commissionPct = selectedInvoiceForPayment.commission_percentage || 0;
+                  const calculatedNetPayable = isUpfront100 
+                    ? (grossValue - (grossValue * commissionPct / 100))
+                    : (selectedInvoiceForPayment.net_payable || 0);
+                  
+                  const paidAmount = selectedInvoiceForPayment.paid_amount || 0;
+                  const pendingAmount = calculatedNetPayable - paidAmount;
+                  
+                  return (
                 <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Invoice:</span>
@@ -15425,19 +15441,21 @@ export default function RetailerOrders() {
                   </div>
                   <div className="flex justify-between border-t pt-2 mt-2">
                     <span className="text-gray-600">Total Receivable:</span>
-                    <span className="font-semibold">{formatCurrency(selectedInvoiceForPayment.net_payable)}</span>
+                    <span className="font-semibold">{formatCurrency(calculatedNetPayable)}</span>
                   </div>
                   <div className="flex justify-between text-green-600">
                     <span>Already Paid:</span>
-                    <span className="font-medium">{formatCurrency(selectedInvoiceForPayment.paid_amount || 0)}</span>
+                    <span className="font-medium">{formatCurrency(paidAmount)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2 mt-2">
                     <span className="text-amber-700 font-medium">Pending Amount:</span>
                     <span className="text-amber-700 font-bold text-lg">
-                      {formatCurrency((selectedInvoiceForPayment.net_payable || 0) - (selectedInvoiceForPayment.paid_amount || 0))}
+                      {formatCurrency(pendingAmount)}
                     </span>
                   </div>
                 </div>
+                  );
+                })()}
                 
                 {/* Show existing payments with timestamps if invoice has partial payments */}
                 {(selectedInvoiceForPayment.paid_amount > 0) && (

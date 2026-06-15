@@ -11093,6 +11093,7 @@ export default function RetailerOrders() {
                         <th className="p-3 text-center font-medium text-gray-500">QTY</th>
                         <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
                         <th className="p-3 text-left font-medium text-gray-500">DETAILS</th>
+                        <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -11118,6 +11119,7 @@ export default function RetailerOrders() {
                               <td className="p-3 text-center text-orange-600 font-semibold">{dayData.total_qty}</td>
                               <td className="p-3 text-right text-orange-600 font-semibold">{formatCurrency(dayData.total_value)}</td>
                               <td className="p-3 text-gray-500 text-xs">{dayData.rejection_count} rejection(s)</td>
+                              <td className="p-3"></td>
                             </tr>
                             
                             {/* Expanded: Per-Retailer Breakdown */}
@@ -11132,6 +11134,7 @@ export default function RetailerOrders() {
                                   <td className="p-2 text-center text-orange-500 font-medium">{retailer.total_qty}</td>
                                   <td className="p-2 text-right text-orange-500 font-medium">{formatCurrency(retailer.total_value)}</td>
                                   <td className="p-2 text-gray-400 text-xs">{retailer.items.length} item(s)</td>
+                                  <td className="p-2"></td>
                                 </tr>
                                 {/* Individual Items */}
                                 {retailer.items.map((item, itemIdx) => (
@@ -11150,6 +11153,28 @@ export default function RetailerOrders() {
                                     <td className="p-2 text-center text-red-500">{item.quantity}</td>
                                     <td className="p-2 text-right text-red-500">{formatCurrency(item.rejection_value)}</td>
                                     <td className="p-2 text-gray-500 text-xs">{item.reason || '-'}</td>
+                                    <td className="p-2 text-center">
+                                      <div className="flex items-center justify-center gap-1">
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost" 
+                                          className="h-6 w-6 p-0 text-blue-500 hover:text-blue-700"
+                                          onClick={(e) => { e.stopPropagation(); handleEditRejection(item); }}
+                                          title="Edit Rejection"
+                                        >
+                                          <Edit2 size={14} />
+                                        </Button>
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost" 
+                                          className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                                          onClick={(e) => { e.stopPropagation(); handleDeleteRejection(item.id); }}
+                                          title="Delete Rejection"
+                                        >
+                                          <Trash2 size={14} />
+                                        </Button>
+                                      </div>
+                                    </td>
                                   </tr>
                                 ))}
                               </React.Fragment>
@@ -11169,6 +11194,7 @@ export default function RetailerOrders() {
                           <td className="p-3 text-right text-orange-600">
                             {formatCurrency(dailyRejectionSummary.reduce((sum, d) => sum + d.total_value, 0))}
                           </td>
+                          <td></td>
                           <td></td>
                         </tr>
                       </tfoot>
@@ -11727,7 +11753,6 @@ export default function RetailerOrders() {
                                         <th className="p-2 text-left text-blue-600">Against Invoice</th>
                                         <th className="p-2 text-right text-amber-600">Pending</th>
                                         <th className="p-2 text-center">Status</th>
-                                        <th className="p-2 text-center">Actions</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -11792,32 +11817,6 @@ export default function RetailerOrders() {
                                               }`}>
                                                 {cn.status}
                                               </span>
-                                            </td>
-                                            <td className="p-2 text-center">
-                                              {cn.status !== 'adjusted' && (
-                                                <div className="flex items-center justify-center gap-1">
-                                                  <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-6 w-6 p-0 text-blue-500 hover:text-blue-700"
-                                                    onClick={(e) => { e.stopPropagation(); openEditCreditNoteModal(cn); }}
-                                                    title="Edit Credit Note"
-                                                  >
-                                                    <Edit2 size={14} />
-                                                  </Button>
-                                                  {cn.status === 'pending' && (
-                                                    <Button
-                                                      size="sm"
-                                                      variant="ghost"
-                                                      className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                                                      onClick={(e) => { e.stopPropagation(); deleteCreditNote(cn.id); }}
-                                                      title="Delete Credit Note"
-                                                    >
-                                                      <Trash2 size={14} />
-                                                    </Button>
-                                                  )}
-                                                </div>
-                                              )}
                                             </td>
                                           </tr>
                                         );

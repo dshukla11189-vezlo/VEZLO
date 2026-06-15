@@ -1071,8 +1071,17 @@ async def sync_invoice_rejection_amount(retailer_id: str, date_str: str):
     """
     Sync rejection amounts from retailer_rejections to the corresponding invoice.
     This ensures Payment Summary shows correct rejection values AND item-level rejections.
+    
+    NOTE: For 100% upfront retailers, rejections should NOT modify the invoice.
+    Instead, they only generate credit notes.
     """
     try:
+        # First check if this is a 100% upfront retailer - if so, skip syncing
+        retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0})
+        if retailer and retailer.get("upfront_collection_percentage") == 100:
+            logger.info(f"Skipping invoice rejection sync for 100% upfront retailer {retailer.get('company_name', retailer.get('name'))}")
+            return
+        
         # Get all rejections for this retailer and date
         rejections = await db.retailer_rejections.find({
             "retailer_id": retailer_id,

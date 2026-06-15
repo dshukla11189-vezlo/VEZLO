@@ -1215,17 +1215,10 @@ export default function RetailerOrders() {
   const canEditDeleteInvoice = (invoice) => {
     const userRole = getCurrentUserRole();
     
-    // Admin can always edit/delete
+    // Admin can always edit/delete any invoice
     if (userRole === 'admin') return true;
     
-    // Find the retailer for this invoice
-    const retailer = retailers.find(r => r.id === invoice.retailer_id);
-    const isUpfront100 = retailer?.upfront_collection_percentage === 100 || retailer?.upfront_collection_percentage === 100.0;
-    
-    // For non-100% upfront retailers, staff can always edit/delete
-    if (!isUpfront100) return true;
-    
-    // For 100% upfront retailers, staff can only edit/delete same-day invoices
+    // Non-admin users (staff, etc.) can only edit/delete TODAY's invoices
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const invoiceDate = invoice.invoice_date?.split('T')[0] || '';
     return invoiceDate === today;
@@ -10668,14 +10661,20 @@ export default function RetailerOrders() {
                                     )}
                                   </div>
                                 </div>
+                                {(() => {
+                                  // Check if this invoice's retailer is 100% upfront
+                                  const retailer = retailers.find(r => r.id === invoice.retailer_id);
+                                  const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                                  
+                                  return (
                                 <table className="w-full text-xs">
                                   <thead>
                                     <tr className="border-b">
                                       <th className="p-2 text-left">Product</th>
                                       <th className="p-2 text-left">Variant</th>
-                                      <th className="p-2 text-center">Supplied Qty</th>
-                                      <th className="p-2 text-center text-red-600">Rejection</th>
-                                      <th className="p-2 text-center text-green-700 font-semibold">Billable Qty</th>
+                                      <th className="p-2 text-center">{isUpfront100 ? 'Qty' : 'Supplied Qty'}</th>
+                                      {!isUpfront100 && <th className="p-2 text-center text-red-600">Rejection</th>}
+                                      {!isUpfront100 && <th className="p-2 text-center text-green-700 font-semibold">Billable Qty</th>}
                                       <th className="p-2 text-right">Rate</th>
                                       <th className="p-2 text-right">Amount</th>
                                     </tr>
@@ -10683,17 +10682,19 @@ export default function RetailerOrders() {
                                   <tbody>
                                     {invoice.items?.map((item, idx) => {
                                       const suppliedQty = item.supplied_qty || item.quantity || 0;
-                                      const rejectedQty = item.rejected_qty || 0;
+                                      // For 100% upfront retailers, don't show rejections - invoice shows original amounts
+                                      const rejectedQty = isUpfront100 ? 0 : (item.rejected_qty || 0);
                                       const billableQty = suppliedQty - rejectedQty;
                                       const rate = item.mrp || 0;
-                                      const amount = billableQty * rate;
+                                      // For 100% upfront: use supplied qty for amount (no rejection deduction)
+                                      const amount = isUpfront100 ? (suppliedQty * rate) : (billableQty * rate);
                                       return (
                                         <tr key={idx}>
                                           <td className="p-2">{getProductName(item)}</td>
                                           <td className="p-2">{getIndentVariantDisplay(item)}</td>
                                           <td className="p-2 text-center">{suppliedQty}</td>
-                                          <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>
-                                          <td className="p-2 text-center text-green-700 font-semibold">{billableQty}</td>
+                                          {!isUpfront100 && <td className="p-2 text-center text-red-600">{rejectedQty > 0 ? `-${rejectedQty}` : '-'}</td>}
+                                          {!isUpfront100 && <td className="p-2 text-center text-green-700 font-semibold">{billableQty}</td>}
                                           <td className="p-2 text-right">{formatCurrency(rate)}</td>
                                           <td className="p-2 text-right">{formatCurrency(amount)}</td>
                                         </tr>
@@ -10705,20 +10706,26 @@ export default function RetailerOrders() {
                                       <td className="p-2 text-center">
                                         {invoice.items?.reduce((sum, i) => sum + (i.supplied_qty || i.quantity || 0), 0)}
                                       </td>
-                                      <td className="p-2 text-center text-red-600">
-                                        -{invoice.items?.reduce((sum, i) => sum + (i.rejected_qty || 0), 0)}
-                                      </td>
-                                      <td className="p-2 text-center text-green-700">
-                                        {invoice.items?.reduce((sum, i) => {
-                                          const supplied = i.supplied_qty || i.quantity || 0;
-                                          return sum + (supplied - (i.rejected_qty || 0));
-                                        }, 0)}
-                                      </td>
+                                      {!isUpfront100 && (
+                                        <td className="p-2 text-center text-red-600">
+                                          -{invoice.items?.reduce((sum, i) => sum + (i.rejected_qty || 0), 0)}
+                                        </td>
+                                      )}
+                                      {!isUpfront100 && (
+                                        <td className="p-2 text-center text-green-700">
+                                          {invoice.items?.reduce((sum, i) => {
+                                            const supplied = i.supplied_qty || i.quantity || 0;
+                                            return sum + (supplied - (i.rejected_qty || 0));
+                                          }, 0)}
+                                        </td>
+                                      )}
                                       <td className="p-2"></td>
-                                      <td className="p-2 text-right">{formatCurrency(invoice.total_mrp_value)}</td>
+                                      <td className="p-2 text-right">{formatCurrency(isUpfront100 ? invoice.gross_value : invoice.total_mrp_value)}</td>
                                     </tr>
                                   </tbody>
                                 </table>
+                                  );
+                                })()}
                                 
                                 {/* Credit Notes Adjusted IN this Invoice */}
                                 {invoice.credit_note_adjustments?.length > 0 && (

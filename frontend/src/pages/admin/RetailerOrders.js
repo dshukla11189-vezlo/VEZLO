@@ -10484,8 +10484,20 @@ export default function RetailerOrders() {
                     {filteredInvoices.length === 0 ? (
                       <tr><td colSpan={11} className="p-8 text-center text-gray-400">No invoices found</td></tr>
                     ) : filteredInvoices.map((invoice, invoiceIdx) => {
+                      // Check if this invoice's retailer is 100% upfront
+                      const retailer = retailers.find(r => r.id === invoice.retailer_id);
+                      const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                      
+                      // For 100% upfront retailers: use gross value minus commission (no rejection deduction)
+                      // For others: use net_payable (which includes rejection deduction)
+                      const grossValue = invoice.gross_value || invoice.total_mrp_value || 0;
+                      const commissionPct = invoice.commission_percentage || 0;
+                      const calculatedNetPayable = isUpfront100 
+                        ? (grossValue - (grossValue * commissionPct / 100))
+                        : (invoice.net_payable || 0);
+                      
                       const paidAmount = invoice.paid_amount || 0;
-                      const netPayable = invoice.net_payable || 0; // Original receivable amount
+                      const netPayable = calculatedNetPayable; // Use calculated value for 100% upfront
                       const creditAdjusted = invoice.total_credit_adjusted || 0;
                       // Calculate actual pending: net_payable - credit_notes - paid
                       const actualReceivable = netPayable - creditAdjusted;

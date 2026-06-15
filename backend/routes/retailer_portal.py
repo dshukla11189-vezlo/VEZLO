@@ -2404,10 +2404,19 @@ async def backfill_missing_credit_notes(
     
     # Build query - ONLY process rejections from June 15, 2026 onwards
     # Earlier rejections were already adjusted through other means
+    # Use regex to match dates starting with 2026-06-15 or later (handles ISO datetime format)
     cutoff_date = "2026-06-15"
     
     query = {
-        "rejection_date": {"$gte": cutoff_date}
+        "$or": [
+            {"rejection_date": {"$gte": cutoff_date}},  # Simple date string comparison
+            {"rejection_date": {"$regex": "^2026-06-1[5-9]"}},  # June 15-19
+            {"rejection_date": {"$regex": "^2026-06-2"}},  # June 20-29
+            {"rejection_date": {"$regex": "^2026-06-3"}},  # June 30
+            {"rejection_date": {"$regex": "^2026-0[7-9]"}},  # July onwards
+            {"rejection_date": {"$regex": "^2026-1"}},  # Oct-Dec
+            {"rejection_date": {"$regex": "^202[7-9]"}},  # 2027+
+        ]
     }
     if retailer_id:
         query["retailer_id"] = retailer_id

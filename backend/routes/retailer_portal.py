@@ -962,11 +962,28 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     # - If retailer has paid less than payable, no credit note (rejection reduces payable)
     
     if rejection_value > 0:
-        # Find the invoice for this date
-        invoice = await db.retailer_invoices.find_one({
-            "retailer_id": input.retailer_id,
-            "invoice_date": {"$regex": f"^{rejection_date_str}"}
-        }, {"_id": 0})
+        # Find the invoice for this rejection
+        # Strategy 1: If dispatch_id is provided, find the invoice that contains this dispatch
+        # Strategy 2: Fall back to finding invoice by date (legacy behavior)
+        invoice = None
+        
+        if input.dispatch_id:
+            # Find invoice that includes this dispatch_id
+            invoice = await db.retailer_invoices.find_one({
+                "retailer_id": input.retailer_id,
+                "dispatch_ids": input.dispatch_id
+            }, {"_id": 0})
+            if invoice:
+                logger.info(f"Found invoice {invoice.get('invoice_number')} via dispatch_id {input.dispatch_id}")
+        
+        if not invoice:
+            # Fallback: Find invoice by rejection date (legacy behavior for backward compatibility)
+            invoice = await db.retailer_invoices.find_one({
+                "retailer_id": input.retailer_id,
+                "invoice_date": {"$regex": f"^{rejection_date_str}"}
+            }, {"_id": 0})
+            if invoice:
+                logger.info(f"Found invoice {invoice.get('invoice_number')} via date match {rejection_date_str}")
         
         should_create_credit_note = False
         

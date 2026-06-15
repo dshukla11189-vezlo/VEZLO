@@ -6855,7 +6855,8 @@ export default function RetailerOrders() {
           quantity: item.rejection_qty,
           mrp: item.mrp,
           reason: item.reason,
-          remarks: item.remarks || ''
+          remarks: item.remarks || '',
+          dispatch_id: item.dispatch_id || null  // Include dispatch_id to link to correct invoice
         };
         
         if (item.rejection_id) {

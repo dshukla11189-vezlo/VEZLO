@@ -2402,14 +2402,19 @@ async def backfill_missing_credit_notes(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can backfill credit notes")
     
-    # Build query
-    query = {}
+    # Build query - ONLY process rejections from June 15, 2026 onwards
+    # Earlier rejections were already adjusted through other means
+    cutoff_date = "2026-06-15"
+    
+    query = {
+        "rejection_date": {"$gte": cutoff_date}
+    }
     if retailer_id:
         query["retailer_id"] = retailer_id
     
-    # Get all rejections
+    # Get rejections from June 15 onwards only
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(5000)
-    logger.info(f"Found {len(rejections)} total rejections to check")
+    logger.info(f"Found {len(rejections)} rejections from {cutoff_date} onwards to check")
     
     created_count = 0
     skipped_already_exists = 0

@@ -2402,28 +2402,28 @@ async def backfill_missing_credit_notes(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can backfill credit notes")
     
-    # Build query - ONLY process rejections from June 15, 2026 onwards
+    # Build query - ONLY process rejections CREATED from June 15, 2026 onwards
     # Earlier rejections were already adjusted through other means
-    # Use regex to match dates starting with 2026-06-15 or later (handles ISO datetime format)
+    # Filter by created_at (when rejection was entered), not rejection_date (invoice date)
     cutoff_date = "2026-06-15"
     
     query = {
         "$or": [
-            {"rejection_date": {"$gte": cutoff_date}},  # Simple date string comparison
-            {"rejection_date": {"$regex": "^2026-06-1[5-9]"}},  # June 15-19
-            {"rejection_date": {"$regex": "^2026-06-2"}},  # June 20-29
-            {"rejection_date": {"$regex": "^2026-06-3"}},  # June 30
-            {"rejection_date": {"$regex": "^2026-0[7-9]"}},  # July onwards
-            {"rejection_date": {"$regex": "^2026-1"}},  # Oct-Dec
-            {"rejection_date": {"$regex": "^202[7-9]"}},  # 2027+
+            {"created_at": {"$gte": cutoff_date}},  # Simple date string comparison
+            {"created_at": {"$regex": "^2026-06-1[5-9]"}},  # June 15-19
+            {"created_at": {"$regex": "^2026-06-2"}},  # June 20-29
+            {"created_at": {"$regex": "^2026-06-3"}},  # June 30
+            {"created_at": {"$regex": "^2026-0[7-9]"}},  # July onwards
+            {"created_at": {"$regex": "^2026-1"}},  # Oct-Dec
+            {"created_at": {"$regex": "^202[7-9]"}},  # 2027+
         ]
     }
     if retailer_id:
         query["retailer_id"] = retailer_id
     
-    # Get rejections from June 15 onwards only
+    # Get rejections created from June 15 onwards only
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(5000)
-    logger.info(f"Found {len(rejections)} rejections from {cutoff_date} onwards to check")
+    logger.info(f"Found {len(rejections)} rejections created from {cutoff_date} onwards to check")
     
     created_count = 0
     skipped_already_exists = 0
@@ -2510,8 +2510,12 @@ async def backfill_missing_credit_notes(
         ).to_list(100)
         total_paid = sum(p.get("amount", 0) or 0 for p in payments)
         
-        # For 100% upfront retailers, invoice is considered paid if paid >= payable
-        if total_paid < net_payable and net_payable > 0:
+        # For 100% upfront retailers, invoice is considered paid by default (they pay before delivery)
+        # For other retailers, check if invoice is fully paid
+        upfront_pct = retailer.get("upfront_collection_percentage", 0) or 0
+        is_upfront_retailer = upfront_pct >= 100
+        
+        if not is_upfront_retailer and total_paid < net_payable and net_payable > 0:
             skipped_not_fully_paid += 1
             continue
         

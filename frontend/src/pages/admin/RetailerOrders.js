@@ -1043,10 +1043,10 @@ export default function RetailerOrders() {
     }
   };
 
-  // Backfill missing credit notes for rejections from June 15 onwards
+  // Backfill missing credit notes for rejections created from June 15 onwards
   const backfillMissingCreditNotes = async () => {
     const retailerFilter = selectedRetailer ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}` : 'for ALL retailers';
-    if (!window.confirm(`This will create credit notes for rejections from June 15, 2026 onwards ${retailerFilter} that are missing them.\n\n(Earlier rejections are already adjusted elsewhere)\n\nContinue?`)) return;
+    if (!window.confirm(`This will create credit notes for rejections entered from June 15, 2026 onwards ${retailerFilter} that are missing them.\n\n(Earlier rejections are already adjusted elsewhere)\n\nContinue?`)) return;
     
     setIsBackfillingMissingCNs(true);
     try {

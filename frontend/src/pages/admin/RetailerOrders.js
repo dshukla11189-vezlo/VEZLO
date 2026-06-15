@@ -6380,26 +6380,18 @@ export default function RetailerOrders() {
       return displayName;
     };
     
-    // Calculate totals with rejection breakdown
+    // Calculate totals - simple quantity and amount
     const totals = invoice.items.reduce((acc, item) => {
-      const suppliedQty = item.supplied_qty || item.quantity || 0;
-      const rejectedQty = item.rejected_qty || 0;
-      const billableQty = suppliedQty - rejectedQty;
-      const amount = billableQty * (item.mrp || 0);
-      const rejectionValue = rejectedQty * (item.mrp || 0);  // Calculate per-item rejection value
+      const qty = item.supplied_qty || item.quantity || 0;
+      const amount = qty * (item.mrp || 0);
       return {
-        suppliedQty: acc.suppliedQty + suppliedQty,
-        rejectedQty: acc.rejectedQty + rejectedQty,
-        billableQty: acc.billableQty + billableQty,
-        amount: acc.amount + amount,
-        rejectionValue: acc.rejectionValue + rejectionValue  // Sum up all rejection values
+        qty: acc.qty + qty,
+        amount: acc.amount + amount
       };
-    }, { suppliedQty: 0, rejectedQty: 0, billableQty: 0, amount: 0, rejectionValue: 0 });
+    }, { qty: 0, amount: 0 });
     
-    // Use stored totals if available, or calculate from items
-    const totalMrpValue = invoice.total_mrp_value || totals.amount;
-    const rejectionAmount = invoice.rejection_amount || totals.rejectionValue;  // Use calculated sum
-    const grossValue = invoice.gross_value || (totalMrpValue + rejectionAmount);
+    // Use stored totals if available
+    const totalMrpValue = invoice.total_mrp_value || invoice.gross_value || totals.amount;
     
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -6430,8 +6422,6 @@ export default function RetailerOrders() {
           .items-table td.text-right { text-align: right; }
           .items-table tr:last-child td { border-bottom: none; }
           .items-table .total-row { background: #f5f5f5; font-weight: bold; }
-          .rejection { color: #dc2626; }
-          .billable { color: #15803d; font-weight: bold; }
           
           .amount-words-section { border: 1px solid #000; padding: 10px; margin-bottom: 15px; font-size: 11px; }
           
@@ -6471,28 +6461,22 @@ export default function RetailerOrders() {
             <thead>
               <tr>
                 <th style="width: 25px;">#</th>
-                <th style="width: 200px; text-align: left;">Item name</th>
-                <th style="width: 70px;">Supplied Qty</th>
-                <th style="width: 70px;">Rejection</th>
-                <th style="width: 70px;">Billable Qty</th>
-                <th style="width: 70px;">Rate</th>
-                <th style="width: 80px;">Amount</th>
+                <th style="width: 250px; text-align: left;">Product Name</th>
+                <th style="width: 80px;">Quantity</th>
+                <th style="width: 80px;">MRP</th>
+                <th style="width: 100px;">Total Amount</th>
               </tr>
             </thead>
             <tbody>
               ${invoice.items.map((item, idx) => {
-                const suppliedQty = item.supplied_qty || item.quantity || 0;
-                const rejectedQty = item.rejected_qty || 0;
-                const billableQty = suppliedQty - rejectedQty;
+                const qty = item.supplied_qty || item.quantity || 0;
                 const rate = item.mrp || 0;
-                const amount = billableQty * rate;
+                const amount = qty * rate;
                 return `
                   <tr>
                     <td>${idx + 1}</td>
                     <td class="text-left">${getItemDisplayName(item)}</td>
-                    <td>${suppliedQty}</td>
-                    <td class="rejection">${rejectedQty > 0 ? '-' + rejectedQty : '-'}</td>
-                    <td class="billable">${billableQty}</td>
+                    <td>${qty}</td>
                     <td class="text-right">₹${rate.toFixed(2)}</td>
                     <td class="text-right">₹${amount.toFixed(2)}</td>
                   </tr>
@@ -6501,9 +6485,7 @@ export default function RetailerOrders() {
               <tr class="total-row">
                 <td></td>
                 <td class="text-left"><strong>Total</strong></td>
-                <td><strong>${totals.suppliedQty}</strong></td>
-                <td class="rejection"><strong>${totals.rejectedQty > 0 ? '-' + totals.rejectedQty : '-'}</strong></td>
-                <td class="billable"><strong>${totals.billableQty}</strong></td>
+                <td><strong>${totals.qty}</strong></td>
                 <td></td>
                 <td class="text-right"><strong>₹${totalMrpValue.toFixed(2)}</strong></td>
               </tr>
@@ -6514,8 +6496,6 @@ export default function RetailerOrders() {
         <div class="items-section" style="padding: 10px;">
           <div style="display: flex; justify-content: flex-end; gap: 20px;">
             <div style="text-align: right;">
-              ${grossValue !== totalMrpValue ? `<div style="margin-bottom: 5px;">Gross Value: <strong>₹${grossValue.toFixed(2)}</strong></div>` : ''}
-              ${rejectionAmount > 0 ? `<div style="margin-bottom: 5px; color: #dc2626;">(-) Rejections: <strong>-₹${rejectionAmount.toFixed(2)}</strong></div>` : ''}
               <div style="margin-bottom: 5px;">Total MRP Value: <strong>₹${totalMrpValue.toFixed(2)}</strong></div>
               <div style="margin-bottom: 5px; color: #15803d;">Commission (${invoice.commission_percentage}%): <strong>-₹${invoice.commission_amount.toFixed(2)}</strong></div>
               <div style="font-size: 14px; font-weight: bold; border-top: 2px solid #14532D; padding-top: 5px;">Invoice Amount: ₹${invoice.net_payable.toFixed(2)}</div>
@@ -14607,30 +14587,23 @@ export default function RetailerOrders() {
                     <p className="text-gray-400 text-center py-4">No uninvoiced items found for this retailer</p>
                   ) : (
                     <div className="border rounded max-h-80 overflow-y-auto">
-                      {(() => {
-                        // Check if any item has rejections
-                        const hasAnyRejections = uninvoicedItems.some(item => item.rejected_qty > 0);
-                        return (
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 sticky top-0">
                           <tr>
                             <th className="p-2 w-8 text-center">
                               <Check size={14} />
                             </th>
-                            <th className="p-2 text-left">Dispatch Date</th>
                             <th className="p-2 text-left">Product</th>
-                            <th className="p-2 text-center">Supplied</th>
-                            {hasAnyRejections && <th className="p-2 text-center text-red-600">Rejected</th>}
-                            <th className="p-2 text-center text-green-700 font-semibold">Net Qty</th>
+                            <th className="p-2 text-center">Quantity</th>
                             <th className="p-2 text-right">MRP</th>
-                            <th className="p-2 text-right">Net Amount</th>
+                            <th className="p-2 text-right">Total Amount</th>
                           </tr>
                         </thead>
                         <tbody>
                           {uninvoicedItems.map((item) => (
                             <tr 
                               key={item.item_id} 
-                              className={`border-t cursor-pointer hover:bg-gray-50 ${selectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''} ${item.rejected_qty > 0 ? 'bg-red-50/30' : ''}`}
+                              className={`border-t cursor-pointer hover:bg-gray-50 ${selectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''}`}
                               onClick={() => toggleItemSelection(item.item_id)}
                             >
                               <td className="p-2 text-center">
@@ -14640,26 +14613,17 @@ export default function RetailerOrders() {
                                   {selectedItemIds.includes(item.item_id) && <Check size={12} className="text-white" />}
                                 </div>
                               </td>
-                              <td className="p-2 text-xs text-gray-600">{formatDate(item.dispatch_date)}</td>
                               <td className="p-2">
                                 <div className="font-medium">{getProductName(item)}</div>
                                 {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
                               </td>
-                              <td className="p-2 text-center">{item.supplied_qty}</td>
-                              {hasAnyRejections && (
-                              <td className="p-2 text-center text-red-600 font-medium">
-                                {item.rejected_qty > 0 ? `-${item.rejected_qty}` : '-'}
-                              </td>
-                              )}
-                              <td className="p-2 text-center text-green-700 font-bold">{item.net_qty}</td>
+                              <td className="p-2 text-center font-medium">{item.supplied_qty}</td>
                               <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
-                              <td className="p-2 text-right font-medium">₹{item.net_value?.toFixed(2)}</td>
+                              <td className="p-2 text-right font-medium">₹{(item.supplied_qty * (item.mrp || 0)).toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                        );
-                      })()}
                     </div>
                   )}
                 </div>
@@ -14668,13 +14632,11 @@ export default function RetailerOrders() {
                   <div className="bg-green-50 p-4 rounded space-y-2 border border-green-200">
                     {(() => {
                       const selectedItems = uninvoicedItems.filter(i => selectedItemIds.includes(i.item_id));
-                      const grossTotal = selectedItems.reduce((sum, i) => sum + (i.supplied_qty * (i.mrp || 0)), 0);
-                      const rejectedDeduction = selectedItems.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0);
-                      const netTotal = selectedItems.reduce((sum, i) => sum + (i.net_value || 0), 0);
+                      const totalAmount = selectedItems.reduce((sum, i) => sum + (i.supplied_qty * (i.mrp || 0)), 0);
                       const retailer = retailers.find(r => r.id === invoiceForm.retailer_id);
                       const commissionPct = retailer?.commission_percentage || 0;
-                      const commissionAmt = (netTotal * commissionPct) / 100;
-                      const payableAmount = netTotal - commissionAmt;
+                      const commissionAmt = (totalAmount * commissionPct) / 100;
+                      const payableAmount = totalAmount - commissionAmt;
                       
                       return (
                         <>
@@ -14684,18 +14646,8 @@ export default function RetailerOrders() {
                             <span className="font-medium">{selectedItemIds.length}</span>
                           </div>
                           <div className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600">Gross Total (MRP Value):</span>
-                            <span className="font-medium">{formatCurrency(grossTotal)}</span>
-                          </div>
-                          {rejectedDeduction > 0 && (
-                            <div className="flex justify-between items-center text-sm text-red-600">
-                              <span>(-) Rejected Items:</span>
-                              <span>-{formatCurrency(rejectedDeduction)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between items-center text-sm border-t pt-2 mt-2">
-                            <span className="text-gray-700 font-medium">Net Total:</span>
-                            <span className="font-bold">{formatCurrency(netTotal)}</span>
+                            <span className="text-gray-600">Total Amount (MRP Value):</span>
+                            <span className="font-medium">{formatCurrency(totalAmount)}</span>
                           </div>
                           {commissionPct > 0 && (
                             <div className="flex justify-between items-center text-sm text-amber-700">

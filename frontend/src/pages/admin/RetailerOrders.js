@@ -6344,6 +6344,9 @@ export default function RetailerOrders() {
     const retailer = retailers.find(r => r.id === invoice.retailer_id) || {};
     const retailerDisplayName = retailer.company_name || invoice.retailer_name;
     
+    // Check if this is a 100% upfront retailer
+    const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+    
     // Helper to get product name based on selected language
     const getItemDisplayName = (item) => {
       const productId = item.product_id || item.productId;
@@ -6383,8 +6386,20 @@ export default function RetailerOrders() {
       };
     }, { qty: 0, amount: 0 });
     
-    // Use stored totals if available
-    const totalMrpValue = invoice.total_mrp_value || invoice.gross_value || totals.amount;
+    // For 100% upfront retailers: use gross value (no rejection deduction)
+    // For others: use total_mrp_value (after rejections)
+    const grossValue = invoice.gross_value || totals.amount;
+    const totalMrpValue = isUpfront100 ? grossValue : (invoice.total_mrp_value || grossValue);
+    
+    // Calculate commission based on the correct value
+    const commissionAmount = isUpfront100 
+      ? (grossValue * (invoice.commission_percentage || 0) / 100)
+      : invoice.commission_amount;
+    
+    // Calculate net payable
+    const netPayable = isUpfront100
+      ? (grossValue - commissionAmount)
+      : invoice.net_payable;
     
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -6490,12 +6505,12 @@ export default function RetailerOrders() {
           <div style="display: flex; justify-content: flex-end; gap: 20px;">
             <div style="text-align: right;">
               <div style="margin-bottom: 5px;">Total MRP Value: <strong>₹${totalMrpValue.toFixed(2)}</strong></div>
-              <div style="margin-bottom: 5px; color: #15803d;">Commission (${invoice.commission_percentage}%): <strong>-₹${invoice.commission_amount.toFixed(2)}</strong></div>
-              <div style="font-size: 14px; font-weight: bold; border-top: 2px solid #14532D; padding-top: 5px;">Invoice Amount: ₹${invoice.net_payable.toFixed(2)}</div>
+              <div style="margin-bottom: 5px; color: #15803d;">Commission (${invoice.commission_percentage}%): <strong>-₹${commissionAmount.toFixed(2)}</strong></div>
+              <div style="font-size: 14px; font-weight: bold; border-top: 2px solid #14532D; padding-top: 5px;">Invoice Amount: ₹${netPayable.toFixed(2)}</div>
               ${(invoice.credit_note_adjustments?.length > 0 && invoice.total_credit_adjusted > 0) ? `
                 <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #999;">
                   <div style="margin-bottom: 5px; color: #c62828; font-weight: bold;">(-) Credit Notes Adjusted: <strong>-₹${invoice.total_credit_adjusted.toFixed(2)}</strong></div>
-                  <div style="font-size: 16px; font-weight: bold; color: #2e7d32; background: #e8f5e9; padding: 8px; border-radius: 4px;">FINAL PAYABLE: ₹${(invoice.final_payable || invoice.net_payable).toFixed(2)}</div>
+                  <div style="font-size: 16px; font-weight: bold; color: #2e7d32; background: #e8f5e9; padding: 8px; border-radius: 4px;">FINAL PAYABLE: ₹${(invoice.final_payable || netPayable).toFixed(2)}</div>
                 </div>
               ` : ''}
             </div>
@@ -10625,28 +10640,65 @@ export default function RetailerOrders() {
                             <tr className="bg-green-50">
                               <td colSpan={10} className="p-3">
                                 {/* Invoice Details */}
+                                {(() => {
+                                  // Check if this invoice's retailer is 100% upfront
+                                  const retailer = retailers.find(r => r.id === invoice.retailer_id);
+                                  const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                                  
+                                  // For 100% upfront: show gross value as the base amount (no rejection deduction)
+                                  // For others: show gross -> rejection -> net flow
+                                  const displayAmount = isUpfront100 ? getInvoiceGrossValue(invoice) : invoice.total_mrp_value;
+                                  const displayCommission = isUpfront100 
+                                    ? (getInvoiceGrossValue(invoice) * (invoice.commission_percentage || 0) / 100)
+                                    : invoice.commission_amount;
+                                  const displayPayable = isUpfront100
+                                    ? (getInvoiceGrossValue(invoice) - displayCommission)
+                                    : invoice.net_payable;
+                                  
+                                  return (
                                 <div className="mb-3 p-3 bg-white rounded-lg border">
                                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
-                                    <div>
-                                      <span className="text-gray-500">Gross Value:</span>
-                                      <p className="font-medium">{formatCurrency(getInvoiceGrossValue(invoice))}</p>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">Rejection:</span>
-                                      <p className="font-medium text-red-600">-{formatCurrency(getInvoiceRejectionAmount(invoice))}</p>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">Net Value:</span>
-                                      <p className="font-medium">{formatCurrency(invoice.total_mrp_value)}</p>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">Commission ({invoice.commission_percentage}%):</span>
-                                      <p className="font-medium text-green-600">-{formatCurrency(invoice.commission_amount)}</p>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-700 font-semibold">Invoice Amount:</span>
-                                      <p className="font-bold text-blue-700">{formatCurrency(invoice.net_payable)}</p>
-                                    </div>
+                                    {isUpfront100 ? (
+                                      // For 100% upfront retailers: Simple display without rejection
+                                      <>
+                                        <div>
+                                          <span className="text-gray-500">Total MRP Value:</span>
+                                          <p className="font-medium">{formatCurrency(getInvoiceGrossValue(invoice))}</p>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-500">Commission ({invoice.commission_percentage}%):</span>
+                                          <p className="font-medium text-green-600">-{formatCurrency(displayCommission)}</p>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-700 font-semibold">Invoice Amount:</span>
+                                          <p className="font-bold text-blue-700">{formatCurrency(displayPayable)}</p>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      // For non-100% upfront retailers: Show rejection breakdown
+                                      <>
+                                        <div>
+                                          <span className="text-gray-500">Gross Value:</span>
+                                          <p className="font-medium">{formatCurrency(getInvoiceGrossValue(invoice))}</p>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-500">Rejection:</span>
+                                          <p className="font-medium text-red-600">-{formatCurrency(getInvoiceRejectionAmount(invoice))}</p>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-500">Net Value:</span>
+                                          <p className="font-medium">{formatCurrency(invoice.total_mrp_value)}</p>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-500">Commission ({invoice.commission_percentage}%):</span>
+                                          <p className="font-medium text-green-600">-{formatCurrency(invoice.commission_amount)}</p>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-700 font-semibold">Invoice Amount:</span>
+                                          <p className="font-bold text-blue-700">{formatCurrency(invoice.net_payable)}</p>
+                                        </div>
+                                      </>
+                                    )}
                                     {invoice.credit_note_adjustments?.length > 0 && (
                                       <>
                                         <div>
@@ -10661,6 +10713,8 @@ export default function RetailerOrders() {
                                     )}
                                   </div>
                                 </div>
+                                  );
+                                })()}
                                 {(() => {
                                   // Check if this invoice's retailer is 100% upfront
                                   const retailer = retailers.find(r => r.id === invoice.retailer_id);

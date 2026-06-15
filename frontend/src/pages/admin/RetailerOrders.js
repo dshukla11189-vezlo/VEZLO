@@ -368,7 +368,7 @@ export default function RetailerOrders() {
   const [selectedRejectionForCN, setSelectedRejectionForCN] = useState(null);
   const [creditNoteFilter, setCreditNoteFilter] = useState({ retailer: '', status: '' });
   const [expandedCreditNoteDates, setExpandedCreditNoteDates] = useState({});
-  
+  const [creditNoteViewMode, setCreditNoteViewMode] = useState('by-invoice'); // 'by-invoice' or 'by-recorded'  
   // Credit Note Edit state
   const [showEditCreditNoteModal, setShowEditCreditNoteModal] = useState(false);
   const [editingCreditNote, setEditingCreditNote] = useState(null);
@@ -11592,9 +11592,73 @@ export default function RetailerOrders() {
                       </div>
                     </div>
 
+                    {/* View Mode Toggle */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                        <button
+                          onClick={() => setCreditNoteViewMode('by-invoice')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                            creditNoteViewMode === 'by-invoice' 
+                              ? 'bg-white text-purple-700 shadow-sm' 
+                              : 'text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          📅 By Invoice Date
+                        </button>
+                        <button
+                          onClick={() => setCreditNoteViewMode('by-recorded')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                            creditNoteViewMode === 'by-recorded' 
+                              ? 'bg-white text-purple-700 shadow-sm' 
+                              : 'text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          🕐 By Recorded Date
+                        </button>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {creditNoteViewMode === 'by-invoice' 
+                          ? 'Grouped by original invoice date' 
+                          : 'Grouped by when credit note was created'}
+                      </div>
+                    </div>
+
                     {/* Date-wise Credit Notes List */}
                     <div className="space-y-3">
-                      {sortedDates.length === 0 ? (
+                      {(() => {
+                        // Group by selected date mode
+                        const dateGroups = {};
+                        filteredCNs.forEach(cn => {
+                          let dateKey = 'Unknown';
+                          
+                          if (creditNoteViewMode === 'by-invoice') {
+                            // Group by invoice date (extracted from invoice number)
+                            if (cn.original_invoice_number) {
+                              const match = cn.original_invoice_number.match(/(\d{2})([A-Z]{3})(\d{4})/);
+                              if (match) {
+                                const monthMap = {'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06','JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'};
+                                dateKey = `${match[3]}-${monthMap[match[2]] || '01'}-${match[1]}`;
+                              }
+                            }
+                          } else {
+                            // Group by recorded/created date
+                            if (cn.created_at) {
+                              dateKey = cn.created_at.substring(0, 10); // YYYY-MM-DD
+                            }
+                          }
+                          
+                          if (!dateGroups[dateKey]) {
+                            dateGroups[dateKey] = { creditNotes: [], totalAmount: 0, totalPending: 0, totalAdjusted: 0 };
+                          }
+                          dateGroups[dateKey].creditNotes.push(cn);
+                          dateGroups[dateKey].totalAmount += cn.amount || 0;
+                          dateGroups[dateKey].totalPending += cn.pending_amount || 0;
+                          dateGroups[dateKey].totalAdjusted += cn.adjusted_amount || 0;
+                        });
+                        
+                        const sortedDates = Object.keys(dateGroups).sort((a, b) => b.localeCompare(a));
+                        
+                        return sortedDates.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
                           <CreditCard size={40} className="mx-auto mb-2 text-gray-300" />
                           <p>No credit notes found</p>
@@ -11758,7 +11822,8 @@ export default function RetailerOrders() {
                             </div>
                           );
                         })
-                      )}
+                      );
+                      })()}
                     </div>
                   </>
                 );

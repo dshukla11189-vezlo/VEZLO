@@ -2384,6 +2384,195 @@ async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Dep
         "adjusted_count": len([cn for cn in all_cns if cn.get("status") == "adjusted"])
     }
 
+
+@router.post("/retailer-credit-notes/backfill-missing")
+async def backfill_missing_credit_notes(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Find rejections that don't have credit notes and create them.
+    This is useful for fixing historical data where credit notes should have been generated.
+    
+    Logic:
+    - Find all rejections (optionally filtered by retailer_id)
+    - For each rejection, check if a credit note exists (via rejection_id link)
+    - If no credit note exists, find the correct invoice and create the credit note
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can backfill credit notes")
+    
+    # Build query
+    query = {}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    # Get all rejections
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(5000)
+    logger.info(f"Found {len(rejections)} total rejections to check")
+    
+    created_count = 0
+    skipped_already_exists = 0
+    skipped_no_invoice = 0
+    skipped_not_fully_paid = 0
+    errors = []
+    created_details = []
+    
+    for rejection in rejections:
+        rejection_id = rejection.get("id")
+        retailer_id_rej = rejection.get("retailer_id")
+        
+        # Check if credit note already exists for this rejection
+        existing_cn = await db.retailer_credit_notes.find_one({"rejection_id": rejection_id})
+        if existing_cn:
+            skipped_already_exists += 1
+            continue
+        
+        # Get rejection value
+        rejection_value = rejection.get("rejection_value", 0)
+        if not rejection_value:
+            rejection_value = rejection.get("quantity", 0) * rejection.get("mrp", 0)
+        
+        if rejection_value <= 0:
+            continue
+        
+        # Get retailer info
+        retailer = await db.users.find_one({"id": retailer_id_rej}, {"_id": 0})
+        if not retailer:
+            errors.append(f"Retailer not found for rejection {rejection_id}")
+            continue
+        
+        # Find the correct invoice for this rejection
+        invoice = None
+        rejection_date_str = str(rejection.get("rejection_date", ""))[:10]
+        
+        # Strategy 1: Find invoice via dispatch_id
+        dispatch_id = rejection.get("dispatch_id")
+        if dispatch_id:
+            invoice = await db.retailer_invoices.find_one({
+                "retailer_id": retailer_id_rej,
+                "dispatch_ids": dispatch_id
+            }, {"_id": 0})
+        
+        # Strategy 2: Find invoice by date match (rejection date = invoice date)
+        if not invoice:
+            invoice = await db.retailer_invoices.find_one({
+                "retailer_id": retailer_id_rej,
+                "invoice_date": {"$regex": f"^{rejection_date_str}"}
+            }, {"_id": 0})
+        
+        # Strategy 3: Try to find invoice that contains matching product/variant
+        if not invoice:
+            product_id = rejection.get("product_id")
+            variant_id = rejection.get("variant_id")
+            
+            # Find invoices for this retailer and look for matching items
+            potential_invoices = await db.retailer_invoices.find(
+                {"retailer_id": retailer_id_rej},
+                {"_id": 0}
+            ).sort("invoice_date", -1).to_list(50)
+            
+            for inv in potential_invoices:
+                items = inv.get("items", [])
+                for item in items:
+                    if item.get("product_id") == product_id:
+                        if not variant_id or item.get("variant_id") == variant_id:
+                            invoice = inv
+                            break
+                if invoice:
+                    break
+        
+        if not invoice:
+            skipped_no_invoice += 1
+            continue
+        
+        # Check if invoice is fully paid (credit note only makes sense for settled invoices)
+        invoice_id = invoice.get("id")
+        net_payable = invoice.get("net_payable", 0) or 0
+        
+        payments = await db.retailer_payments.find(
+            {"invoice_id": invoice_id},
+            {"_id": 0, "amount": 1}
+        ).to_list(100)
+        total_paid = sum(p.get("amount", 0) or 0 for p in payments)
+        
+        # For 100% upfront retailers, invoice is considered paid if paid >= payable
+        if total_paid < net_payable and net_payable > 0:
+            skipped_not_fully_paid += 1
+            continue
+        
+        # Generate credit note number
+        retailer_name = retailer.get("company_name", retailer.get("name", ""))
+        retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+        cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": retailer_id_rej})
+        credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+        
+        # Calculate credit amount after deducting commission
+        commission_pct = retailer.get("commission_percentage", 0) or 0
+        credit_amount = rejection_value * (1 - commission_pct / 100)
+        
+        # Create credit note
+        credit_note = {
+            "id": str(uuid.uuid4()),
+            "credit_note_number": credit_note_number,
+            "retailer_id": retailer_id_rej,
+            "retailer_name": retailer.get("company_name", retailer.get("name", "")),
+            "original_invoice_id": invoice.get("id"),
+            "original_invoice_number": invoice.get("invoice_number"),
+            "rejection_id": rejection_id,
+            "rejection_date": rejection.get("rejection_date"),
+            "rejection_value": round(rejection_value, 2),
+            "commission_percentage": commission_pct,
+            "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+            "amount": round(credit_amount, 2),
+            "rejection_details": [{
+                "product_name": rejection.get("product_name"),
+                "variant_name": rejection.get("variant_name"),
+                "quantity": rejection.get("quantity"),
+                "mrp": rejection.get("mrp"),
+                "value": round(rejection_value, 2),
+                "reason": rejection.get("reason")
+            }],
+            "status": "pending",
+            "adjusted_amount": 0,
+            "pending_amount": round(credit_amount, 2),
+            "adjusted_against_invoices": [],
+            "remarks": f"Backfill: Auto-generated for rejection on {rejection_date_str}",
+            "created_by": current_user["user_id"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auto_generated": True,
+            "backfilled": True
+        }
+        
+        await db.retailer_credit_notes.insert_one(credit_note)
+        created_count += 1
+        
+        created_details.append({
+            "credit_note_number": credit_note_number,
+            "retailer": retailer_name,
+            "invoice": invoice.get("invoice_number"),
+            "rejection_value": round(rejection_value, 2),
+            "credit_amount": round(credit_amount, 2),
+            "product": rejection.get("product_name"),
+            "variant": rejection.get("variant_name")
+        })
+        
+        logger.info(f"Backfill: Created credit note {credit_note_number} for rejection {rejection_id} - Amount: ₹{credit_amount}")
+    
+    return {
+        "message": f"Backfill complete. Created {created_count} credit notes.",
+        "summary": {
+            "total_rejections_checked": len(rejections),
+            "credit_notes_created": created_count,
+            "skipped_already_has_cn": skipped_already_exists,
+            "skipped_no_invoice_found": skipped_no_invoice,
+            "skipped_invoice_not_fully_paid": skipped_not_fully_paid
+        },
+        "created": created_details,
+        "errors": errors[:10]  # Limit errors shown
+    }
+
+
 class RemoveCreditAdjustmentInput(BaseModel):
     invoice_id: str
 

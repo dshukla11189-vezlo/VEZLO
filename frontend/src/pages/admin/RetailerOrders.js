@@ -393,6 +393,7 @@ export default function RetailerOrders() {
   
   // Credit Notes backfill state
   const [isBackfillingCreditNotes, setIsBackfillingCreditNotes] = useState(false);
+  const [isBackfillingMissingCNs, setIsBackfillingMissingCNs] = useState(false);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1039,6 +1040,48 @@ export default function RetailerOrders() {
       toast.error('Failed to fix credit notes: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsBackfillingCreditNotes(false);
+    }
+  };
+
+  // Backfill missing credit notes for rejections that don't have them
+  const backfillMissingCreditNotes = async () => {
+    const retailerFilter = selectedRetailer ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}` : 'for ALL retailers';
+    if (!window.confirm(`This will scan all rejections ${retailerFilter} and create credit notes for rejections that are missing them.\n\nThis is useful when rejections were recorded but credit notes were not auto-generated.\n\nContinue?`)) return;
+    
+    setIsBackfillingMissingCNs(true);
+    try {
+      const url = selectedRetailer 
+        ? `/api/retailer-credit-notes/backfill-missing?retailer_id=${selectedRetailer}`
+        : '/api/retailer-credit-notes/backfill-missing';
+      const response = await api.post(url);
+      
+      const summary = response.data.summary;
+      const created = response.data.created || [];
+      
+      if (summary.credit_notes_created > 0) {
+        // Build a message showing what was created
+        const createdList = created.slice(0, 5).map(c => 
+          `• ${c.credit_note_number}: ${c.product}${c.variant ? ` (${c.variant})` : ''} - ₹${c.credit_amount}`
+        ).join('\n');
+        
+        toast.success(
+          `Created ${summary.credit_notes_created} missing credit notes!\n\n${createdList}${created.length > 5 ? `\n... and ${created.length - 5} more` : ''}`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.info(
+          `No missing credit notes found.\n• ${summary.skipped_already_has_cn} already have CNs\n• ${summary.skipped_no_invoice_found} had no invoice\n• ${summary.skipped_invoice_not_fully_paid} invoices not fully paid`,
+          { duration: 6000 }
+        );
+      }
+      
+      loadCreditNotes(); // Refresh the list
+      loadRejections();  // Refresh rejections too
+    } catch (error) {
+      console.error('Failed to backfill missing credit notes:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsBackfillingMissingCNs(false);
     }
   };
 
@@ -11486,6 +11529,24 @@ export default function RetailerOrders() {
                     ) : (
                       <>
                         <Wrench className="h-3 w-3 mr-1" /> Fix Product Details
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={backfillMissingCreditNotes}
+                    disabled={isBackfillingMissingCNs}
+                    className="border-green-300 text-green-700 hover:bg-green-50"
+                    title="Create credit notes for rejections that are missing them"
+                  >
+                    {isBackfillingMissingCNs ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-3 w-3 mr-1" /> Backfill Missing CNs
                       </>
                     )}
                   </Button>

@@ -29,11 +29,16 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
   const observerRef = useRef(null);
   const isMounted = useRef(true);
   
+  // Check if src is a valid image URL
+  const isValidSrc = src && typeof src === 'string' && src.trim() !== '' && 
+                     src.toLowerCase() !== 'none' && src.toLowerCase() !== 'null' &&
+                     (src.startsWith('http') || src.startsWith('/') || src.startsWith('data:'));
+  
   useEffect(() => {
     isMounted.current = true;
     
     // Early return for empty/invalid src
-    if (!src || typeof src !== 'string' || src.trim() === '') {
+    if (!isValidSrc) {
       return;
     }
     
@@ -85,7 +90,7 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
         observerRef.current = null;
       }
     };
-  }, [src]);
+  }, [src, isValidSrc]);
   
   const handleLoad = () => {
     if (isMounted.current) {
@@ -101,7 +106,7 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
   };
   
   // Show placeholder for missing or errored images
-  if (!src || hasError) {
+  if (!isValidSrc || hasError) {
     return (
       <div 
         className={`${className || ''} bg-gray-100 rounded border flex items-center justify-center flex-shrink-0`} 

@@ -161,7 +161,20 @@ async def get_product_images(
         {"_id": 0, "id": 1, "image_url": 1}
     ).to_list(100)
     
-    return {p["id"]: p.get("image_url", "") for p in products}
+    # Filter out invalid image URLs (None, 'None', empty string, etc.)
+    result = {}
+    for p in products:
+        img_url = p.get("image_url", "")
+        # Only include valid URLs (starts with http, /, or data:)
+        if img_url and isinstance(img_url, str) and img_url.lower() not in ['none', 'null', '']:
+            if img_url.startswith(('http', '/', 'data:')):
+                result[p["id"]] = img_url
+            else:
+                result[p["id"]] = ""
+        else:
+            result[p["id"]] = ""
+    
+    return result
 
 
 @router.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED)

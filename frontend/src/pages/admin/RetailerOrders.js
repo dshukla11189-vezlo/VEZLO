@@ -420,6 +420,7 @@ export default function RetailerOrders() {
   const [isBackfillingCreditNotes, setIsBackfillingCreditNotes] = useState(false);
   const [isBackfillingMissingCNs, setIsBackfillingMissingCNs] = useState(false);
   const [isFixingOrphanedCNs, setIsFixingOrphanedCNs] = useState(false);
+  const [isFixingRejectionData, setIsFixingRejectionData] = useState(false);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1140,6 +1141,42 @@ export default function RetailerOrders() {
       toast.error('Failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsFixingOrphanedCNs(false);
+    }
+  };
+
+  // Fix incorrect rejection data in invoices
+  const fixInvoiceRejectionData = async () => {
+    const retailerFilter = selectedRetailer ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}` : 'for ALL retailers';
+    if (!window.confirm(`This will recalculate rejection amounts ${retailerFilter} from actual rejection records.\n\nInvoices with incorrect rejection_amount will be fixed.\n\nContinue?`)) return;
+    
+    setIsFixingRejectionData(true);
+    try {
+      const response = await api.post('/api/retailer-invoices/fix-rejection-data', {
+        retailer_id: selectedRetailer || null
+      });
+      
+      const fixedCount = response.data.fixed_count || 0;
+      const fixedDetails = response.data.fixed_details || [];
+      
+      if (fixedCount > 0) {
+        const detailsList = fixedDetails.slice(0, 5).map(d => 
+          `• ${d.invoice_number}: ₹${d.old_rejection} → ₹${d.new_rejection} (diff: ₹${d.difference})`
+        ).join('\n');
+        
+        toast.success(
+          `Fixed ${fixedCount} invoices!\n\n${detailsList}${fixedDetails.length > 5 ? `\n... and ${fixedDetails.length - 5} more` : ''}`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.info('No invoices with incorrect rejection data found.', { duration: 4000 });
+      }
+      
+      loadInvoices(); // Refresh invoices
+    } catch (error) {
+      console.error('Failed to fix invoice rejection data:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsFixingRejectionData(false);
     }
   };
 
@@ -10500,6 +10537,24 @@ export default function RetailerOrders() {
                   </select>
                   <Button size="sm" className="bg-[#14532D]" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
                     <Plus size={14} className="mr-1" /> Create Invoice
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={fixInvoiceRejectionData}
+                    disabled={isFixingRejectionData}
+                    className="border-red-300 text-red-700 hover:bg-red-50"
+                    title="Fix invoices with incorrect rejection amounts by recalculating from actual rejections"
+                  >
+                    {isFixingRejectionData ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                      </>
+                    ) : (
+                      <>
+                        <Wrench className="h-3 w-3 mr-1" /> Fix Rejection Data
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

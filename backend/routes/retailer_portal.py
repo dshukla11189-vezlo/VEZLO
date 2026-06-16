@@ -2716,6 +2716,102 @@ async def fix_orphaned_credit_notes(
     }
 
 
+
+@router.post("/retailer-invoices/fix-rejection-data")
+async def fix_invoice_rejection_data(
+    input: dict = {},
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fix invoices that have incorrect rejection_amount stored.
+    This recalculates rejection_amount from actual retailer_rejections records.
+    
+    Body (optional): {"retailer_id": "xxx", "invoice_id": "yyy"} to fix specific retailer/invoice
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix invoice rejection data")
+    
+    retailer_id = input.get("retailer_id") if input else None
+    invoice_id = input.get("invoice_id") if input else None
+    
+    # Build query
+    query = {}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    if invoice_id:
+        query["id"] = invoice_id
+    
+    invoices = await db.retailer_invoices.find(query, {"_id": 0}).to_list(500)
+    
+    fixed_count = 0
+    fixed_details = []
+    
+    for inv in invoices:
+        inv_id = inv.get("id")
+        dispatch_ids = inv.get("dispatch_ids", [])
+        old_rejection = inv.get("rejection_amount", 0) or 0
+        old_gross = inv.get("gross_value", 0) or 0
+        old_total_mrp = inv.get("total_mrp_value", 0) or 0
+        
+        # Calculate actual rejection from retailer_rejections that match this invoice's dispatches
+        actual_rejection = 0
+        rejection_details = []
+        
+        for dispatch_id in dispatch_ids:
+            # Find rejections that reference this dispatch
+            rejections = await db.retailer_rejections.find({
+                "dispatch_id": dispatch_id
+            }, {"_id": 0}).to_list(100)
+            
+            for rej in rejections:
+                for item in rej.get("items", []):
+                    item_value = item.get("value", 0) or (item.get("quantity", 0) * item.get("mrp", 0))
+                    actual_rejection += item_value
+                    rejection_details.append({
+                        "product": item.get("product_name"),
+                        "qty": item.get("quantity"),
+                        "value": item_value
+                    })
+        
+        # Check if there's a mismatch
+        if abs(old_rejection - actual_rejection) > 0.01:
+            # Recalculate total_mrp_value
+            new_total_mrp = old_gross - actual_rejection
+            
+            # Update the invoice
+            await db.retailer_invoices.update_one(
+                {"id": inv_id},
+                {"$set": {
+                    "rejection_amount": round(actual_rejection, 2),
+                    "total_mrp_value": round(new_total_mrp, 2),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "rejection_data_fixed": True,
+                    "rejection_fix_details": {
+                        "old_rejection": old_rejection,
+                        "new_rejection": actual_rejection,
+                        "fixed_at": datetime.now(timezone.utc).isoformat(),
+                        "fixed_by": current_user["user_id"]
+                    }
+                }}
+            )
+            
+            fixed_count += 1
+            fixed_details.append({
+                "invoice_number": inv.get("invoice_number"),
+                "retailer": inv.get("retailer_name"),
+                "old_rejection": old_rejection,
+                "new_rejection": round(actual_rejection, 2),
+                "difference": round(old_rejection - actual_rejection, 2),
+                "rejection_items": rejection_details[:5]  # Show first 5 items
+            })
+    
+    return {
+        "message": f"Fixed {fixed_count} invoices with incorrect rejection data.",
+        "fixed_count": fixed_count,
+        "fixed_details": fixed_details
+    }
+
+
 class RemoveCreditAdjustmentInput(BaseModel):
     invoice_id: str
 
@@ -3119,13 +3215,8 @@ async def get_invoice_final_summary(
         # Check if retailer is 100% upfront
         is_100_percent_upfront = (retailer.get("upfront_collection_percentage", 0) or 0) == 100
         
-        # For 100% upfront retailers: Rejections don't reduce invoice amount
-        # They create credit notes instead, so rejection_amount in invoice should be 0 for display
-        # For regular retailers: Use invoice's stored rejection_amount
-        if is_100_percent_upfront:
-            rejection_amount = 0  # Rejections handled via credit notes, not invoice deduction
-        else:
-            rejection_amount = inv.get("rejection_amount", 0) or 0
+        # Get the rejection amount from invoice
+        rejection_amount = inv.get("rejection_amount", 0) or 0
         
         # Build item-level details from invoice items (which already have rejection data)
         items = []
@@ -3187,18 +3278,11 @@ async def get_invoice_final_summary(
         # gross_value is the INITIAL invoice amount (before rejections)
         gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
         
-        # For 100% upfront retailers: total_mrp = gross_value (rejections don't reduce it)
-        # For regular retailers: total_mrp = gross_value - rejection_amount
-        if is_100_percent_upfront:
-            total_mrp = gross_value  # No rejection deduction for 100% upfront
-            # Recalculate payable based on gross value for consistency
-            commission_pct = inv.get("commission_percentage", 0) or retailer.get("commission_percentage", 0) or 0
-            payable = gross_value - (gross_value * commission_pct / 100)
-        else:
-            total_mrp = gross_value - rejection_amount  # Net MRP after rejections
-            payable = inv.get("net_payable", 0) or 0
+        # Net MRP = Gross - Rejections
+        total_mrp = gross_value - rejection_amount
         
         commission = inv.get("commission_amount", 0) or inv.get("commission_value", 0) or inv.get("total_commission", 0) or 0
+        payable = inv.get("net_payable", 0) or 0
         credit_adjusted = cn_by_invoice.get(inv.get("id"), 0) or inv.get("total_credit_adjusted", 0) or 0
         paid = inv.get("paid_amount", 0) or 0
         final_payable = payable - credit_adjusted - paid

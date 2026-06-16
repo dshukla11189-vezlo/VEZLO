@@ -3240,12 +3240,28 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
                 ))
                 gross_value += item.get("total_value", 0)
     
-    # Net MRP value = Gross - Rejections
-    total_mrp_value = gross_value - rejection_amount
+    # Check if retailer is 100% upfront
+    is_100_percent_upfront = (retailer.get("upfront_collection_percentage", 0) or 0) == 100
     
-    # Commission on NET value (after rejections)
-    commission_amount = total_mrp_value * commission / 100
-    net_payable = total_mrp_value - commission_amount
+    # For 100% upfront retailers:
+    # - Invoice amount is based on GROSS value (what was dispatched)
+    # - Rejections do NOT reduce the invoice amount
+    # - Rejections create credit notes separately
+    # For regular retailers:
+    # - Invoice amount is based on NET value (after rejections)
+    
+    if is_100_percent_upfront:
+        # 100% Upfront: Commission on GROSS value, rejections don't reduce invoice
+        # Store rejection_amount for reference but don't deduct it
+        total_mrp_value = gross_value  # Use gross for 100% upfront
+        commission_amount = gross_value * commission / 100
+        net_payable = gross_value - commission_amount
+    else:
+        # Regular retailers: Net MRP value = Gross - Rejections
+        total_mrp_value = gross_value - rejection_amount
+        # Commission on NET value (after rejections)
+        commission_amount = total_mrp_value * commission / 100
+        net_payable = total_mrp_value - commission_amount
     
     # Generate invoice number: XXX-INV-DDMMMYYYY-NNN (XXX = first 3 letters of shop/retailer name)
     # Use company_name (shop name) if available, otherwise use retailer name
@@ -4076,26 +4092,37 @@ async def get_retailer_statement(
     
     for inv in invoices:
         invoice_date = inv.get("invoice_date", "")[:10]
-        # For 100% upfront retailers: Use paid_amount (what they actually paid upfront)
-        # This equals gross_value minus commission
-        # For regular retailers: Use net_payable (after rejections removed)
+        # Get base amount
+        base_amount = inv.get("net_payable", 0) or 0
+        
+        # Subtract credit notes that have been adjusted against this invoice
+        credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
+        
+        # For 100% upfront retailers: Show final payable (net_payable - credit adjustments)
+        # For regular retailers: Use net_payable (after rejections, before credit adjustments)
         if is_100_percent_upfront:
-            # Use paid_amount = gross value after commission (what they paid)
-            # The rejections will be credited back via credit notes
-            amount = inv.get("paid_amount", 0) or inv.get("net_payable", 0) or 0
+            # Final payable = net_payable - credit notes adjusted against this invoice
+            amount = base_amount - credit_adjusted
         else:
             # Use net_payable (after commission, before credit note adjustments)
-            amount = inv.get("net_payable", 0) or 0
+            amount = base_amount
+        
+        # Build description with credit note info if applicable
+        description = f"Invoice {inv.get('invoice_number', '')}"
+        if credit_adjusted > 0:
+            description += f" (CN: -₹{credit_adjusted:.2f})"
         
         entries.append({
             "date": invoice_date,
             "type": "invoice",
             "reference": inv.get("invoice_number", ""),
-            "description": f"Invoice {inv.get('invoice_number', '')}",
+            "description": description,
             "debit": round(amount, 2),
             "credit": 0,
             "id": inv.get("id"),
-            "created_at": inv.get("created_at", invoice_date)
+            "created_at": inv.get("created_at", invoice_date),
+            "original_amount": round(base_amount, 2) if credit_adjusted > 0 else None,
+            "credit_adjusted": round(credit_adjusted, 2) if credit_adjusted > 0 else None
         })
     
     # 2. Get Rejections WITHOUT credit notes (CREDIT entries - reduces retailer's debt)
@@ -4126,8 +4153,9 @@ async def get_retailer_statement(
             })
     
     # 3. Get Credit Notes (CREDIT entries)
-    # For 100% upfront retailers: Credit notes are from rejections and reduce what they're owed
-    # Since invoice debit = gross value (what they paid), credit notes balance it correctly
+    # For 100% upfront retailers: Credit notes that are ADJUSTED against invoices are already
+    # reflected in the invoice debit amount, so we skip them to avoid double-counting.
+    # Only show PENDING credit notes (not yet adjusted) as separate entries.
     credit_notes = await db.retailer_credit_notes.find({
         "retailer_id": retailer_id,
         "created_at": {"$gte": start_date, "$lte": end_date + "T23:59:59"},
@@ -4137,16 +4165,27 @@ async def get_retailer_statement(
     for cn in credit_notes:
         cn_date = cn.get("created_at", "")[:10]
         amount = cn.get("amount", 0) or 0
-        entries.append({
-            "date": cn_date,
-            "type": "credit_note",
-            "reference": cn.get("credit_note_number", ""),
-            "description": f"Credit Note {cn.get('credit_note_number', '')} - {cn.get('reason', '')}",
-            "debit": 0,
-            "credit": round(amount, 2),
-            "id": cn.get("id"),
-            "created_at": cn.get("created_at", cn_date)
-        })
+        adjusted_amount = cn.get("adjusted_amount", 0) or 0
+        
+        # For 100% upfront retailers: Skip credit notes that have been fully adjusted
+        # (they're already reflected in the invoice amount)
+        if is_100_percent_upfront and adjusted_amount >= amount:
+            continue
+        
+        # For partially adjusted credit notes, show only the pending portion
+        display_amount = amount - adjusted_amount if is_100_percent_upfront else amount
+        
+        if display_amount > 0:
+            entries.append({
+                "date": cn_date,
+                "type": "credit_note",
+                "reference": cn.get("credit_note_number", ""),
+                "description": f"Credit Note {cn.get('credit_note_number', '')} - {cn.get('reason', '')}",
+                "debit": 0,
+                "credit": round(display_amount, 2),
+                "id": cn.get("id"),
+                "created_at": cn.get("created_at", cn_date)
+            })
     
     # 4. Get Payments (CREDIT entries - money received from retailer)
     payments = await db.retailer_payments.find({

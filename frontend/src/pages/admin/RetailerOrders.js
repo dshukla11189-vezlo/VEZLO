@@ -7208,7 +7208,10 @@ export default function RetailerOrders() {
   // Open invoice payment modal
   const openInvoicePaymentModal = async (invoice) => {
     setSelectedInvoiceForPayment(invoice);
-    const remainingAmount = (invoice.net_payable || 0) - (invoice.paid_amount || 0);
+    // Calculate remaining amount: net_payable - credit_notes_adjusted - already_paid
+    const creditAdjusted = invoice.total_credit_adjusted || 0;
+    const actualPayable = (invoice.net_payable || 0) - creditAdjusted;
+    const remainingAmount = actualPayable - (invoice.paid_amount || 0);
     const currentUserId = getCurrentUserId();
     const currentUserName = getCurrentUserName();
     setInvoicePaymentForm({
@@ -15494,9 +15497,13 @@ export default function RetailerOrders() {
                   // For 100% upfront retailers: use gross value minus commission (no rejection deduction)
                   const grossValue = selectedInvoiceForPayment.gross_value || selectedInvoiceForPayment.total_mrp_value || 0;
                   const commissionPct = selectedInvoiceForPayment.commission_percentage || 0;
-                  const calculatedNetPayable = isUpfront100 
+                  const baseNetPayable = isUpfront100 
                     ? (grossValue - (grossValue * commissionPct / 100))
                     : (selectedInvoiceForPayment.net_payable || 0);
+                  
+                  // Subtract credit notes that have been adjusted against this invoice
+                  const creditAdjusted = selectedInvoiceForPayment.total_credit_adjusted || 0;
+                  const calculatedNetPayable = baseNetPayable - creditAdjusted;
                   
                   const paidAmount = selectedInvoiceForPayment.paid_amount || 0;
                   const pendingAmount = calculatedNetPayable - paidAmount;
@@ -15512,6 +15519,16 @@ export default function RetailerOrders() {
                     <span className="font-medium">{getRetailerNameById(selectedInvoiceForPayment.retailer_id) || selectedInvoiceForPayment.retailer_name}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2 mt-2">
+                    <span className="text-gray-600">Invoice Amount:</span>
+                    <span className="font-semibold">{formatCurrency(baseNetPayable)}</span>
+                  </div>
+                  {creditAdjusted > 0 && (
+                    <div className="flex justify-between text-purple-600">
+                      <span>Credit Notes Adjusted:</span>
+                      <span className="font-medium">-{formatCurrency(creditAdjusted)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
                     <span className="text-gray-600">Total Receivable:</span>
                     <span className="font-semibold">{formatCurrency(calculatedNetPayable)}</span>
                   </div>

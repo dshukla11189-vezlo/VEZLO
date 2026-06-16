@@ -3101,8 +3101,16 @@ async def get_invoice_final_summary(
         retailer = retailer_map.get(inv.get("retailer_id"), {})
         inv_date = inv.get("invoice_date", "")[:10]
         
-        # Use invoice's stored rejection_amount (already linked correctly)
-        rejection_amount = inv.get("rejection_amount", 0) or 0
+        # Check if retailer is 100% upfront
+        is_100_percent_upfront = (retailer.get("upfront_collection_percentage", 0) or 0) == 100
+        
+        # For 100% upfront retailers: Rejections don't reduce invoice amount
+        # They create credit notes instead, so rejection_amount in invoice should be 0 for display
+        # For regular retailers: Use invoice's stored rejection_amount
+        if is_100_percent_upfront:
+            rejection_amount = 0  # Rejections handled via credit notes, not invoice deduction
+        else:
+            rejection_amount = inv.get("rejection_amount", 0) or 0
         
         # Build item-level details from invoice items (which already have rejection data)
         items = []
@@ -3163,9 +3171,19 @@ async def get_invoice_final_summary(
         # Calculate values using invoice's stored data
         # gross_value is the INITIAL invoice amount (before rejections)
         gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
-        total_mrp = gross_value - rejection_amount  # Net MRP after rejections
+        
+        # For 100% upfront retailers: total_mrp = gross_value (rejections don't reduce it)
+        # For regular retailers: total_mrp = gross_value - rejection_amount
+        if is_100_percent_upfront:
+            total_mrp = gross_value  # No rejection deduction for 100% upfront
+            # Recalculate payable based on gross value for consistency
+            commission_pct = inv.get("commission_percentage", 0) or retailer.get("commission_percentage", 0) or 0
+            payable = gross_value - (gross_value * commission_pct / 100)
+        else:
+            total_mrp = gross_value - rejection_amount  # Net MRP after rejections
+            payable = inv.get("net_payable", 0) or 0
+        
         commission = inv.get("commission_amount", 0) or inv.get("commission_value", 0) or inv.get("total_commission", 0) or 0
-        payable = inv.get("net_payable", 0) or 0
         credit_adjusted = cn_by_invoice.get(inv.get("id"), 0) or inv.get("total_credit_adjusted", 0) or 0
         paid = inv.get("paid_amount", 0) or 0
         final_payable = payable - credit_adjusted - paid

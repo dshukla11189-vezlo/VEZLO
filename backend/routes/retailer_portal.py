@@ -998,13 +998,17 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
             ).to_list(100)
             total_paid = sum(p.get("amount", 0) or 0 for p in payments)
             
-            # If paid >= payable (before this rejection), retailer has already settled
-            # This rejection means they overpaid, so create credit note
-            if total_paid >= net_payable and net_payable > 0:
+            # For 100% upfront retailers: ALWAYS create credit note for rejections
+            # (Payment happens at delivery time, so rejections always need credit notes)
+            if is_100_upfront:
+                should_create_credit_note = True
+                logger.info(f"Creating credit note for 100% upfront retailer - rejections always generate credit notes")
+            # For other retailers: Only create credit note if already fully paid
+            elif total_paid >= net_payable and net_payable > 0:
                 should_create_credit_note = True
                 logger.info(f"Creating credit note - paid ({total_paid}) >= payable ({net_payable}). Rejection creates excess payment.")
             else:
-                # Paid < Payable: No credit note needed
+                # Paid < Payable: No credit note needed for non-100% upfront
                 # Rejection will reduce the payable, retailer pays the reduced amount
                 logger.info(f"Skipping credit note - paid ({total_paid}) < payable ({net_payable}). Rejection will reduce pending amount.")
         

@@ -8,6 +8,9 @@ from fastapi import APIRouter, HTTPException, Depends
 import re
 import random
 import string
+import uuid
+import logging
+from datetime import datetime, timezone
 
 from dependencies import (
     db,
@@ -19,6 +22,8 @@ from models import (
     RegisterRequest,
     UserUpdate,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["users"])
 
@@ -128,13 +133,49 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["address"] = input.address
     if input.commission_percentage is not None:
         update_data["commission_percentage"] = input.commission_percentage
+    
+    # Track upfront percentage changes for retailers
+    upfront_change_log = None
     if input.upfront_collection_percentage is not None:
-        update_data["upfront_collection_percentage"] = input.upfront_collection_percentage
+        old_upfront = existing.get("upfront_collection_percentage", 0) or 0
+        new_upfront = input.upfront_collection_percentage
+        
+        # If upfront percentage is changing, record the event
+        if old_upfront != new_upfront:
+            upfront_change_log = {
+                "id": str(uuid.uuid4()),
+                "retailer_id": user_id,
+                "retailer_name": existing.get("company_name") or existing.get("name"),
+                "old_upfront_percentage": old_upfront,
+                "new_upfront_percentage": new_upfront,
+                "changed_by": current_user["user_id"],
+                "changed_by_name": current_user.get("name", "Admin"),
+                "changed_at": datetime.now(timezone.utc).isoformat(),
+                "reason": f"Admin changed upfront from {old_upfront}% to {new_upfront}%"
+            }
+            
+            # Store the change log in a separate collection
+            await db.retailer_upfront_changes.insert_one(upfront_change_log)
+            
+            # Log the change
+            logger.info(f"Upfront percentage change: {existing.get('company_name', existing.get('name'))} changed from {old_upfront}% to {new_upfront}% by {current_user.get('name')}")
+        
+        update_data["upfront_collection_percentage"] = new_upfront
     
     if update_data:
         await db.users.update_one({"id": user_id}, {"$set": update_data})
     
-    return {"id": user_id, "message": "User updated successfully"}
+    response = {"id": user_id, "message": "User updated successfully"}
+    
+    # Include info about upfront change if it occurred
+    if upfront_change_log:
+        response["upfront_change"] = {
+            "old_percentage": upfront_change_log["old_upfront_percentage"],
+            "new_percentage": upfront_change_log["new_upfront_percentage"],
+            "message": f"Upfront collection changed from {upfront_change_log['old_upfront_percentage']}% to {upfront_change_log['new_upfront_percentage']}%. All future transactions will use the new model."
+        }
+    
+    return response
 
 
 @router.delete("/users/{user_id}")
@@ -182,3 +223,27 @@ async def normalize_user_contacts(current_user: dict = Depends(get_current_user)
             updated_count += 1
     
     return {"message": f"Normalized {updated_count} user records"}
+
+
+
+@router.get("/users/{user_id}/upfront-history")
+async def get_upfront_change_history(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Get the history of upfront percentage changes for a retailer"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can view upfront history")
+    
+    # Get change history
+    history = await db.retailer_upfront_changes.find(
+        {"retailer_id": user_id},
+        {"_id": 0}
+    ).sort("changed_at", -1).to_list(100)
+    
+    # Get current user info
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "company_name": 1, "name": 1, "upfront_collection_percentage": 1})
+    
+    return {
+        "retailer_id": user_id,
+        "retailer_name": user.get("company_name") or user.get("name") if user else "Unknown",
+        "current_upfront_percentage": user.get("upfront_collection_percentage", 0) if user else 0,
+        "change_history": history
+    }

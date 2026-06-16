@@ -2600,6 +2600,99 @@ async def backfill_missing_credit_notes(
     }
 
 
+@router.post("/retailer-credit-notes/fix-orphaned")
+async def fix_orphaned_credit_notes(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fix credit notes that are marked as 'adjusted' but reference deleted invoices.
+    This resets them to 'pending' status so they can be adjusted against new invoices.
+    
+    Use this after deleting invoices that had credit notes adjusted against them.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can fix orphaned credit notes")
+    
+    # Build query for credit notes that are adjusted
+    query = {"status": {"$in": ["adjusted", "partial"]}}
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(1000)
+    
+    fixed_count = 0
+    fixed_details = []
+    
+    for cn in credit_notes:
+        adjusted_in_invoices = cn.get("adjusted_in_invoices", [])
+        if not adjusted_in_invoices:
+            continue
+        
+        # Check if any of the invoices the CN was adjusted against still exist
+        orphaned_adjustments = []
+        valid_adjustments = []
+        total_orphaned_amount = 0
+        
+        for adj in adjusted_in_invoices:
+            invoice_id = adj.get("invoice_id")
+            invoice_number = adj.get("invoice_number")
+            adj_amount = adj.get("adjusted_amount", adj.get("amount", 0))
+            
+            # Check if invoice exists
+            invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+            if invoice:
+                valid_adjustments.append(adj)
+            else:
+                orphaned_adjustments.append(adj)
+                total_orphaned_amount += adj_amount
+                logger.info(f"Found orphaned adjustment: CN {cn.get('credit_note_number')} -> deleted invoice {invoice_number}")
+        
+        if orphaned_adjustments:
+            # Recalculate amounts
+            total_amount = cn.get("amount", 0) or 0
+            current_adjusted = cn.get("adjusted_amount", 0) or 0
+            new_adjusted = max(0, current_adjusted - total_orphaned_amount)
+            new_pending = total_amount - new_adjusted
+            
+            # Determine new status
+            if new_adjusted <= 0:
+                new_status = "pending"
+            elif new_adjusted >= total_amount:
+                new_status = "adjusted"
+            else:
+                new_status = "partial"
+            
+            # Update credit note
+            await db.retailer_credit_notes.update_one(
+                {"id": cn.get("id")},
+                {"$set": {
+                    "adjusted_amount": round(new_adjusted, 2),
+                    "pending_amount": round(new_pending, 2),
+                    "status": new_status,
+                    "adjusted_in_invoices": valid_adjustments,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            
+            fixed_count += 1
+            fixed_details.append({
+                "credit_note_number": cn.get("credit_note_number"),
+                "retailer": cn.get("retailer_name"),
+                "old_status": cn.get("status"),
+                "new_status": new_status,
+                "amount_freed": round(total_orphaned_amount, 2),
+                "new_pending": round(new_pending, 2),
+                "orphaned_invoices": [a.get("invoice_number") for a in orphaned_adjustments]
+            })
+    
+    return {
+        "message": f"Fixed {fixed_count} orphaned credit notes.",
+        "fixed_count": fixed_count,
+        "fixed_details": fixed_details
+    }
+
+
 class RemoveCreditAdjustmentInput(BaseModel):
     invoice_id: str
 

@@ -5762,7 +5762,7 @@ export default function RetailerOrders() {
     try {
       const response = await api.post('/api/retailer-invoices', {
         retailer_id: invoiceForm.retailer_id,
-        invoice_date: new Date(invoiceForm.invoice_date).toISOString(),
+        invoice_date: invoiceForm.invoice_date, // Send as YYYY-MM-DD string, not ISO timestamp
         dispatch_ids: dispatchIds,
         selected_items: selectedItems.map(i => ({
           dispatch_id: i.dispatch_id,
@@ -5854,7 +5854,7 @@ export default function RetailerOrders() {
 
     try {
       await api.put(`/api/retailer-invoices/${editingInvoice.id}`, {
-        invoice_date: new Date(editInvoiceForm.invoice_date).toISOString(),
+        invoice_date: editInvoiceForm.invoice_date, // Send as YYYY-MM-DD string, not ISO timestamp
         items: editInvoiceForm.items,
         remarks: editInvoiceForm.remarks
       });

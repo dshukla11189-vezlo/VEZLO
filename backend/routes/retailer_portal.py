@@ -1976,9 +1976,10 @@ async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_u
     ).sort("created_at", -1).to_list(500)
     
     # Calculate summary totals
-    total_issued = sum(cn.get("amount", 0) for cn in credit_notes)
-    total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in credit_notes)
-    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in credit_notes)
+    total_issued = sum(cn.get("amount", 0) or 0 for cn in credit_notes)
+    total_adjusted = sum(cn.get("adjusted_amount", 0) or 0 for cn in credit_notes)
+    # Calculate pending properly: amount - adjusted_amount (not using stored pending_amount which may be stale)
+    total_pending = sum((cn.get("amount", 0) or 0) - (cn.get("adjusted_amount", 0) or 0) for cn in credit_notes)
     
     # Group credit notes by INVOICE (original_invoice_number)
     # This shows all rejections for a particular supply/invoice together
@@ -2013,19 +2014,33 @@ async def get_my_credit_notes_summary(current_user: dict = Depends(get_current_u
     # Convert to sorted list (newest invoice first)
     invoices_list = []
     for invoice_num, group in sorted(invoice_groups.items(), key=lambda x: x[1].get("invoice_date") or "0000-00-00", reverse=True):
+        # Enhance each credit note with calculated pending amount
+        enhanced_credit_notes = []
+        for cn in group["credit_notes"]:
+            # Calculate actual pending amount
+            cn_amount = cn.get("amount", 0) or 0
+            cn_adjusted = cn.get("adjusted_amount", 0) or 0
+            cn_pending = cn_amount - cn_adjusted
+            
+            # Add calculated pending to the CN data
+            enhanced_cn = dict(cn)
+            enhanced_cn["pending_amount"] = round(cn_pending, 2)
+            enhanced_cn["is_fully_adjusted"] = cn_pending <= 0
+            enhanced_credit_notes.append(enhanced_cn)
+        
         invoices_list.append({
             "invoice_number": invoice_num,
             "invoice_date": group["invoice_date"],
             "credit_amount": round(group["total_credit"], 2),
             "credit_note_count": len(group["credit_notes"]),
-            "credit_notes": group["credit_notes"]
+            "credit_notes": enhanced_credit_notes
         })
     
     return {
         "summary": {
             "total_issued": round(total_issued, 2),
             "total_adjusted": round(total_adjusted, 2),
-            "total_pending": round(total_pending, 2),
+            "total_pending": round(max(0, total_pending), 2),
             "total_count": len(credit_notes)
         },
         "invoices": invoices_list

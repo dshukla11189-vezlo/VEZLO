@@ -6046,6 +6046,7 @@ export default function RetailerDashboard() {
                                   <th className="px-2 py-1.5 text-right font-medium text-gray-600">Amount</th>
                                   <th className="px-2 py-1.5 text-right font-medium text-green-600">Adjusted</th>
                                   <th className="px-2 py-1.5 text-right font-medium text-orange-600">Pending</th>
+                                  <th className="px-2 py-1.5 text-left font-medium text-purple-600">Adjusted In</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -6072,8 +6073,14 @@ export default function RetailerDashboard() {
                                             <td className="px-2 py-1.5 text-right font-medium text-green-600" rowSpan={cn.rejection_details.length}>
                                               {formatCurrency(cn.adjusted_amount || 0)}
                                             </td>
-                                            <td className="px-2 py-1.5 text-right font-medium text-orange-600" rowSpan={cn.rejection_details.length}>
-                                              {formatCurrency(cn.pending_amount || cn.amount)}
+                                            <td className={`px-2 py-1.5 text-right font-medium ${cn.is_fully_adjusted ? 'text-gray-400' : 'text-orange-600'}`} rowSpan={cn.rejection_details.length}>
+                                              {cn.is_fully_adjusted ? '₹0.00' : formatCurrency((cn.amount || 0) - (cn.adjusted_amount || 0))}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-xs text-purple-600" rowSpan={cn.rejection_details.length}>
+                                              {cn.adjusted_in_invoices && cn.adjusted_in_invoices.length > 0 
+                                                ? cn.adjusted_in_invoices.map(inv => inv.invoice_number).join(', ')
+                                                : cn.is_fully_adjusted ? 'Adjusted' : '-'
+                                              }
                                             </td>
                                           </>
                                         )}
@@ -6093,7 +6100,15 @@ export default function RetailerDashboard() {
                                         </td>
                                         <td className="px-2 py-1.5 text-right font-medium text-gray-700">{formatCurrency(cn.amount)}</td>
                                         <td className="px-2 py-1.5 text-right font-medium text-green-600">{formatCurrency(cn.adjusted_amount || 0)}</td>
-                                        <td className="px-2 py-1.5 text-right font-medium text-orange-600">{formatCurrency(cn.pending_amount || cn.amount)}</td>
+                                        <td className={`px-2 py-1.5 text-right font-medium ${cn.is_fully_adjusted ? 'text-gray-400' : 'text-orange-600'}`}>
+                                          {cn.is_fully_adjusted ? '₹0.00' : formatCurrency((cn.amount || 0) - (cn.adjusted_amount || 0))}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-xs text-purple-600">
+                                          {cn.adjusted_in_invoices && cn.adjusted_in_invoices.length > 0 
+                                            ? cn.adjusted_in_invoices.map(inv => inv.invoice_number).join(', ')
+                                            : cn.is_fully_adjusted ? 'Adjusted' : '-'
+                                          }
+                                        </td>
                                       </tr>
                                     );
                                   }

@@ -5462,7 +5462,10 @@ export default function RetailerOrders() {
         const isUnitVariant = variantId === 'unit_piece' || variantId === 'unit_packet' || 
                               variantName.toLowerCase() === 'pieces' || variantName.toLowerCase() === 'packets';
         
-        // If variant is unit-based, look up the actual weight variant from catalogue
+        // Store the original unit variant for MRP lookup (pieces/packets have their own MRP)
+        const mrpVariantId = isUnitVariant ? (variantId || 'unit_piece') : variantId;
+        
+        // If variant is unit-based, look up the actual weight variant from catalogue for display
         if (isUnitVariant) {
           const catalogueEntry = retailerCatalogue.find(c => 
             c.product_id === item.product_id || 
@@ -5492,8 +5495,9 @@ export default function RetailerOrders() {
           }
         }
         
-        // Lookup MRP from the daily MRP table using product_id + variant_id
-        const mrpKey = `${item.product_id}_${variantId || ''}`;
+        // Lookup MRP from the daily MRP table using product_id + mrpVariantId
+        // For unit-based products (pieces/packets), use the original unit variant for MRP lookup
+        const mrpKey = `${item.product_id}_${mrpVariantId || variantId || ''}`;
         const mrpValue = mrpMap[mrpKey] || 0;
         
         return {

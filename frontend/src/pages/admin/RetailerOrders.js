@@ -7788,17 +7788,27 @@ export default function RetailerOrders() {
               }
               
               if (!groupedData[key]) {
-                groupedData[key] = { key, label, shortLabel, orderValue: 0, totalCommission: 0, orderDays: new Set(), rejectionValue: 0, rejectionCount: 0 };
+                groupedData[key] = { 
+                  key, label, shortLabel, 
+                  grossOrderValue: 0,  // Total dispatched value (before rejections)
+                  orderValue: 0,       // Net value (after rejections) - kept for reference
+                  totalCommission: 0, 
+                  orderDays: new Set(), 
+                  rejectionValue: 0, 
+                  rejectionCount: 0 
+                };
               }
               
               const mrp = d.total_mrp_value > 0 ? d.total_mrp_value : 
                 (d.items?.reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0) || 0);
+              groupedData[key].grossOrderValue += mrp;
               groupedData[key].orderValue += mrp;
               groupedData[key].totalCommission += mrp * commPct / 100;
               groupedData[key].orderDays.add(date);
             });
             
-            // Subtract rejections from order value and commission, and track rejection values
+            // Track rejections separately (don't subtract from gross order value)
+            // Rejections are shown as a separate metric
             filteredRejs.forEach(r => {
               const date = r.rejection_date?.split('T')[0];
               if (!date) return;
@@ -7817,6 +7827,7 @@ export default function RetailerOrders() {
               }
               
               if (groupedData[key]) {
+                // Only update net orderValue (for reference), NOT grossOrderValue
                 groupedData[key].orderValue -= rejValue;
                 groupedData[key].totalCommission -= rejValue * commPct / 100;
                 groupedData[key].rejectionValue += rejValue;
@@ -7836,8 +7847,12 @@ export default function RetailerOrders() {
                 }
                 groupedData[key] = { 
                   key, label, shortLabel, 
-                  orderValue: 0, totalCommission: 0, orderDays: new Set(),
-                  rejectionValue: rejValue, rejectionCount: 1 
+                  grossOrderValue: 0,
+                  orderValue: 0, 
+                  totalCommission: 0, 
+                  orderDays: new Set(),
+                  rejectionValue: rejValue, 
+                  rejectionCount: 1 
                 };
               }
             });
@@ -7848,6 +7863,8 @@ export default function RetailerOrders() {
                 const daysCount = d.orderDays.size || 1;
                 return {
                   ...d,
+                  // Use grossOrderValue for display (total dispatched value before rejections)
+                  orderValue: Math.round(d.grossOrderValue || 0),
                   netOrderValue: Math.round(Math.max(0, d.orderValue)),
                   earnings: Math.round(Math.max(0, d.totalCommission)),
                   avgEarningsPerDay: Math.round(Math.max(0, d.totalCommission) / daysCount),
@@ -7858,8 +7875,8 @@ export default function RetailerOrders() {
               })
               .sort((a, b) => a.key.localeCompare(b.key));
             
-            // Calculate totals for summary
-            const totalOrderValue = chartData.reduce((sum, d) => sum + d.netOrderValue, 0);
+            // Calculate totals for summary - use grossOrderValue for Total Order Value
+            const totalOrderValue = chartData.reduce((sum, d) => sum + d.orderValue, 0);
             const totalEarnings = chartData.reduce((sum, d) => sum + d.earnings, 0);
             const totalRejections = chartData.reduce((sum, d) => sum + d.rejectionValue, 0);
             const totalRejectionCount = chartData.reduce((sum, d) => sum + d.rejectionCount, 0);
@@ -7942,12 +7959,12 @@ export default function RetailerOrders() {
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                             trigger="click"
                           />
-                          <Bar dataKey="netOrderValue" radius={[3, 3, 0, 0]} maxBarSize={25}>
+                          <Bar dataKey="orderValue" radius={[3, 3, 0, 0]} maxBarSize={25}>
                             {chartData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={orderColors[index % orderColors.length]} />
                             ))}
                             <LabelList 
-                              dataKey="netOrderValue" 
+                              dataKey="orderValue" 
                               position="top" 
                               style={{ fontSize: 9, fontWeight: 600, fill: '#3b82f6' }}
                               formatter={formatValue}

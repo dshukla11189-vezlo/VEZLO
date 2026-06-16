@@ -3471,8 +3471,52 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
         {"$set": {"invoice_number": None, "invoice_id": None}}
     )
     
+    # Reset credit notes that were adjusted against this invoice
+    # Get credit note adjustments from the invoice
+    credit_note_adjustments = invoice.get("credit_note_adjustments", [])
+    invoice_number = invoice.get("invoice_number", "")
+    
+    for cn_adj in credit_note_adjustments:
+        cn_id = cn_adj.get("credit_note_id")
+        adj_amount = cn_adj.get("amount", 0)
+        
+        if cn_id and adj_amount > 0:
+            # Get the credit note
+            credit_note = await db.retailer_credit_notes.find_one({"id": cn_id}, {"_id": 0})
+            if credit_note:
+                current_adjusted = credit_note.get("adjusted_amount", 0) or 0
+                new_adjusted = max(0, current_adjusted - adj_amount)
+                total_amount = credit_note.get("amount", 0) or 0
+                
+                # Determine new status
+                if new_adjusted <= 0:
+                    new_status = "pending"
+                elif new_adjusted >= total_amount:
+                    new_status = "adjusted"
+                else:
+                    new_status = "partial"
+                
+                # Remove this invoice from adjusted_in_invoices array
+                adjusted_in_invoices = credit_note.get("adjusted_in_invoices", [])
+                adjusted_in_invoices = [
+                    inv for inv in adjusted_in_invoices 
+                    if inv.get("invoice_number") != invoice_number and inv.get("invoice_id") != invoice_id
+                ]
+                
+                # Update credit note
+                await db.retailer_credit_notes.update_one(
+                    {"id": cn_id},
+                    {"$set": {
+                        "adjusted_amount": round(new_adjusted, 2),
+                        "status": new_status,
+                        "adjusted_in_invoices": adjusted_in_invoices,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+                logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - adjusted: {current_adjusted} -> {new_adjusted}, status: {new_status}")
+    
     await db.retailer_invoices.delete_one({"id": invoice_id})
-    return {"message": "Invoice deleted successfully"}
+    return {"message": "Invoice deleted successfully", "credit_notes_reset": len(credit_note_adjustments)}
 
 # Record payment against an invoice
 @router.post("/retailer-invoices/{invoice_id}/payment")

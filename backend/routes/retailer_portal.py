@@ -3488,6 +3488,9 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
                 new_adjusted = max(0, current_adjusted - adj_amount)
                 total_amount = credit_note.get("amount", 0) or 0
                 
+                # Calculate new pending amount
+                new_pending = total_amount - new_adjusted
+                
                 # Determine new status
                 if new_adjusted <= 0:
                     new_status = "pending"
@@ -3503,17 +3506,18 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
                     if inv.get("invoice_number") != invoice_number and inv.get("invoice_id") != invoice_id
                 ]
                 
-                # Update credit note
+                # Update credit note - also update pending_amount
                 await db.retailer_credit_notes.update_one(
                     {"id": cn_id},
                     {"$set": {
                         "adjusted_amount": round(new_adjusted, 2),
+                        "pending_amount": round(new_pending, 2),
                         "status": new_status,
                         "adjusted_in_invoices": adjusted_in_invoices,
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }}
                 )
-                logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - adjusted: {current_adjusted} -> {new_adjusted}, status: {new_status}")
+                logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - adjusted: {current_adjusted} -> {new_adjusted}, pending: {new_pending}, status: {new_status}")
     
     await db.retailer_invoices.delete_one({"id": invoice_id})
     return {"message": "Invoice deleted successfully", "credit_notes_reset": len(credit_note_adjustments)}

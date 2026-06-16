@@ -173,16 +173,35 @@ export default function RetailerDashboard() {
   const [rejectionDateFrom, setRejectionDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 84); // 12 weeks default
-    return d.toISOString().split('T')[0];
+    // Use IST timezone explicitly
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
   });
-  const [rejectionDateTo, setRejectionDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [rejectionDateTo, setRejectionDateTo] = useState(() => {
+    // Use IST timezone explicitly
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  });
   
-  // Helper function to get local date in YYYY-MM-DD format (avoids timezone issues with toISOString)
+  // Helper function to get IST date in YYYY-MM-DD format (avoids timezone issues with toISOString and system timezone)
   const getLocalDateString = (date = new Date()) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    // Always use India Standard Time (IST) to ensure consistency across all users
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(date);
+  };
+  
+  // Helper to get IST date with offset
+  const getISTDateWithOffset = (daysOffset) => {
+    const now = new Date();
+    now.setDate(now.getDate() + daysOffset);
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(now);
   };
 
   // Orders date filter
@@ -295,22 +314,18 @@ export default function RetailerDashboard() {
   const [statementData, setStatementData] = useState(null);
   const [statementLoading, setStatementLoading] = useState(false);
   const [statementStartDate, setStatementStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return getISTDateWithOffset(-30); // 30 days ago in IST
   });
-  const [statementEndDate, setStatementEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [statementEndDate, setStatementEndDate] = useState(() => getLocalDateString());
   const [expandedStatementGroups, setExpandedStatementGroups] = useState({});
   
   // Final Summary state
   const [finalSummaryData, setFinalSummaryData] = useState(null);
   const [finalSummaryLoading, setFinalSummaryLoading] = useState(false);
   const [finalSummaryStartDate, setFinalSummaryStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return getISTDateWithOffset(-30); // 30 days ago in IST
   });
-  const [finalSummaryEndDate, setFinalSummaryEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [finalSummaryEndDate, setFinalSummaryEndDate] = useState(() => getLocalDateString());
   const [expandedFinalSummaryRows, setExpandedFinalSummaryRows] = useState({});
   
   // Credit Notes state

@@ -27,6 +27,33 @@ import {
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 
+// Helper function to get current date in IST (India Standard Time)
+// This ensures consistent date handling regardless of user's system timezone
+const getISTDate = () => {
+  const now = new Date();
+  // Convert to IST by creating a formatter and extracting parts
+  const istFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return istFormatter.format(now); // Returns YYYY-MM-DD format
+};
+
+// Helper to get IST date with offset (for relative dates like "30 days ago")
+const getISTDateWithOffset = (daysOffset) => {
+  const now = new Date();
+  now.setDate(now.getDate() + daysOffset);
+  const istFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return istFormatter.format(now);
+};
+
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
   if (!data || data.length === 0) {
@@ -275,8 +302,8 @@ export default function RetailerOrders() {
   const [retailerCatalogue, setRetailerCatalogue] = useState([]);
   const [selectedRetailer, setSelectedRetailer] = useState('');
   
-  // Date filters - default to today
-  const today = new Date().toISOString().split('T')[0];
+  // Date filters - default to today (IST timezone)
+  const today = getISTDate();
   const [indentDateFilter, setIndentDateFilter] = useState(today);
   const [dispatchDateFilter, setDispatchDateFilter] = useState(today);
   
@@ -286,7 +313,7 @@ export default function RetailerOrders() {
   const [showIndentModal, setShowIndentModal] = useState(false);
   const [indentForm, setIndentForm] = useState({
     retailer_id: '',
-    indent_date: new Date().toISOString().split('T')[0],
+    indent_date: getISTDate(),
     items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: '', status: 'pending' }],
     remarks: ''
   });
@@ -300,7 +327,7 @@ export default function RetailerOrders() {
   const [editingDispatch, setEditingDispatch] = useState(null);
   const [selectedIndent, setSelectedIndent] = useState(null);
   const [dispatchForm, setDispatchForm] = useState({
-    dispatch_date: new Date().toISOString().split('T')[0],
+    dispatch_date: getISTDate(),
     items: [],
     remarks: '',
     transport_charges: 0
@@ -325,7 +352,7 @@ export default function RetailerOrders() {
   const [selectedItemIds, setSelectedItemIds] = useState([]);
   const [invoiceForm, setInvoiceForm] = useState({
     retailer_id: '',
-    invoice_date: new Date().toISOString().split('T')[0],
+    invoice_date: getISTDate(),
     remarks: ''
   });
   
@@ -334,11 +361,9 @@ export default function RetailerOrders() {
   const [statementLoading, setStatementLoading] = useState(false);
   const [statementRetailerId, setStatementRetailerId] = useState('');
   const [statementStartDate, setStatementStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return getISTDateWithOffset(-30); // 30 days ago in IST
   });
-  const [statementEndDate, setStatementEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [statementEndDate, setStatementEndDate] = useState(getISTDate());
   const [expandedStatementGroups, setExpandedStatementGroups] = useState({});
   
   // Rejections state
@@ -351,7 +376,7 @@ export default function RetailerOrders() {
   const [rejectionProductFilter, setRejectionProductFilter] = useState('');
   const [rejectionForm, setRejectionForm] = useState({
     retailer_id: '',
-    rejection_date: new Date().toISOString().split('T')[0],
+    rejection_date: getISTDate(),
     items: [] // Changed to array of items for multi-item rejection
   });
   const [rejectionDispatchItems, setRejectionDispatchItems] = useState([]); // Dispatch items for selected date
@@ -408,7 +433,7 @@ export default function RetailerOrders() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     retailer_id: '',
-    payment_date: new Date().toISOString().split('T')[0],
+    payment_date: getISTDate(),
     amount: '',
     payment_mode: 'cash',
     reference_number: '',
@@ -426,7 +451,7 @@ export default function RetailerOrders() {
     received_by_name: '',
     reference_number: '',
     remarks: '',
-    payment_date: new Date().toISOString().split('T')[0]
+    payment_date: getISTDate()
   });
   const [staffUsers, setStaffUsers] = useState([]); // Admin and Staff users for "Received By"
   const [invoiceExistingPayments, setInvoiceExistingPayments] = useState([]); // Existing payments for partial invoices
@@ -483,11 +508,9 @@ export default function RetailerOrders() {
   
   // Rejection Loss date filter
   const [rejectionLossDateFrom, setRejectionLossDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 84); // 12 weeks = 84 days
-    return d.toISOString().split('T')[0];
+    return getISTDateWithOffset(-84); // 12 weeks = 84 days in IST
   });
-  const [rejectionLossDateTo, setRejectionLossDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [rejectionLossDateTo, setRejectionLossDateTo] = useState(getISTDate());
   const [showRejectionAnalyticsModal, setShowRejectionAnalyticsModal] = useState(false);
   const [rejectionRetailerDrilldown, setRejectionRetailerDrilldown] = useState(null); // For retailer-specific drill-down
   const [allDispatchesForRejection, setAllDispatchesForRejection] = useState([]); // All dispatches for rejection % calc
@@ -502,7 +525,7 @@ export default function RetailerOrders() {
   
   // Closing Inventory Management (Admin)
   const [closingInventoryData, setClosingInventoryData] = useState([]);
-  const [closingInventoryDate, setClosingInventoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [closingInventoryDate, setClosingInventoryDate] = useState(getISTDate());
   const [closingInventoryRetailer, setClosingInventoryRetailer] = useState('');
   const [editingClosingItem, setEditingClosingItem] = useState(null);
   const [editingClosingQty, setEditingClosingQty] = useState('');
@@ -542,11 +565,9 @@ export default function RetailerOrders() {
   const [finalSummaryData, setFinalSummaryData] = useState(null);
   const [finalSummaryLoading, setFinalSummaryLoading] = useState(false);
   const [finalSummaryStartDate, setFinalSummaryStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return getISTDateWithOffset(-30); // 30 days ago in IST
   });
-  const [finalSummaryEndDate, setFinalSummaryEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [finalSummaryEndDate, setFinalSummaryEndDate] = useState(getISTDate());
   const [expandedFinalSummaryRows, setExpandedFinalSummaryRows] = useState({}); // Track expanded rows
   
   // Immediately Payable state (5-day credit)
@@ -582,13 +603,13 @@ export default function RetailerOrders() {
   
   // Auto Indent Creation state
   const [showAutoIndentModal, setShowAutoIndentModal] = useState(false);
-  const [autoIndentDate, setAutoIndentDate] = useState(new Date(Date.now() + 86400000).toISOString().split('T')[0]); // Tomorrow by default
+  const [autoIndentDate, setAutoIndentDate] = useState(getISTDateWithOffset(1)); // Tomorrow in IST
   const [autoIndentRetailerId, setAutoIndentRetailerId] = useState('');
   const [autoIndentLoading, setAutoIndentLoading] = useState(false);
   const [autoIndentBasis, setAutoIndentBasis] = useState('sales'); // 'sales' or 'plan'
 
   // Daily Requirement state
-  const [dailyReqDate, setDailyReqDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dailyReqDate, setDailyReqDate] = useState(getISTDate());
   const [dailyReqData, setDailyReqData] = useState([]); // Current working list
   const [originalReqData, setOriginalReqData] = useState([]); // Original from indents (read-only)
   const [savedReqData, setSavedReqData] = useState([]); // Saved/edited list from DB
@@ -1218,10 +1239,10 @@ export default function RetailerOrders() {
     // Admin can always edit/delete any invoice
     if (userRole === 'admin') return true;
     
-    // Non-admin users (staff, etc.) can only edit/delete TODAY's invoices
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Non-admin users (staff, etc.) can only edit/delete TODAY's invoices (IST timezone)
+    const todayIST = getISTDate(); // Uses IST timezone, not system timezone
     const invoiceDate = invoice.invoice_date?.split('T')[0] || '';
-    return invoiceDate === today;
+    return invoiceDate === todayIST;
   };
 
   // Load Payment Ledger Data
@@ -1281,9 +1302,9 @@ export default function RetailerOrders() {
 
   // Check if user can edit MRP for a given date (only admin can edit past dates)
   const canEditMrpForDate = (date) => {
-    const today = new Date().toISOString().split('T')[0];
+    const todayIST = getISTDate();
     const userRole = getCurrentUserRole();
-    if (date < today) {
+    if (date < todayIST) {
       return userRole === 'admin';
     }
     return true; // Anyone can edit today's or future dates
@@ -2310,33 +2331,25 @@ export default function RetailerOrders() {
       totalRejectionCount,
       totalRejectionItems,
       pendingAmount: filteredTotalInvoiced - filteredTotalPayments,
-      // Today's Orders (indents for today, dispatches for today)
-      todayIndentsCount: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
-      todayIndentsQty: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === new Date().toISOString().split('T')[0])
+      // Today's Orders (indents for today, dispatches for today) - using IST timezone
+      todayIndentsCount: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === getISTDate()).length,
+      todayIndentsQty: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === getISTDate())
         .reduce((sum, indent) => sum + (indent.items || []).reduce((itemSum, item) => itemSum + (item.quantity || item.indent_qty || 0), 0), 0),
-      todayDispatchesCount: filteredDispatchesForStats.filter(d => d.dispatch_date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
-      todayDispatchesQty: filteredDispatchesForStats.filter(d => d.dispatch_date?.split('T')[0] === new Date().toISOString().split('T')[0])
+      todayDispatchesCount: filteredDispatchesForStats.filter(d => d.dispatch_date?.split('T')[0] === getISTDate()).length,
+      todayDispatchesQty: filteredDispatchesForStats.filter(d => d.dispatch_date?.split('T')[0] === getISTDate())
         .reduce((sum, d) => (d.items || []).reduce((itemSum, item) => itemSum + (item.supplied_qty || item.dispatched_qty || item.quantity || 0), sum), 0),
-      // Tomorrow's Orders
+      // Tomorrow's Orders - using IST timezone
       tomorrowIndentsCount: filteredIndentsForStats.filter(i => {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return i.indent_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+        return i.indent_date?.split('T')[0] === getISTDateWithOffset(1);
       }).length,
       tomorrowIndentsQty: filteredIndentsForStats.filter(i => {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return i.indent_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+        return i.indent_date?.split('T')[0] === getISTDateWithOffset(1);
       }).reduce((sum, indent) => sum + (indent.items || []).reduce((itemSum, item) => itemSum + (item.quantity || item.indent_qty || 0), 0), 0),
       tomorrowDispatchesCount: filteredDispatchesForStats.filter(d => {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return d.dispatch_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+        return d.dispatch_date?.split('T')[0] === getISTDateWithOffset(1);
       }).length,
       tomorrowDispatchesQty: filteredDispatchesForStats.filter(d => {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return d.dispatch_date?.split('T')[0] === tomorrow.toISOString().split('T')[0];
+        return d.dispatch_date?.split('T')[0] === getISTDateWithOffset(1);
       }).reduce((sum, d) => (d.items || []).reduce((itemSum, item) => itemSum + (item.supplied_qty || item.dispatched_qty || item.quantity || 0), sum), 0)
     });
   }, [indents, dispatches, invoices, payments, rejections, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer]);
@@ -2659,11 +2672,11 @@ export default function RetailerOrders() {
     // Get the date from first indent for filename
     const exportDate = filteredIndents[0]?.indent_date 
       ? new Date(filteredIndents[0].indent_date).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0];
+      : getISTDate();
     
     const formattedDate = filteredIndents[0]?.indent_date 
       ? formatDate(filteredIndents[0].indent_date)
-      : formatDate(new Date().toISOString());
+      : formatDate(getISTDate());
 
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new();
@@ -3160,7 +3173,7 @@ export default function RetailerOrders() {
     
     setIndentForm({
       retailer_id: indent.retailer_id,
-      indent_date: indent.indent_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      indent_date: indent.indent_date?.split('T')[0] || getISTDate(),
       items: indent.items.map(item => {
         const { variantId, variantName } = resolveVariantInfo(item);
         return {
@@ -3191,7 +3204,7 @@ export default function RetailerOrders() {
   const resetIndentForm = () => {
     setIndentForm({
       retailer_id: '',
-      indent_date: new Date().toISOString().split('T')[0],
+      indent_date: getISTDate(),
       items: [{ product_id: '', product_name: '', variant_id: '', variant_name: '', quantity: '', status: 'pending' }],
       remarks: ''
     });
@@ -4413,7 +4426,7 @@ export default function RetailerOrders() {
     
     // Save to backend blinkit_prices collection (for reference)
     try {
-      const date = new Date().toISOString().split('T')[0];
+      const date = getISTDate();
       const product = products.find(p => p.id === productId);
       
       await api.post('/api/blinkit-prices/manual', {
@@ -5396,8 +5409,8 @@ export default function RetailerOrders() {
     setSelectedIndent(indent);
     setEditingDispatch(null);
     
-    // Get today's date for MRP lookup
-    const dispatchDate = new Date().toISOString().split('T')[0];
+    // Get today's date for MRP lookup (IST timezone)
+    const dispatchDate = getISTDate();
     
     // Fetch MRP data for the dispatch date
     let mrpMap = {};
@@ -5523,7 +5536,7 @@ export default function RetailerOrders() {
     setSelectedIndent(null);
     setEditingDispatch(dispatch);
     setDispatchForm({
-      dispatch_date: dispatch.dispatch_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      dispatch_date: dispatch.dispatch_date?.split('T')[0] || getISTDate(),
       items: dispatch.items.map(item => ({
         product_id: item.product_id,
         product_name: item.product_name,
@@ -5773,7 +5786,7 @@ export default function RetailerOrders() {
       setSelectedItemIds([]);
       setInvoiceForm({
         retailer_id: '',
-        invoice_date: new Date().toISOString().split('T')[0],
+        invoice_date: getISTDate(),
         remarks: ''
       });
       loadInvoices();
@@ -5787,7 +5800,7 @@ export default function RetailerOrders() {
   const openEditInvoiceModal = async (invoice) => {
     setEditingInvoice(invoice);
     setEditInvoiceForm({
-      invoice_date: invoice.invoice_date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      invoice_date: invoice.invoice_date?.split('T')[0] || getISTDate(),
       items: invoice.items.map(item => ({
         ...item,
         selected: true
@@ -7050,7 +7063,7 @@ export default function RetailerOrders() {
   const resetRejectionForm = () => {
     setRejectionForm({
       retailer_id: '',
-      rejection_date: new Date().toISOString().split('T')[0],
+      rejection_date: getISTDate(),
       items: []
     });
     setRejectionDispatchItems([]);
@@ -7144,7 +7157,7 @@ export default function RetailerOrders() {
   const resetPaymentForm = () => {
     setPaymentForm({
       retailer_id: '',
-      payment_date: new Date().toISOString().split('T')[0],
+      payment_date: getISTDate(),
       amount: '',
       payment_mode: 'cash',
       reference_number: '',
@@ -7168,7 +7181,7 @@ export default function RetailerOrders() {
       received_by_name: currentUserName,
       reference_number: '',
       remarks: '',
-      payment_date: new Date().toISOString().split('T')[0]
+      payment_date: getISTDate()
     });
     setShowInvoicePaymentModal(true);
     
@@ -7251,7 +7264,7 @@ export default function RetailerOrders() {
       payment_mode: payment.payment_mode || 'cash',
       reference_number: payment.reference_number || '',
       remarks: payment.remarks || '',
-      payment_date: payment.payment_date?.split('T')[0] || new Date().toISOString().split('T')[0]
+      payment_date: payment.payment_date?.split('T')[0] || getISTDate()
     });
     setShowEditPaymentModal(true);
   };
@@ -11924,7 +11937,7 @@ export default function RetailerOrders() {
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <h4 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
                     <ClipboardList size={16} />
-                    Today's Closing Summary ({new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })})
+                    Today's Closing Summary ({new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })})
                   </h4>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                     {todayClosingSummary.map(item => (
@@ -11932,7 +11945,7 @@ export default function RetailerOrders() {
                         key={item.retailer_id}
                         onClick={() => {
                           setClosingInventoryRetailer(item.retailer_id);
-                          setClosingInventoryDate(new Date().toISOString().split('T')[0]);
+                          setClosingInventoryDate(getISTDate());
                           setTimeout(() => loadStockClosingData(), 100);
                         }}
                         className={`p-2 rounded cursor-pointer transition-colors text-xs ${
@@ -11996,7 +12009,7 @@ export default function RetailerOrders() {
                   >
                     <Search size={14} className="mr-1" /> Load
                   </Button>
-                  {closingInventoryDate === new Date().toISOString().split('T')[0] && stockClosingHasChanges && (
+                  {closingInventoryDate === getISTDate() && stockClosingHasChanges && (
                     <Button 
                       size="sm" 
                       onClick={saveStockClosing}
@@ -12048,11 +12061,11 @@ export default function RetailerOrders() {
               {/* Date indicator - Today vs Historical */}
               {closingInventoryRetailer && closingInventoryDate && (
                 <div className={`mb-4 px-4 py-2 rounded-lg text-sm flex items-center gap-2 ${
-                  closingInventoryDate === new Date().toISOString().split('T')[0]
+                  closingInventoryDate === getISTDate()
                     ? 'bg-green-50 border border-green-200 text-green-800'
                     : 'bg-gray-100 border border-gray-200 text-gray-600'
                 }`}>
-                  {closingInventoryDate === new Date().toISOString().split('T')[0] ? (
+                  {closingInventoryDate === getISTDate() ? (
                     <>
                       <Edit size={14} />
                       <span>Today's closing - You can edit and save</span>
@@ -12082,7 +12095,7 @@ export default function RetailerOrders() {
                           <th className="px-4 py-3 text-center font-medium text-amber-600 min-w-[120px]">
                             Closing
                           </th>
-                          {closingInventoryDate !== new Date().toISOString().split('T')[0] && (
+                          {closingInventoryDate !== getISTDate() && (
                             <th className="px-4 py-3 text-center font-medium text-purple-600 min-w-[100px]">
                               Items Sold
                             </th>
@@ -12101,7 +12114,7 @@ export default function RetailerOrders() {
                               }))}
                             >
                               <td 
-                                colSpan={closingInventoryDate === new Date().toISOString().split('T')[0] ? 3 : 4}
+                                colSpan={closingInventoryDate === getISTDate() ? 3 : 4}
                                 className="px-4 py-2 font-medium text-gray-700"
                               >
                                 <div className="flex items-center gap-2">
@@ -12136,7 +12149,7 @@ export default function RetailerOrders() {
                                     </td>
                                     <td className="px-4 py-2 text-center text-gray-300">-</td>
                                     <td className="px-4 py-2 text-center text-gray-300">-</td>
-                                    {closingInventoryDate !== new Date().toISOString().split('T')[0] && (
+                                    {closingInventoryDate !== getISTDate() && (
                                       <td className="px-4 py-2 text-center text-gray-300">-</td>
                                     )}
                                   </tr>
@@ -12148,7 +12161,7 @@ export default function RetailerOrders() {
                                 const key = `${item.product_id}_${variantId}`;
                                 const openingQty = stockClosingOpeningData[key] || 0;
                                 const closingQty = stockClosingData[key] ?? '';
-                                const isToday = closingInventoryDate === new Date().toISOString().split('T')[0];
+                                const isToday = closingInventoryDate === getISTDate();
                                 const itemsSold = closingQty !== '' ? Math.max(0, openingQty - parseFloat(closingQty || 0)) : '-';
                                 
                                 return (
@@ -16113,7 +16126,7 @@ export default function RetailerOrders() {
                     value={autoIndentDate}
                     onChange={(e) => setAutoIndentDate(e.target.value)}
                     className="w-full"
-                    min={new Date().toISOString().split('T')[0]}
+                    min={getISTDate()}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Select the date for which the indent should be created

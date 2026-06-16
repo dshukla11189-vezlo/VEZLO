@@ -3,6 +3,21 @@
 ## Changelog (June 2025)
 
 
+### June 16, 2026 - IST Timezone Fix for Date Handling ✅
+- **BUG FIX (P0)**: Staff can now edit TODAY's invoices
+  - Root cause: `canEditDeleteInvoice()` was using `new Date().toISOString().split('T')[0]` which returns UTC date, not IST
+  - Solution: Created `getISTDate()` helper function using `Intl.DateTimeFormat` with `timeZone: 'Asia/Kolkata'`
+  - Staff users now correctly see edit/delete buttons ONLY for today's invoices
+- **BUG FIX (P0)**: Default date no longer shows as "yesterday" for users with different system timezones
+  - Root cause: All `useState(new Date().toISOString().split('T')[0])` calls were using UTC, which could show wrong date depending on user's local system time
+  - Solution: Replaced ~40 instances of UTC date initialization with `getISTDate()` or `getISTDateWithOffset()`
+  - Affects: Indent forms, Dispatch forms, Invoice forms, Rejection forms, Payment forms, Date filters, Closing inventory
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added `getISTDate()` and `getISTDateWithOffset()` helpers, updated all date initializations
+  - `/app/frontend/src/pages/retailer/Dashboard.js` - Updated `getLocalDateString()` to use IST timezone, added `getISTDateWithOffset()` helper
+- **TESTING**: Verified staff user (Vanita) can see correct default dates and proper edit permissions on invoices
+
+
 ### June 14, 2025 - Retailer Portal Statement & Final Summary Tabs ✅
 - **FEATURE**: Ported Statement and Final Summary tabs from Admin panel to Retailer Portal
   - Statement Tab: Complete financial ledger showing invoices, payments, rejections, and credit notes

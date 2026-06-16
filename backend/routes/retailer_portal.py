@@ -2602,7 +2602,7 @@ async def backfill_missing_credit_notes(
 
 @router.post("/retailer-credit-notes/fix-orphaned")
 async def fix_orphaned_credit_notes(
-    retailer_id: str = None,
+    input: dict = {},
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -2610,9 +2610,13 @@ async def fix_orphaned_credit_notes(
     This resets them to 'pending' status so they can be adjusted against new invoices.
     
     Use this after deleting invoices that had credit notes adjusted against them.
+    
+    Body (optional): {"retailer_id": "xxx"} to fix only for a specific retailer
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can fix orphaned credit notes")
+    
+    retailer_id = input.get("retailer_id") if input else None
     
     # Build query for credit notes that are adjusted
     query = {"status": {"$in": ["adjusted", "partial"]}}

@@ -419,6 +419,7 @@ export default function RetailerOrders() {
   // Credit Notes backfill state
   const [isBackfillingCreditNotes, setIsBackfillingCreditNotes] = useState(false);
   const [isBackfillingMissingCNs, setIsBackfillingMissingCNs] = useState(false);
+  const [isFixingOrphanedCNs, setIsFixingOrphanedCNs] = useState(false);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1103,6 +1104,42 @@ export default function RetailerOrders() {
       toast.error('Failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsBackfillingMissingCNs(false);
+    }
+  };
+
+  // Fix orphaned credit notes (those adjusted against deleted invoices)
+  const fixOrphanedCreditNotes = async () => {
+    const retailerFilter = selectedRetailer ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}` : 'for ALL retailers';
+    if (!window.confirm(`This will reset credit notes ${retailerFilter} that are marked as "adjusted" but reference deleted invoices.\n\nThey will become "pending" and available for adjustment again.\n\nContinue?`)) return;
+    
+    setIsFixingOrphanedCNs(true);
+    try {
+      const response = await api.post('/api/retailer-credit-notes/fix-orphaned', {
+        retailer_id: selectedRetailer || null
+      });
+      
+      const fixedCount = response.data.fixed_count || 0;
+      const fixedDetails = response.data.fixed_details || [];
+      
+      if (fixedCount > 0) {
+        const detailsList = fixedDetails.slice(0, 5).map(d => 
+          `• ${d.credit_note_number}: ₹${d.amount_freed} freed (was in ${d.orphaned_invoices.join(', ')})`
+        ).join('\n');
+        
+        toast.success(
+          `Fixed ${fixedCount} orphaned credit notes!\n\n${detailsList}${fixedDetails.length > 5 ? `\n... and ${fixedDetails.length - 5} more` : ''}`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.info('No orphaned credit notes found. All CNs are properly linked to existing invoices.', { duration: 4000 });
+      }
+      
+      loadCreditNotes(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to fix orphaned credit notes:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsFixingOrphanedCNs(false);
     }
   };
 
@@ -11643,6 +11680,24 @@ export default function RetailerOrders() {
                     ) : (
                       <>
                         <Plus className="h-3 w-3 mr-1" /> Backfill Missing CNs
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={fixOrphanedCreditNotes}
+                    disabled={isFixingOrphanedCNs}
+                    className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                    title="Reset credit notes that reference deleted invoices back to pending status"
+                  >
+                    {isFixingOrphanedCNs ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                      </>
+                    ) : (
+                      <>
+                        <Wrench className="h-3 w-3 mr-1" /> Fix Orphaned CNs
                       </>
                     )}
                   </Button>

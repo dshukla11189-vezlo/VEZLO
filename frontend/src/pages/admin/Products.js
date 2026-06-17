@@ -1125,12 +1125,21 @@ export default function Products() {
         } else {
           // Product with variants - one row per variant
           variants.forEach((variantId, idx) => {
-            const variant = packagings.find(p => p.id === variantId);
+            // Find variant name from packagings OR packagingVariants
+            const variant = packagings.find(p => p.id === variantId) || 
+                           packagingVariants.find(p => p.id === variantId);
+            let variantName = variant ? variant.name : variantId;
+            
+            // Clean up variant name if it looks like a UUID
+            if (!variant && variantId && variantId.includes('-') && variantId.length > 30) {
+              variantName = 'Unknown Variant';
+            }
+            
             exportData.push({
               'S.No.': serialNo++,
               'Category': idx === 0 ? (product.category || '-') : '',
               'Name': idx === 0 ? product.name : '',
-              'Variant': variant ? variant.name : variantId
+              'Variant': variantName
             });
           });
         }
@@ -1185,11 +1194,12 @@ export default function Products() {
         });
       
       catalogueProducts.forEach(product => {
-        // Get enabled variants from catalogue item
-        const enabledVariants = product.catalogueItem?.enabled_variants || product.variant_ids || [];
+        // Get Customer Display Variants from catalogueItem.variants
+        // This is the "Customer Display Variant" column shown in the UI
+        const customerDisplayVariants = product.catalogueItem?.variants || [];
         
-        if (enabledVariants.length === 0) {
-          // Product with no variants
+        if (customerDisplayVariants.length === 0) {
+          // Product with no Customer Display variants
           exportData.push({
             'S.No.': serialNo++,
             'Category': product.category || '-',
@@ -1197,14 +1207,34 @@ export default function Products() {
             'Variant': '-'
           });
         } else {
-          // Product with variants - one row per variant
-          enabledVariants.forEach((variantId, idx) => {
-            const variant = packagings.find(p => p.id === variantId);
+          // Product with Customer Display variants - one row per variant
+          customerDisplayVariants.forEach((variantId, idx) => {
+            let variantName = '-';
+            
+            // Check if it's a unit-based variant (e.g., unit_piece, unit_packet)
+            if (variantId && variantId.startsWith('unit_')) {
+              const unitName = variantId.replace('unit_', '');
+              variantName = unitName.charAt(0).toUpperCase() + unitName.slice(1);
+            } else {
+              // Find variant name from packagings OR packagingVariants
+              const variant = packagings.find(p => p.id === variantId) || 
+                             packagingVariants.find(p => p.id === variantId);
+              
+              if (variant) {
+                variantName = variant.name;
+              } else if (variantId && variantId.includes('-') && variantId.length > 30) {
+                // UUID-like ID without matching packaging - skip or show as unknown
+                variantName = 'Unknown Variant';
+              } else if (variantId) {
+                variantName = variantId;
+              }
+            }
+            
             exportData.push({
               'S.No.': serialNo++,
               'Category': idx === 0 ? (product.category || '-') : '',
               'Name': idx === 0 ? product.name : '',
-              'Variant': variant ? variant.name : variantId
+              'Variant': variantName
             });
           });
         }

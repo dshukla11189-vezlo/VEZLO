@@ -6,7 +6,8 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
-import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers, ImageIcon, Upload, X, ChevronRight, Check, Save } from 'lucide-react';
+import { Plus, Edit, Trash, Search, AlertTriangle, ArrowRight, Package, Ruler, Box, Tag, Layers, ImageIcon, Upload, X, ChevronRight, Check, Save, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // Searchable Weight Multi-Select Component
 const WeightMultiSelect = ({ selectedWeights, onChange, packagingVariants }) => {
@@ -1095,6 +1096,147 @@ export default function Products() {
     return result;
   }, [products, searchQuery]);
 
+  // Export products to Excel
+  const exportProductsToExcel = () => {
+    try {
+      // Prepare data with S.No., Category, Name, Variant
+      const exportData = [];
+      let serialNo = 1;
+      
+      // Sort products by category, then by name
+      const sortedProducts = [...filteredProducts].sort((a, b) => {
+        const catA = (a.category || '').toLowerCase();
+        const catB = (b.category || '').toLowerCase();
+        if (catA !== catB) return catA.localeCompare(catB);
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+      
+      sortedProducts.forEach(product => {
+        const variants = product.variant_ids || product.variants || [];
+        
+        if (variants.length === 0) {
+          // Product with no variants
+          exportData.push({
+            'S.No.': serialNo++,
+            'Category': product.category || '-',
+            'Name': product.name,
+            'Variant': '-'
+          });
+        } else {
+          // Product with variants - one row per variant
+          variants.forEach((variantId, idx) => {
+            const variant = packagings.find(p => p.id === variantId);
+            exportData.push({
+              'S.No.': serialNo++,
+              'Category': idx === 0 ? (product.category || '-') : '',
+              'Name': idx === 0 ? product.name : '',
+              'Variant': variant ? variant.name : variantId
+            });
+          });
+        }
+      });
+      
+      // Create workbook and worksheet
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },   // S.No.
+        { wch: 20 },  // Category
+        { wch: 35 },  // Name
+        { wch: 25 }   // Variant
+      ];
+      
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Products');
+      
+      // Generate filename with date
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `Products_Master_${date}.xlsx`;
+      
+      // Download
+      XLSX.writeFile(wb, filename);
+      toast.success(`Exported ${exportData.length} product entries to Excel`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export products');
+    }
+  };
+
+  // Export Retailer Catalogue to Excel
+  const exportCatalogueToExcel = () => {
+    try {
+      // Prepare data with S.No., Category, Name, Variant
+      const exportData = [];
+      let serialNo = 1;
+      
+      // Get catalogue products with their details
+      const catalogueProducts = catalogueItems
+        .map(item => {
+          const product = products.find(p => p.id === item.product_id);
+          return product ? { ...product, catalogueItem: item } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => {
+          const catA = (a.category || '').toLowerCase();
+          const catB = (b.category || '').toLowerCase();
+          if (catA !== catB) return catA.localeCompare(catB);
+          return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        });
+      
+      catalogueProducts.forEach(product => {
+        // Get enabled variants from catalogue item
+        const enabledVariants = product.catalogueItem?.enabled_variants || product.variant_ids || [];
+        
+        if (enabledVariants.length === 0) {
+          // Product with no variants
+          exportData.push({
+            'S.No.': serialNo++,
+            'Category': product.category || '-',
+            'Name': product.name,
+            'Variant': '-'
+          });
+        } else {
+          // Product with variants - one row per variant
+          enabledVariants.forEach((variantId, idx) => {
+            const variant = packagings.find(p => p.id === variantId);
+            exportData.push({
+              'S.No.': serialNo++,
+              'Category': idx === 0 ? (product.category || '-') : '',
+              'Name': idx === 0 ? product.name : '',
+              'Variant': variant ? variant.name : variantId
+            });
+          });
+        }
+      });
+      
+      // Create workbook and worksheet
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },   // S.No.
+        { wch: 20 },  // Category
+        { wch: 35 },  // Name
+        { wch: 25 }   // Variant
+      ];
+      
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Retailer Catalogue');
+      
+      // Generate filename with date
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `Retailer_Catalogue_${date}.xlsx`;
+      
+      // Download
+      XLSX.writeFile(wb, filename);
+      toast.success(`Exported ${exportData.length} catalogue entries to Excel`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export catalogue');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -1461,6 +1603,14 @@ export default function Products() {
         
         {/* Add Product Button */}
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={exportProductsToExcel}
+            className="border-green-300 text-green-700 hover:bg-green-50"
+          >
+            <Download size={16} className="mr-2" />
+            Export Excel
+          </Button>
           <Button 
             variant="outline" 
             onClick={handleAutoTranslate}
@@ -2594,6 +2744,14 @@ export default function Products() {
                   <Edit size={14} className="mr-1" /> Edit Catalogue
                 </Button>
               )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={exportCatalogueToExcel}
+                className="border-green-300 text-green-700 hover:bg-green-50"
+              >
+                <Download size={14} className="mr-1" /> Export Excel
+              </Button>
               <Button
                 size="sm"
                 variant="outline"

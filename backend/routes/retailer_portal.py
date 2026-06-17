@@ -3133,6 +3133,32 @@ async def get_retailer_invoices(
             invoice["commission_amount"] = round(commission_amount, 2)
             invoice["net_payable"] = round(new_net_payable, 2)
     
+    # Calculate total_credit_adjusted for each invoice
+    invoice_ids = [inv.get("id") for inv in invoices if inv.get("id")]
+    if invoice_ids:
+        # Get all credit notes that have been adjusted against these invoices
+        credit_notes = await db.retailer_credit_notes.find({
+            "adjusted_in_invoices.invoice_id": {"$in": invoice_ids}
+        }, {"_id": 0, "adjusted_in_invoices": 1}).to_list(1000)
+        
+        # Build a map of invoice_id -> total_credit_adjusted
+        credit_by_invoice = {}
+        for cn in credit_notes:
+            for adj in cn.get("adjusted_in_invoices", []):
+                inv_id = adj.get("invoice_id")
+                if inv_id and inv_id in invoice_ids:
+                    adj_amount = adj.get("adjusted_amount", adj.get("amount", 0)) or 0
+                    credit_by_invoice[inv_id] = credit_by_invoice.get(inv_id, 0) + adj_amount
+        
+        # Update each invoice with total_credit_adjusted
+        for invoice in invoices:
+            inv_id = invoice.get("id")
+            if inv_id:
+                # Use stored value if present, otherwise use calculated value
+                stored_credit = invoice.get("total_credit_adjusted", 0) or 0
+                calculated_credit = credit_by_invoice.get(inv_id, 0)
+                invoice["total_credit_adjusted"] = round(max(stored_credit, calculated_credit), 2)
+    
     return invoices
 
 # Final Summary API - shows complete reconciliation view (MUST be before /{invoice_id} route)
@@ -7830,17 +7856,23 @@ async def get_retailer_payment_ledger(
         })
     
     # Add credit notes to respective dates
+    total_credit_notes_applied = 0
     for cn in credit_notes:
-        for adj in cn.get("adjusted_against_invoices", []):
-            adj_date = adj.get("adjusted_at", "")[:10] if adj.get("adjusted_at") else "Unknown"
-            if adj_date in date_groups:
+        # Try both field names for backward compatibility
+        adjustments = cn.get("adjusted_in_invoices", []) or cn.get("adjusted_against_invoices", [])
+        for adj in adjustments:
+            adj_date = adj.get("adjusted_at", "")[:10] if adj.get("adjusted_at") else None
+            adj_amount = adj.get("adjusted_amount", adj.get("amount", 0)) or 0
+            total_credit_notes_applied += adj_amount
+            
+            if adj_date and adj_date in date_groups:
                 date_groups[adj_date]["credit_notes"].append({
                     "credit_note_id": cn.get("id"),
                     "credit_note_number": cn.get("credit_note_number"),
                     "original_invoice": cn.get("original_invoice_number"),
-                    "amount": adj.get("amount", 0),
+                    "amount": adj_amount,
                     "adjusted_against_invoice_id": adj.get("invoice_id"),
-                    "adjusted_against_invoice_number": invoice_map.get(adj.get("invoice_id"), {}).get("invoice_number"),
+                    "adjusted_against_invoice_number": adj.get("invoice_number") or invoice_map.get(adj.get("invoice_id"), {}).get("invoice_number"),
                     "adjusted_at": adj.get("adjusted_at")
                 })
     
@@ -7859,7 +7891,7 @@ async def get_retailer_payment_ledger(
     
     # Calculate grand totals
     grand_total = sum(d["total_amount"] for d in result_list)
-    total_credit_notes = sum(sum(cn["amount"] for cn in d["credit_notes"]) for d in result_list)
+    # Use the tracked total_credit_notes_applied (already calculated above)
     
     return {
         "retailer_id": retailer_id,
@@ -7868,7 +7900,7 @@ async def get_retailer_payment_ledger(
             "end": end_date
         },
         "grand_total": round(grand_total, 2),
-        "total_credit_notes_applied": round(total_credit_notes, 2),
+        "total_credit_notes_applied": round(total_credit_notes_applied, 2),
         "total_transactions": sum(d["payment_count"] for d in result_list),
         "dates": result_list
     }

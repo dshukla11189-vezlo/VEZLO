@@ -2716,6 +2716,364 @@ async def fix_orphaned_credit_notes(
     }
 
 
+@router.get("/retailer-credit-notes/diagnose-sync-issues")
+async def diagnose_cn_invoice_sync_issues(
+    retailer_id: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Diagnose credit notes that show as 'adjusted' but the corresponding invoice
+    doesn't have the adjustment recorded (total_credit_adjusted / credit_note_adjustments).
+    
+    This finds data mismatches where:
+    - CN has adjusted_in_invoices or adjusted_against_invoices pointing to an invoice
+    - But the invoice's credit_note_adjustments doesn't include this CN
+    - Or invoice's total_credit_adjusted doesn't match sum of CN adjustments
+    
+    Returns list of mismatches that need fixing.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can diagnose sync issues")
+    
+    # Find credit notes that have adjustments
+    query = {
+        "$or": [
+            {"adjusted_in_invoices": {"$exists": True, "$ne": []}},
+            {"adjusted_against_invoices": {"$exists": True, "$ne": []}}
+        ]
+    }
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(2000)
+    
+    mismatches = []
+    invoices_checked = set()
+    
+    for cn in credit_notes:
+        cn_id = cn.get("id")
+        cn_number = cn.get("credit_note_number")
+        cn_amount = cn.get("amount", 0)
+        
+        # Get all adjustments (from both field names)
+        adjustments = cn.get("adjusted_in_invoices", []) + cn.get("adjusted_against_invoices", [])
+        
+        for adj in adjustments:
+            invoice_id = adj.get("invoice_id")
+            invoice_number = adj.get("invoice_number", "")
+            adjusted_amount = adj.get("adjusted_amount", adj.get("amount", 0))
+            
+            if not invoice_id:
+                continue
+            
+            # Get the invoice
+            invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+            
+            if not invoice:
+                # Invoice doesn't exist - this is an orphan (handled by fix-orphaned)
+                mismatches.append({
+                    "type": "INVOICE_NOT_FOUND",
+                    "credit_note_id": cn_id,
+                    "credit_note_number": cn_number,
+                    "invoice_id": invoice_id,
+                    "invoice_number": invoice_number,
+                    "adjusted_amount": adjusted_amount,
+                    "retailer": cn.get("retailer_name"),
+                    "issue": f"Invoice {invoice_number} not found in database"
+                })
+                continue
+            
+            # Check if invoice has this CN in credit_note_adjustments
+            inv_cn_adjustments = invoice.get("credit_note_adjustments", [])
+            inv_credit_adjustments = invoice.get("credit_adjustments", [])  # Alternative field name
+            
+            cn_found_in_invoice = False
+            cn_amount_in_invoice = 0
+            
+            # Check credit_note_adjustments (primary field)
+            for inv_adj in inv_cn_adjustments:
+                # Handle both dict and string formats
+                if isinstance(inv_adj, dict):
+                    if inv_adj.get("credit_note_id") == cn_id or inv_adj.get("credit_note_number") == cn_number:
+                        cn_found_in_invoice = True
+                        cn_amount_in_invoice = inv_adj.get("adjusted_amount", inv_adj.get("amount", 0))
+                        break
+                elif isinstance(inv_adj, str) and (inv_adj == cn_id or inv_adj == cn_number):
+                    cn_found_in_invoice = True
+                    # Amount unknown when stored as string
+                    break
+            
+            # Check credit_adjustments (alternative field)
+            if not cn_found_in_invoice:
+                for inv_adj in inv_credit_adjustments:
+                    if isinstance(inv_adj, dict):
+                        if inv_adj.get("credit_note_id") == cn_id or inv_adj.get("credit_note_number") == cn_number:
+                            cn_found_in_invoice = True
+                            cn_amount_in_invoice = inv_adj.get("amount_adjusted", inv_adj.get("amount", 0))
+                            break
+                    elif isinstance(inv_adj, str) and (inv_adj == cn_id or inv_adj == cn_number):
+                        cn_found_in_invoice = True
+                        break
+            
+            if not cn_found_in_invoice:
+                # CN says adjusted against invoice, but invoice doesn't have this CN
+                mismatches.append({
+                    "type": "CN_NOT_IN_INVOICE",
+                    "credit_note_id": cn_id,
+                    "credit_note_number": cn_number,
+                    "invoice_id": invoice_id,
+                    "invoice_number": invoice.get("invoice_number"),
+                    "adjusted_amount": adjusted_amount,
+                    "retailer": cn.get("retailer_name"),
+                    "invoice_total_credit_adjusted": invoice.get("total_credit_adjusted", 0),
+                    "invoice_credit_note_adjustments": len(inv_cn_adjustments),
+                    "issue": f"CN {cn_number} claims adjustment of ₹{adjusted_amount} against {invoice.get('invoice_number')}, but invoice doesn't have this CN recorded"
+                })
+            elif abs(cn_amount_in_invoice - adjusted_amount) > 0.01:
+                # Amount mismatch
+                mismatches.append({
+                    "type": "AMOUNT_MISMATCH",
+                    "credit_note_id": cn_id,
+                    "credit_note_number": cn_number,
+                    "invoice_id": invoice_id,
+                    "invoice_number": invoice.get("invoice_number"),
+                    "cn_says_adjusted": adjusted_amount,
+                    "invoice_says_adjusted": cn_amount_in_invoice,
+                    "retailer": cn.get("retailer_name"),
+                    "issue": f"Amount mismatch: CN says ₹{adjusted_amount}, invoice says ₹{cn_amount_in_invoice}"
+                })
+            
+            # Track invoice for total check
+            invoices_checked.add(invoice_id)
+    
+    # Also check invoices where total_credit_adjusted doesn't match sum of credit_note_adjustments
+    total_mismatch_count = 0
+    for inv_id in invoices_checked:
+        invoice = await db.retailer_invoices.find_one({"id": inv_id}, {"_id": 0})
+        if not invoice:
+            continue
+        
+        stored_total = invoice.get("total_credit_adjusted", 0) or 0
+        adjustments = invoice.get("credit_note_adjustments", [])
+        calculated_total = sum(
+            (adj.get("adjusted_amount", adj.get("amount", 0)) or 0) if isinstance(adj, dict) else 0
+            for adj in adjustments
+        )
+        
+        if abs(stored_total - calculated_total) > 0.01:
+            total_mismatch_count += 1
+            mismatches.append({
+                "type": "TOTAL_MISMATCH",
+                "invoice_id": inv_id,
+                "invoice_number": invoice.get("invoice_number"),
+                "retailer": invoice.get("retailer_name"),
+                "stored_total_credit_adjusted": stored_total,
+                "calculated_from_adjustments": calculated_total,
+                "issue": f"Invoice total_credit_adjusted (₹{stored_total}) doesn't match sum of adjustments (₹{calculated_total})"
+            })
+    
+    # Summary by type
+    summary = {
+        "total_mismatches": len(mismatches),
+        "by_type": {
+            "CN_NOT_IN_INVOICE": len([m for m in mismatches if m["type"] == "CN_NOT_IN_INVOICE"]),
+            "INVOICE_NOT_FOUND": len([m for m in mismatches if m["type"] == "INVOICE_NOT_FOUND"]),
+            "AMOUNT_MISMATCH": len([m for m in mismatches if m["type"] == "AMOUNT_MISMATCH"]),
+            "TOTAL_MISMATCH": len([m for m in mismatches if m["type"] == "TOTAL_MISMATCH"])
+        },
+        "credit_notes_checked": len(credit_notes),
+        "invoices_checked": len(invoices_checked)
+    }
+    
+    return {
+        "message": f"Found {len(mismatches)} sync issues",
+        "summary": summary,
+        "mismatches": mismatches
+    }
+
+
+@router.post("/retailer-credit-notes/fix-sync-issues")
+async def fix_cn_invoice_sync_issues(
+    input: dict = {},
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fix credit note / invoice sync issues found by diagnose-sync-issues.
+    
+    This updates invoices to include credit note adjustments that are missing.
+    It ensures that if a CN says it's adjusted against an invoice, the invoice
+    also has the corresponding credit_note_adjustments and total_credit_adjusted.
+    
+    Body (optional): 
+    - {"retailer_id": "xxx"} to fix only for a specific retailer
+    - {"dry_run": true} to see what would be fixed without making changes
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can fix sync issues")
+    
+    retailer_id = input.get("retailer_id") if input else None
+    dry_run = input.get("dry_run", False) if input else False
+    
+    # Find credit notes that have adjustments
+    query = {
+        "$or": [
+            {"adjusted_in_invoices": {"$exists": True, "$ne": []}},
+            {"adjusted_against_invoices": {"$exists": True, "$ne": []}}
+        ]
+    }
+    if retailer_id:
+        query["retailer_id"] = retailer_id
+    
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(2000)
+    
+    # Build a map of invoice_id -> list of CN adjustments that should be on it
+    invoice_cn_map = {}  # invoice_id -> [{cn_id, cn_number, adjusted_amount, cn_data...}]
+    
+    for cn in credit_notes:
+        cn_id = cn.get("id")
+        cn_number = cn.get("credit_note_number")
+        
+        # Get all adjustments (from both field names)
+        adjustments = cn.get("adjusted_in_invoices", []) + cn.get("adjusted_against_invoices", [])
+        
+        for adj in adjustments:
+            invoice_id = adj.get("invoice_id")
+            if not invoice_id:
+                continue
+            
+            adjusted_amount = adj.get("adjusted_amount", adj.get("amount", 0))
+            adjusted_at = adj.get("adjusted_at", adj.get("date", ""))
+            
+            if invoice_id not in invoice_cn_map:
+                invoice_cn_map[invoice_id] = []
+            
+            invoice_cn_map[invoice_id].append({
+                "credit_note_id": cn_id,
+                "credit_note_number": cn_number,
+                "credit_note_date": cn.get("created_at", ""),
+                "original_invoice_id": cn.get("original_invoice_id", ""),
+                "original_invoice_number": cn.get("original_invoice_number", ""),
+                "original_amount": cn.get("amount", 0),
+                "adjusted_amount": adjusted_amount,
+                "rejection_details": cn.get("rejection_details", []),
+                "rejection_id": cn.get("rejection_id"),
+                "rejection_date": cn.get("rejection_date", ""),
+                "source": cn.get("source", "rejection"),
+                "adjusted_at": adjusted_at
+            })
+    
+    fixed_count = 0
+    fixed_details = []
+    skipped_not_found = 0
+    skipped_already_correct = 0
+    
+    for invoice_id, cn_adjustments in invoice_cn_map.items():
+        # Get the invoice
+        invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+        
+        if not invoice:
+            skipped_not_found += 1
+            continue
+        
+        # Get existing adjustments on the invoice
+        existing_adjustments = invoice.get("credit_note_adjustments", [])
+        # Handle both dict and string formats in existing adjustments
+        existing_cn_ids = set()
+        for adj in existing_adjustments:
+            if isinstance(adj, dict):
+                cn_id_val = adj.get("credit_note_id")
+                if cn_id_val:
+                    existing_cn_ids.add(cn_id_val)
+            elif isinstance(adj, str):
+                existing_cn_ids.add(adj)
+        
+        # Find CN adjustments that are missing from the invoice
+        missing_adjustments = []
+        for cn_adj in cn_adjustments:
+            if cn_adj["credit_note_id"] not in existing_cn_ids:
+                missing_adjustments.append(cn_adj)
+        
+        if not missing_adjustments:
+            skipped_already_correct += 1
+            continue
+        
+        # Merge existing + missing adjustments
+        # First, normalize existing_adjustments to dict format if they're strings
+        normalized_existing = []
+        for adj in existing_adjustments:
+            if isinstance(adj, dict):
+                normalized_existing.append(adj)
+            # Skip string entries - they'll be replaced by the missing_adjustments with proper data
+        
+        merged_adjustments = normalized_existing + missing_adjustments
+        
+        # Calculate new total
+        new_total_credit_adjusted = sum(
+            (adj.get("adjusted_amount", adj.get("amount", 0)) or 0) if isinstance(adj, dict) else 0
+            for adj in merged_adjustments
+        )
+        
+        # Calculate new final_payable
+        net_payable = invoice.get("net_payable", 0) or 0
+        paid_amount = invoice.get("paid_amount", 0) or 0
+        new_final_payable = net_payable - new_total_credit_adjusted
+        
+        # Determine new payment status
+        old_status = invoice.get("payment_status", "pending")
+        if new_final_payable <= 0.01:
+            new_payment_status = "paid"
+        elif paid_amount > 0 or new_total_credit_adjusted > 0:
+            new_payment_status = "partial"
+        else:
+            new_payment_status = "pending"
+        
+        fix_detail = {
+            "invoice_id": invoice_id,
+            "invoice_number": invoice.get("invoice_number"),
+            "retailer": invoice.get("retailer_name"),
+            "missing_cn_count": len(missing_adjustments),
+            "missing_cns": [adj["credit_note_number"] for adj in missing_adjustments],
+            "missing_amount": sum(adj["adjusted_amount"] for adj in missing_adjustments),
+            "old_total_credit_adjusted": invoice.get("total_credit_adjusted", 0),
+            "new_total_credit_adjusted": round(new_total_credit_adjusted, 2),
+            "old_final_payable": invoice.get("final_payable", net_payable),
+            "new_final_payable": round(new_final_payable, 2),
+            "old_payment_status": old_status,
+            "new_payment_status": new_payment_status
+        }
+        
+        if not dry_run:
+            # Update the invoice
+            update_result = await db.retailer_invoices.update_one(
+                {"id": invoice_id},
+                {"$set": {
+                    "credit_note_adjustments": merged_adjustments,
+                    "total_credit_adjusted": round(new_total_credit_adjusted, 2),
+                    "final_payable": round(new_final_payable, 2),
+                    "payment_status": new_payment_status,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "cn_sync_fixed_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            fix_detail["update_matched"] = update_result.matched_count
+            fix_detail["update_modified"] = update_result.modified_count
+        
+        fixed_count += 1
+        fixed_details.append(fix_detail)
+    
+    action = "Would fix" if dry_run else "Fixed"
+    return {
+        "message": f"{action} {fixed_count} invoices with CN sync issues",
+        "dry_run": dry_run,
+        "summary": {
+            "invoices_fixed": fixed_count,
+            "invoices_not_found": skipped_not_found,
+            "invoices_already_correct": skipped_already_correct,
+            "total_invoices_checked": len(invoice_cn_map)
+        },
+        "fixed_details": fixed_details
+    }
+
 
 @router.post("/retailer-invoices/fix-rejection-data")
 async def fix_invoice_rejection_data(

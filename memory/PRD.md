@@ -3,6 +3,21 @@
 ## Changelog (June 2025)
 
 
+### June 17, 2026 - CN-Invoice Sync Diagnostic & Fix Tools ✅
+- **ROOT CAUSE ANALYSIS**: Credit Notes marked as "adjusted" but invoice doesn't have the adjustment
+  - Root cause 1: Inconsistent field names (`adjusted_in_invoices` vs `adjusted_against_invoices`, `credit_note_adjustments` vs `credit_adjustments`)
+  - Root cause 2: Non-atomic updates - CN updated first, then invoice, with potential failure between steps
+- **NEW API**: `GET /api/retailer-credit-notes/diagnose-sync-issues` - Finds all mismatches between CN and Invoice records
+  - Types: CN_NOT_IN_INVOICE, INVOICE_NOT_FOUND, AMOUNT_MISMATCH, TOTAL_MISMATCH
+- **NEW API**: `POST /api/retailer-credit-notes/fix-sync-issues` - Repairs invoices by adding missing CN adjustments
+  - Supports `dry_run: true` to preview changes
+  - Updates `credit_note_adjustments`, `total_credit_adjusted`, `final_payable`, and `payment_status`
+- **UI**: Added "Diagnose Sync" and "Fix Sync Issues" buttons in Credit Notes tab with diagnostic results panel
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Added 2 new API endpoints with robust error handling for string/dict formats
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added state, handlers, and UI buttons
+
+
 ### June 17, 2026 - Payment Summary Preview & Retailer Catalogue Export Fixes ✅
 - **BUG FIX (P0)**: Excel export for Retailer Catalogue was failing with "Failed to export catalogue" error
   - Root cause: Code referenced undefined variable `packagings` instead of `packagingVariants`

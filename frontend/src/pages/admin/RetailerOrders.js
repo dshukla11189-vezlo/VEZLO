@@ -421,6 +421,9 @@ export default function RetailerOrders() {
   const [isBackfillingMissingCNs, setIsBackfillingMissingCNs] = useState(false);
   const [isFixingOrphanedCNs, setIsFixingOrphanedCNs] = useState(false);
   const [isFixingRejectionData, setIsFixingRejectionData] = useState(false);
+  const [isDiagnosingCNSync, setIsDiagnosingCNSync] = useState(false);
+  const [isFixingCNSync, setIsFixingCNSync] = useState(false);
+  const [cnSyncDiagnostics, setCnSyncDiagnostics] = useState(null);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1177,6 +1180,94 @@ export default function RetailerOrders() {
       toast.error('Failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsFixingRejectionData(false);
+    }
+  };
+
+  // Diagnose CN-Invoice sync issues
+  const diagnoseCNSyncIssues = async () => {
+    setIsDiagnosingCNSync(true);
+    setCnSyncDiagnostics(null);
+    try {
+      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
+      const response = await api.get(`/api/retailer-credit-notes/diagnose-sync-issues${params}`);
+      
+      const data = response.data;
+      setCnSyncDiagnostics(data);
+      
+      if (data.summary.total_mismatches === 0) {
+        toast.success('No sync issues found! All credit notes and invoices are properly linked.', { duration: 4000 });
+      } else {
+        toast.warning(`Found ${data.summary.total_mismatches} sync issues. Review and click "Fix Sync Issues" to repair.`, { duration: 6000 });
+      }
+    } catch (error) {
+      console.error('Failed to diagnose CN sync issues:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsDiagnosingCNSync(false);
+    }
+  };
+
+  // Fix CN-Invoice sync issues
+  const fixCNSyncIssues = async (dryRun = false) => {
+    const retailerFilter = selectedRetailer ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}` : 'for ALL retailers';
+    
+    if (!dryRun && !window.confirm(
+      `This will fix CN-Invoice sync issues ${retailerFilter}.\n\n` +
+      `Invoices will be updated to include credit note adjustments that are currently missing.\n\n` +
+      `This ensures that if a Credit Note says it's adjusted against an invoice, ` +
+      `the invoice will also show the Credit Note in its adjustments.\n\n` +
+      `Continue?`
+    )) return;
+    
+    setIsFixingCNSync(true);
+    try {
+      const response = await api.post('/api/retailer-credit-notes/fix-sync-issues', {
+        retailer_id: selectedRetailer || null,
+        dry_run: dryRun
+      });
+      
+      const data = response.data;
+      const fixedCount = data.summary.invoices_fixed || 0;
+      const fixedDetails = data.fixed_details || [];
+      
+      if (dryRun) {
+        if (fixedCount > 0) {
+          const detailsList = fixedDetails.slice(0, 5).map(d => 
+            `• ${d.invoice_number}: Missing ${d.missing_cn_count} CNs (${d.missing_cns.join(', ')}) = ₹${d.missing_amount}`
+          ).join('\n');
+          
+          toast.info(
+            `Dry run: Would fix ${fixedCount} invoices\n\n${detailsList}${fixedDetails.length > 5 ? `\n... and ${fixedDetails.length - 5} more` : ''}`,
+            { duration: 10000 }
+          );
+          setCnSyncDiagnostics(prev => ({ ...prev, dryRunDetails: fixedDetails }));
+        } else {
+          toast.info('Dry run: No invoices need fixing.', { duration: 4000 });
+        }
+      } else {
+        if (fixedCount > 0) {
+          const detailsList = fixedDetails.slice(0, 5).map(d => 
+            `• ${d.invoice_number}: Added ${d.missing_cn_count} CNs, CN Adjusted: ₹${d.old_total_credit_adjusted} → ₹${d.new_total_credit_adjusted}`
+          ).join('\n');
+          
+          toast.success(
+            `Fixed ${fixedCount} invoices!\n\n${detailsList}${fixedDetails.length > 5 ? `\n... and ${fixedDetails.length - 5} more` : ''}`,
+            { duration: 10000 }
+          );
+          
+          // Refresh data
+          loadInvoices();
+          loadCreditNotes();
+          setCnSyncDiagnostics(null);
+        } else {
+          toast.info('No invoices needed fixing.', { duration: 4000 });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fix CN sync issues:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsFixingCNSync(false);
     }
   };
 
@@ -11780,7 +11871,74 @@ export default function RetailerOrders() {
                       </>
                     )}
                   </Button>
+                  
+                  {/* Diagnose CN-Invoice Sync Issues */}
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={diagnoseCNSyncIssues}
+                    disabled={isDiagnosingCNSync}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                    title="Diagnose credit notes that show as 'adjusted' but invoice doesn't have the adjustment"
+                  >
+                    {isDiagnosingCNSync ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Diagnosing...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-3 w-3 mr-1" /> Diagnose Sync
+                      </>
+                    )}
+                  </Button>
+                  
+                  {/* Fix CN-Invoice Sync Issues */}
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => fixCNSyncIssues(false)}
+                    disabled={isFixingCNSync}
+                    className="border-red-300 text-red-700 hover:bg-red-50"
+                    title="Fix invoices that are missing credit note adjustments"
+                  >
+                    {isFixingCNSync ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-3 w-3 mr-1" /> Fix Sync Issues
+                      </>
+                    )}
+                  </Button>
                 </div>
+                
+                {/* Diagnostic Results Panel */}
+                {cnSyncDiagnostics && cnSyncDiagnostics.summary.total_mismatches > 0 && (
+                  <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="text-xs font-medium text-amber-800 mb-1">
+                      Sync Issues Found: {cnSyncDiagnostics.summary.total_mismatches}
+                    </div>
+                    <div className="text-xs text-amber-700 space-y-0.5">
+                      <div>• CN not in Invoice: {cnSyncDiagnostics.summary.by_type.CN_NOT_IN_INVOICE}</div>
+                      <div>• Invoice not found: {cnSyncDiagnostics.summary.by_type.INVOICE_NOT_FOUND}</div>
+                      <div>• Amount mismatch: {cnSyncDiagnostics.summary.by_type.AMOUNT_MISMATCH}</div>
+                      <div>• Total mismatch: {cnSyncDiagnostics.summary.by_type.TOTAL_MISMATCH}</div>
+                    </div>
+                    <div className="mt-2 max-h-32 overflow-y-auto text-xs text-gray-600 border-t border-amber-200 pt-1">
+                      {cnSyncDiagnostics.mismatches.slice(0, 10).map((m, i) => (
+                        <div key={i} className="py-0.5 border-b border-amber-100 last:border-0">
+                          <span className="font-medium">{m.credit_note_number || m.invoice_number}</span>: {m.issue}
+                        </div>
+                      ))}
+                      {cnSyncDiagnostics.mismatches.length > 10 && (
+                        <div className="text-amber-600 font-medium mt-1">
+                          ... and {cnSyncDiagnostics.mismatches.length - 10} more issues
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent className="p-3">

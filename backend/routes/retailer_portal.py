@@ -2766,8 +2766,12 @@ async def diagnose_cn_invoice_sync_issues(
             if not invoice_id:
                 continue
             
-            # Get the invoice
+            # Get the invoice - try by id first, then by invoice_number
             invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+            
+            # If not found by id, try by invoice_number
+            if not invoice and invoice_number:
+                invoice = await db.retailer_invoices.find_one({"invoice_number": invoice_number}, {"_id": 0})
             
             if not invoice:
                 # Invoice doesn't exist - this is an orphan (handled by fix-orphaned)
@@ -2938,16 +2942,23 @@ async def fix_cn_invoice_sync_issues(
         
         for adj in adjustments:
             invoice_id = adj.get("invoice_id")
+            invoice_number = adj.get("invoice_number", "")
             if not invoice_id:
                 continue
             
             adjusted_amount = adj.get("adjusted_amount", adj.get("amount", 0))
             adjusted_at = adj.get("adjusted_at", adj.get("date", ""))
             
-            if invoice_id not in invoice_cn_map:
-                invoice_cn_map[invoice_id] = []
+            # Use a composite key to track both id and number for later lookup
+            map_key = f"{invoice_id}|{invoice_number}"
+            if map_key not in invoice_cn_map:
+                invoice_cn_map[map_key] = {
+                    "invoice_id": invoice_id,
+                    "invoice_number": invoice_number,
+                    "adjustments": []
+                }
             
-            invoice_cn_map[invoice_id].append({
+            invoice_cn_map[map_key]["adjustments"].append({
                 "credit_note_id": cn_id,
                 "credit_note_number": cn_number,
                 "credit_note_date": cn.get("created_at", ""),
@@ -2967,9 +2978,17 @@ async def fix_cn_invoice_sync_issues(
     skipped_not_found = 0
     skipped_already_correct = 0
     
-    for invoice_id, cn_adjustments in invoice_cn_map.items():
-        # Get the invoice
+    for map_key, data in invoice_cn_map.items():
+        invoice_id = data["invoice_id"]
+        invoice_number = data["invoice_number"]
+        cn_adjustments = data["adjustments"]
+        
+        # Get the invoice - try by id first, then by invoice_number
         invoice = await db.retailer_invoices.find_one({"id": invoice_id}, {"_id": 0})
+        
+        # If not found by id, try by invoice_number
+        if not invoice and invoice_number:
+            invoice = await db.retailer_invoices.find_one({"invoice_number": invoice_number}, {"_id": 0})
         
         if not invoice:
             skipped_not_found += 1
@@ -3028,7 +3047,7 @@ async def fix_cn_invoice_sync_issues(
             new_payment_status = "pending"
         
         fix_detail = {
-            "invoice_id": invoice_id,
+            "invoice_id": invoice.get("id"),  # Use the actual found invoice's id
             "invoice_number": invoice.get("invoice_number"),
             "retailer": invoice.get("retailer_name"),
             "missing_cn_count": len(missing_adjustments),
@@ -3043,9 +3062,10 @@ async def fix_cn_invoice_sync_issues(
         }
         
         if not dry_run:
-            # Update the invoice
+            # Update the invoice using its actual id from the found document
+            actual_invoice_id = invoice.get("id")
             update_result = await db.retailer_invoices.update_one(
-                {"id": invoice_id},
+                {"id": actual_invoice_id},
                 {"$set": {
                     "credit_note_adjustments": merged_adjustments,
                     "total_credit_adjusted": round(new_total_credit_adjusted, 2),

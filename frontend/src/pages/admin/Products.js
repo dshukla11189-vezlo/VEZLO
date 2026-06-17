@@ -1125,9 +1125,8 @@ export default function Products() {
         } else {
           // Product with variants - one row per variant
           variants.forEach((variantId, idx) => {
-            // Find variant name from packagings OR packagingVariants
-            const variant = packagings.find(p => p.id === variantId) || 
-                           packagingVariants.find(p => p.id === variantId);
+            // Find variant name from packagingVariants
+            const variant = packagingVariants.find(p => p.id === variantId);
             let variantName = variant ? variant.name : variantId;
             
             // Clean up variant name if it looks like a UUID
@@ -1216,9 +1215,8 @@ export default function Products() {
               const unitName = variantId.replace('unit_', '');
               variantName = unitName.charAt(0).toUpperCase() + unitName.slice(1);
             } else {
-              // Find variant name from packagings OR packagingVariants
-              const variant = packagings.find(p => p.id === variantId) || 
-                             packagingVariants.find(p => p.id === variantId);
+              // Find variant name from packagingVariants
+              const variant = packagingVariants.find(p => p.id === variantId);
               
               if (variant) {
                 variantName = variant.name;
@@ -2903,7 +2901,7 @@ export default function Products() {
                   );
                 })}
             </div>
-          )}}
+          )}
 
           {/* Summary Footer */}
           <div className="bg-gray-50 border rounded-lg p-4 mt-4">

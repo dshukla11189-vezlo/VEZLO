@@ -1934,6 +1934,7 @@ export default function RetailerOrders() {
       .map((inv, idx) => {
         const amountPayable = inv.net_payable || 0;
         const paidAmount = inv.paid_amount || 0;
+        const creditNotesAdjusted = inv.total_credit_adjusted || 0;
         return {
           serialNum: idx + 1,
           indentDate: formatDate(inv.indent_date || inv.invoice_date),
@@ -1944,8 +1945,9 @@ export default function RetailerOrders() {
           totalMrpValue: inv.total_mrp_value || 0,
           commission: inv.commission_amount || 0,
           amountPayable: amountPayable,
+          creditNotes: creditNotesAdjusted,
           paidAmount: paidAmount,
-          netReceivable: amountPayable - paidAmount
+          netReceivable: amountPayable - creditNotesAdjusted - paidAmount
         };
       });
   };
@@ -1958,8 +1960,8 @@ export default function RetailerOrders() {
       return;
     }
     
-    // Headers without Row Total
-    const headers = ['S.No', 'Indent Date', 'Dispatch Date', 'Invoice Number', 'Gross Value', 'Rejections', 'Total MRP Value', 'Commission', 'Amount Payable', 'Paid Amount', 'Net Receivable'];
+    // Headers with Credit Notes column
+    const headers = ['S.No', 'Indent Date', 'Dispatch Date', 'Invoice Number', 'Gross Value', 'Rejections', 'Total MRP Value', 'Commission', 'Amount Payable', 'Credit Notes', 'Paid Amount', 'Net Receivable'];
     const rows = data.map(d => [
       d.serialNum,
       d.indentDate,
@@ -1970,6 +1972,7 @@ export default function RetailerOrders() {
       d.totalMrpValue.toFixed(2),
       (-d.commission).toFixed(2),  // Negative sign for commission
       d.amountPayable.toFixed(2),
+      (-d.creditNotes).toFixed(2),  // Negative sign for credit notes
       d.paidAmount.toFixed(2),
       d.netReceivable.toFixed(2)
     ]);
@@ -1981,11 +1984,12 @@ export default function RetailerOrders() {
       totalMrpValue: acc.totalMrpValue + d.totalMrpValue,
       commission: acc.commission + d.commission,
       amountPayable: acc.amountPayable + d.amountPayable,
+      creditNotes: acc.creditNotes + d.creditNotes,
       paidAmount: acc.paidAmount + d.paidAmount,
       netReceivable: acc.netReceivable + d.netReceivable
-    }), { grossValue: 0, rejections: 0, totalMrpValue: 0, commission: 0, amountPayable: 0, paidAmount: 0, netReceivable: 0 });
+    }), { grossValue: 0, rejections: 0, totalMrpValue: 0, commission: 0, amountPayable: 0, creditNotes: 0, paidAmount: 0, netReceivable: 0 });
     
-    rows.push(['', '', '', 'TOTAL', totals.grossValue.toFixed(2), (-totals.rejections).toFixed(2), totals.totalMrpValue.toFixed(2), (-totals.commission).toFixed(2), totals.amountPayable.toFixed(2), totals.paidAmount.toFixed(2), totals.netReceivable.toFixed(2)]);
+    rows.push(['', '', '', 'TOTAL', totals.grossValue.toFixed(2), (-totals.rejections).toFixed(2), totals.totalMrpValue.toFixed(2), (-totals.commission).toFixed(2), totals.amountPayable.toFixed(2), (-totals.creditNotes).toFixed(2), totals.paidAmount.toFixed(2), totals.netReceivable.toFixed(2)]);
     
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -12912,7 +12916,7 @@ export default function RetailerOrders() {
               
               <div className="flex-1 overflow-y-auto overflow-x-auto">
                 {/* Full Summary Table with all fields */}
-                <table className="w-full text-xs min-w-[700px]">
+                <table className="w-full text-xs min-w-[800px]">
                   <thead className="bg-gray-100 sticky top-0">
                     <tr>
                       <th className="px-1.5 py-1 text-center text-gray-600 font-semibold w-8">#</th>
@@ -12923,6 +12927,7 @@ export default function RetailerOrders() {
                       <th className="px-1.5 py-1 text-right text-blue-600 font-semibold">MRP</th>
                       <th className="px-1.5 py-1 text-right text-orange-600 font-semibold">Comm.</th>
                       <th className="px-1.5 py-1 text-right text-green-600 font-semibold">Payable</th>
+                      <th className="px-1.5 py-1 text-right text-pink-600 font-semibold">CN</th>
                       <th className="px-1.5 py-1 text-right text-purple-600 font-semibold">Paid</th>
                       <th className="px-1.5 py-1 text-right text-blue-800 font-bold">Net Due</th>
                     </tr>
@@ -12938,6 +12943,7 @@ export default function RetailerOrders() {
                         <td className="px-1.5 py-1 text-right text-blue-600">₹{inv.totalMrpValue.toFixed(0)}</td>
                         <td className="px-1.5 py-1 text-right text-orange-600">-₹{inv.commission.toFixed(0)}</td>
                         <td className="px-1.5 py-1 text-right text-green-600">₹{inv.amountPayable.toFixed(0)}</td>
+                        <td className="px-1.5 py-1 text-right text-pink-600">{inv.creditNotes > 0 ? `-₹${inv.creditNotes.toFixed(0)}` : '₹0'}</td>
                         <td className="px-1.5 py-1 text-right text-purple-600">₹{inv.paidAmount.toFixed(0)}</td>
                         <td className="px-1.5 py-1 text-right font-semibold text-blue-800">₹{inv.netReceivable.toFixed(0)}</td>
                       </tr>
@@ -12960,6 +12966,9 @@ export default function RetailerOrders() {
                       </td>
                       <td className="px-1.5 py-1.5 text-right text-green-700">
                         ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.amountPayable, 0).toFixed(0)}
+                      </td>
+                      <td className="px-1.5 py-1.5 text-right text-pink-700">
+                        -₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.creditNotes, 0).toFixed(0)}
                       </td>
                       <td className="px-1.5 py-1.5 text-right text-purple-700">
                         ₹{getSelectedInvoicesData().reduce((sum, d) => sum + d.paidAmount, 0).toFixed(0)}

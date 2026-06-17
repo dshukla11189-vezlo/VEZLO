@@ -3,6 +3,23 @@
 ## Changelog (June 2025)
 
 
+### June 17, 2026 - Payment Summary Preview & Retailer Catalogue Export Fixes ✅
+- **BUG FIX (P0)**: Excel export for Retailer Catalogue was failing with "Failed to export catalogue" error
+  - Root cause: Code referenced undefined variable `packagings` instead of `packagingVariants`
+  - Solution: Fixed variable reference in `exportCatalogueToExcel()` function
+- **BUG FIX (P0)**: Customer Display Variant names now appear in Excel export
+  - Root cause: Export was reading from `variant_mrps` or `enabled_variants` instead of `catalogueItem.variants`
+  - Solution: Changed to read from correct field and handle `unit_*` prefixed IDs (e.g., "unit_piece" → "Piece")
+- **FEATURE**: Credit Notes (CN) column now appears in Payment Summary Preview and CSV export
+  - Added `creditNotes` field to `getSelectedInvoicesData()` function
+  - Updated Net Receivable calculation: `Payable - Credit Notes - Paid`
+  - Added "CN" column header and data cells in Payment Summary Preview modal
+  - Added "Credit Notes" column to CSV export with totals row
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/Products.js` - Fixed `packagings` → `packagingVariants` reference, fixed JSX parsing error
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added creditNotes to data mapping, preview table, and CSV export
+
+
 ### June 16, 2026 - IST Timezone Fix for Date Handling ✅
 - **BUG FIX (P0)**: Staff can now edit TODAY's invoices
   - Root cause: `canEditDeleteInvoice()` was using `new Date().toISOString().split('T')[0]` which returns UTC date, not IST

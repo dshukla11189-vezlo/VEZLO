@@ -5871,6 +5871,7 @@ export default function RetailerOrders() {
           allItems.push({
             dispatch_id: dispatch.id,
             dispatch_date: dispatch.dispatch_date,
+            dispatch_created_at: dispatch.created_at,  // Actual timestamp when dispatch was created
             item_index: idx,
             item_id: `${dispatch.id}_${idx}`,
             product_id: item.product_id,
@@ -15063,13 +15064,24 @@ export default function RetailerOrders() {
                         </thead>
                         <tbody>
                           {uninvoicedItems.map((item) => {
-                            // Format dispatch date and time
-                            const dispatchDateTime = item.dispatch_date ? new Date(item.dispatch_date) : null;
-                            const formattedDate = dispatchDateTime 
-                              ? dispatchDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                            // Use created_at for actual dispatch time, fall back to dispatch_date
+                            const timestampStr = item.dispatch_created_at || item.dispatch_date;
+                            const dispatchDateTime = timestampStr ? new Date(timestampStr) : null;
+                            
+                            // Format date part from dispatch_date (the actual dispatch date)
+                            const dispatchDateOnly = item.dispatch_date ? new Date(item.dispatch_date) : null;
+                            const formattedDate = dispatchDateOnly 
+                              ? dispatchDateOnly.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
                               : '';
-                            const formattedTime = dispatchDateTime 
-                              ? dispatchDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+                            
+                            // Format time from created_at (the actual time when dispatch was created)
+                            const formattedTime = item.dispatch_created_at 
+                              ? new Date(item.dispatch_created_at).toLocaleTimeString('en-IN', { 
+                                  hour: '2-digit', 
+                                  minute: '2-digit', 
+                                  hour12: true,
+                                  timeZone: 'Asia/Kolkata'
+                                })
                               : '';
                             
                             return (
@@ -15090,10 +15102,10 @@ export default function RetailerOrders() {
                               <td className="p-2">
                                 <div className="font-medium">{getProductName(item)}</div>
                                 {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
-                                {dispatchDateTime && (
+                                {(formattedDate || formattedTime) && (
                                   <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
                                     <Clock size={10} />
-                                    <span>Dispatched: {formattedDate} at {formattedTime}</span>
+                                    <span>Dispatched: {formattedDate}{formattedTime ? ` at ${formattedTime}` : ''}</span>
                                   </div>
                                 )}
                               </td>

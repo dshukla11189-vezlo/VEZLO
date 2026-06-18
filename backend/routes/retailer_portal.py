@@ -6699,8 +6699,8 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
     
-    # De-duplicate plan products - combine quantities if same product_id appears multiple times
-    # This prevents duplicate line items in the generated indent
+    # De-duplicate plan products - keep FIRST occurrence only (don't sum duplicates)
+    # If plan has "Matki Sprouts qty 2" twice, the requirement is still 2, not 4
     deduplicated_plan = {}
     for plan_item in plan_products:
         product_id = plan_item.get("product_id")
@@ -6709,7 +6709,7 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         variant_name = plan_item.get("variant_name") or ""
         plan_qty = plan_item.get("quantity", 0)
         
-        # Key by product_id (we'll sum quantities across variants if needed)
+        # Key by product_id - keep FIRST occurrence only (skip duplicates)
         if product_id not in deduplicated_plan:
             deduplicated_plan[product_id] = {
                 "product_id": product_id,
@@ -6718,9 +6718,7 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
                 "variant_name": variant_name,
                 "quantity": plan_qty
             }
-        else:
-            # Same product appears again - add quantities
-            deduplicated_plan[product_id]["quantity"] += plan_qty
+        # Skip duplicates - don't add/sum quantities
     
     # Calculate pending quantities from de-duplicated plan
     indent_items = []

@@ -235,6 +235,8 @@ export default function AdminDashboard() {
   });
   const [productPnlData, setProductPnlData] = useState([]);
   const [loadingProductPnl, setLoadingProductPnl] = useState(false);
+  const [productVertical, setProductVertical] = useState('all'); // 'all', 'qc', 'retail'
+  const [productPnlRawData, setProductPnlRawData] = useState([]); // Store raw line items for filtering
   
   // Persist product date filters
   useEffect(() => {
@@ -453,16 +455,12 @@ export default function AdminDashboard() {
         }
       });
       
-      // Aggregate product data from line_items across all days
-      // This gives us correct COGS instead of total procurement
-      const productAggregates = {};
-      
+      // Collect all line items with customer_type for vertical filtering
+      const allLineItems = [];
       dailyPnl.forEach(day => {
         const lineItems = day.line_items || [];
-        
         lineItems.forEach(item => {
           let productName = item.product;
-          
           // Check if this product is aliased to another
           for (const [aliasTarget, aliases] of Object.entries(aliasMap)) {
             if (aliases.includes(productName)) {
@@ -470,45 +468,17 @@ export default function AdminDashboard() {
               break;
             }
           }
-          
-          if (!productAggregates[productName]) {
-            productAggregates[productName] = {
-              product: productName,
-              sales_amount: 0,
-              sales_qty: 0,
-              purchase_amount: 0,  // COGS (actual consumed cost)
-              purchase_qty: 0,     // Supplied Kg
-              wastage_amount: 0,
-            };
-          }
-          
-          const agg = productAggregates[productName];
-          agg.sales_amount += item.revenue || 0;
-          agg.sales_qty += item.supplied_qty || 0;
-          agg.purchase_amount += item.cogs || 0;  // Use COGS, not total procurement
-          agg.purchase_qty += item.supplied_kg || 0;
-          agg.wastage_amount += item.wastage_value || 0;
+          allLineItems.push({
+            ...item,
+            product: productName, // Use aliased name
+            customer_type: item.customer_type || 'Unknown'
+          });
         });
       });
       
-      // Calculate profit, margin, and profit_per_unit for each product
-      const productsWithProfit = Object.values(productAggregates).map(p => {
-        // Gross P/L = Sales - COGS - Wastage
-        const profit = p.sales_amount - p.purchase_amount - p.wastage_amount;
-        const margin = p.sales_amount > 0 ? (profit / p.sales_amount) * 100 : 0;
-        const profit_per_unit = p.sales_qty > 0 ? profit / p.sales_qty : 0;
-        
-        return {
-          ...p,
-          profit,
-          margin,
-          profit_per_unit
-        };
-      });
+      // Store raw data for filtering
+      setProductPnlRawData(allLineItems);
       
-      // Sort by Gross P/L descending
-      const sortedProducts = productsWithProfit.sort((a, b) => (b.profit || 0) - (a.profit || 0));
-      setProductPnlData(sortedProducts);
     } catch (error) {
       console.error('Failed to load product P&L:', error);
       toast.error('Failed to load product P&L data');
@@ -517,6 +487,65 @@ export default function AdminDashboard() {
     }
   }, [productDateFrom, productDateTo]);
 
+  // Process product P&L data based on selected vertical
+  useEffect(() => {
+    if (productPnlRawData.length === 0) {
+      setProductPnlData([]);
+      return;
+    }
+    
+    // Filter line items by vertical
+    let filteredItems = productPnlRawData;
+    if (productVertical === 'qc') {
+      filteredItems = productPnlRawData.filter(item => item.customer_type === 'QC');
+    } else if (productVertical === 'retail') {
+      filteredItems = productPnlRawData.filter(item => item.customer_type === 'Retail');
+    }
+    
+    // Aggregate product data
+    const productAggregates = {};
+    
+    filteredItems.forEach(item => {
+      const productName = item.product;
+      
+      if (!productAggregates[productName]) {
+        productAggregates[productName] = {
+          product: productName,
+          sales_amount: 0,
+          sales_qty: 0,
+          purchase_amount: 0,  // COGS (actual consumed cost)
+          purchase_qty: 0,     // Supplied Kg
+          wastage_amount: 0,
+        };
+      }
+      
+      const agg = productAggregates[productName];
+      agg.sales_amount += item.revenue || 0;
+      agg.sales_qty += item.supplied_qty || 0;
+      agg.purchase_amount += item.cogs || 0;
+      agg.purchase_qty += item.supplied_kg || 0;
+      agg.wastage_amount += item.wastage_value || 0;
+    });
+    
+    // Calculate profit, margin, and profit_per_unit for each product
+    const productsWithProfit = Object.values(productAggregates).map(p => {
+      const profit = p.sales_amount - p.purchase_amount - p.wastage_amount;
+      const margin = p.sales_amount > 0 ? (profit / p.sales_amount) * 100 : 0;
+      const profit_per_unit = p.sales_qty > 0 ? profit / p.sales_qty : 0;
+      
+      return {
+        ...p,
+        profit,
+        margin,
+        profit_per_unit
+      };
+    });
+    
+    // Sort by Sales descending (changed from Gross P/L)
+    const sortedProducts = productsWithProfit.sort((a, b) => (b.sales_amount || 0) - (a.sales_amount || 0));
+    setProductPnlData(sortedProducts);
+  }, [productPnlRawData, productVertical]);
+
   // Load product P&L when tab is products and dates change
   useEffect(() => {
     if (activeTab === 'products') {
@@ -524,8 +553,8 @@ export default function AdminDashboard() {
     }
   }, [activeTab, loadProductPnlData]);
 
-  // Load product detail (date-wise breakdown)
-  const loadProductDetail = useCallback(async (productName) => {
+  // Load product detail (date-wise breakdown) - now accepts vertical parameter
+  const loadProductDetail = useCallback(async (productName, vertical = 'all') => {
     if (!productName) return;
     setSelectedProduct(productName);
     setLoadingProductDetail(true);
@@ -557,11 +586,18 @@ export default function AdminDashboard() {
         const lineItems = day.line_items || [];
         const unsoldWastage = day.unsold_wastage || [];
         
-        // Get line items for this product AND any aliased products
-        const productLineItems = lineItems.filter(item => aliasedProducts.includes(item.product));
+        // Filter line items for this product AND any aliased products
+        let productLineItems = lineItems.filter(item => aliasedProducts.includes(item.product));
         
-        // Also check for unsold wastage for this product
-        const productUnsoldWastage = unsoldWastage.filter(item => aliasedProducts.includes(item.product));
+        // Filter by vertical if specified
+        if (vertical === 'qc') {
+          productLineItems = productLineItems.filter(item => item.customer_type === 'QC');
+        } else if (vertical === 'retail') {
+          productLineItems = productLineItems.filter(item => item.customer_type === 'Retail');
+        }
+        
+        // Also check for unsold wastage for this product (only for 'all' or 'qc' since wastage is primarily QC-related)
+        const productUnsoldWastage = (vertical === 'retail') ? [] : unsoldWastage.filter(item => aliasedProducts.includes(item.product));
         
         // If no line items AND no unsold wastage, skip this day
         if (productLineItems.length === 0 && productUnsoldWastage.length === 0) return;
@@ -573,7 +609,7 @@ export default function AdminDashboard() {
         const cogsAmt = productLineItems.reduce((sum, item) => sum + (item.cogs || 0), 0);
         let wastageAmt = productLineItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
         
-        // Add unsold wastage (products with wastage but no sales)
+        // Add unsold wastage (products with wastage but no sales) - only for non-retail
         const unsoldWastageAmt = productUnsoldWastage.reduce((sum, item) => sum + (item.value || 0), 0);
         wastageAmt += unsoldWastageAmt;
         
@@ -2428,28 +2464,69 @@ export default function AdminDashboard() {
         {activeTab === 'products' && (
           <Card>
             <CardHeader className="py-3">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Package size={16} /> Product-wise P&L
-                  <span className="text-xs font-normal text-gray-500">(Sorted by Gross P/L)</span>
-                  <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{productPnlData.length} items</span>
-                </CardTitle>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Package size={16} /> Product-wise P&L
+                    <span className="text-xs font-normal text-gray-500">(Sorted by Sales)</span>
+                    <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{productPnlData.length} items</span>
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Calendar size={14} className="text-gray-400" />
+                    <Input
+                      type="date"
+                      value={productDateFrom}
+                      onChange={(e) => setProductDateFrom(e.target.value)}
+                      className="h-8 w-36 text-sm"
+                    />
+                    <span className="text-gray-400 text-sm">to</span>
+                    <Input
+                      type="date"
+                      value={productDateTo}
+                      onChange={(e) => setProductDateTo(e.target.value)}
+                      className="h-8 w-36 text-sm"
+                    />
+                    {loadingProductPnl && <RefreshCw size={14} className="animate-spin text-gray-400" />}
+                  </div>
+                </div>
+                {/* Vertical Toggle Buttons */}
                 <div className="flex items-center gap-2">
-                  <Calendar size={14} className="text-gray-400" />
-                  <Input
-                    type="date"
-                    value={productDateFrom}
-                    onChange={(e) => setProductDateFrom(e.target.value)}
-                    className="h-8 w-36 text-sm"
-                  />
-                  <span className="text-gray-400 text-sm">to</span>
-                  <Input
-                    type="date"
-                    value={productDateTo}
-                    onChange={(e) => setProductDateTo(e.target.value)}
-                    className="h-8 w-36 text-sm"
-                  />
-                  {loadingProductPnl && <RefreshCw size={14} className="animate-spin text-gray-400" />}
+                  <span className="text-xs text-gray-500 mr-2">Filter by:</span>
+                  <button
+                    onClick={() => setProductVertical('all')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                      productVertical === 'all'
+                        ? 'bg-gray-800 text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    data-testid="product-vertical-all"
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setProductVertical('qc')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${
+                      productVertical === 'qc'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                    }`}
+                    data-testid="product-vertical-qc"
+                  >
+                    <Truck size={12} />
+                    Quick Commerce
+                  </button>
+                  <button
+                    onClick={() => setProductVertical('retail')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${
+                      productVertical === 'retail'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                    }`}
+                    data-testid="product-vertical-retail"
+                  >
+                    <Store size={12} />
+                    Retail
+                  </button>
                 </div>
               </div>
             </CardHeader>
@@ -2484,7 +2561,7 @@ export default function AdminDashboard() {
                         <tr key={idx} className="border-b hover:bg-gray-50">
                           <td className="p-2.5 font-medium">
                             <button 
-                              onClick={() => loadProductDetail(p.product)}
+                              onClick={() => loadProductDetail(p.product, productVertical)}
                               className="text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                               data-testid={`product-detail-btn-${idx}`}
                             >
@@ -3035,14 +3112,29 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedProduct(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Modal Header */}
-            <div className="p-4 border-b bg-gradient-to-r from-[#14532D] to-green-700 text-white">
+            <div className={`p-4 border-b text-white ${
+              productVertical === 'qc' 
+                ? 'bg-gradient-to-r from-emerald-600 to-emerald-500' 
+                : productVertical === 'retail'
+                  ? 'bg-gradient-to-r from-blue-600 to-blue-500'
+                  : 'bg-gradient-to-r from-[#14532D] to-green-700'
+            }`}>
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-lg font-bold flex items-center gap-2">
                     <Package size={20} />
                     {selectedProduct} - Date-wise Details
+                    {productVertical !== 'all' && (
+                      <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+                        productVertical === 'qc' 
+                          ? 'bg-white/20' 
+                          : 'bg-white/20'
+                      }`}>
+                        {productVertical === 'qc' ? 'Quick Commerce' : 'Retail'}
+                      </span>
+                    )}
                   </h2>
-                  <p className="text-green-100 text-xs mt-1">
+                  <p className="text-white/80 text-xs mt-1">
                     {productDateFrom} to {productDateTo} ({productDetailData.length} days with data)
                   </p>
                 </div>

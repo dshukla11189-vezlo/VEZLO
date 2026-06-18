@@ -493,6 +493,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 'methi': ['methi', 'fenugreek', 'fenugreek (methi)'],
                 'fenugreek': ['methi', 'fenugreek', 'fenugreek (methi)'],
                 'fenugreek (methi)': ['methi', 'fenugreek', 'fenugreek (methi)'],
+                'radish': ['radish', 'raddish'],  # Ninjacart spells it "Raddish" 
+                'raddish': ['radish', 'raddish'],
             }
             
             logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs} | SKU_weight: {sku_weight}gm | with_roots={sku_has_with_roots}")

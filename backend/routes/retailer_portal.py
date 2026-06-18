@@ -6648,6 +6648,7 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     # If closing was recorded BEFORE dispatch, we need to add dispatch items to get true ending inventory
     # This handles the case where retailer recorded closing, then received dispatch later same day
     dispatch_adjustment_applied = False
+    dispatch_items_added = []
     if last_closing_time and last_dispatch_time and last_closing_time < last_dispatch_time:
         dispatch_adjustment_applied = True
         # Add dispatch items to closing to get true ending inventory
@@ -6656,18 +6657,34 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
                 product_id = item.get("product_id")
                 variant_id = item.get("variant_id") or item.get("packaging_id") or ""
                 supplied_qty = item.get("supplied_qty", 0) or 0
+                product_name = item.get("product_name", "")
                 
+                # Try multiple key formats for matching
                 key = f"{product_id}_{variant_id}"
+                key_empty = f"{product_id}_"
+                key_unit_piece = f"{product_id}_unit_piece"
+                key_unit_packet = f"{product_id}_unit_packet"
+                
+                key_matched = None
                 if key in closing_map:
-                    closing_map[key] += supplied_qty
+                    key_matched = key
+                elif key_empty in closing_map:
+                    key_matched = key_empty
+                elif key_unit_piece in closing_map:
+                    key_matched = key_unit_piece
+                elif key_unit_packet in closing_map:
+                    key_matched = key_unit_packet
+                
+                if key_matched:
+                    closing_map[key_matched] += supplied_qty
+                    dispatch_items_added.append(f"{product_name}: +{supplied_qty}")
                 else:
-                    # Also try with default variant
-                    key_default = f"{product_id}_"
-                    if key_default in closing_map:
-                        closing_map[key_default] += supplied_qty
-                    else:
-                        # New item not in closing - add it
-                        closing_map[key] = supplied_qty
+                    # New item not in closing - add it with both original and normalized keys
+                    closing_map[key] = supplied_qty
+                    # Also add to empty variant key for better matching
+                    if key_empty not in closing_map:
+                        closing_map[key_empty] = supplied_qty
+                    dispatch_items_added.append(f"{product_name}: +{supplied_qty} (new)")
     
     # Fetch retailer catalogue to get purchase_unit info for each product
     catalogue_items = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
@@ -6682,10 +6699,32 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
     
-    # Calculate pending quantities
-    indent_items = []
+    # De-duplicate plan products - combine quantities if same product_id appears multiple times
+    # This prevents duplicate line items in the generated indent
+    deduplicated_plan = {}
     for plan_item in plan_products:
         product_id = plan_item.get("product_id")
+        product_name = plan_item.get("product_name", "Unknown")
+        variant_id = plan_item.get("variant_id") or ""
+        variant_name = plan_item.get("variant_name") or ""
+        plan_qty = plan_item.get("quantity", 0)
+        
+        # Key by product_id (we'll sum quantities across variants if needed)
+        if product_id not in deduplicated_plan:
+            deduplicated_plan[product_id] = {
+                "product_id": product_id,
+                "product_name": product_name,
+                "variant_id": variant_id,
+                "variant_name": variant_name,
+                "quantity": plan_qty
+            }
+        else:
+            # Same product appears again - add quantities
+            deduplicated_plan[product_id]["quantity"] += plan_qty
+    
+    # Calculate pending quantities from de-duplicated plan
+    indent_items = []
+    for product_id, plan_item in deduplicated_plan.items():
         product_name = plan_item.get("product_name", "Unknown")
         variant_id = plan_item.get("variant_id") or ""
         variant_name = plan_item.get("variant_name") or ""
@@ -6694,13 +6733,15 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         # Check catalogue for this product - override variant for Piece/Packet products
         cat_info = catalogue_map.get(product_id, {})
         purchase_unit = cat_info.get("purchase_unit", "")
+        purchase_variant = cat_info.get("purchase_weight_variant", "")
         
         if purchase_unit == "Piece":
             final_variant_id = "unit_piece"
             final_variant_name = "Pieces"
         elif purchase_unit == "Packet":
             final_variant_id = "unit_packet"
-            final_variant_name = "Packets"
+            # Use the purchase_weight_variant if available for better variant name
+            final_variant_name = f"Packets ({purchase_variant})" if purchase_variant else "Packets"
         else:
             # Keep original variant but resolve UUID if needed
             final_variant_id = variant_id
@@ -6711,15 +6752,32 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
                 if resolved:
                     final_variant_name = resolved
         
-        # Get closing inventory for this product+variant (use original variant_id for lookup)
-        key = f"{product_id}_{variant_id}"
-        closing_qty = closing_map.get(key, 0)
+        # Get closing inventory for this product - try multiple key formats
+        # 1. Original variant_id
+        # 2. Normalized variant_id (unit_piece/unit_packet)
+        # 3. Empty variant
+        # 4. Just product_id prefix match
+        closing_qty = 0
         
-        # Also check with normalized variant_id for Piece/Packet products
-        if purchase_unit in ["Piece", "Packet"] and closing_qty == 0:
-            # Try lookup with unit_piece/unit_packet
-            normalized_key = f"{product_id}_{final_variant_id}"
-            closing_qty = closing_map.get(normalized_key, 0)
+        keys_to_try = [
+            f"{product_id}_{variant_id}",
+            f"{product_id}_{final_variant_id}",
+            f"{product_id}_",
+            f"{product_id}_unit_piece",
+            f"{product_id}_unit_packet"
+        ]
+        
+        for key in keys_to_try:
+            if key in closing_map and closing_map[key] > 0:
+                closing_qty = closing_map[key]
+                break
+        
+        # Also check if any key starting with product_id has stock
+        if closing_qty == 0:
+            for k, v in closing_map.items():
+                if k.startswith(f"{product_id}_") and v > 0:
+                    closing_qty = v
+                    break
         
         # Calculate pending qty (Plan qty - Closing qty)
         pending_qty = max(0, plan_qty - closing_qty)
@@ -6748,7 +6806,10 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     # Build remarks with timing info
     remarks_base = f"Plan-based indent from '{plan.get('name')}' (Closing date: {yesterday_date_only})"
     if dispatch_adjustment_applied:
-        remarks_base += " [Dispatch items added to closing - dispatch arrived after closing was recorded]"
+        dispatch_summary = ", ".join(dispatch_items_added[:5])
+        if len(dispatch_items_added) > 5:
+            dispatch_summary += f"... +{len(dispatch_items_added) - 5} more"
+        remarks_base += f" [Late dispatch adjustment: {dispatch_summary}]"
     
     # Create the indent
     new_indent = {

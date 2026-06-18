@@ -3920,10 +3920,16 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     )
     
     # Auto-adjust pending credit notes for this retailer
+    # Query for CNs with pending status OR with pending_amount > 0
     pending_credit_notes = await db.retailer_credit_notes.find({
         "retailer_id": input.retailer_id,
-        "status": {"$in": ["pending", "partial"]}
-    }, {"_id": 0}).to_list(100)
+        "$or": [
+            {"status": {"$in": ["pending", "partial"]}},
+            {"pending_amount": {"$gt": 0}}
+        ]
+    }, {"_id": 0}).sort("created_at", 1).to_list(100)  # Sort by date (oldest first)
+    
+    logger.info(f"[CN-AUTO-ADJUST] Found {len(pending_credit_notes)} pending CNs for retailer {input.retailer_id}")
     
     credit_note_adjustments = []
     total_credit_adjusted = 0
@@ -3931,9 +3937,17 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     for cn in pending_credit_notes:
         if total_credit_adjusted >= net_payable:
             break  # Don't adjust more than the invoice amount
-            
-        pending_amount = cn.get("pending_amount", cn.get("amount", 0))
+        
+        # Get pending amount - prefer pending_amount field, fallback to calculating from amount - adjusted_amount
+        pending_amount = cn.get("pending_amount")
+        if pending_amount is None or pending_amount <= 0:
+            # Calculate pending from amount - adjusted_amount
+            total_cn_amount = cn.get("amount", 0) or 0
+            adjusted_so_far = cn.get("adjusted_amount", 0) or 0
+            pending_amount = total_cn_amount - adjusted_so_far
+        
         if pending_amount <= 0:
+            logger.info(f"[CN-AUTO-ADJUST] Skipping CN {cn.get('credit_note_number')} - no pending amount")
             continue
             
         # Calculate how much to adjust
@@ -4097,10 +4111,12 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
     # Get credit note adjustments from the invoice
     credit_note_adjustments = invoice.get("credit_note_adjustments", [])
     invoice_number = invoice.get("invoice_number", "")
+    cn_reset_count = 0
     
     for cn_adj in credit_note_adjustments:
         cn_id = cn_adj.get("credit_note_id")
-        adj_amount = cn_adj.get("amount", 0)
+        # Check both field names since they may vary
+        adj_amount = cn_adj.get("adjusted_amount", 0) or cn_adj.get("amount", 0) or 0
         
         if cn_id and adj_amount > 0:
             # Get the credit note
@@ -4128,7 +4144,7 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
                     if inv.get("invoice_number") != invoice_number and inv.get("invoice_id") != invoice_id
                 ]
                 
-                # Update credit note - also update pending_amount
+                # Update credit note - reset to pending with full amount available
                 await db.retailer_credit_notes.update_one(
                     {"id": cn_id},
                     {"$set": {
@@ -4139,10 +4155,11 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }}
                 )
+                cn_reset_count += 1
                 logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - adjusted: {current_adjusted} -> {new_adjusted}, pending: {new_pending}, status: {new_status}")
     
     await db.retailer_invoices.delete_one({"id": invoice_id})
-    return {"message": "Invoice deleted successfully", "credit_notes_reset": len(credit_note_adjustments)}
+    return {"message": "Invoice deleted successfully", "credit_notes_reset": cn_reset_count}
 
 # Record payment against an invoice
 @router.post("/retailer-invoices/{invoice_id}/payment")

@@ -443,15 +443,14 @@ export default function AdminDashboard() {
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
       const rejections = rejectionsResponse.data || [];
       
-      // Build rejection map by product name
+      // Build rejection map by product name (only storing qty for now, value will be calculated using purchase price)
       const rejectionByProduct = {};
       rejections.forEach(rej => {
         const prodName = rej.product_name;
         if (!rejectionByProduct[prodName]) {
-          rejectionByProduct[prodName] = { qty: 0, value: 0 };
+          rejectionByProduct[prodName] = { qty: 0 };
         }
         rejectionByProduct[prodName].qty += rej.quantity || 0;
-        rejectionByProduct[prodName].value += rej.rejection_value || 0;
       });
       
       // Build a map of product aliases: {product_name: alias_product_name}
@@ -467,6 +466,43 @@ export default function AdminDashboard() {
           aliasMap[aliasName].push(p.name);
         }
       });
+      
+      // First pass: Calculate average purchase price per product from line items
+      const productPurchaseData = {};
+      dailyPnl.forEach(day => {
+        const lineItems = day.line_items || [];
+        lineItems.forEach(item => {
+          // Only consider Retail items for purchase price calculation
+          if (item.customer_type !== 'Retail') return;
+          
+          let productName = item.product;
+          // Check if this product is aliased to another
+          for (const [aliasTarget, aliases] of Object.entries(aliasMap)) {
+            if (aliases.includes(productName)) {
+              productName = aliasTarget;
+              break;
+            }
+          }
+          
+          if (!productPurchaseData[productName]) {
+            productPurchaseData[productName] = { totalCogs: 0, totalKg: 0 };
+          }
+          productPurchaseData[productName].totalCogs += item.cogs || 0;
+          productPurchaseData[productName].totalKg += item.supplied_kg || 0;
+        });
+      });
+      
+      // Calculate average purchase price per Kg for each product
+      const avgPurchasePriceByProduct = {};
+      for (const [prodName, data] of Object.entries(productPurchaseData)) {
+        avgPurchasePriceByProduct[prodName] = data.totalKg > 0 ? data.totalCogs / data.totalKg : 0;
+      }
+      
+      // Now calculate rejection value using purchase price: qty * avg_purchase_price
+      for (const [prodName, rejData] of Object.entries(rejectionByProduct)) {
+        const avgPP = avgPurchasePriceByProduct[prodName] || 0;
+        rejData.value = rejData.qty * avgPP;
+      }
       
       // Collect all line items with customer_type for vertical filtering
       const allLineItems = [];
@@ -491,7 +527,7 @@ export default function AdminDashboard() {
       });
       
       // Store raw data and rejection data for filtering
-      setProductPnlRawData({ lineItems: allLineItems, rejectionByProduct });
+      setProductPnlRawData({ lineItems: allLineItems, rejectionByProduct, avgPurchasePriceByProduct });
       
     } catch (error) {
       console.error('Failed to load product P&L:', error);
@@ -621,17 +657,16 @@ export default function AdminDashboard() {
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
       const rejections = rejectionsResponse.data || [];
       
-      // Build rejection map by product name and date
+      // Build rejection map by product name and date (only store qty, value will be calculated using purchase price)
       const rejectionByProductDate = {};
       rejections.forEach(rej => {
         const prodName = rej.product_name;
         const rejDate = (rej.rejection_date || '').substring(0, 10);
         const key = `${prodName}_${rejDate}`;
         if (!rejectionByProductDate[key]) {
-          rejectionByProductDate[key] = { qty: 0, value: 0 };
+          rejectionByProductDate[key] = { qty: 0 };
         }
         rejectionByProductDate[key].qty += rej.quantity || 0;
-        rejectionByProductDate[key].value += rej.rejection_value || 0;
       });
       
       // Build alias map to find products that alias to this one
@@ -681,7 +716,11 @@ export default function AdminDashboard() {
         const unsoldWastageAmt = productUnsoldWastage.reduce((sum, item) => sum + (item.value || 0), 0);
         wastageAmt += unsoldWastageAmt;
         
+        // Calculate average purchase price per Kg for this day
+        const avgPurchasePrice = salesKg > 0 ? cogsAmt / salesKg : 0;
+        
         // Get rejection data for this product on this date (for Retail)
+        // Rejection Amount = Rejection Qty * Avg Purchase Price (not selling price)
         let rejectionAmt = 0;
         let rejectionQty = 0;
         let rejectionPct = 0;
@@ -690,10 +729,11 @@ export default function AdminDashboard() {
           for (const alias of aliasedProducts) {
             const key = `${alias}_${day.date}`;
             if (rejectionByProductDate[key]) {
-              rejectionAmt += rejectionByProductDate[key].value || 0;
               rejectionQty += rejectionByProductDate[key].qty || 0;
             }
           }
+          // Calculate rejection amount using purchase price (COGS/Kg)
+          rejectionAmt = rejectionQty * avgPurchasePrice;
           rejectionPct = salesAmt > 0 ? (rejectionAmt / salesAmt) * 100 : 0;
         }
         
@@ -715,8 +755,7 @@ export default function AdminDashboard() {
         }
         const marginPct = salesAmt > 0 ? (grossProfit / salesAmt) * 100 : 0;
         
-        // Calculate average prices
-        const avgPurchasePrice = salesKg > 0 ? cogsAmt / salesKg : 0;
+        // Calculate average prices (already calculated above)
         
         // Get wastage % from product_wastage_summary if available (matches Wastage Dashboard formula)
         // product_wastage_summary has pre-calculated wastage_pct = Wastage / (Opening + Purchase) * 100

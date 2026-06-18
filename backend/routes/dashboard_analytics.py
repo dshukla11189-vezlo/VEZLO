@@ -448,13 +448,26 @@ async def get_pnl_report(
     rejection_by_date_retailer = {}  # {date}_{retailer_id} -> {value: mrp_value, cogs: cogs_value}
     rejection_by_product_line = {}  # {date}_{retailer_id}_{product}_{variant} -> {value, cogs, qty}
     
+    # Helper to normalize product/variant key for matching
+    def normalize_key(s):
+        if not s:
+            return ""
+        # Convert to lowercase, strip whitespace, remove extra spaces
+        return " ".join(str(s).lower().strip().split())
+    
     for rej in retailer_rejections:
         rej_date = rej.get("rejection_date", "")[:10]
         product = rej.get("product_name", "")
-        variant_name = rej.get("variant_name", "")
+        variant_name_raw = rej.get("variant_name", "")
+        # Resolve variant_name in case it's stored as UUID
+        variant_name = resolve_variant_name(variant_name_raw)
         quantity = rej.get("quantity", 0) or 0
         rejection_value = rej.get("rejection_value", 0) or 0
         retailer_id = rej.get("retailer_id", "")
+        
+        # Debug: Log rejection key components
+        import logging
+        logging.info(f"[REJECTION] date={rej_date}, retailer={retailer_id}, product='{product}', variant='{variant_name}' (raw: '{variant_name_raw}'), value={rejection_value}")
         
         # Calculate COGS for this rejection item
         packaging_weight_gm = get_packaging_weight_gm(variant_name)
@@ -495,7 +508,15 @@ async def get_pnl_report(
             rejection_by_date_retailer[key]["qty"] += quantity
             
             # Track by date+retailer+product+variant for product-level line item lookup
-            product_key = f"{rej_date}_{retailer_id}_{product}_{variant_name}"
+            # Use normalized keys for consistent matching
+            norm_product = normalize_key(product)
+            norm_variant = normalize_key(variant_name)
+            product_key = f"{rej_date}_{retailer_id}_{norm_product}_{norm_variant}"
+            
+            # Debug: Log the key being created
+            import logging
+            logging.info(f"[REJECTION_KEY] key='{product_key}', cogs={rejection_cogs}")
+            
             if product_key not in rejection_by_product_line:
                 rejection_by_product_line[product_key] = {"value": 0, "cogs": 0, "qty": 0}
             rejection_by_product_line[product_key]["value"] += rejection_value
@@ -611,9 +632,16 @@ async def get_pnl_report(
             product_by_date[dispatch_date][product]["customers"][customer]["qty"] += qty
             
             # Add detailed line item for retailer (include commission % for later calculation)
-            # Look up if there's a rejection for this specific product line
-            product_rej_key = f"{dispatch_date}_{retailer_id}_{product}_{unit}"
+            # Look up if there's a rejection for this specific product line using normalized keys
+            norm_product = normalize_key(product)
+            norm_unit = normalize_key(unit)
+            product_rej_key = f"{dispatch_date}_{retailer_id}_{norm_product}_{norm_unit}"
             product_rejection = rejection_by_product_line.get(product_rej_key, {"value": 0, "cogs": 0, "qty": 0})
+            
+            # Debug: Log line item lookup if rejection expected (log only when there's rejection in the map for this retailer)
+            if any(retailer_id in k for k in rejection_by_product_line.keys()):
+                import logging
+                logging.info(f"[LINE_ITEM] key='{product_rej_key}', found={product_rejection['cogs'] > 0}")
             
             line_items_by_date[dispatch_date].append({
                 "customer": customer,
@@ -1493,6 +1521,7 @@ async def get_pnl_report(
         "customer_pnl": customer_pnl,
         "product_pnl": product_pnl,
         "rejection_by_date_retailer": rejection_by_date_retailer,  # {date}_{retailer_id} -> {value, cogs, qty}
+        "rejection_by_product_line": rejection_by_product_line,  # {date}_{retailer_id}_{product}_{variant} -> {value, cogs, qty}
         "expenses": {
             "variable_by_category": variable_by_category,
             "fixed_by_category": fixed_by_category

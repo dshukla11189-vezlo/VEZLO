@@ -28,6 +28,7 @@ from dependencies import (
 from models import StockClosingEntry, StockClosingBulkEntry
 from routes.qc_grn import calculate_grn_loss
 from routes.products_packaging import extract_weight_from_packaging_name
+from routes.daily_cogs import get_daily_cogs_map
 
 router = APIRouter(tags=["dashboard_analytics"])
 
@@ -185,6 +186,10 @@ async def get_pnl_report(
         from_date = datetime.now(timezone.utc).replace(day=1).strftime('%Y-%m-%d')
     if not to_date:
         to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # Fetch daily COGS map for the date range (persisted daily snapshots)
+    # This gives us date-specific COGS instead of overall average
+    daily_cogs_map = await get_daily_cogs_map(db, from_date, to_date)
     
     # Sales by customer
     sales_by_customer = {}
@@ -476,11 +481,16 @@ async def get_pnl_report(
         else:
             kg_rejected = quantity  # Fallback: assume qty is in kg
         
-        # Look up purchase price (use cost_alias if available)
+        # Look up purchase price - prioritize daily_cogs_map for date-specific COGS
         lookup_product = cost_alias_map.get(product, product)
-        avg_purchase_price = avg_price_by_product.get(lookup_product, 0)
-        if avg_purchase_price == 0 and lookup_product != product:
-            avg_purchase_price = avg_price_by_product.get(product, 0)
+        daily_cogs_key = (lookup_product, rej_date)
+        if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+            avg_purchase_price = daily_cogs_map[daily_cogs_key]
+        else:
+            # Fallback to avg_price_by_product
+            avg_purchase_price = avg_price_by_product.get(lookup_product, 0)
+            if avg_purchase_price == 0 and lookup_product != product:
+                avg_purchase_price = avg_price_by_product.get(product, 0)
         
         rejection_cogs = kg_rejected * avg_purchase_price
         
@@ -1069,18 +1079,25 @@ async def get_pnl_report(
                 customer_product_map[key]["rejection_cogs"] += line.get("rejection_cogs", 0)
             
             # Now calculate COGS and wastage allocation per line item
-            # Get product-level COGS rate (purchase_amount / purchase_qty)
-            # If no purchase on this day, fallback to avg_price_by_product (overall average)
+            # Get product-level COGS rate using:
+            # 1. Daily COGS snapshot (preferred - accounts for inventory carryover)
+            # 2. Fallback to avg_price_by_product (overall average for the date range)
             product_cogs_rate = {}
             if date_key in product_by_date:
                 for prod_name, prod_data in product_by_date[date_key].items():
-                    purch_qty = prod_data.get("purchase_qty", 0)
-                    purch_amt = prod_data.get("purchase", 0)
-                    if purch_qty > 0:
-                        product_cogs_rate[prod_name] = purch_amt / purch_qty
+                    # First try daily_cogs_map (persisted daily snapshot with inventory carryover)
+                    daily_cogs_key = (prod_name, date_key)
+                    if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+                        product_cogs_rate[prod_name] = daily_cogs_map[daily_cogs_key]
                     else:
-                        # Fallback to average price across all dates (same as dispatch-level COGS)
-                        product_cogs_rate[prod_name] = avg_price_by_product.get(prod_name, 0)
+                        # Fallback: try same-day procurement rate
+                        purch_qty = prod_data.get("purchase_qty", 0)
+                        purch_amt = prod_data.get("purchase", 0)
+                        if purch_qty > 0:
+                            product_cogs_rate[prod_name] = purch_amt / purch_qty
+                        else:
+                            # Final fallback: overall average price
+                            product_cogs_rate[prod_name] = avg_price_by_product.get(prod_name, 0)
             
             # Calculate total supplied kg per product for proportional wastage allocation
             # For aliased products, we need combined totals for proper wastage distribution

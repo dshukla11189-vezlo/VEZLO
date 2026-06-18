@@ -3,6 +3,24 @@
 ## Changelog (June 2025)
 
 
+### June 18, 2026 - Rejection Amount at COGS Basis (Admin Dashboard) ✅
+- **FEATURE**: Rejection amounts in Admin Dashboard now calculated using COGS (Purchase Price) basis instead of MRP (Selling Price)
+  - Formula: `rejection_at_cogs = rejection_at_mrp × (purchase / sales)`
+- **LOCATIONS UPDATED**:
+  1. **Retail P&L Sub-Dashboard**: Label changed to "REJECTION (COGS)", value converted to purchase price basis
+  2. **Date-wise Daily P&L Table**: Retail rejection values converted to COGS for date totals and Retail vertical rows
+  3. **Customer Level Rows in Daily P&L**: Now uses **exact customer-level rejection** data (not proportional distribution) from actual rejection records, converted to COGS basis
+  4. **Customer Detail Popup**: Total rejection and daily rejection values converted to COGS basis, label updated to "REJECTION (COGS)"
+- **TECHNICAL CHANGES**:
+  - Added `convertRejectionToCOGS(rejectionAtMRP, sales, purchase)` helper function
+  - Added `rejectionByDateRetailer` state to store rejection data keyed by `{date}_{retailer_id}`
+  - Fetch rejection data in `loadPnlData()` to build exact customer-date lookup map
+  - Customer rows now lookup exact rejection by retailer_id instead of proportional distribution
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/Dashboard.js` - All COGS conversion logic and exact customer rejection lookup
+- **NOTE**: Retailer Portal views continue to show rejection at MRP (selling price) - this change is Admin-only
+
+
 ### June 17, 2026 - CN-Invoice Sync Diagnostic & Fix Tools ✅
 - **ROOT CAUSE ANALYSIS**: Credit Notes marked as "adjusted" but invoice doesn't have the adjustment
   - Root cause 1: Inconsistent field names (`adjusted_in_invoices` vs `adjusted_against_invoices`, `credit_note_adjustments` vs `credit_adjustments`)

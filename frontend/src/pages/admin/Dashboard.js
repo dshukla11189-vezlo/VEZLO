@@ -17,6 +17,15 @@ import { Checkbox } from '../../components/ui/checkbox';
 
 const COLORS = ['#14532D', '#D97706', '#3B82F6', '#8B5CF6', '#EF4444', '#10B981', '#F59E0B', '#6366F1'];
 
+// Helper function to convert rejection from MRP basis to COGS (Purchase Price) basis
+// Formula: rejection_at_cogs = rejection_at_mrp × (purchase / sales)
+const convertRejectionToCOGS = (rejectionAtMRP, sales, purchase) => {
+  if (!rejectionAtMRP || rejectionAtMRP === 0) return 0;
+  if (!sales || sales === 0) return rejectionAtMRP; // Fallback to MRP if no sales data
+  const cogsRatio = purchase / sales;
+  return rejectionAtMRP * cogsRatio;
+};
+
 // Helper function to calculate number of days between two dates (inclusive)
 const calculateDaysBetween = (fromDate, toDate) => {
   const from = new Date(fromDate);
@@ -33,6 +42,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [qcReceivables, setQcReceivables] = useState({ total: 0, received: 0, pending: 0 });
   const [retailReceivables, setRetailReceivables] = useState({ total: 0, received: 0, pending: 0 });
+  // Store rejection data by date and retailer_id for exact customer-level rejection
+  const [rejectionByDateRetailer, setRejectionByDateRetailer] = useState({});
   
   // Initialize dates from localStorage or default to current month
   const [dateFrom, setDateFrom] = useState(() => {
@@ -289,6 +300,7 @@ export default function AdminDashboard() {
             if (rej.retailer_id === retailerId) {
               const rejDate = (rej.rejection_date || '').slice(0, 10);
               if (rejDate) {
+                // Store rejection at MRP - will be converted to COGS later when we have day's sales/purchase
                 rejectionByDate[rejDate] = (rejectionByDate[rejDate] || 0) + (rej.rejection_value || 0);
               }
             }
@@ -304,6 +316,13 @@ export default function AdminDashboard() {
       const commissionFromPnl = customerPnlEntry?.commission || 0;
       const customerNetProfit = customerPnlEntry?.net_profit || 0;
       const customerNetMargin = customerPnlEntry?.net_margin_pct || 0;
+      
+      // Get customer's total sales and purchase for COGS ratio calculation
+      const customerSalesAmount = customerPnlEntry?.sales_amount || 0;
+      const customerCogsAmount = customerPnlEntry?.cogs_share || 0;
+      
+      // Convert rejectionShare from MRP to COGS basis
+      const rejectionShareAtCOGS = convertRejectionToCOGS(rejectionShare, customerSalesAmount, customerCogsAmount);
       
       // Filter daily data for the selected customer
       const customerDailyData = dailyPnl.map(day => {
@@ -321,11 +340,13 @@ export default function AdminDashboard() {
         const wastage = customerItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
         const commission = customerItems.reduce((sum, item) => sum + (item.commission || 0), 0);
         
-        // Get EXACT rejection for this date (from rejectionByDate lookup)
-        const dayRejection = rejectionByDate[day.date] || 0;
+        // Get EXACT rejection for this date (from rejectionByDate lookup) - this is at MRP
+        const dayRejectionAtMRP = rejectionByDate[day.date] || 0;
+        // Convert to COGS basis using day's sales/purchase ratio
+        const dayRejection = convertRejectionToCOGS(dayRejectionAtMRP, sales, purchase);
         const dayRejectionPct = sales > 0 ? (dayRejection / sales * 100) : 0;
         
-        // CORRECT FORMULA: Gross P/L = Sales - COGS - Wastage - Rejection
+        // CORRECT FORMULA: Gross P/L = Sales - COGS - Wastage - Rejection (at COGS)
         const grossProfit = sales - purchase - wastage - dayRejection;
         const grossMargin = sales > 0 ? (grossProfit / sales * 100) : 0;
         
@@ -342,7 +363,7 @@ export default function AdminDashboard() {
           kg,
           purchase,
           wastage,
-          rejection: dayRejection,  // Exact rejection for this date
+          rejection: dayRejection,  // Exact rejection for this date (at COGS)
           rejectionPct: dayRejectionPct,  // Rejection % for this date
           grossProfit,
           grossMargin,
@@ -368,24 +389,24 @@ export default function AdminDashboard() {
       }), { sales: 0, qty: 0, kg: 0, purchase: 0, wastage: 0, rejection: 0, grossProfit: 0, commission: 0, netProfit: 0 });
       
       // For Retail customers, the line-item gross_profit doesn't include rejection
-      // We need to subtract rejection_share to get the TRUE gross profit that matches dashboard
-      // Gross Profit (Retail) = Sum of line_item profits - Rejection Loss
+      // We need to subtract rejection_share (at COGS) to get the TRUE gross profit that matches dashboard
+      // Gross Profit (Retail) = Sum of line_item profits - Rejection Loss (at COGS)
       const adjustedGrossProfit = customerType === 'Retail' 
-        ? totals.grossProfit - rejectionShare 
+        ? totals.grossProfit - rejectionShareAtCOGS 
         : totals.grossProfit;
       
       totals.grossMargin = totals.sales > 0 ? (adjustedGrossProfit / totals.sales * 100) : 0;
       totals.profitPerUnit = totals.qty > 0 ? (adjustedGrossProfit / totals.qty) : 0;
       totals.customerType = customerType;
       totals.grnLossShare = grnLossShare;
-      totals.rejectionShare = rejectionShare;
+      totals.rejectionShare = rejectionShareAtCOGS;  // Store COGS-based rejection for display
       // Add variable expenses and commission from customer_pnl
       totals.variableExpenses = variableExpenses;
       totals.commissionFromPnl = commissionFromPnl;
       
       // CORRECT FORMULA for Retail customers:
-      // Gross P/L = Sales - Purchase - Wastage - Rejection
-      totals.grossProfit = Math.round((totals.sales - totals.purchase - totals.wastage - rejectionShare) * 100) / 100;
+      // Gross P/L = Sales - Purchase - Wastage - Rejection (at COGS)
+      totals.grossProfit = Math.round((totals.sales - totals.purchase - totals.wastage - rejectionShareAtCOGS) * 100) / 100;
       
       // Net P/L calculation differs by customer type:
       // For Retail: Net P/L = Gross P/L - Commission - Variable Expenses
@@ -843,14 +864,33 @@ export default function AdminDashboard() {
   const loadPnlData = useCallback(async () => {
     setLoading(true);
     try {
-      const [pnlResponse, summaryResponse, qcGrnsResponse, retailInvoicesResponse] = await Promise.all([
+      const [pnlResponse, summaryResponse, qcGrnsResponse, retailInvoicesResponse, rejectionsResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${dateFrom}&to_date=${dateTo}`),
         api.get('/api/reports/today-summary'),
         api.get(`/api/qc-grns?from_date=${dateFrom}&to_date=${dateTo}&limit=100`),
-        api.get(`/api/retailer-invoices?start_date=${dateFrom}&end_date=${dateTo}&limit=100`)
+        api.get(`/api/retailer-invoices?start_date=${dateFrom}&end_date=${dateTo}&limit=100`),
+        api.get(`/api/retailer-rejections?from_date=${dateFrom}&to_date=${dateTo}`)
       ]);
       setPnlData(pnlResponse.data);
       setTodaySummary(summaryResponse.data);
+      
+      // Build rejection map by date and retailer_id for exact customer-level lookup
+      // Structure: { "2024-01-15_retailer123": { qty: 5, value_at_mrp: 500 } }
+      const rejectionMap = {};
+      const rejections = rejectionsResponse.data || [];
+      rejections.forEach(rej => {
+        const rejDate = (rej.rejection_date || '').slice(0, 10);
+        const retailerId = rej.retailer_id;
+        if (rejDate && retailerId) {
+          const key = `${rejDate}_${retailerId}`;
+          if (!rejectionMap[key]) {
+            rejectionMap[key] = { qty: 0, value_at_mrp: 0 };
+          }
+          rejectionMap[key].qty += rej.quantity || 0;
+          rejectionMap[key].value_at_mrp += rej.rejection_value || 0;
+        }
+      });
+      setRejectionByDateRetailer(rejectionMap);
       
       // Calculate QC receivables from GRN data (filter by date range)
       let qcTotal = 0, qcReceived = 0;
@@ -1494,8 +1534,12 @@ export default function AdminDashboard() {
                     <p className="text-sm font-bold text-amber-700">{formatCurrency(pnlData.vertical_bifurcation.retail.commission || 0)}</p>
                   </div>
                   <div className="p-1.5 bg-rose-100/50 rounded col-span-2 sm:col-span-1">
-                    <p className="text-[9px] text-rose-600 font-medium">REJECTION</p>
-                    <p className="text-sm font-bold text-rose-700">{formatCurrency(pnlData.vertical_bifurcation.retail.rejection || 0)}</p>
+                    <p className="text-[9px] text-rose-600 font-medium">REJECTION (COGS)</p>
+                    <p className="text-sm font-bold text-rose-700">{formatCurrency(convertRejectionToCOGS(
+                      pnlData.vertical_bifurcation.retail.rejection || 0,
+                      pnlData.vertical_bifurcation.retail.sales || 0,
+                      pnlData.vertical_bifurcation.retail.purchase || 0
+                    ))}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
@@ -1620,7 +1664,9 @@ export default function AdminDashboard() {
                           const retailQty = retailItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
                           const retailPurchase = day.retail_cogs || retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
                           const retailWastage = retailItems.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
-                          const retailRejection = day.retail_rejection || 0;
+                          const retailRejectionAtMRP = day.retail_rejection || 0;
+                          // Convert rejection from MRP to COGS basis
+                          const retailRejection = convertRejectionToCOGS(retailRejectionAtMRP, retailSales, retailPurchase);
                           const retailCommission = day.retail_commission || 0;
                           const retailGross = retailSales - retailPurchase - retailWastage - retailRejection - retailCommission;
                           const retailMargin = retailSales > 0 ? (retailGross / retailSales * 100) : 0;
@@ -1629,7 +1675,7 @@ export default function AdminDashboard() {
                           // Calculate day purchase from line items COGS, not procurement
                           const dayPurchase = qcPurchase + retailPurchase;
                           const dayWastage = qcWastage + retailWastage;
-                          const dayRejection = retailRejection;
+                          const dayRejection = retailRejection; // Already converted to COGS basis
                           const dayCommission = retailCommission;
                           const dayGrossWithDeductions = day.sales - dayPurchase - dayWastage - dayRejection - dayCommission;
                           const dayMarginWithDeductions = day.sales > 0 ? (dayGrossWithDeductions / day.sales * 100) : 0;
@@ -1864,10 +1910,16 @@ export default function AdminDashboard() {
                                         const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
                                         // Commission is now tracked per item from backend - sum up item commissions
                                         const custCommission = items.reduce((sum, i) => sum + (i.commission || 0), 0);
-                                        // For Retail customers, distribute rejection proportionally
-                                        // (or fully if there's only one customer)
-                                        const numRetailCustomers = Object.keys(retailByCustomer).length;
-                                        const custRejection = numRetailCustomers === 1 ? retailRejection : (custSales / retailSales) * retailRejection;
+                                        
+                                        // Get retailer_id from the first item (all items for same customer have same retailer_id)
+                                        const custRetailerId = items[0]?.retailer_id || '';
+                                        // Look up EXACT rejection for this customer on this date (not proportional)
+                                        const rejectionKey = `${day.date}_${custRetailerId}`;
+                                        const custRejectionData = rejectionByDateRetailer[rejectionKey] || { qty: 0, value_at_mrp: 0 };
+                                        // Convert rejection from MRP to COGS basis
+                                        const custRejectionAtMRP = custRejectionData.value_at_mrp || 0;
+                                        const custRejection = convertRejectionToCOGS(custRejectionAtMRP, custSales, custPurchase);
+                                        
                                         const custGross = custSales - custPurchase - custWastage - custRejection - custCommission;
                                         const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
                                         const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
@@ -3087,7 +3139,7 @@ export default function AdminDashboard() {
                 </div>
                 {/* 5. REJECTION (for Retail) or GRN LOSS placeholder (for QC - shown in slot 7) */}
                 <div className="text-center p-2 bg-white rounded shadow-sm">
-                  <p className="text-[10px] text-gray-500 font-medium">REJECTION</p>
+                  <p className="text-[10px] text-gray-500 font-medium">REJECTION (COGS)</p>
                   <p className="text-sm font-bold text-amber-600">₹{(customerDetailData.totals.rejectionShare || 0).toLocaleString()}</p>
                 </div>
                 {/* 6. GROSS P/L with GM% = Sales - Purchase - Wastage - Rejection */}

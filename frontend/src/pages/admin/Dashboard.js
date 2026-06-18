@@ -321,8 +321,8 @@ export default function AdminDashboard() {
       const customerSalesAmount = customerPnlEntry?.sales_amount || 0;
       const customerCogsAmount = customerPnlEntry?.cogs_share || 0;
       
-      // Convert rejectionShare from MRP to COGS basis and round to 0 decimals
-      const rejectionShareAtCOGS = Math.round(convertRejectionToCOGS(rejectionShare, customerSalesAmount, customerCogsAmount));
+      // Use rejection_cogs directly from the customer_pnl (already calculated at purchase price)
+      const rejectionShareAtCOGS = Math.round(customerPnlEntry?.rejection_cogs || 0);
       
       // Filter daily data for the selected customer
       const customerDailyData = dailyPnl.map(day => {
@@ -340,10 +340,10 @@ export default function AdminDashboard() {
         const wastage = customerItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
         const commission = customerItems.reduce((sum, item) => sum + (item.commission || 0), 0);
         
-        // Get EXACT rejection for this date (from rejectionByDate lookup) - this is at MRP
-        const dayRejectionAtMRP = rejectionByDate[day.date] || 0;
-        // Convert to COGS basis using day's sales/purchase ratio and round to 0 decimals
-        const dayRejection = Math.round(convertRejectionToCOGS(dayRejectionAtMRP, sales, purchase));
+        // Get EXACT rejection at COGS for this date from rejection_by_date_retailer
+        const rejKey = `${day.date}_${retailerId}`;
+        const dayRejectionData = pnlData?.rejection_by_date_retailer?.[rejKey] || { cogs: 0 };
+        const dayRejection = Math.round(dayRejectionData.cogs || 0);
         const dayRejectionPct = sales > 0 ? (dayRejection / sales * 100) : 0;
         
         // CORRECT FORMULA: Gross P/L = Sales - COGS - Wastage - Rejection (at COGS)
@@ -864,33 +864,19 @@ export default function AdminDashboard() {
   const loadPnlData = useCallback(async () => {
     setLoading(true);
     try {
-      const [pnlResponse, summaryResponse, qcGrnsResponse, retailInvoicesResponse, rejectionsResponse] = await Promise.all([
+      const [pnlResponse, summaryResponse, qcGrnsResponse, retailInvoicesResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${dateFrom}&to_date=${dateTo}`),
         api.get('/api/reports/today-summary'),
         api.get(`/api/qc-grns?from_date=${dateFrom}&to_date=${dateTo}&limit=100`),
-        api.get(`/api/retailer-invoices?start_date=${dateFrom}&end_date=${dateTo}&limit=100`),
-        api.get(`/api/retailer-rejections?from_date=${dateFrom}&to_date=${dateTo}`)
+        api.get(`/api/retailer-invoices?start_date=${dateFrom}&end_date=${dateTo}&limit=100`)
       ]);
       setPnlData(pnlResponse.data);
       setTodaySummary(summaryResponse.data);
       
-      // Build rejection map by date and retailer_id for exact customer-level lookup
-      // Structure: { "2024-01-15_retailer123": { qty: 5, value_at_mrp: 500 } }
-      const rejectionMap = {};
-      const rejections = rejectionsResponse.data || [];
-      rejections.forEach(rej => {
-        const rejDate = (rej.rejection_date || '').slice(0, 10);
-        const retailerId = rej.retailer_id;
-        if (rejDate && retailerId) {
-          const key = `${rejDate}_${retailerId}`;
-          if (!rejectionMap[key]) {
-            rejectionMap[key] = { qty: 0, value_at_mrp: 0 };
-          }
-          rejectionMap[key].qty += rej.quantity || 0;
-          rejectionMap[key].value_at_mrp += rej.rejection_value || 0;
-        }
-      });
-      setRejectionByDateRetailer(rejectionMap);
+      // Use rejection_by_date_retailer from the P&L API (already calculated at COGS)
+      // Structure: { "2024-01-15_retailer123": { value: mrp_value, cogs: cogs_value, qty: quantity } }
+      const rejectionMapFromApi = pnlResponse.data?.rejection_by_date_retailer || {};
+      setRejectionByDateRetailer(rejectionMapFromApi);
       
       // Calculate QC receivables from GRN data (filter by date range)
       let qcTotal = 0, qcReceived = 0;
@@ -1546,11 +1532,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="p-1.5 bg-rose-100/50 rounded col-span-2 sm:col-span-1">
                     <p className="text-[9px] text-rose-600 font-medium">REJECTION (COGS)</p>
-                    <p className="text-sm font-bold text-rose-700">{formatCurrency(Math.round(convertRejectionToCOGS(
-                      pnlData.vertical_bifurcation.retail.rejection || 0,
-                      pnlData.vertical_bifurcation.retail.sales || 0,
-                      pnlData.vertical_bifurcation.retail.purchase || 0
-                    )))}</p>
+                    <p className="text-sm font-bold text-rose-700">{formatCurrency(Math.round(pnlData.vertical_bifurcation.retail.rejection_cogs || 0))}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
@@ -1675,9 +1657,8 @@ export default function AdminDashboard() {
                           const retailQty = retailItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
                           const retailPurchase = day.retail_cogs || retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
                           const retailWastage = retailItems.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
-                          const retailRejectionAtMRP = day.retail_rejection || 0;
-                          // Convert rejection from MRP to COGS basis and round to 0 decimals
-                          const retailRejection = Math.round(convertRejectionToCOGS(retailRejectionAtMRP, retailSales, retailPurchase));
+                          // Use rejection_cogs directly from API (calculated at actual product purchase price)
+                          const retailRejection = Math.round(day.retail_rejection_cogs || 0);
                           const retailCommission = Math.round(day.retail_commission || 0);
                           const retailGross = Math.round(retailSales - retailPurchase - retailWastage - retailRejection - retailCommission);
                           const retailMargin = retailSales > 0 ? (retailGross / retailSales * 100) : 0;
@@ -1686,7 +1667,7 @@ export default function AdminDashboard() {
                           // Calculate day purchase from line items COGS, not procurement
                           const dayPurchase = Math.round(qcPurchase + retailPurchase);
                           const dayWastage = Math.round(qcWastage + retailWastage);
-                          const dayRejection = retailRejection; // Already converted to COGS basis and rounded
+                          const dayRejection = retailRejection; // Already at COGS from backend
                           const dayCommission = retailCommission;
                           const dayGrossWithDeductions = Math.round(day.sales - dayPurchase - dayWastage - dayRejection - dayCommission);
                           const dayMarginWithDeductions = day.sales > 0 ? (dayGrossWithDeductions / day.sales * 100) : 0;
@@ -1924,12 +1905,11 @@ export default function AdminDashboard() {
                                         
                                         // Get retailer_id from customerToRetailerId mapping (line_items don't have retailer_id)
                                         const custRetailerId = customerToRetailerId[customer] || '';
-                                        // Look up EXACT rejection for this customer on this date (not proportional)
+                                        // Look up EXACT rejection at COGS from the P&L API (already calculated at purchase price)
                                         const rejectionKey = `${day.date}_${custRetailerId}`;
-                                        const custRejectionData = rejectionByDateRetailer[rejectionKey] || { qty: 0, value_at_mrp: 0 };
-                                        // Convert rejection from MRP to COGS basis and round to 0 decimals
-                                        const custRejectionAtMRP = custRejectionData.value_at_mrp || 0;
-                                        const custRejection = Math.round(convertRejectionToCOGS(custRejectionAtMRP, custSales, custPurchase));
+                                        const custRejectionData = rejectionByDateRetailer[rejectionKey] || { cogs: 0, value: 0, qty: 0 };
+                                        // Use COGS value directly from backend (no conversion needed)
+                                        const custRejection = Math.round(custRejectionData.cogs || 0);
                                         
                                         const custGross = Math.round(custSales - custPurchase - custWastage - custRejection - custCommission);
                                         const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;

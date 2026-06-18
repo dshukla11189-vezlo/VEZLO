@@ -422,21 +422,76 @@ async def get_pnl_report(
         "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
     }, {"_id": 0}).to_list(1000)
     
+    # Helper function to parse packaging weight from variant name (same logic as dispatch items)
+    def get_packaging_weight_gm(unit_str):
+        if not unit_str:
+            return 0
+        unit_lower = str(unit_str).lower()
+        import re
+        # Try to find explicit weight in variant name
+        # Pattern: "500+ gm", "1 Kg", "250+gm", etc.
+        gm_match = re.search(r'(\d+)\+?\s*gm', unit_lower)
+        if gm_match:
+            return int(gm_match.group(1))
+        kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', unit_lower)
+        if kg_match:
+            return float(kg_match.group(1)) * 1000
+        # Fallback patterns
+        if 'bunch' in unit_lower:
+            return 100  # Bunch is typically ~100gm
+        return 0
+    
     # Group rejections by date AND by retailer_id for accurate per-customer tracking
-    rejection_by_retailer = {}  # retailer_id -> rejection_value
+    # Also calculate rejection at COGS using actual product purchase prices
+    rejection_by_retailer = {}  # retailer_id -> rejection_value (at MRP)
+    rejection_cogs_by_retailer = {}  # retailer_id -> rejection_cogs (at purchase price)
+    rejection_by_date_retailer = {}  # {date}_{retailer_id} -> {value: mrp_value, cogs: cogs_value}
+    
     for rej in retailer_rejections:
         rej_date = rej.get("rejection_date", "")[:10]
-        if rej_date not in retail_rejection_by_date:
-            retail_rejection_by_date[rej_date] = {"qty": 0, "value": 0}
-        retail_rejection_by_date[rej_date]["qty"] += rej.get("quantity", 0) or 0
-        retail_rejection_by_date[rej_date]["value"] += rej.get("rejection_value", 0) or 0
-        
-        # Track rejection by retailer_id for per-customer allocation
+        product = rej.get("product_name", "")
+        variant_name = rej.get("variant_name", "")
+        quantity = rej.get("quantity", 0) or 0
+        rejection_value = rej.get("rejection_value", 0) or 0
         retailer_id = rej.get("retailer_id", "")
+        
+        # Calculate COGS for this rejection item
+        packaging_weight_gm = get_packaging_weight_gm(variant_name)
+        if packaging_weight_gm > 0:
+            kg_rejected = quantity * (packaging_weight_gm / 1000)
+        else:
+            kg_rejected = quantity  # Fallback: assume qty is in kg
+        
+        # Look up purchase price (use cost_alias if available)
+        lookup_product = cost_alias_map.get(product, product)
+        avg_purchase_price = avg_price_by_product.get(lookup_product, 0)
+        if avg_purchase_price == 0 and lookup_product != product:
+            avg_purchase_price = avg_price_by_product.get(product, 0)
+        
+        rejection_cogs = kg_rejected * avg_purchase_price
+        
+        # Track by date (for daily_pnl totals)
+        if rej_date not in retail_rejection_by_date:
+            retail_rejection_by_date[rej_date] = {"qty": 0, "value": 0, "cogs": 0}
+        retail_rejection_by_date[rej_date]["qty"] += quantity
+        retail_rejection_by_date[rej_date]["value"] += rejection_value
+        retail_rejection_by_date[rej_date]["cogs"] += rejection_cogs
+        
+        # Track by retailer_id (for customer_pnl totals)
         if retailer_id:
             if retailer_id not in rejection_by_retailer:
                 rejection_by_retailer[retailer_id] = 0
-            rejection_by_retailer[retailer_id] += rej.get("rejection_value", 0) or 0
+                rejection_cogs_by_retailer[retailer_id] = 0
+            rejection_by_retailer[retailer_id] += rejection_value
+            rejection_cogs_by_retailer[retailer_id] += rejection_cogs
+            
+            # Track by date+retailer for exact customer-date lookup
+            key = f"{rej_date}_{retailer_id}"
+            if key not in rejection_by_date_retailer:
+                rejection_by_date_retailer[key] = {"value": 0, "cogs": 0, "qty": 0}
+            rejection_by_date_retailer[key]["value"] += rejection_value
+            rejection_by_date_retailer[key]["cogs"] += rejection_cogs
+            rejection_by_date_retailer[key]["qty"] += quantity
     
     for dispatch in retailer_dispatches:
         # Use company_name instead of retailer_name (owner's name)
@@ -588,6 +643,7 @@ async def get_pnl_report(
         if rej_date in sales_by_date:
             sales_by_date[rej_date]["retail_rejection"] = rej_data["value"]
             sales_by_date[rej_date]["retail_rejection_qty"] = rej_data["qty"]
+            sales_by_date[rej_date]["retail_rejection_cogs"] = rej_data["cogs"]
     
     # ========== PURCHASES (from Procurements) ==========
     procurements = await db.procurements.find({
@@ -887,10 +943,11 @@ async def get_pnl_report(
     
     # ========== CALCULATE TOTAL REJECTION AND COMMISSION ==========
     total_retail_rejection = sum(day_data.get("retail_rejection", 0) for day_data in sales_by_date.values())
+    total_retail_rejection_cogs = sum(day_data.get("retail_rejection_cogs", 0) for day_data in sales_by_date.values())
     total_retail_commission = sum(day_data.get("retail_commission", 0) for day_data in sales_by_date.values())
     
-    # ========== CALCULATE P&L (including rejection and commission for retail) ==========
-    gross_profit = total_sales - total_purchase - total_wastage_value - total_retail_rejection - total_retail_commission
+    # ========== CALCULATE P&L (using rejection at COGS for accurate calculations) ==========
+    gross_profit = total_sales - total_purchase - total_wastage_value - total_retail_rejection_cogs - total_retail_commission
     gross_margin = (gross_profit / total_sales * 100) if total_sales > 0 else 0
     
     net_profit = gross_profit - total_variable - total_fixed
@@ -1141,6 +1198,7 @@ async def get_pnl_report(
             "retail_gross_mrp": round(day_data.get("retail_gross_mrp", 0), 2),
             "retail_rejection": round(day_data.get("retail_rejection", 0), 2),
             "retail_rejection_qty": round(day_data.get("retail_rejection_qty", 0), 2),
+            "retail_rejection_cogs": round(day_data.get("retail_rejection_cogs", 0), 2),  # Rejection at COGS/purchase price
             "retail_commission": round(day_data.get("retail_commission", 0), 2),
             "retail_cogs": round(day_data.get("retail_cogs", 0), 2),
             "purchase": round(day_data["purchase"], 2),
@@ -1170,7 +1228,8 @@ async def get_pnl_report(
             "invoices": data["invoices"],
             "type": data.get("type", "QC"),  # Include customer type
             "sales_days": len(data.get("sales_dates", set())),  # Count unique sales days
-            "retailer_id": data.get("retailer_id", "")  # For rejection mapping
+            "retailer_id": data.get("retailer_id", ""),  # For rejection mapping
+            "rejection_cogs": round(rejection_cogs_by_retailer.get(data.get("retailer_id", ""), 0), 2)  # Rejection at COGS
         })
     
     # Product P&L with additional metrics
@@ -1268,24 +1327,24 @@ async def get_pnl_report(
     qc_net_profit = qc_gross_profit - total_grn_loss - qc_variable_exp - qc_fixed_exp
     qc_net_margin = (qc_net_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0
     
-    # Calculate Retail P&L (including rejection and commission)
-    # Gross Profit = Sales - COGS - Wastage - Rejection - Commission
-    retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage - total_retail_rejection - total_retail_commission
-    retail_cost_base = retail_purchase + retail_wastage + total_retail_rejection + total_retail_commission
+    # Calculate Retail P&L (using rejection at COGS for accurate profit calculation)
+    # Gross Profit = Sales - COGS - Wastage - Rejection (at COGS) - Commission
+    retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage - total_retail_rejection_cogs - total_retail_commission
+    retail_cost_base = retail_purchase + retail_wastage + total_retail_rejection_cogs + total_retail_commission
     retail_gross_margin = (retail_gross_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
     retail_net_profit = retail_gross_profit - retail_variable_exp - retail_fixed_exp
     retail_net_margin = (retail_net_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
     
     # Also calculate overall gross margin %
-    total_cost_base = total_purchase + total_wastage_value + total_retail_rejection + total_retail_commission
+    total_cost_base = total_purchase + total_wastage_value + total_retail_rejection_cogs + total_retail_commission
     overall_gross_margin_pct = (gross_profit / total_sales * 100) if total_sales > 0 else 0
     
     # Total COGS from line items (sum of QC + Retail COGS)
     total_cogs = actual_qc_cogs + actual_retail_cogs
     total_wastage_from_items = actual_qc_wastage + actual_retail_wastage
     
-    # Recalculate gross profit using actual COGS and wastage from line items
-    gross_profit_actual = total_sales - total_cogs - total_wastage_from_items - total_retail_rejection - total_retail_commission
+    # Recalculate gross profit using actual COGS and wastage from line items (using rejection at COGS)
+    gross_profit_actual = total_sales - total_cogs - total_wastage_from_items - total_retail_rejection_cogs - total_retail_commission
     gross_margin_actual = (gross_profit_actual / total_sales * 100) if total_sales > 0 else 0
     
     # Recalculate net profit (including GRN Loss which affects QC)
@@ -1402,7 +1461,8 @@ async def get_pnl_report(
                 "orders": retail_order_count,
                 "purchase": round(retail_purchase, 2),
                 "wastage": round(retail_wastage, 2),
-                "rejection": round(total_retail_rejection, 2),
+                "rejection": round(total_retail_rejection, 2),  # At MRP for reference
+                "rejection_cogs": round(total_retail_rejection_cogs, 2),  # At purchase price for P&L
                 "commission": round(total_retail_commission, 2),
                 "gross_profit": round(retail_gross_profit, 2),
                 "gross_margin_pct": round(retail_gross_margin, 1),
@@ -1415,6 +1475,7 @@ async def get_pnl_report(
         "daily_pnl": daily_pnl,
         "customer_pnl": customer_pnl,
         "product_pnl": product_pnl,
+        "rejection_by_date_retailer": rejection_by_date_retailer,  # {date}_{retailer_id} -> {value, cogs, qty}
         "expenses": {
             "variable_by_category": variable_by_category,
             "fixed_by_category": fixed_by_category

@@ -1003,12 +1003,12 @@ async def get_pnl_report(
     for date_key in sorted(sales_by_date.keys()):
         day_data = sales_by_date[date_key]
         
-        # Get retail-specific deductions for this date
-        day_retail_rejection = day_data.get("retail_rejection", 0)
+        # Get retail-specific deductions for this date (use COGS-based rejection)
+        day_retail_rejection_cogs = day_data.get("retail_rejection_cogs", 0)
         day_retail_commission = day_data.get("retail_commission", 0)
         
-        # Gross profit = Sales - Purchase - Wastage - Rejection - Commission
-        day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"] - day_retail_rejection - day_retail_commission
+        # Gross profit = Sales - Purchase - Wastage - Rejection (COGS) - Commission
+        day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"] - day_retail_rejection_cogs - day_retail_commission
         day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
         day_sales_qty = day_data.get("sales_qty", 0)
         day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
@@ -1424,10 +1424,10 @@ async def get_pnl_report(
             # Allocate Retail-specific costs proportionally
             customer_entry["grn_loss_share"] = 0  # Retail doesn't have GRN loss
             
-            # Use ACTUAL rejection for this retailer if available, otherwise proportional
+            # Use ACTUAL rejection at COGS for this retailer if available
             retailer_id = cust_data.get("retailer_id", "")
-            actual_rejection = rejection_by_retailer.get(retailer_id, 0) if retailer_id else 0
-            customer_entry["rejection_share"] = round(actual_rejection, 2)
+            actual_rejection_cogs = rejection_cogs_by_retailer.get(retailer_id, 0) if retailer_id else 0
+            customer_entry["rejection_share"] = round(actual_rejection_cogs, 2)
             
             customer_entry["commission"] = round(total_retail_commission * customer_share, 2)
             # Allocate ONLY Retail-specific variable expenses (NOT including "all" expenses)

@@ -15042,37 +15042,67 @@ export default function RetailerOrders() {
                         <thead className="bg-gray-50 sticky top-0">
                           <tr>
                             <th className="p-2 w-8 text-center">
-                              <Check size={14} />
+                              <input 
+                                type="checkbox"
+                                checked={uninvoicedItems.length > 0 && selectedItemIds.length === uninvoicedItems.length}
+                                onChange={() => {
+                                  if (selectedItemIds.length === uninvoicedItems.length) {
+                                    setSelectedItemIds([]);
+                                  } else {
+                                    setSelectedItemIds(uninvoicedItems.map(i => i.item_id));
+                                  }
+                                }}
+                                className="w-4 h-4 rounded border-gray-300 text-[#14532D] focus:ring-[#14532D] cursor-pointer"
+                              />
                             </th>
                             <th className="p-2 text-left">Product</th>
-                            <th className="p-2 text-center">Quantity</th>
+                            <th className="p-2 text-center">Qty</th>
                             <th className="p-2 text-right">MRP</th>
-                            <th className="p-2 text-right">Total Amount</th>
+                            <th className="p-2 text-right">Total</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {uninvoicedItems.map((item) => (
+                          {uninvoicedItems.map((item) => {
+                            // Format dispatch date and time
+                            const dispatchDateTime = item.dispatch_date ? new Date(item.dispatch_date) : null;
+                            const formattedDate = dispatchDateTime 
+                              ? dispatchDateTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '';
+                            const formattedTime = dispatchDateTime 
+                              ? dispatchDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+                              : '';
+                            
+                            return (
                             <tr 
                               key={item.item_id} 
                               className={`border-t cursor-pointer hover:bg-gray-50 ${selectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''}`}
                               onClick={() => toggleItemSelection(item.item_id)}
                             >
                               <td className="p-2 text-center">
-                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                                  selectedItemIds.includes(item.item_id) ? 'bg-[#14532D] border-[#14532D]' : 'border-gray-300'
-                                }`}>
-                                  {selectedItemIds.includes(item.item_id) && <Check size={12} className="text-white" />}
-                                </div>
+                                <input 
+                                  type="checkbox"
+                                  checked={selectedItemIds.includes(item.item_id)}
+                                  onChange={() => toggleItemSelection(item.item_id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-4 h-4 rounded border-gray-300 text-[#14532D] focus:ring-[#14532D] cursor-pointer"
+                                />
                               </td>
                               <td className="p-2">
                                 <div className="font-medium">{getProductName(item)}</div>
                                 {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                                {dispatchDateTime && (
+                                  <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                                    <Clock size={10} />
+                                    <span>Dispatched: {formattedDate} at {formattedTime}</span>
+                                  </div>
+                                )}
                               </td>
                               <td className="p-2 text-center font-medium">{item.supplied_qty}</td>
                               <td className="p-2 text-right">₹{item.mrp?.toFixed(2)}</td>
                               <td className="p-2 text-right font-medium">₹{(item.supplied_qty * (item.mrp || 0)).toFixed(2)}</td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

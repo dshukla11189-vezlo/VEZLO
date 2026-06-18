@@ -1056,11 +1056,17 @@ async def get_pnl_report(
                         "revenue": 0,
                         "rate_per_kg": line["rate_per_kg"],
                         "rate_per_unit": line["rate_per_unit"],
-                        "commission_pct": line.get("commission_pct", 0)  # Track commission % for retail
+                        "commission_pct": line.get("commission_pct", 0),  # Track commission % for retail
+                        "rejection_qty": 0,
+                        "rejection_value": 0,
+                        "rejection_cogs": 0
                     }
                 customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
                 customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
                 customer_product_map[key]["revenue"] += line["revenue"]
+                customer_product_map[key]["rejection_qty"] += line.get("rejection_qty", 0)
+                customer_product_map[key]["rejection_value"] += line.get("rejection_value", 0)
+                customer_product_map[key]["rejection_cogs"] += line.get("rejection_cogs", 0)
             
             # Now calculate COGS and wastage allocation per line item
             # Get product-level COGS rate (purchase_amount / purchase_qty)
@@ -1167,6 +1173,9 @@ async def get_pnl_report(
                     "wastage_kg": round(wastage_kg, 3),
                     "wastage_value": round(wastage_value, 2),
                     "commission": round(commission_value, 2),  # Commission amount for this product
+                    "rejection_qty": round(item.get("rejection_qty", 0), 2),
+                    "rejection_value": round(item.get("rejection_value", 0), 2),  # Rejection at MRP
+                    "rejection_cogs": round(item.get("rejection_cogs", 0), 2),  # Rejection at COGS
                     "gross_profit": round(line_gross_profit, 2),
                     "gross_margin": round(line_gross_margin, 1),
                     "selling_price_per_kg": round(selling_price_per_kg, 2),

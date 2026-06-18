@@ -434,12 +434,25 @@ export default function AdminDashboard() {
   const loadProductPnlData = useCallback(async () => {
     setLoadingProductPnl(true);
     try {
-      const [pnlResponse, productsResponse] = await Promise.all([
+      const [pnlResponse, productsResponse, rejectionsResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`),
-        api.get('/api/products?include_images=false')
+        api.get('/api/products?include_images=false'),
+        api.get(`/api/retailer-rejections?start_date=${productDateFrom}&end_date=${productDateTo}`)
       ]);
       
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
+      const rejections = rejectionsResponse.data || [];
+      
+      // Build rejection map by product name
+      const rejectionByProduct = {};
+      rejections.forEach(rej => {
+        const prodName = rej.product_name;
+        if (!rejectionByProduct[prodName]) {
+          rejectionByProduct[prodName] = { qty: 0, value: 0 };
+        }
+        rejectionByProduct[prodName].qty += rej.quantity || 0;
+        rejectionByProduct[prodName].value += rej.rejection_value || 0;
+      });
       
       // Build a map of product aliases: {product_name: alias_product_name}
       const productList = productsResponse.data || [];
@@ -471,13 +484,14 @@ export default function AdminDashboard() {
           allLineItems.push({
             ...item,
             product: productName, // Use aliased name
-            customer_type: item.customer_type || 'Unknown'
+            customer_type: item.customer_type || 'Unknown',
+            commission: item.commission || 0  // Commission from line item
           });
         });
       });
       
-      // Store raw data for filtering
-      setProductPnlRawData(allLineItems);
+      // Store raw data and rejection data for filtering
+      setProductPnlRawData({ lineItems: allLineItems, rejectionByProduct });
       
     } catch (error) {
       console.error('Failed to load product P&L:', error);
@@ -489,17 +503,19 @@ export default function AdminDashboard() {
 
   // Process product P&L data based on selected vertical
   useEffect(() => {
-    if (productPnlRawData.length === 0) {
+    if (!productPnlRawData || !productPnlRawData.lineItems || productPnlRawData.lineItems.length === 0) {
       setProductPnlData([]);
       return;
     }
     
+    const { lineItems, rejectionByProduct } = productPnlRawData;
+    
     // Filter line items by vertical
-    let filteredItems = productPnlRawData;
+    let filteredItems = lineItems;
     if (productVertical === 'qc') {
-      filteredItems = productPnlRawData.filter(item => item.customer_type === 'QC');
+      filteredItems = lineItems.filter(item => item.customer_type === 'QC');
     } else if (productVertical === 'retail') {
-      filteredItems = productPnlRawData.filter(item => item.customer_type === 'Retail');
+      filteredItems = lineItems.filter(item => item.customer_type === 'Retail');
     }
     
     // Aggregate product data
@@ -516,6 +532,7 @@ export default function AdminDashboard() {
           purchase_amount: 0,  // COGS (actual consumed cost)
           purchase_qty: 0,     // Supplied Kg
           wastage_amount: 0,
+          commission_amount: 0,  // Commission (from line items or calculated)
         };
       }
       
@@ -525,16 +542,52 @@ export default function AdminDashboard() {
       agg.purchase_amount += item.cogs || 0;
       agg.purchase_qty += item.supplied_kg || 0;
       agg.wastage_amount += item.wastage_value || 0;
+      agg.commission_amount += item.commission || 0;  // Add commission from line item
     });
     
     // Calculate profit, margin, and profit_per_unit for each product
     const productsWithProfit = Object.values(productAggregates).map(p => {
-      const profit = p.sales_amount - p.purchase_amount - p.wastage_amount;
+      // Get rejection data for this product (only for Retail vertical)
+      let rejection_amount = 0;
+      let rejection_qty = 0;
+      let rejection_pct = 0;
+      
+      if (productVertical === 'retail' && rejectionByProduct && rejectionByProduct[p.product]) {
+        rejection_amount = rejectionByProduct[p.product].value || 0;
+        rejection_qty = rejectionByProduct[p.product].qty || 0;
+        // Rejection % = Rejection Amount / Sales Amount * 100
+        rejection_pct = p.sales_amount > 0 ? (rejection_amount / p.sales_amount) * 100 : 0;
+      }
+      
+      // For Retail: use 20% fixed commission if commission_amount is 0
+      // Commission is calculated as 20% of Sales
+      let commission_amount = p.commission_amount;
+      let commission_pct = 20; // Fixed 20%
+      if (productVertical === 'retail') {
+        // Always calculate commission as 20% of sales for Retail
+        commission_amount = p.sales_amount * 0.20;
+      }
+      
+      // Gross P/L calculation depends on vertical:
+      // QC/All: Sales - COGS - Wastage
+      // Retail: Sales - COGS - Wastage - Rejection - Commission
+      let profit;
+      if (productVertical === 'retail') {
+        profit = p.sales_amount - p.purchase_amount - p.wastage_amount - rejection_amount - commission_amount;
+      } else {
+        profit = p.sales_amount - p.purchase_amount - p.wastage_amount;
+      }
+      
       const margin = p.sales_amount > 0 ? (profit / p.sales_amount) * 100 : 0;
       const profit_per_unit = p.sales_qty > 0 ? profit / p.sales_qty : 0;
       
       return {
         ...p,
+        rejection_amount,
+        rejection_qty,
+        rejection_pct,
+        commission_amount,
+        commission_pct,
         profit,
         margin,
         profit_per_unit
@@ -560,11 +613,26 @@ export default function AdminDashboard() {
     setLoadingProductDetail(true);
     
     try {
-      const [pnlResponse, productsResponse] = await Promise.all([
+      const [pnlResponse, productsResponse, rejectionsResponse] = await Promise.all([
         api.get(`/api/reports/pnl?from_date=${productDateFrom}&to_date=${productDateTo}`),
-        api.get('/api/products?include_images=false')
+        api.get('/api/products?include_images=false'),
+        api.get(`/api/retailer-rejections?start_date=${productDateFrom}&end_date=${productDateTo}`)
       ]);
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
+      const rejections = rejectionsResponse.data || [];
+      
+      // Build rejection map by product name and date
+      const rejectionByProductDate = {};
+      rejections.forEach(rej => {
+        const prodName = rej.product_name;
+        const rejDate = (rej.rejection_date || '').substring(0, 10);
+        const key = `${prodName}_${rejDate}`;
+        if (!rejectionByProductDate[key]) {
+          rejectionByProductDate[key] = { qty: 0, value: 0 };
+        }
+        rejectionByProductDate[key].qty += rej.quantity || 0;
+        rejectionByProductDate[key].value += rej.rejection_value || 0;
+      });
       
       // Build alias map to find products that alias to this one
       const productList = productsResponse.data || [];
@@ -613,8 +681,38 @@ export default function AdminDashboard() {
         const unsoldWastageAmt = productUnsoldWastage.reduce((sum, item) => sum + (item.value || 0), 0);
         wastageAmt += unsoldWastageAmt;
         
-        // Calculate Gross P/L: Sales - COGS - Wastage
-        const grossProfit = salesAmt - cogsAmt - wastageAmt;
+        // Get rejection data for this product on this date (for Retail)
+        let rejectionAmt = 0;
+        let rejectionQty = 0;
+        let rejectionPct = 0;
+        if (vertical === 'retail') {
+          // Check rejection for each aliased product on this date
+          for (const alias of aliasedProducts) {
+            const key = `${alias}_${day.date}`;
+            if (rejectionByProductDate[key]) {
+              rejectionAmt += rejectionByProductDate[key].value || 0;
+              rejectionQty += rejectionByProductDate[key].qty || 0;
+            }
+          }
+          rejectionPct = salesAmt > 0 ? (rejectionAmt / salesAmt) * 100 : 0;
+        }
+        
+        // Calculate commission for Retail (fixed 20%)
+        let commissionAmt = 0;
+        const commissionPct = 20;
+        if (vertical === 'retail') {
+          commissionAmt = salesAmt * 0.20;
+        }
+        
+        // Calculate Gross P/L: 
+        // QC/All: Sales - COGS - Wastage
+        // Retail: Sales - COGS - Wastage - Rejection - Commission
+        let grossProfit;
+        if (vertical === 'retail') {
+          grossProfit = salesAmt - cogsAmt - wastageAmt - rejectionAmt - commissionAmt;
+        } else {
+          grossProfit = salesAmt - cogsAmt - wastageAmt;
+        }
         const marginPct = salesAmt > 0 ? (grossProfit / salesAmt) * 100 : 0;
         
         // Calculate average prices
@@ -656,6 +754,11 @@ export default function AdminDashboard() {
           purchase_amount: cogsAmt,  // COGS
           purchase_qty: salesKg,      // Supplied Kg
           wastage_amount: wastageAmt,
+          rejection_amount: rejectionAmt,
+          rejection_qty: rejectionQty,
+          rejection_pct: rejectionPct,
+          commission_amount: commissionAmt,
+          commission_pct: commissionPct,
           gross_profit: grossProfit,
           margin: marginPct.toFixed(1),
           wastage_pct: wastagePct.toFixed(1),
@@ -2546,6 +2649,12 @@ export default function AdminDashboard() {
                       <th className="p-2.5 text-right font-medium text-orange-600">COGS (₹)</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">COGS QTY</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">WASTAGE</th>
+                      {productVertical === 'retail' && (
+                        <>
+                          <th className="p-2.5 text-right font-medium text-pink-600">REJECTION</th>
+                          <th className="p-2.5 text-right font-medium text-purple-600">COMMISSION</th>
+                        </>
+                      )}
                       <th className="p-2.5 text-right font-medium text-gray-600">GROSS P/L</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">MARGIN %</th>
                       <th className="p-2.5 text-right font-medium text-gray-600">₹/UNIT</th>
@@ -2554,7 +2663,7 @@ export default function AdminDashboard() {
                   <tbody>
                     {productPnlData.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-4 text-center text-gray-400">No products</td>
+                        <td colSpan={productVertical === 'retail' ? 11 : 9} className="p-4 text-center text-gray-400">No products</td>
                       </tr>
                     ) : (
                       productPnlData.map((p, idx) => (
@@ -2573,6 +2682,18 @@ export default function AdminDashboard() {
                           <td className="p-2.5 text-right text-orange-600">₹{p.purchase_amount?.toLocaleString()}</td>
                           <td className="p-2.5 text-right">{p.purchase_qty?.toLocaleString()} Kg</td>
                           <td className="p-2.5 text-right text-red-600">₹{p.wastage_amount?.toLocaleString()}</td>
+                          {productVertical === 'retail' && (
+                            <>
+                              <td className="p-2.5 text-right text-pink-600">
+                                <div>₹{(p.rejection_amount || 0).toLocaleString()}</div>
+                                <div className="text-xs text-pink-500">({(p.rejection_pct || 0).toFixed(1)}%)</div>
+                              </td>
+                              <td className="p-2.5 text-right text-purple-600">
+                                <div>₹{(p.commission_amount || 0).toLocaleString()}</div>
+                                <div className="text-xs text-purple-500">({p.commission_pct || 20}%)</div>
+                              </td>
+                            </>
+                          )}
                           <td className={`p-2.5 text-right font-semibold ${p.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                             {p.profit >= 0 ? '+' : ''}₹{p.profit?.toLocaleString()}
                           </td>
@@ -2612,6 +2733,16 @@ export default function AdminDashboard() {
                         <td className="p-2.5 text-right text-red-700">
                           ₹{productPnlData.reduce((sum, p) => sum + (p.wastage_amount || 0), 0).toLocaleString()}
                         </td>
+                        {productVertical === 'retail' && (
+                          <>
+                            <td className="p-2.5 text-right text-pink-700">
+                              ₹{productPnlData.reduce((sum, p) => sum + (p.rejection_amount || 0), 0).toLocaleString()}
+                            </td>
+                            <td className="p-2.5 text-right text-purple-700">
+                              ₹{productPnlData.reduce((sum, p) => sum + (p.commission_amount || 0), 0).toLocaleString()}
+                            </td>
+                          </>
+                        )}
                         <td className={`p-2.5 text-right ${productPnlData.reduce((sum, p) => sum + (p.profit || 0), 0) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                           ₹{productPnlData.reduce((sum, p) => sum + (p.profit || 0), 0).toLocaleString()}
                         </td>
@@ -3166,6 +3297,12 @@ export default function AdminDashboard() {
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">AVG PP</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">WASTAGE</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">WASTAGE %</th>
+                      {productVertical === 'retail' && (
+                        <>
+                          <th className="p-2 text-right font-medium text-pink-600 text-xs">REJECTION</th>
+                          <th className="p-2 text-right font-medium text-purple-600 text-xs">COMMISSION</th>
+                        </>
+                      )}
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">GROSS P/L</th>
                       <th className="p-2 text-right font-medium text-gray-600 text-xs">MARGIN %</th>
                     </tr>
@@ -3193,6 +3330,18 @@ export default function AdminDashboard() {
                             {day.wastage_pct}%
                           </span>
                         </td>
+                        {productVertical === 'retail' && (
+                          <>
+                            <td className="p-2 text-right text-pink-600 text-xs">
+                              <div>₹{(day.rejection_amount || 0).toLocaleString()}</div>
+                              <div className="text-[10px] text-pink-500">({(day.rejection_pct || 0).toFixed(1)}%)</div>
+                            </td>
+                            <td className="p-2 text-right text-purple-600 text-xs">
+                              <div>₹{(day.commission_amount || 0).toLocaleString()}</div>
+                              <div className="text-[10px] text-purple-500">({day.commission_pct || 20}%)</div>
+                            </td>
+                          </>
+                        )}
                         <td className={`p-2 text-right font-semibold text-xs ${day.gross_profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                           {day.gross_profit >= 0 ? '+' : ''}₹{day.gross_profit?.toLocaleString()}
                         </td>
@@ -3218,12 +3367,15 @@ export default function AdminDashboard() {
                         purchase: acc.purchase + (d.purchase_amount || 0),
                         purchaseQty: acc.purchaseQty + (d.purchase_qty || 0),
                         wastage: acc.wastage + (d.wastage_amount || 0),
+                        rejection: acc.rejection + (d.rejection_amount || 0),
+                        commission: acc.commission + (d.commission_amount || 0),
                         grossProfit: acc.grossProfit + (d.gross_profit || 0)
-                      }), { sales: 0, salesQty: 0, salesKg: 0, purchase: 0, purchaseQty: 0, wastage: 0, grossProfit: 0 });
+                      }), { sales: 0, salesQty: 0, salesKg: 0, purchase: 0, purchaseQty: 0, wastage: 0, rejection: 0, commission: 0, grossProfit: 0 });
                       
                       const avgSP = totals.salesKg > 0 ? (totals.sales / totals.salesKg).toFixed(2) : 0;  // Avg SP per Kg
                       const avgPP = totals.purchaseQty > 0 ? (totals.purchase / totals.purchaseQty).toFixed(2) : 0;
                       const wastagePct = totals.purchase > 0 ? ((totals.wastage / totals.purchase) * 100).toFixed(1) : 0;
+                      const rejectionPct = totals.sales > 0 ? ((totals.rejection / totals.sales) * 100).toFixed(1) : 0;
                       const marginPct = totals.sales > 0 ? ((totals.grossProfit / totals.sales) * 100).toFixed(1) : 0;
                       
                       return (
@@ -3246,6 +3398,18 @@ export default function AdminDashboard() {
                               {wastagePct}%
                             </span>
                           </td>
+                          {productVertical === 'retail' && (
+                            <>
+                              <td className="p-2 text-right text-pink-700">
+                                <div>₹{totals.rejection.toLocaleString()}</div>
+                                <div className="text-[10px]">({rejectionPct}%)</div>
+                              </td>
+                              <td className="p-2 text-right text-purple-700">
+                                <div>₹{totals.commission.toLocaleString()}</div>
+                                <div className="text-[10px]">(20%)</div>
+                              </td>
+                            </>
+                          )}
                           <td className={`p-2 text-right ${totals.grossProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                             ₹{totals.grossProfit.toLocaleString()}
                           </td>

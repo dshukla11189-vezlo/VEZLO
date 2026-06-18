@@ -443,14 +443,15 @@ export default function AdminDashboard() {
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
       const rejections = rejectionsResponse.data || [];
       
-      // Build rejection map by product name (only storing qty for now, value will be calculated using purchase price)
+      // Build rejection map by product name - store both qty and value at MRP
       const rejectionByProduct = {};
       rejections.forEach(rej => {
         const prodName = rej.product_name;
         if (!rejectionByProduct[prodName]) {
-          rejectionByProduct[prodName] = { qty: 0 };
+          rejectionByProduct[prodName] = { qty: 0, value_at_mrp: 0 };
         }
         rejectionByProduct[prodName].qty += rej.quantity || 0;
+        rejectionByProduct[prodName].value_at_mrp += rej.rejection_value || 0;  // qty × MRP
       });
       
       // Build a map of product aliases: {product_name: alias_product_name}
@@ -467,12 +468,12 @@ export default function AdminDashboard() {
         }
       });
       
-      // First pass: Calculate average purchase price per product from line items
-      const productPurchaseData = {};
+      // First pass: Calculate average purchase price AND selling price per product from line items
+      const productPriceData = {};
       dailyPnl.forEach(day => {
         const lineItems = day.line_items || [];
         lineItems.forEach(item => {
-          // Only consider Retail items for purchase price calculation
+          // Only consider Retail items for price calculation
           if (item.customer_type !== 'Retail') return;
           
           let productName = item.product;
@@ -484,24 +485,34 @@ export default function AdminDashboard() {
             }
           }
           
-          if (!productPurchaseData[productName]) {
-            productPurchaseData[productName] = { totalCogs: 0, totalKg: 0 };
+          if (!productPriceData[productName]) {
+            productPriceData[productName] = { totalCogs: 0, totalSales: 0, totalKg: 0 };
           }
-          productPurchaseData[productName].totalCogs += item.cogs || 0;
-          productPurchaseData[productName].totalKg += item.supplied_kg || 0;
+          productPriceData[productName].totalCogs += item.cogs || 0;
+          productPriceData[productName].totalSales += item.revenue || 0;
+          productPriceData[productName].totalKg += item.supplied_kg || 0;
         });
       });
       
-      // Calculate average purchase price per Kg for each product
-      const avgPurchasePriceByProduct = {};
-      for (const [prodName, data] of Object.entries(productPurchaseData)) {
-        avgPurchasePriceByProduct[prodName] = data.totalKg > 0 ? data.totalCogs / data.totalKg : 0;
+      // Calculate average purchase and selling prices per Kg for each product
+      const avgPricesByProduct = {};
+      for (const [prodName, data] of Object.entries(productPriceData)) {
+        avgPricesByProduct[prodName] = {
+          avgPurchasePrice: data.totalKg > 0 ? data.totalCogs / data.totalKg : 0,
+          avgSellingPrice: data.totalKg > 0 ? data.totalSales / data.totalKg : 0
+        };
       }
       
-      // Now calculate rejection value using purchase price: qty * avg_purchase_price
+      // Now calculate rejection value at purchase price using the ratio
       for (const [prodName, rejData] of Object.entries(rejectionByProduct)) {
-        const avgPP = avgPurchasePriceByProduct[prodName] || 0;
-        rejData.value = rejData.qty * avgPP;
+        const prices = avgPricesByProduct[prodName] || { avgPurchasePrice: 0, avgSellingPrice: 0 };
+        // Convert MRP-based rejection to purchase price basis
+        // rejection_at_purchase = rejection_at_mrp × (purchase_price / selling_price)
+        if (prices.avgSellingPrice > 0) {
+          rejData.value = rejData.value_at_mrp * (prices.avgPurchasePrice / prices.avgSellingPrice);
+        } else {
+          rejData.value = rejData.value_at_mrp;  // Fallback to MRP if no selling price
+        }
       }
       
       // Collect all line items with customer_type for vertical filtering
@@ -527,7 +538,7 @@ export default function AdminDashboard() {
       });
       
       // Store raw data and rejection data for filtering
-      setProductPnlRawData({ lineItems: allLineItems, rejectionByProduct, avgPurchasePriceByProduct });
+      setProductPnlRawData({ lineItems: allLineItems, rejectionByProduct, avgPricesByProduct });
       
     } catch (error) {
       console.error('Failed to load product P&L:', error);
@@ -657,16 +668,18 @@ export default function AdminDashboard() {
       const dailyPnl = pnlResponse.data?.daily_pnl || [];
       const rejections = rejectionsResponse.data || [];
       
-      // Build rejection map by product name and date (only store qty, value will be calculated using purchase price)
+      // Build rejection map by product name and date
+      // Store qty, value (at MRP), and MRP to convert to purchase price later
       const rejectionByProductDate = {};
       rejections.forEach(rej => {
         const prodName = rej.product_name;
         const rejDate = (rej.rejection_date || '').substring(0, 10);
         const key = `${prodName}_${rejDate}`;
         if (!rejectionByProductDate[key]) {
-          rejectionByProductDate[key] = { qty: 0 };
+          rejectionByProductDate[key] = { qty: 0, value_at_mrp: 0 };
         }
         rejectionByProductDate[key].qty += rej.quantity || 0;
+        rejectionByProductDate[key].value_at_mrp += rej.rejection_value || 0;  // This is qty × MRP
       });
       
       // Build alias map to find products that alias to this one
@@ -718,11 +731,13 @@ export default function AdminDashboard() {
         
         // Calculate average purchase price per Kg for this day
         const avgPurchasePrice = salesKg > 0 ? cogsAmt / salesKg : 0;
+        const avgSellingPrice = salesKg > 0 ? salesAmt / salesKg : 0;
         
         // Get rejection data for this product on this date (for Retail)
-        // Rejection Amount = Rejection Qty * Avg Purchase Price (not selling price)
+        // Rejection is stored at MRP value, convert to purchase price basis
         let rejectionAmt = 0;
         let rejectionQty = 0;
+        let rejectionValueAtMrp = 0;
         let rejectionPct = 0;
         if (vertical === 'retail') {
           // Check rejection for each aliased product on this date
@@ -730,10 +745,16 @@ export default function AdminDashboard() {
             const key = `${alias}_${day.date}`;
             if (rejectionByProductDate[key]) {
               rejectionQty += rejectionByProductDate[key].qty || 0;
+              rejectionValueAtMrp += rejectionByProductDate[key].value_at_mrp || 0;
             }
           }
-          // Calculate rejection amount using purchase price (COGS/Kg)
-          rejectionAmt = rejectionQty * avgPurchasePrice;
+          // Convert rejection value from MRP basis to Purchase Price basis
+          // rejection_at_purchase = rejection_at_mrp × (purchase_price / selling_price)
+          if (avgSellingPrice > 0) {
+            rejectionAmt = rejectionValueAtMrp * (avgPurchasePrice / avgSellingPrice);
+          } else {
+            rejectionAmt = rejectionValueAtMrp;  // Fallback to MRP value if no sales
+          }
           rejectionPct = salesAmt > 0 ? (rejectionAmt / salesAmt) * 100 : 0;
         }
         

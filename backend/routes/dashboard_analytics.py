@@ -446,6 +446,7 @@ async def get_pnl_report(
     rejection_by_retailer = {}  # retailer_id -> rejection_value (at MRP)
     rejection_cogs_by_retailer = {}  # retailer_id -> rejection_cogs (at purchase price)
     rejection_by_date_retailer = {}  # {date}_{retailer_id} -> {value: mrp_value, cogs: cogs_value}
+    rejection_by_product_line = {}  # {date}_{retailer_id}_{product}_{variant} -> {value, cogs, qty}
     
     for rej in retailer_rejections:
         rej_date = rej.get("rejection_date", "")[:10]
@@ -492,6 +493,14 @@ async def get_pnl_report(
             rejection_by_date_retailer[key]["value"] += rejection_value
             rejection_by_date_retailer[key]["cogs"] += rejection_cogs
             rejection_by_date_retailer[key]["qty"] += quantity
+            
+            # Track by date+retailer+product+variant for product-level line item lookup
+            product_key = f"{rej_date}_{retailer_id}_{product}_{variant_name}"
+            if product_key not in rejection_by_product_line:
+                rejection_by_product_line[product_key] = {"value": 0, "cogs": 0, "qty": 0}
+            rejection_by_product_line[product_key]["value"] += rejection_value
+            rejection_by_product_line[product_key]["cogs"] += rejection_cogs
+            rejection_by_product_line[product_key]["qty"] += quantity
     
     for dispatch in retailer_dispatches:
         # Use company_name instead of retailer_name (owner's name)
@@ -602,9 +611,14 @@ async def get_pnl_report(
             product_by_date[dispatch_date][product]["customers"][customer]["qty"] += qty
             
             # Add detailed line item for retailer (include commission % for later calculation)
+            # Look up if there's a rejection for this specific product line
+            product_rej_key = f"{dispatch_date}_{retailer_id}_{product}_{unit}"
+            product_rejection = rejection_by_product_line.get(product_rej_key, {"value": 0, "cogs": 0, "qty": 0})
+            
             line_items_by_date[dispatch_date].append({
                 "customer": customer,
                 "customer_type": "Retail",
+                "retailer_id": retailer_id,  # Add retailer_id for lookups
                 "product": product,
                 "unit": unit,
                 "supplied_qty": round(qty, 2),
@@ -615,7 +629,10 @@ async def get_pnl_report(
                 "cogs": round(item_cogs, 2),
                 "wastage_kg": 0,
                 "wastage_value": 0,
-                "commission_pct": commission_pct  # Store commission % for proportional allocation
+                "commission_pct": commission_pct,  # Store commission % for proportional allocation
+                "rejection_qty": product_rejection["qty"],
+                "rejection_value": round(product_rejection["value"], 2),  # Rejection at MRP
+                "rejection_cogs": round(product_rejection["cogs"], 2)  # Rejection at COGS/purchase price
             })
         
         # Track gross MRP for retail (before any deductions)

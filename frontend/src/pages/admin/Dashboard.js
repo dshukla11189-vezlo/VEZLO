@@ -1956,10 +1956,12 @@ export default function AdminDashboard() {
                                             
                                             {/* Level 4: Product/Item Details - Sorted by GM% DESC */}
                                             {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
-                                              const itemGross = item.gross_profit || 0;
+                                              // Calculate gross profit including item-level rejection
+                                              const itemRejectionCogs = item.rejection_cogs || 0;
+                                              const itemGross = (item.gross_profit || 0) - itemRejectionCogs;
                                               const itemCommission = item.commission || 0;
                                               const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
-                                              const itemGM = item.gross_margin || 0;
+                                              const itemGM = item.revenue > 0 ? (itemGross / item.revenue * 100) : (item.gross_margin || 0);
                                               const itemSPKg = item.selling_price_per_kg || (item.supplied_kg > 0 ? item.revenue / item.supplied_kg : 0);
                                               const itemPPKg = item.purchase_price_per_kg || (item.supplied_kg > 0 ? item.cogs / item.supplied_kg : 0);
                                               
@@ -1977,14 +1979,14 @@ export default function AdminDashboard() {
                                                   <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-orange-700 text-sm font-medium">₹{itemPPKg.toFixed(1)}</td>
                                                   <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
-                                                  <td className="p-2 text-right text-gray-400 text-sm">-</td>
-                                                  <td className="p-2 text-right text-amber-500 text-sm">{itemCommission > 0 ? `-₹${itemCommission.toFixed(2)}` : '-'}</td>
+                                                  <td className="p-2 text-right text-red-500 text-sm">{itemRejectionCogs > 0 ? `-₹${Math.round(itemRejectionCogs).toLocaleString()}` : '-'}</td>
+                                                  <td className="p-2 text-right text-amber-500 text-sm">{itemCommission > 0 ? `-₹${Math.round(itemCommission).toLocaleString()}` : '-'}</td>
                                                   <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                    ₹{itemGross.toLocaleString()}
+                                                    ₹{Math.round(itemGross).toLocaleString()}
                                                   </td>
                                                   <td className="p-2 text-right">
                                                     <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${itemGM >= 20 ? 'bg-green-100 text-green-800' : itemGM >= 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                                                      {itemGM}%
+                                                      {itemGM.toFixed(1)}%
                                                     </span>
                                                   </td>
                                                   <td className={`p-2 text-right text-sm font-bold ${itemProfitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>

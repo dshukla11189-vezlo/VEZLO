@@ -727,15 +727,11 @@ async def get_pnl_report(
             total_item = item.get("total", 0) or 0
             product = item.get("product_name", "Unknown")
             
-            # Convert to Kg if unit is Bunch/Piece/Packet etc. with unit_size
-            if unit.lower() in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen"] and unit_size:
-                try:
-                    weight_per_unit_gm = float(unit_size)
-                    qty_kg = (qty * weight_per_unit_gm) / 1000
-                except (ValueError, TypeError):
-                    qty_kg = qty
-            else:
-                qty_kg = qty
+            # NOTE: Do NOT convert to Kg here - keep qty in original units
+            # This ensures purchase_qty and sales_qty are comparable (both in same units)
+            # The unit_size conversion was causing P&L to show incorrect per-unit prices
+            # (e.g., Button Mushroom: sales in packets, purchase in Kg = wrong comparison)
+            qty_kg = qty  # Keep original quantity, regardless of unit
             
             total_purchase += total_item
             total_purchase_qty += qty_kg
@@ -778,15 +774,9 @@ async def get_pnl_report(
             unit_size = item.get("unit_size", "")
             total_value = item.get("total", qty * item.get("rate", 0))
             
-            # Convert to Kg for Packet, Bunch, Piece, Box etc.
-            if unit.lower() in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen"] and unit_size:
-                try:
-                    weight_per_unit_gm = float(unit_size)
-                    qty_kg = (qty * weight_per_unit_gm) / 1000
-                except (ValueError, TypeError):
-                    qty_kg = qty
-            else:
-                qty_kg = qty
+            # NOTE: Keep qty in original units for consistency with sales_by_product
+            # Do NOT convert to Kg here
+            qty_kg = qty
             
             if product_id not in fresh_purchases_by_date_product[proc_date_str]:
                 fresh_purchases_by_date_product[proc_date_str][product_id] = {"qty": 0, "value": 0}

@@ -18,6 +18,19 @@
   - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed footer calculation at lines 11132-11159
 
 
+### June 19, 2026 - Payments Block Total Fix for 100% Upfront Retailers ✅
+- **BUG FIX (P0)**: Fixed 93.1 discrepancy between Payments Block total and Invoice Table total for D Store
+  - **Symptom**: Payments block showed ₹240.2 payable (after ₹867 credit = ₹1107.2 total) but Invoice footer showed ₹1200.3
+  - **Root Cause**: Backend API `all-retailers-immediately-payable` used stored `net_payable` field which was calculated as `gross - rejection - commission`. But for 100% upfront retailers, rejections are handled via Credit Notes, so the correct formula is `gross - commission` only.
+  - **Specific Data**: Invoice DSX-INV-17JUN2026-001 had:
+    - Stored `net_payable`: ₹1140.70 (incorrect - includes ₹110 rejection deduction)
+    - Correct calculation: ₹1234.20 (gross ₹1452 - 15% commission)
+    - Difference: ₹93.50
+  - **Solution**: Backend now checks if retailer is 100% upfront and recalculates `net_payable` as `gross - (gross * commission_pct / 100)` instead of using stored value
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Fixed `get_all_retailers_immediately_payable` endpoint (lines 8460-8488)
+
+
 ### June 18, 2026 - Rejection Amount at COGS Basis (Admin Dashboard) ✅
 - **FEATURE**: Rejection amounts in Admin Dashboard now calculated using COGS (Purchase Price) basis instead of MRP (Selling Price)
   - Formula: `rejection_at_cogs = rejection_at_mrp × (purchase / sales)`

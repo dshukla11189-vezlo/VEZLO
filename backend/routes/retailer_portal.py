@@ -8458,18 +8458,28 @@ async def get_all_retailers_immediately_payable(
             continue
         
         # Use the invoice's stored values for consistency with Payment Summary
-        # The invoice already has the correct net_payable calculated
-        gross_value = inv.get("gross_value", 0) or 0
+        gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
         rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_pct = inv.get("commission_percentage", 0) or 0
         commission_amount = inv.get("commission_amount", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
         total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
         
-        # Use stored net_payable if available, otherwise calculate
-        net_payable = inv.get("net_payable", 0) or 0
-        if net_payable <= 0:
-            # Fallback calculation if net_payable not stored
-            net_payable = gross_value - rejection_amount - commission_amount
+        # Get retailer's upfront percentage to determine calculation method
+        upfront_pct = retailer_upfront_map.get(retailer_id, 50)
+        is_full_upfront = upfront_pct == 100
+        
+        # For 100% upfront retailers: net_payable = gross - commission (no rejection deduction)
+        # Rejections are handled via Credit Notes for 100% upfront model
+        if is_full_upfront:
+            # Recalculate from gross for consistency with frontend
+            net_payable = gross_value - (gross_value * commission_pct / 100)
+        else:
+            # For standard retailers, use stored net_payable or calculate with rejection
+            net_payable = inv.get("net_payable", 0) or 0
+            if net_payable <= 0:
+                # Fallback calculation if net_payable not stored
+                net_payable = gross_value - rejection_amount - commission_amount
         
         # Final payable after credit notes adjustment
         final_payable = net_payable - total_credit_adjusted
@@ -8479,10 +8489,6 @@ async def get_all_retailers_immediately_payable(
         
         if pending_amount <= 0:
             continue
-        
-        # Get retailer's upfront percentage (100 = 100% upfront, 50 = standard 50% upfront)
-        upfront_pct = retailer_upfront_map.get(retailer_id, 50)
-        is_full_upfront = upfront_pct == 100
         
         upfront_portion = final_payable * (upfront_pct / 100)
         days_since = (today - inv_date).days

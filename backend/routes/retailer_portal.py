@@ -8863,3 +8863,159 @@ async def bulk_add_catalogue_items(
             added_count += 1
     
     return {"message": f"Added {added_count}, updated {updated_count} catalogue items"}
+
+
+
+# ============================================================================
+# ONE-TIME CLEANUP: Savtamali Retailer (50% to 100% Upfront Migration)
+# ============================================================================
+# This section handles a one-time cleanup for Savtamali retailer who moved
+# from 50% upfront to 100% upfront model. All invoices before and including
+# June 7, 2025 are marked as paid with a cleanup flag.
+#
+# TO ROLLBACK: Set SAVTAMALI_CLEANUP_ENABLED = False and run the rollback endpoint
+# ============================================================================
+
+SAVTAMALI_CLEANUP_ENABLED = True
+SAVTAMALI_RETAILER_ID = "d36a4f17-bed0-4d8e-bb35-3e83825a0ce8"
+SAVTAMALI_CLEANUP_CUTOFF_DATE = "2026-06-07"  # Invoices on or before this date
+
+@router.post("/admin/savtamali-cleanup/execute")
+async def execute_savtamali_cleanup(current_user: dict = Depends(get_current_user)):
+    """
+    One-time cleanup for Savtamali retailer.
+    Marks all invoices on or before June 7, 2025 as paid with cleanup flag.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    if not SAVTAMALI_CLEANUP_ENABLED:
+        raise HTTPException(status_code=400, detail="Savtamali cleanup is disabled")
+    
+    cutoff_date = datetime.strptime(SAVTAMALI_CLEANUP_CUTOFF_DATE, "%Y-%m-%d")
+    cutoff_date_end = cutoff_date.replace(hour=23, minute=59, second=59)
+    
+    # Find all invoices for Savtamali on or before cutoff date
+    invoices = await db.retailer_invoices.find({
+        "retailer_id": SAVTAMALI_RETAILER_ID,
+        "invoice_date": {"$lte": cutoff_date_end.isoformat()}
+    }).to_list(length=None)
+    
+    updated_count = 0
+    total_pending_cleared = 0
+    
+    for inv in invoices:
+        # Calculate pending amount
+        net_payable = inv.get("net_payable", 0) or 0
+        total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        pending_amount = (net_payable - total_credit_adjusted) - paid_amount
+        
+        if pending_amount > 0 or inv.get("status") != "paid":
+            # Store original values for potential rollback
+            original_paid_amount = paid_amount
+            original_status = inv.get("status", "pending")
+            
+            # Update invoice to mark as paid
+            await db.retailer_invoices.update_one(
+                {"id": inv["id"]},
+                {
+                    "$set": {
+                        "status": "paid",
+                        "paid_amount": net_payable - total_credit_adjusted,  # Set paid = receivable
+                        "savtamali_cleanup": True,
+                        "savtamali_cleanup_date": datetime.now(timezone.utc).isoformat(),
+                        "savtamali_cleanup_original_paid": original_paid_amount,
+                        "savtamali_cleanup_original_status": original_status,
+                        "savtamali_cleanup_note": "One-time cleanup: 50% to 100% upfront migration. Pending amount adjusted."
+                    }
+                }
+            )
+            updated_count += 1
+            total_pending_cleared += max(0, pending_amount)
+    
+    return {
+        "success": True,
+        "message": f"Savtamali cleanup completed",
+        "invoices_updated": updated_count,
+        "total_pending_cleared": round(total_pending_cleared, 2),
+        "cutoff_date": SAVTAMALI_CLEANUP_CUTOFF_DATE
+    }
+
+
+@router.post("/admin/savtamali-cleanup/rollback")
+async def rollback_savtamali_cleanup(current_user: dict = Depends(get_current_user)):
+    """
+    Rollback the Savtamali cleanup - restore original paid amounts and statuses.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Find all invoices that were cleaned up
+    invoices = await db.retailer_invoices.find({
+        "retailer_id": SAVTAMALI_RETAILER_ID,
+        "savtamali_cleanup": True
+    }).to_list(length=None)
+    
+    rolled_back_count = 0
+    
+    for inv in invoices:
+        original_paid = inv.get("savtamali_cleanup_original_paid", 0)
+        original_status = inv.get("savtamali_cleanup_original_status", "pending")
+        
+        await db.retailer_invoices.update_one(
+            {"id": inv["id"]},
+            {
+                "$set": {
+                    "status": original_status,
+                    "paid_amount": original_paid
+                },
+                "$unset": {
+                    "savtamali_cleanup": "",
+                    "savtamali_cleanup_date": "",
+                    "savtamali_cleanup_original_paid": "",
+                    "savtamali_cleanup_original_status": "",
+                    "savtamali_cleanup_note": ""
+                }
+            }
+        )
+        rolled_back_count += 1
+    
+    return {
+        "success": True,
+        "message": f"Savtamali cleanup rolled back",
+        "invoices_restored": rolled_back_count
+    }
+
+
+@router.get("/admin/savtamali-cleanup/status")
+async def get_savtamali_cleanup_status(current_user: dict = Depends(get_current_user)):
+    """
+    Check the status of Savtamali cleanup.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Count cleaned up invoices
+    cleaned_count = await db.retailer_invoices.count_documents({
+        "retailer_id": SAVTAMALI_RETAILER_ID,
+        "savtamali_cleanup": True
+    })
+    
+    # Get cutoff date invoices count
+    cutoff_date = datetime.strptime(SAVTAMALI_CLEANUP_CUTOFF_DATE, "%Y-%m-%d")
+    cutoff_date_end = cutoff_date.replace(hour=23, minute=59, second=59)
+    
+    total_eligible = await db.retailer_invoices.count_documents({
+        "retailer_id": SAVTAMALI_RETAILER_ID,
+        "invoice_date": {"$lte": cutoff_date_end.isoformat()}
+    })
+    
+    return {
+        "enabled": SAVTAMALI_CLEANUP_ENABLED,
+        "retailer_id": SAVTAMALI_RETAILER_ID,
+        "cutoff_date": SAVTAMALI_CLEANUP_CUTOFF_DATE,
+        "total_eligible_invoices": total_eligible,
+        "cleaned_up_invoices": cleaned_count,
+        "cleanup_executed": cleaned_count > 0
+    }

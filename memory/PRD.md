@@ -18,19 +18,40 @@
   - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed footer calculation at lines 11132-11159
 
 
+### June 19, 2026 - Savtamali One-Time Cleanup (50% → 100% Upfront Migration) ✅
+- **ONE-TIME TASK**: Cleared pending amounts for Savtamali retailer who migrated from 50% to 100% upfront model
+  - **Scope**: All invoices on or before June 7, 2026
+  - **Results**: 5 invoices updated, ₹1,168.00 pending cleared
+  - **Implementation**:
+    1. Backend: Added `/api/admin/savtamali-cleanup/execute`, `/rollback`, `/status` endpoints
+    2. Each updated invoice has `savtamali_cleanup: true` flag with original values stored for rollback
+    3. Frontend: "Adjusted" badge (amber) shown in Status column for cleaned-up invoices
+    4. Frontend: Cleanup notice displayed in invoice details expansion with date and explanation
+  - **Rollback**: Run `/api/admin/savtamali-cleanup/rollback` to restore original values
+  - **Disable**: Set `SAVTAMALI_CLEANUP_ENABLED = False` in `/app/backend/routes/retailer_portal.py`
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Added cleanup endpoints and constants (end of file)
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added "Adjusted" status badge and cleanup notice
+
+
 ### June 19, 2026 - Payment Summary Modal Fix for 100% Upfront Retailers ✅
-- **BUG FIX (P0)**: Fixed Payment Summary modal showing incorrect amounts for 100% upfront retailers
-  - **Symptom**: Payment Summary showed ₹1107.20 Net Receivable but should show ₹1200.70
-  - **Root Cause**: Modal used stored `net_payable` which includes rejection deduction, but for 100% upfront retailers it should be `gross - commission` only
-  - **Solution**: Updated `getSelectedInvoicesData()` function and modal table to recalculate payable for 100% upfront retailers
+- **BUG FIX (P0)**: Fixed Payment Summary modal showing incorrect amounts and irrelevant columns for 100% upfront retailers
+  - **Symptom**: Payment Summary showed ₹1107.20 Net Receivable but should show ₹1200.70, and was showing "Rejections" column which doesn't apply to 100% upfront model
+  - **Root Cause**: Modal used stored `net_payable` which includes rejection deduction, but for 100% upfront retailers it should be `gross - commission` only. Also, rejections are handled via Credit Notes for 100% upfront, so the column is misleading.
+  - **Solution**: 
+    1. Updated `getSelectedInvoicesData()` function to recalculate payable for 100% upfront retailers
+    2. **Removed "Rejections" and "Total MRP" columns** from Payment Summary table for 100% upfront retailers
+    3. Simplified flow for 100% upfront: `Gross → Commission → Payable → CN Adjusted → Paid → Net Receivable`
+    4. Updated CSV export to also use conditional columns based on retailer type
 - **UI CHANGE**: Payments Block no longer subtracts pending Credit Notes from total
   - **Rationale**: Pending CNs will be adjusted in future invoices, so they shouldn't reduce the current payable amount
   - Now shows: "₹1200.70" with "+₹867 pending credit available" instead of "₹333.70 after ₹867 credit adjustment"
   - Credit Notes card label changed to "Pending Credit Notes" with "for future invoices" subtitle
 - **FILES MODIFIED**:
   - `/app/frontend/src/pages/admin/RetailerOrders.js`:
-    - Fixed `getSelectedInvoicesData()` function (lines 2011-2055)
-    - Fixed Payment Summary modal table body and footer calculations
+    - Fixed `getSelectedInvoicesData()` function (lines 2011-2058)
+    - Fixed `exportPaymentSummary()` function with conditional columns
+    - Fixed Payment Summary modal table - conditional columns for 100% upfront
     - Updated Payments Block display to show actual pending without subtracting pending CNs
 
 

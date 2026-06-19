@@ -10795,7 +10795,10 @@ export default function RetailerOrders() {
                             </td>
                             <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(paidAmount)}</td>
                             <td className="p-3 text-right text-amber-600 font-medium">
-                              {isExcessPaid ? (
+                              {/* For cleaned-up invoices, show "-" instead of pending amount */}
+                              {invoice.savtamali_cleanup ? (
+                                <span className="text-gray-400">-</span>
+                              ) : isExcessPaid ? (
                                 <span className="text-purple-600">{formatCurrency(excessAmount)} excess</span>
                               ) : pendingAmount > 0 ? (
                                 formatCurrency(pendingAmount)
@@ -11211,6 +11214,11 @@ export default function RetailerOrders() {
                         }, 0))}</td>
                         <td className="p-3 text-right text-green-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.paid_amount || 0), 0))}</td>
                         <td className="p-3 text-right text-amber-600">{formatCurrency(filteredInvoices.reduce((sum, i) => {
+                          // Skip cleaned-up invoices (savtamali_cleanup) - their pending was cleared
+                          if (i.savtamali_cleanup) {
+                            return sum;
+                          }
+                          
                           // Match row logic exactly: pending = (netPayable - creditAdjusted) - paidAmount
                           const retailer = retailers.find(r => r.id === i.retailer_id);
                           const isUpfront100 = retailer?.upfront_collection_percentage === 100;
@@ -11223,7 +11231,9 @@ export default function RetailerOrders() {
                           const actualReceivable = netPayable - creditAdjusted;
                           const paidAmount = i.paid_amount || 0;
                           const pendingAmount = actualReceivable - paidAmount;
-                          return sum + pendingAmount;
+                          
+                          // Only count positive pending amounts (not excess payments)
+                          return sum + Math.max(0, pendingAmount);
                         }, 0))}</td>
                         <td colSpan={2}></td>
                       </tr>

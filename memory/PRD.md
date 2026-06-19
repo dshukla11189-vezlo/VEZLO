@@ -3,6 +3,21 @@
 ## Changelog (June 2025)
 
 
+### June 19, 2026 - Grand Total Pending Amount Fix (Invoice Table Footer) ✅
+- **BUG FIX (P0)**: Fixed mismatch between sum of individual invoice pending amounts and the footer total in Admin Retailer Orders
+  - **Symptom**: User reported: Individual invoices summed to ₹1200.3 but footer showed ₹1153.55 (difference of ₹46.75 = Credit Note amount)
+  - **Root Cause**: Footer calculation used `(final_payable || net_payable) - paid_amount` which was inconsistent with row calculation
+    - When `final_payable` existed (CN already deducted), it correctly showed CN-adjusted amount
+    - When `final_payable` was missing, it fell back to `net_payable` WITHOUT deducting CN
+    - Row calculation ALWAYS deducted `total_credit_adjusted` from `netPayable` explicitly
+  - **Solution**: Unified footer calculation to match row logic exactly:
+    - RECEIVABLE total: `sum(netPayable - creditAdjusted)` (instead of `sum(final_payable || net_payable)`)
+    - PENDING total: `sum((netPayable - creditAdjusted) - paidAmount)` 
+    - Also handles 100% upfront retailers correctly by recalculating from gross value
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed footer calculation at lines 11132-11159
+
+
 ### June 18, 2026 - Rejection Amount at COGS Basis (Admin Dashboard) ✅
 - **FEATURE**: Rejection amounts in Admin Dashboard now calculated using COGS (Purchase Price) basis instead of MRP (Selling Price)
   - Formula: `rejection_at_cogs = rejection_at_mrp × (purchase / sales)`

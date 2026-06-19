@@ -11129,9 +11129,34 @@ export default function RetailerOrders() {
                     <tfoot className="bg-gray-100 font-semibold">
                       <tr>
                         <td colSpan={6} className="p-3 text-right">TOTAL:</td>
-                        <td className="p-3 text-right">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.final_payable || i.net_payable || 0), 0))}</td>
+                        <td className="p-3 text-right">{formatCurrency(filteredInvoices.reduce((sum, i) => {
+                          // Match row logic: for 100% upfront, recalculate from gross
+                          const retailer = retailers.find(r => r.id === i.retailer_id);
+                          const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                          const grossValue = i.gross_value || i.total_mrp_value || 0;
+                          const commissionPct = i.commission_percentage || 0;
+                          const netPayable = isUpfront100 
+                            ? (grossValue - (grossValue * commissionPct / 100))
+                            : (i.net_payable || 0);
+                          const creditAdjusted = i.total_credit_adjusted || 0;
+                          return sum + (netPayable - creditAdjusted);
+                        }, 0))}</td>
                         <td className="p-3 text-right text-green-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + (i.paid_amount || 0), 0))}</td>
-                        <td className="p-3 text-right text-amber-600">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + ((i.final_payable || i.net_payable || 0) - (i.paid_amount || 0)), 0))}</td>
+                        <td className="p-3 text-right text-amber-600">{formatCurrency(filteredInvoices.reduce((sum, i) => {
+                          // Match row logic exactly: pending = (netPayable - creditAdjusted) - paidAmount
+                          const retailer = retailers.find(r => r.id === i.retailer_id);
+                          const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                          const grossValue = i.gross_value || i.total_mrp_value || 0;
+                          const commissionPct = i.commission_percentage || 0;
+                          const netPayable = isUpfront100 
+                            ? (grossValue - (grossValue * commissionPct / 100))
+                            : (i.net_payable || 0);
+                          const creditAdjusted = i.total_credit_adjusted || 0;
+                          const actualReceivable = netPayable - creditAdjusted;
+                          const paidAmount = i.paid_amount || 0;
+                          const pendingAmount = actualReceivable - paidAmount;
+                          return sum + pendingAmount;
+                        }, 0))}</td>
                         <td colSpan={2}></td>
                       </tr>
                     </tfoot>

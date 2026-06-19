@@ -10769,7 +10769,23 @@ export default function RetailerOrders() {
                       // For excess calculation
                       const excessAmount = paidAmount > actualReceivable && actualReceivable > 0 ? paidAmount - actualReceivable : 0;
                       const isExcessPaid = paidAmount > actualReceivable && actualReceivable > 0;
-                      const status = invoice.status || 'pending';
+                      
+                      // Calculate status dynamically based on actual amounts (not stored status)
+                      // This ensures status reflects reality after CN adjustments
+                      const storedStatus = invoice.status || 'pending';
+                      let status;
+                      if (invoice.savtamali_cleanup) {
+                        status = 'adjusted'; // Special status for cleanup invoices
+                      } else if (isExcessPaid) {
+                        status = 'excess';
+                      } else if (pendingAmount <= 0.01 && paidAmount > 0) {
+                        // Fully paid (with small tolerance for rounding)
+                        status = 'paid';
+                      } else if (paidAmount > 0 && pendingAmount > 0.01) {
+                        status = 'partial';
+                      } else {
+                        status = 'pending';
+                      }
                       
                       return (
                         <React.Fragment key={invoice.id}>

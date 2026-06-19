@@ -18,6 +18,22 @@
   - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed footer calculation at lines 11132-11159
 
 
+### June 19, 2026 - Payment Summary Modal Fix for 100% Upfront Retailers ✅
+- **BUG FIX (P0)**: Fixed Payment Summary modal showing incorrect amounts for 100% upfront retailers
+  - **Symptom**: Payment Summary showed ₹1107.20 Net Receivable but should show ₹1200.70
+  - **Root Cause**: Modal used stored `net_payable` which includes rejection deduction, but for 100% upfront retailers it should be `gross - commission` only
+  - **Solution**: Updated `getSelectedInvoicesData()` function and modal table to recalculate payable for 100% upfront retailers
+- **UI CHANGE**: Payments Block no longer subtracts pending Credit Notes from total
+  - **Rationale**: Pending CNs will be adjusted in future invoices, so they shouldn't reduce the current payable amount
+  - Now shows: "₹1200.70" with "+₹867 pending credit available" instead of "₹333.70 after ₹867 credit adjustment"
+  - Credit Notes card label changed to "Pending Credit Notes" with "for future invoices" subtitle
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js`:
+    - Fixed `getSelectedInvoicesData()` function (lines 2011-2055)
+    - Fixed Payment Summary modal table body and footer calculations
+    - Updated Payments Block display to show actual pending without subtracting pending CNs
+
+
 ### June 19, 2026 - Payments Block Total Fix for 100% Upfront Retailers ✅
 - **BUG FIX (P0)**: Fixed 93.1 discrepancy between Payments Block total and Invoice Table total for D Store
   - **Symptom**: Payments block showed ₹240.2 payable (after ₹867 credit = ₹1107.2 total) but Invoice footer showed ₹1200.3

@@ -2023,7 +2023,18 @@ export default function RetailerOrders() {
     return unpaidInvoices
       .filter(inv => selectedInvoicesForSummary[inv.id])
       .map((inv, idx) => {
-        const amountPayable = inv.net_payable || 0;
+        // Check if this retailer is 100% upfront
+        const retailer = retailers.find(r => r.id === inv.retailer_id);
+        const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+        
+        // For 100% upfront: amountPayable = gross - commission (no rejection deduction)
+        // For others: use stored net_payable
+        const grossValue = inv.gross_value || inv.total_mrp_value || 0;
+        const commissionPct = inv.commission_percentage || 0;
+        const amountPayable = isUpfront100 
+          ? (grossValue - (grossValue * commissionPct / 100))
+          : (inv.net_payable || 0);
+        
         const paidAmount = inv.paid_amount || 0;
         const creditNotesAdjusted = inv.total_credit_adjusted || 0;
         return {
@@ -2031,10 +2042,10 @@ export default function RetailerOrders() {
           indentDate: formatDate(inv.indent_date || inv.invoice_date),
           dispatchDate: formatDate(inv.dispatch_date || inv.invoice_date),
           invoiceNumber: inv.invoice_number,
-          grossValue: inv.gross_value || 0,
+          grossValue: grossValue,
           rejections: inv.rejection_amount || 0,
           totalMrpValue: inv.total_mrp_value || 0,
-          commission: inv.commission_amount || 0,
+          commission: inv.commission_amount || (grossValue * commissionPct / 100),
           amountPayable: amountPayable,
           creditNotes: creditNotesAdjusted,
           paidAmount: paidAmount,
@@ -8282,11 +8293,11 @@ export default function RetailerOrders() {
               </div>
               <div className="text-right">
                 <p className={`text-2xl font-bold ${isFullUpfront ? 'text-purple-700' : 'text-red-700'}`}>
-                  {formatCurrency(immediatelyPayable.grand_totals.total - totalPendingCredit)}
+                  {formatCurrency(immediatelyPayable.grand_totals.total)}
                 </p>
                 {totalPendingCredit > 0 && (
                   <p className="text-xs text-gray-500">
-                    After ₹{totalPendingCredit.toLocaleString()} credit adjustment
+                    +₹{totalPendingCredit.toLocaleString()} pending credit available
                   </p>
                 )}
               </div>
@@ -8308,13 +8319,11 @@ export default function RetailerOrders() {
                       <div>
                         <p className="text-xs text-gray-500">Total Payable</p>
                         <p className="text-lg font-bold text-purple-600">
-                          {formatCurrency(immediatelyPayable.grand_totals.total - totalPendingCredit)}
+                          {formatCurrency(immediatelyPayable.grand_totals.total)}
                         </p>
-                        {totalPendingCredit > 0 && (
-                          <p className="text-[10px] text-gray-500">
-                            After ₹{totalPendingCredit.toLocaleString()} credit applied
-                          </p>
-                        )}
+                        <p className="text-[10px] text-gray-500">
+                          From pending invoices
+                        </p>
                       </div>
                       <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedPayableSection === 'payable' ? 'rotate-180' : ''}`} />
                     </div>
@@ -8329,13 +8338,13 @@ export default function RetailerOrders() {
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="text-xs text-gray-500">Credit Notes</p>
+                        <p className="text-xs text-gray-500">Pending Credit Notes</p>
                         <p className={`text-lg font-bold ${retailerCreditNotes.length > 0 ? 'text-green-600' : 'text-gray-400'}`}>
                           {retailerCreditNotes.length > 0 ? formatCurrency(totalPendingCredit) : '₹0'}
                         </p>
                         {retailerCreditNotes.length > 0 && (
                           <p className="text-[10px] text-green-600">
-                            {retailerCreditNotes.length} credit note(s) available
+                            {retailerCreditNotes.length} credit note(s) for future invoices
                           </p>
                         )}
                       </div>
@@ -12964,13 +12973,25 @@ export default function RetailerOrders() {
                         <tbody>
                           {unpaidInvoices.map((inv, idx) => {
                             const isSelected = selectedInvoicesForSummary[inv.id];
-                            const grossValue = inv.gross_value || 0;
+                            const grossValue = inv.gross_value || inv.total_mrp_value || 0;
                             const rejections = inv.rejection_amount || 0;
                             const totalMrp = inv.total_mrp_value || 0;
-                            const commission = inv.commission_amount || 0;
-                            const payable = inv.net_payable || 0;
+                            const commissionPct = inv.commission_percentage || 0;
                             const creditNotes = inv.total_credit_adjusted || 0;
                             const paidAmount = inv.paid_amount || 0;
+                            
+                            // Check if this retailer is 100% upfront
+                            const retailer = retailers.find(r => r.id === inv.retailer_id);
+                            const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                            
+                            // For 100% upfront: payable = gross - commission (no rejection deduction)
+                            const payable = isUpfront100 
+                              ? (grossValue - (grossValue * commissionPct / 100))
+                              : (inv.net_payable || 0);
+                            const commission = isUpfront100 
+                              ? (grossValue * commissionPct / 100)
+                              : (inv.commission_amount || 0);
+                            
                             // Net Receivable = Payable - Credit Notes - Paid
                             const netReceivable = payable - creditNotes - paidAmount;
                             
@@ -13027,7 +13048,7 @@ export default function RetailerOrders() {
                                 Selected Total ({Object.values(selectedInvoicesForSummary).filter(v => v).length} invoices):
                               </td>
                               <td className="p-2 text-right text-gray-800">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.gross_value || 0), 0).toFixed(2)}
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.gross_value || inv.total_mrp_value || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-red-700">
                                 -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.rejection_amount || 0), 0).toFixed(2)}
@@ -13036,10 +13057,24 @@ export default function RetailerOrders() {
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.total_mrp_value || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-orange-700">
-                                -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.commission_amount || 0), 0).toFixed(2)}
+                                -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => {
+                                  const retailer = retailers.find(r => r.id === inv.retailer_id);
+                                  const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                                  const grossValue = inv.gross_value || inv.total_mrp_value || 0;
+                                  const commissionPct = inv.commission_percentage || 0;
+                                  const commission = isUpfront100 ? (grossValue * commissionPct / 100) : (inv.commission_amount || 0);
+                                  return sum + commission;
+                                }, 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-green-700">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.net_payable || 0), 0).toFixed(2)}
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => {
+                                  const retailer = retailers.find(r => r.id === inv.retailer_id);
+                                  const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                                  const grossValue = inv.gross_value || inv.total_mrp_value || 0;
+                                  const commissionPct = inv.commission_percentage || 0;
+                                  const payable = isUpfront100 ? (grossValue - (grossValue * commissionPct / 100)) : (inv.net_payable || 0);
+                                  return sum + payable;
+                                }, 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-pink-700">
                                 -₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.total_credit_adjusted || 0), 0).toFixed(2)}
@@ -13048,7 +13083,16 @@ export default function RetailerOrders() {
                                 ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + (inv.paid_amount || 0), 0).toFixed(2)}
                               </td>
                               <td className="p-2 text-right text-blue-800 font-bold">
-                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => sum + ((inv.net_payable || 0) - (inv.total_credit_adjusted || 0) - (inv.paid_amount || 0)), 0).toFixed(2)}
+                                ₹{unpaidInvoices.filter(inv => selectedInvoicesForSummary[inv.id]).reduce((sum, inv) => {
+                                  const retailer = retailers.find(r => r.id === inv.retailer_id);
+                                  const isUpfront100 = retailer?.upfront_collection_percentage === 100;
+                                  const grossValue = inv.gross_value || inv.total_mrp_value || 0;
+                                  const commissionPct = inv.commission_percentage || 0;
+                                  const payable = isUpfront100 ? (grossValue - (grossValue * commissionPct / 100)) : (inv.net_payable || 0);
+                                  const creditNotes = inv.total_credit_adjusted || 0;
+                                  const paidAmount = inv.paid_amount || 0;
+                                  return sum + (payable - creditNotes - paidAmount);
+                                }, 0).toFixed(2)}
                               </td>
                             </tr>
                           </tfoot>

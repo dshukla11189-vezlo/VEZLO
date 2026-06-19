@@ -379,6 +379,18 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     logger.info(f"GRN Upload: Dispatch dates available: {list(dispatch_dates_set)[:5]}...")
     logger.info(f"GRN Upload: CSV dates parsed: {list(csv_data_by_date.keys())}")
     
+    # Direct SKU name mappings for combo products (Ninjacart SKU -> Internal product name)
+    # These are special combo products where the Excel SKU name is completely different
+    direct_sku_mappings = {
+        # Ninjacart combo SKUs -> Internal product names (based on dispatch matching)
+        'mixed sprouts (pcs)': 'Fresh Spices Mix',           # Row 15: Mixed Sprouts (PCS) - FK
+        'mixed sprouts': 'Coriander and Mint',               # Row 12: Mixed Sprouts (no PCS suffix)
+        'mixed fruit chat': 'Curry and Coriander',           # Row 13: Mixed Fruit Chat (175 gm Pack)
+        'mixed microgreens': 'Herbs Mix',                    # Row 14: Mixed Microgreens(50 g Pack)
+        'coriander hybrid (hydroponics)': 'Spinach and Coriander',  # Row 16: Coriander Hybrid
+        'coriander hybrid': 'Spinach and Coriander',         # Alternative match
+    }
+    
     # Variant/color words that MUST match exactly if present in product name
     variant_words = {'red', 'green', 'yellow', 'white', 'black', 'purple', 'orange', 
                    'small', 'large', 'big', 'baby', 'mini', 'jumbo', 'local', 'hybrid',
@@ -503,104 +515,135 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             best_match_group = None
             best_match_score = 0
             
-            for base_name, items in product_groups.items():
-                # Special handling for Mint Leaves ONLY - match by weight and roots type
-                is_mint_product = 'mint' in base_name.lower()
-                is_mint_sku = 'mint' in sku_name_lower
-                
-                # Only apply Mint-specific matching if BOTH product and SKU mention mint
-                if is_mint_product and is_mint_sku and sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
-                    # For Mint PCS items, match based on BOTH roots type AND weight
-                    # This prevents 70-80gm "without roots" from matching 100gm "with roots"
-                    matched_mint_items = []
-                    for item in items:
-                        pkg_name_lower = item.get('packaging_name', '').lower()
-                        pkg_has_with_roots = 'with roots' in pkg_name_lower and 'without' not in pkg_name_lower
-                        pkg_has_without_roots = 'without roots' in pkg_name_lower
-                        
-                        # Match roots type (REQUIRED)
-                        roots_match = (sku_has_with_roots and pkg_has_with_roots) or \
-                                     (sku_has_without_roots and pkg_has_without_roots)
-                        
-                        if not roots_match:
-                            continue  # Skip if roots type doesn't match
-                        
-                        # Match weight (within 30gm tolerance for 70-80 range)
-                        pkg_weight = item.get('packaging_weight_gm', 0)
-                        weight_match = sku_weight > 0 and pkg_weight > 0 and abs(pkg_weight - sku_weight) <= 30
-                        
-                        # For Mint, require BOTH roots match AND (weight match OR no weight specified)
-                        if roots_match and (weight_match or sku_weight == 0 or pkg_weight == 0):
-                            logger.info(f"  Mint match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}, sku_weight={sku_weight}, pkg_weight={pkg_weight}")
-                            matched_mint_items.append(item)
-                    
-                    if matched_mint_items:
-                        best_match_group = (base_name, matched_mint_items)
-                        best_match_score = 1.0
+            # FIRST: Check direct SKU mappings for combo products
+            # These have completely different names in Excel vs dispatch system
+            # Sort by length (longest first) to match more specific patterns first
+            # e.g., "mixed sprouts (pcs)" should match before "mixed sprouts"
+            direct_match_found = False
+            sorted_mappings = sorted(direct_sku_mappings.items(), key=lambda x: len(x[0]), reverse=True)
+            for sku_prefix, internal_name in sorted_mappings:
+                if sku_name_lower.startswith(sku_prefix) or sku_prefix in sku_name_lower:
+                    # Found a direct mapping - look for this product in dispatch
+                    internal_name_lower = internal_name.lower()
+                    for base_name, items in product_groups.items():
+                        base_name_lower = base_name.lower()
+                        # Match if internal name matches or is contained in base name
+                        if internal_name_lower == base_name_lower or internal_name_lower in base_name_lower or base_name_lower in internal_name_lower:
+                            # Apply PCS vs Kg filter
+                            if sku_is_pcs:
+                                type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
+                            else:
+                                type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
+                            
+                            if type_matched_items:
+                                best_match_group = (base_name, type_matched_items)
+                                best_match_score = 1.0
+                                direct_match_found = True
+                                logger.info(f"  DIRECT MAPPING: SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
+                                break
+                    if direct_match_found:
                         break
-                
-                # Regular matching logic
-                # PCS SKU (Excel Kgs_Pcs = "PCS") matches dispatch items with "(PCS)" in packaging
-                # Kg SKU (Excel Kgs_Pcs = "Kgs") matches ALL other dispatch items (Packet, gm, etc.)
-                if sku_is_pcs:
-                    type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
-                else:
-                    type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
-                
-                if not type_matched_items:
-                    continue  # No items match the required type
-                
-                # Check product name match
-                product_words = set(base_name.split())
-                first_word = base_name.split()[0] if base_name else ''
-                
-                # Check for product aliases (Palak/Spinach, Mint variants)
-                alias_match = False
-                for alias_key, aliases in product_aliases.items():
-                    if first_word in aliases or any(alias in base_name for alias in aliases):
-                        if any(alias in sku_clean for alias in aliases):
-                            alias_match = True
+            
+            # SECOND: Regular matching logic if no direct match found
+            if not direct_match_found:
+                for base_name, items in product_groups.items():
+                    # Special handling for Mint Leaves ONLY - match by weight and roots type
+                    is_mint_product = 'mint' in base_name.lower()
+                    is_mint_sku = 'mint' in sku_name_lower
+                    
+                    # Only apply Mint-specific matching if BOTH product and SKU mention mint
+                    if is_mint_product and is_mint_sku and sku_is_pcs and (sku_has_with_roots or sku_has_without_roots):
+                        # For Mint PCS items, match based on BOTH roots type AND weight
+                        # This prevents 70-80gm "without roots" from matching 100gm "with roots"
+                        matched_mint_items = []
+                        for item in items:
+                            pkg_name_lower = item.get('packaging_name', '').lower()
+                            pkg_has_with_roots = 'with roots' in pkg_name_lower and 'without' not in pkg_name_lower
+                            pkg_has_without_roots = 'without roots' in pkg_name_lower
+                            
+                            # Match roots type (REQUIRED)
+                            roots_match = (sku_has_with_roots and pkg_has_with_roots) or \
+                                         (sku_has_without_roots and pkg_has_without_roots)
+                            
+                            if not roots_match:
+                                continue  # Skip if roots type doesn't match
+                            
+                            # Match weight (within 30gm tolerance for 70-80 range)
+                            pkg_weight = item.get('packaging_weight_gm', 0)
+                            weight_match = sku_weight > 0 and pkg_weight > 0 and abs(pkg_weight - sku_weight) <= 30
+                            
+                            # For Mint, require BOTH roots match AND (weight match OR no weight specified)
+                            if roots_match and (weight_match or sku_weight == 0 or pkg_weight == 0):
+                                logger.info(f"  Mint match found: {item.get('packaging_name')} | roots_match={roots_match}, weight_match={weight_match}, sku_weight={sku_weight}, pkg_weight={pkg_weight}")
+                                matched_mint_items.append(item)
+                        
+                        if matched_mint_items:
+                            best_match_group = (base_name, matched_mint_items)
+                            best_match_score = 1.0
                             break
-                
-                # Check variant words - if present in product, must be in SKU
-                product_variants = product_words & variant_words
-                if product_variants and not alias_match:
-                    if not product_variants.issubset(sku_words):
+                    
+                    # Regular matching logic
+                    # PCS SKU (Excel Kgs_Pcs = "PCS") matches dispatch items with "(PCS)" in packaging
+                    # Kg SKU (Excel Kgs_Pcs = "Kgs") matches ALL other dispatch items (Packet, gm, etc.)
+                    if sku_is_pcs:
+                        type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
+                    else:
+                        type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
+                    
+                    if not type_matched_items:
+                        continue  # No items match the required type
+                    
+                    # Check product name match
+                    product_words = set(base_name.split())
+                    first_word = base_name.split()[0] if base_name else ''
+                    
+                    # Check for product aliases (Palak/Spinach, Mint variants)
+                    alias_match = False
+                    for alias_key, aliases in product_aliases.items():
+                        if first_word in aliases or any(alias in base_name for alias in aliases):
+                            if any(alias in sku_clean for alias in aliases):
+                                alias_match = True
+                                break
+                    
+                    # Check variant words - if present in product, must be in SKU
+                    product_variants = product_words & variant_words
+                    if product_variants and not alias_match:
+                        if not product_variants.issubset(sku_words):
+                            continue
+                    
+                    # Count matching words
+                    common_words = product_words & sku_words
+                    
+                    # For PCS items, also match based on packaging weight
+                    if sku_is_pcs and sku_weight > 0 and not is_mint_sku:
+                        # Check if any item in group has matching weight
+                        weight_matched_items = [i for i in type_matched_items if abs(i['packaging_weight_gm'] - sku_weight) <= 20]
+                        if weight_matched_items:
+                            # Weight match found - this is a strong match for PCS items
+                            if alias_match or common_words:
+                                match_score = 1.0  # High score for weight + name match
+                                if match_score > best_match_score:
+                                    best_match_score = match_score
+                                    # Only include weight-matched items
+                                    best_match_group = (base_name, weight_matched_items)
+                                continue
+                    
+                    if not common_words and not alias_match:
                         continue
-                
-                # Count matching words
-                common_words = product_words & sku_words
-                
-                # For PCS items, also match based on packaging weight
-                if sku_is_pcs and sku_weight > 0 and not is_mint_sku:
-                    # Check if any item in group has matching weight
-                    weight_matched_items = [i for i in type_matched_items if abs(i['packaging_weight_gm'] - sku_weight) <= 20]
-                    if weight_matched_items:
-                        # Weight match found - this is a strong match for PCS items
-                        if alias_match or common_words:
-                            match_score = 1.0  # High score for weight + name match
-                            if match_score > best_match_score:
-                                best_match_score = match_score
-                                # Only include weight-matched items
-                                best_match_group = (base_name, weight_matched_items)
-                            continue
-                
-                if not common_words and not alias_match:
-                    continue
-                
-                # First word (main product) must match (unless alias match)
-                if not alias_match:
-                    if first_word and first_word not in sku_words:
-                        if not any(first_word in sw or sw in first_word for sw in sku_words):
-                            continue
-                
-                match_score = len(common_words) / max(len(product_words), 1)
-                if alias_match:
-                    match_score = max(match_score, 0.8)  # Boost alias matches
-                
-                if match_score > best_match_score:
-                    best_match_score = match_score
-                    best_match_group = (base_name, type_matched_items)
+                    
+                    # First word (main product) must match (unless alias match)
+                    if not alias_match:
+                        if first_word and first_word not in sku_words:
+                            if not any(first_word in sw or sw in first_word for sw in sku_words):
+                                continue
+                    
+                    match_score = len(common_words) / max(len(product_words), 1)
+                    if alias_match:
+                        match_score = max(match_score, 0.8)  # Boost alias matches
+                    
+                    if match_score > best_match_score:
+                        best_match_score = match_score
+                        best_match_group = (base_name, type_matched_items)
             
             if not best_match_group:
                 logger.info(f"  No match found for SKU: {sku_name}")

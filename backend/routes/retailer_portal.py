@@ -9025,67 +9025,75 @@ async def get_savtamali_cleanup_status(current_user: dict = Depends(get_current_
 # ============================================================================
 # ONE-TIME CLEANUP: Narang Super Mart (Fix 100% Upfront Model)
 # ============================================================================
-# Narang Super Mart moved to 100% upfront model but first 5 invoices (June 3-9)
-# had payments made after removing rejections. Need to:
-# 1. Create CNs for all rejections where CN was not created
-# 2. Update invoice statuses to reflect actual pending amounts
-# 3. Don't touch existing CNs that are already created/adjusted
+# Create individual CNs for each rejection item that doesn't have a CN yet.
+# Don't touch existing CNs that are already created/adjusted.
 #
-# TO ROLLBACK: Set NARANG_CLEANUP_ENABLED = False and run the rollback endpoint
+# TO ROLLBACK: Run the rollback endpoint to delete cleanup CNs
 # ============================================================================
 
 NARANG_CLEANUP_ENABLED = True
 NARANG_RETAILER_ID = "c15885f6-01dc-4516-aa9c-ffb29fd4849c"
-NARANG_CLEANUP_CUTOFF_DATE = "2026-06-09"  # First 5 invoices are June 3-9
+NARANG_COMMISSION_PERCENTAGE = 20  # Narang's commission percentage
+
 
 @router.get("/admin/narang-cleanup/status")
 async def get_narang_cleanup_status(current_user: dict = Depends(get_current_user)):
-    """Check status of Narang Super Mart cleanup."""
+    """Check status of Narang Super Mart cleanup - shows rejections without CNs."""
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    # Get invoices in the cleanup range
-    cutoff_date = datetime.strptime(NARANG_CLEANUP_CUTOFF_DATE, "%Y-%m-%d")
-    cutoff_date_end = cutoff_date.replace(hour=23, minute=59, second=59)
-    
-    invoices = await db.retailer_invoices.find({
-        "retailer_id": NARANG_RETAILER_ID,
-        "invoice_date": {"$lte": cutoff_date_end.isoformat()}
+    # Get all rejections for Narang
+    rejections = await db.retailer_rejections.find({
+        "retailer_id": NARANG_RETAILER_ID
     }, {"_id": 0}).to_list(length=None)
     
-    # Calculate total rejection amount needing CNs
-    total_rejection = sum(inv.get("rejection_amount", 0) or 0 for inv in invoices)
+    # Get all CNs and their linked rejection_ids
+    cns = await db.retailer_credit_notes.find({
+        "retailer_id": NARANG_RETAILER_ID
+    }, {"_id": 0}).to_list(length=None)
     
-    # Check if cleanup was executed
-    cleanup_count = await db.retailer_invoices.count_documents({
+    cn_rejection_ids = {cn.get("rejection_id") for cn in cns if cn.get("rejection_id")}
+    
+    # Find rejections without CNs
+    missing_cns = [r for r in rejections if r.get("id") not in cn_rejection_ids]
+    
+    # Group by date
+    by_date = {}
+    for r in missing_cns:
+        date = str(r.get("rejection_date", ""))[:10]
+        if date not in by_date:
+            by_date[date] = {"count": 0, "value": 0}
+        by_date[date]["count"] += 1
+        rej_value = r.get("rejection_value", 0) or (r.get("quantity", 0) * r.get("mrp", 0))
+        by_date[date]["value"] += rej_value
+    
+    # Calculate totals
+    total_missing_value = sum(d["value"] for d in by_date.values())
+    
+    # Check if cleanup was already executed
+    cleanup_cn_count = await db.retailer_credit_notes.count_documents({
         "retailer_id": NARANG_RETAILER_ID,
         "narang_cleanup": True
-    })
-    
-    # Count existing CNs for this retailer
-    cn_count = await db.retailer_credit_notes.count_documents({
-        "retailer_id": NARANG_RETAILER_ID
     })
     
     return {
         "enabled": NARANG_CLEANUP_ENABLED,
         "retailer_id": NARANG_RETAILER_ID,
-        "cutoff_date": NARANG_CLEANUP_CUTOFF_DATE,
-        "invoices_in_range": len(invoices),
-        "total_rejection_amount": total_rejection,
-        "existing_cn_count": cn_count,
-        "cleanup_executed": cleanup_count > 0,
-        "invoices_cleaned": cleanup_count
+        "total_rejections": len(rejections),
+        "rejections_with_cn": len(cn_rejection_ids),
+        "rejections_without_cn": len(missing_cns),
+        "missing_cn_value": round(total_missing_value, 2),
+        "by_date": by_date,
+        "cleanup_cns_created": cleanup_cn_count,
+        "cleanup_executed": cleanup_cn_count > 0
     }
 
 
 @router.post("/admin/narang-cleanup/execute")
 async def execute_narang_cleanup(current_user: dict = Depends(get_current_user)):
     """
-    One-time cleanup for Narang Super Mart:
-    1. Create CNs for rejection amounts on first 5 invoices (June 3-9)
-    2. Update invoice status to 'partial' since they now have pending amounts
-    3. Mark invoices as cleaned up for rollback capability
+    Create individual CNs for each rejection item that doesn't have a CN yet.
+    Each CN is linked to its rejection item via rejection_id.
     """
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -9093,18 +9101,27 @@ async def execute_narang_cleanup(current_user: dict = Depends(get_current_user))
     if not NARANG_CLEANUP_ENABLED:
         raise HTTPException(status_code=400, detail="Narang cleanup is disabled")
     
-    cutoff_date = datetime.strptime(NARANG_CLEANUP_CUTOFF_DATE, "%Y-%m-%d")
-    cutoff_date_end = cutoff_date.replace(hour=23, minute=59, second=59)
-    
-    # Get invoices in the cleanup range
-    invoices = await db.retailer_invoices.find({
-        "retailer_id": NARANG_RETAILER_ID,
-        "invoice_date": {"$lte": cutoff_date_end.isoformat()}
+    # Get all rejections for Narang
+    rejections = await db.retailer_rejections.find({
+        "retailer_id": NARANG_RETAILER_ID
     }, {"_id": 0}).to_list(length=None)
     
-    cns_created = []
-    invoices_updated = 0
-    total_cn_amount = 0
+    # Get all CNs and their linked rejection_ids
+    cns = await db.retailer_credit_notes.find({
+        "retailer_id": NARANG_RETAILER_ID
+    }, {"_id": 0}).to_list(length=None)
+    
+    cn_rejection_ids = {cn.get("rejection_id") for cn in cns if cn.get("rejection_id")}
+    
+    # Find rejections without CNs
+    missing_cns = [r for r in rejections if r.get("id") not in cn_rejection_ids]
+    
+    if not missing_cns:
+        return {
+            "success": True,
+            "message": "No rejections without CNs found",
+            "cns_created": 0
+        }
     
     # Get current max CN number for this retailer
     last_cn = await db.retailer_credit_notes.find_one(
@@ -9116,94 +9133,111 @@ async def execute_narang_cleanup(current_user: dict = Depends(get_current_user))
         try:
             current_cn_num = int(cn_num_str.split("-")[-1])
         except:
-            current_cn_num = 85  # Fallback based on existing data
+            current_cn_num = 85
     else:
         current_cn_num = 0
     
-    for inv in invoices:
-        rejection_amount = inv.get("rejection_amount", 0) or 0
-        if rejection_amount <= 0:
-            continue
-        
-        # Check if already cleaned up
-        if inv.get("narang_cleanup"):
-            continue
-        
-        invoice_id = inv.get("id")
-        invoice_number = inv.get("invoice_number")
-        invoice_date = inv.get("invoice_date", "")[:10]
-        
-        # Create a CN for this invoice's rejection amount
+    # Get retailer info
+    retailer = await db.retailers.find_one({"id": NARANG_RETAILER_ID}, {"_id": 0})
+    retailer_name = retailer.get("company_name", "Narang Super Mart") if retailer else "Narang Super Mart"
+    
+    # Create CN for each rejection item
+    cns_created = []
+    total_cn_amount = 0
+    
+    for rej in missing_cns:
         current_cn_num += 1
         cn_number = f"CN-NAR-{str(current_cn_num).zfill(4)}"
         cn_id = str(uuid.uuid4())
+        
+        # Calculate rejection value
+        rejection_value = rej.get("rejection_value", 0) or (rej.get("quantity", 0) * rej.get("mrp", 0))
+        commission_deducted = rejection_value * NARANG_COMMISSION_PERCENTAGE / 100
+        cn_amount = rejection_value - commission_deducted  # Net CN amount after commission
+        
+        # Get the invoice linked to this rejection's dispatch
+        dispatch_id = rej.get("dispatch_id")
+        linked_invoice = None
+        if dispatch_id:
+            linked_invoice = await db.retailer_invoices.find_one({
+                "retailer_id": NARANG_RETAILER_ID,
+                "dispatch_id": dispatch_id
+            }, {"_id": 0})
+        
+        rejection_date = rej.get("rejection_date", "")
+        if isinstance(rejection_date, str):
+            rejection_date_str = rejection_date[:10]
+        else:
+            rejection_date_str = rejection_date.strftime("%Y-%m-%d") if rejection_date else ""
         
         cn_doc = {
             "id": cn_id,
             "credit_note_number": cn_number,
             "retailer_id": NARANG_RETAILER_ID,
-            "amount": rejection_amount,
-            "pending_amount": rejection_amount,  # Full amount pending, to be adjusted later
-            "reason": f"Rejection from invoice {invoice_number} (100% upfront model correction)",
-            "date": datetime.now(timezone.utc).isoformat(),
+            "retailer_name": retailer_name,
+            "original_invoice_id": linked_invoice.get("id") if linked_invoice else None,
+            "original_invoice_number": linked_invoice.get("invoice_number") if linked_invoice else None,
+            "rejection_id": rej.get("id"),
+            "rejection_date": rej.get("rejection_date"),
+            "rejection_value": rejection_value,
+            "commission_percentage": NARANG_COMMISSION_PERCENTAGE,
+            "commission_deducted": commission_deducted,
+            "amount": cn_amount,
+            "rejection_details": [{
+                "product_name": rej.get("product_name", "Unknown"),
+                "variant_name": rej.get("variant_name", ""),
+                "quantity": rej.get("quantity", 0),
+                "mrp": rej.get("mrp", 0),
+                "value": rejection_value,
+                "reason": rej.get("reason", "")
+            }],
             "status": "pending",
+            "adjusted_amount": 0,
+            "pending_amount": cn_amount,
+            "adjusted_against_invoices": [],
             "adjusted_in_invoices": [],
+            "remarks": f"100% Upfront Model Correction: CN for rejection on {rejection_date_str}",
+            "created_by": current_user.get("id"),
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "auto_generated": True,
             "narang_cleanup": True,
-            "narang_cleanup_invoice_id": invoice_id,
-            "narang_cleanup_invoice_number": invoice_number
+            "narang_cleanup_date": datetime.now(timezone.utc).isoformat()
         }
         
         await db.retailer_credit_notes.insert_one(cn_doc)
         cns_created.append({
             "cn_number": cn_number,
-            "amount": rejection_amount,
-            "for_invoice": invoice_number
+            "rejection_date": rejection_date_str,
+            "product": rej.get("product_name"),
+            "rejection_value": rejection_value,
+            "cn_amount": cn_amount
         })
-        total_cn_amount += rejection_amount
-        
-        # Calculate what status should be for this invoice
-        # For 100% upfront: receivable = gross - commission (15%)
-        gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
-        commission_pct = inv.get("commission_percentage", 15) or 15
-        receivable = gross_value - (gross_value * commission_pct / 100)
-        paid_amount = inv.get("paid_amount", 0) or 0
-        
-        # After CN is created, the pending will be: receivable - paid (CN not yet adjusted)
-        pending_after_cleanup = receivable - paid_amount
-        
-        # Determine new status
-        if pending_after_cleanup <= 0.01:
-            new_status = "paid"
-        elif paid_amount > 0:
-            new_status = "partial"
-        else:
-            new_status = "pending"
-        
-        # Store original values for rollback and mark as cleaned
-        await db.retailer_invoices.update_one(
-            {"id": invoice_id},
-            {
-                "$set": {
-                    "status": new_status,
-                    "narang_cleanup": True,
-                    "narang_cleanup_date": datetime.now(timezone.utc).isoformat(),
-                    "narang_cleanup_original_status": inv.get("status"),
-                    "narang_cleanup_cn_id": cn_id,
-                    "narang_cleanup_cn_number": cn_number,
-                    "narang_cleanup_note": "100% upfront model correction: CN created for rejection amount"
-                }
+        total_cn_amount += cn_amount
+    
+    # Update first 5 invoices to show they have been corrected
+    cutoff_date = datetime.strptime("2026-06-09", "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    await db.retailer_invoices.update_many(
+        {
+            "retailer_id": NARANG_RETAILER_ID,
+            "invoice_date": {"$lte": cutoff_date.isoformat()},
+            "status": "paid"
+        },
+        {
+            "$set": {
+                "status": "partial",
+                "narang_cleanup": True,
+                "narang_cleanup_date": datetime.now(timezone.utc).isoformat(),
+                "narang_cleanup_note": "100% upfront model correction: Individual CNs created for rejection items"
             }
-        )
-        invoices_updated += 1
+        }
+    )
     
     return {
         "success": True,
-        "message": "Narang Super Mart cleanup completed",
+        "message": f"Created {len(cns_created)} individual CNs for rejection items",
         "cns_created": len(cns_created),
-        "cns_detail": cns_created,
         "total_cn_amount": round(total_cn_amount, 2),
-        "invoices_updated": invoices_updated
+        "sample_cns": cns_created[:10]
     }
 
 
@@ -9224,33 +9258,24 @@ async def rollback_narang_cleanup(current_user: dict = Depends(get_current_user)
     })
     
     # Restore invoice statuses
-    invoices = await db.retailer_invoices.find({
-        "retailer_id": NARANG_RETAILER_ID,
-        "narang_cleanup": True
-    }, {"_id": 0}).to_list(length=None)
-    
-    invoices_restored = 0
-    for inv in invoices:
-        original_status = inv.get("narang_cleanup_original_status", "paid")
-        await db.retailer_invoices.update_one(
-            {"id": inv["id"]},
-            {
-                "$set": {"status": original_status},
-                "$unset": {
-                    "narang_cleanup": "",
-                    "narang_cleanup_date": "",
-                    "narang_cleanup_original_status": "",
-                    "narang_cleanup_cn_id": "",
-                    "narang_cleanup_cn_number": "",
-                    "narang_cleanup_note": ""
-                }
+    await db.retailer_invoices.update_many(
+        {
+            "retailer_id": NARANG_RETAILER_ID,
+            "narang_cleanup": True
+        },
+        {
+            "$set": {"status": "paid"},
+            "$unset": {
+                "narang_cleanup": "",
+                "narang_cleanup_date": "",
+                "narang_cleanup_note": ""
             }
-        )
-        invoices_restored += 1
+        }
+    )
     
     return {
         "success": True,
         "message": "Narang cleanup rolled back",
-        "cns_deleted": cn_delete_result.deleted_count,
-        "invoices_restored": invoices_restored
+        "cns_deleted": cn_delete_result.deleted_count
     }
+

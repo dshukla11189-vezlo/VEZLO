@@ -18,6 +18,25 @@
   - `/app/frontend/src/pages/admin/RetailerOrders.js` - Fixed footer calculation at lines 11132-11159
 
 
+### June 19, 2026 - Narang Super Mart One-Time Cleanup (100% Upfront Model Correction) ✅
+- **ONE-TIME TASK**: Created CNs for rejection amounts on first 5 invoices (June 3-9, 2026)
+  - **Problem**: Narang moved to 100% upfront but payments were made after removing rejections (old flow)
+  - **Correct Flow**: Invoice on full gross → CN for rejections → CN adjusted in future invoices
+  - **Results**: 
+    - 5 CNs created: CN-NAR-0086 to CN-NAR-0090
+    - Total CN amount: ₹6,747 (now available for adjustment)
+    - Invoice statuses updated from "paid" to "partial" where applicable
+  - **Implementation**:
+    1. Backend: Added `/api/admin/narang-cleanup/execute`, `/rollback`, `/status` endpoints
+    2. Each CN has `narang_cleanup: true` flag linked to source invoice
+    3. Frontend: "CN Created" blue badge shown in Status column
+    4. Frontend: Cleanup notice in invoice details showing CN number created
+  - **Rollback**: Run `/api/admin/narang-cleanup/rollback` to delete CNs and restore statuses
+- **FILES MODIFIED**:
+  - `/app/backend/routes/retailer_portal.py` - Added Narang cleanup endpoints
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Added "CN Created" badge and cleanup notice
+
+
 ### June 19, 2026 - Savtamali One-Time Cleanup (50% → 100% Upfront Migration) ✅
 - **ONE-TIME TASK**: Cleared pending amounts for Savtamali retailer who migrated from 50% to 100% upfront model
   - **Scope**: All invoices on or before June 7, 2026

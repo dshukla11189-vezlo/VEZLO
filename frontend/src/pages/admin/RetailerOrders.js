@@ -10826,6 +10826,11 @@ export default function RetailerOrders() {
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200" title="One-time cleanup: 50% to 100% upfront migration">
                                   <Check size={12} className="mr-1" /> Adjusted
                                 </span>
+                              ) : invoice.narang_cleanup ? (
+                                /* NARANG CLEANUP INDICATOR - shows CN created for rejection */
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200" title={`100% upfront correction: ${invoice.narang_cleanup_cn_number} created`}>
+                                  <RefreshCw size={12} className="mr-1" /> CN Created
+                                </span>
                               ) : isExcessPaid ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200 animate-pulse">
                                   <AlertTriangle size={12} className="mr-1" /> Excess Paid
@@ -11038,6 +11043,29 @@ export default function RetailerOrders() {
                                   </div>
                                 )}
                                 {/* END SAVTAMALI CLEANUP NOTICE */}
+                                
+                                {/* ============================================================ */}
+                                {/* NARANG SUPER MART CLEANUP NOTICE */}
+                                {/* 100% upfront model correction - CN created for rejection amount */}
+                                {/* ============================================================ */}
+                                {invoice.narang_cleanup && (
+                                  <div className="mb-3 p-3 bg-blue-50 border border-blue-300 rounded-lg">
+                                    <div className="flex items-center gap-2">
+                                      <AlertTriangle size={16} className="text-blue-600" />
+                                      <span className="text-blue-800 font-medium text-sm">
+                                        100% Upfront Model Correction
+                                      </span>
+                                    </div>
+                                    <p className="text-blue-700 text-xs mt-1">
+                                      Credit Note <span className="font-semibold">{invoice.narang_cleanup_cn_number}</span> was created for the rejection amount (₹{invoice.rejection_amount?.toLocaleString()}).
+                                      The CN is now pending and can be adjusted against upcoming invoices.
+                                    </p>
+                                    <p className="text-blue-600 text-[10px] mt-1">
+                                      Correction date: {invoice.narang_cleanup_date ? new Date(invoice.narang_cleanup_date).toLocaleDateString('en-IN') : 'N/A'}
+                                    </p>
+                                  </div>
+                                )}
+                                {/* END NARANG CLEANUP NOTICE */}
                                 
                                 {(() => {
                                   // Check if this invoice's retailer is 100% upfront

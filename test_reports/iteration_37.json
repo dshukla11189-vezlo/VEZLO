@@ -1,0 +1,52 @@
+{
+  "summary": "Verified Mr Organix bug fixes for (1) Admin Panel invoice status calculation when fully covered by Credit Notes, and (2) Retailer Portal Dashboard CN adjustment display + 100% upfront logic. Admin panel test PASSED visually. Retailer Portal verified at code level only (retailer login returned 401 in preview as expected per test request note).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/screenshots/07_jun17_admin.png",
+    "/app/test_reports/screenshots/11_retailer_invoices.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "RetailerOrders.js is 17181 lines (>>700 line limit). Should be split into smaller focused modules. Same applies to Retailer/Dashboard.js (7717 lines). Refactoring recommended but not blocking.",
+    "Dynamic status calculation logic is duplicated in admin RetailerOrders.js (lines 10773-10795) and retailer Dashboard.js (lines 4735-4751). Consider extracting into a shared utility function (e.g., calculateInvoiceStatus({paidAmount, creditAdjusted, actualReceivable, ...})) to keep them in sync going forward.",
+    "Retailer login (kharatsarika013@gmail.com / retailer123 - Savtamali) returns 401 in preview. test_credentials.md says retailer was 'reseeded on June 14, 2025'. If retailer auth is expected to work in preview, this is a separate issue worth investigating."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend-only test)",
+    "frontend": "Admin: 100% (verified visually). Retailer: 100% code-review only (cannot login in preview)."
+  },
+  "test_credentials": "Admin: admin@freshflow.com / admin123 - WORKS. Retailer Savtamali (kharatsarika013@gmail.com / retailer123) - returns 401 in preview.",
+  "seed_data_creation": "None - tested against existing seeded data (NAR-INV-17JUN2026-001 invoice with total_credit_adjusted=620, net_payable=620 for Narang Super Mart).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin panel Retailer Orders > select 'Narang Super Mart (Brahmacorp)' > Invoices tab shows June 17 invoice (NAR-INV-17JUN2026-001) with green 'Paid' badge. RECEIVABLE column correctly shows: ₹620.00 (strikethrough) / -₹620.00 CN / ₹0.00 (final). This confirms the dynamic status calc handles cases where CN fully covers the invoice (creditAdjusted >= actualReceivable, paidAmount=0). Retailer Portal could not be tested visually due to 401 on retailer login; code review of Dashboard.js lines 4695-4760 confirms identical logic is in place. If main agent wants visual confirmation in retailer portal, they need to first fix retailer auth or provide working retailer credentials.",
+  "verification_details": {
+    "admin_panel_jun17_invoice": {
+      "invoice_number": "NAR-INV-17JUN2026-001",
+      "status_badge": "Paid (green: bg-green-100 text-green-800)",
+      "receivable_column": "Strikethrough ₹620.00 | -₹620.00 CN | ₹0.00 (final)",
+      "paid_amount": "₹0.00",
+      "pending": "-",
+      "actions": "View",
+      "row_highlighted": "bg-green-50/30 (yes, paid styling applied)",
+      "result": "PASS - matches expected behavior"
+    },
+    "retailer_portal_code_review": {
+      "file": "/app/frontend/src/pages/retailer/Dashboard.js",
+      "status_calculation_lines": "4735-4751",
+      "cn_breakdown_display_lines": "4777-4785",
+      "upfront_100_logic_lines": "4709-4715",
+      "result": "PASS - logic matches admin panel exactly. Visual verification blocked by retailer auth (401)."
+    }
+  },
+  "rca of the issue": "N/A - This was a verification of fixes already applied by main agent. Both fixes are correctly implemented: (1) Admin status calc now includes branch for fully-CN-covered invoices (creditAdjusted >= actualReceivable when paidAmount=0), and (2) Retailer Dashboard uses gross-commission (not gross-rejection-commission) for 100% upfront retailers + shows CN breakdown in RECEIVABLE column."
+}

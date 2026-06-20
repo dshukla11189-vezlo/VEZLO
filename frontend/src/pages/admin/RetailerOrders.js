@@ -10779,9 +10779,15 @@ export default function RetailerOrders() {
                       } else if (isExcessPaid) {
                         status = 'excess';
                       } else if (pendingAmount <= 0.01 && paidAmount > 0) {
-                        // Fully paid (with small tolerance for rounding)
+                        // Fully paid via cash payment (with small tolerance for rounding)
+                        status = 'paid';
+                      } else if (pendingAmount <= 0.01 && creditAdjusted > 0 && actualReceivable <= 0.01) {
+                        // Fully covered by Credit Notes (no cash payment needed, receivable is 0)
                         status = 'paid';
                       } else if (paidAmount > 0 && pendingAmount > 0.01) {
+                        status = 'partial';
+                      } else if (creditAdjusted > 0 && pendingAmount > 0.01) {
+                        // Partially covered by Credit Notes but still has pending
                         status = 'partial';
                       } else {
                         status = 'pending';

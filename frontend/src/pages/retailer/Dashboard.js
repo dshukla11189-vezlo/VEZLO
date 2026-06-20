@@ -4682,7 +4682,7 @@ export default function RetailerDashboard() {
                           <th className="p-3 text-right font-medium text-gray-500">GROSS VALUE</th>
                           <th className="p-3 text-right font-medium text-red-500">REJECTION</th>
                           <th className="p-3 text-right font-medium text-green-600">COMMISSION</th>
-                          <th className="p-3 text-right font-medium text-gray-700 font-bold">NET PAYABLE</th>
+                          <th className="p-3 text-right font-medium text-gray-700 font-bold">RECEIVABLE</th>
                           <th className="p-3 text-right font-medium text-blue-600">PAID</th>
                           <th className="p-3 text-right font-medium text-orange-600">PENDING</th>
                           <th className="p-3 text-center font-medium text-gray-500">PDF</th>
@@ -4693,21 +4693,65 @@ export default function RetailerDashboard() {
                         {invoices.length === 0 ? (
                           <tr><td colSpan={13} className="p-8 text-center text-gray-400">No invoices found</td></tr>
                         ) : invoices.map((invoice, invoiceIndex) => {
+                          // Check if retailer is 100% upfront (from dashboardData)
+                          const isUpfront100 = dashboardData?.retailer?.upfront_collection_percentage === 100;
+                          
                           const grossValue = invoice.gross_value || invoice.items?.reduce((sum, i) => sum + ((i.supplied_qty || i.quantity || 0) * (i.mrp || 0)), 0) || 0;
                           const rejectionValue = invoice.rejection_amount || invoice.items?.reduce((sum, i) => sum + ((i.rejected_qty || 0) * (i.mrp || 0)), 0) || 0;
+                          const commissionPct = invoice.commission_percentage || 0;
+                          
+                          // netValue is MRP Value (gross - rejection) - used for display
                           const netValue = grossValue - rejectionValue;
-                          const commissionAmt = invoice.commission_amount || (netValue * (invoice.commission_percentage || 0) / 100);
-                          const payableAmt = invoice.net_payable || (netValue - commissionAmt);
-                          const isPaid = invoice.status === 'paid' || invoice.status === 'closed' || invoice.payment_status === 'paid';
-                          const isPartial = invoice.status === 'partial' || invoice.payment_status === 'partial';
+                          
+                          // For 100% upfront retailers: use gross - commission (no rejection deduction)
+                          // For others: use net_payable (which includes rejection deduction)
+                          let calculatedNetPayable;
+                          if (isUpfront100) {
+                            // 100% upfront: gross minus commission only (rejections handled via Credit Notes)
+                            calculatedNetPayable = grossValue - (grossValue * commissionPct / 100);
+                          } else {
+                            // Standard: gross - rejection - commission
+                            const standardCommissionAmt = netValue * commissionPct / 100;
+                            calculatedNetPayable = invoice.net_payable || (netValue - standardCommissionAmt);
+                          }
+                          
+                          const commissionAmt = isUpfront100 
+                            ? (grossValue * commissionPct / 100) 
+                            : (invoice.commission_amount || (netValue * commissionPct / 100));
+                          const payableAmt = calculatedNetPayable;
+                          
+                          // Credit Note adjustments
+                          const creditAdjusted = invoice.total_credit_adjusted || 0;
+                          const actualReceivable = payableAmt - creditAdjusted;
                           
                           // Get paid amount from invoice or payments
                           const paidAmount = invoice.paid_amount || 0;
-                          const pendingAmount = Math.max(0, payableAmt - paidAmount);
+                          const pendingAmount = Math.max(0, actualReceivable - paidAmount);
                           
                           // Check for Excess Paid condition
-                          const isExcessPaid = paidAmount > payableAmt + 0.01;
-                          const excessAmount = isExcessPaid ? paidAmount - payableAmt : 0;
+                          const isExcessPaid = paidAmount > actualReceivable + 0.01 && actualReceivable > 0;
+                          const excessAmount = isExcessPaid ? paidAmount - actualReceivable : 0;
+                          
+                          // Dynamic status calculation (matches Admin panel logic)
+                          let status;
+                          if (invoice.savtamali_cleanup) {
+                            status = 'adjusted';
+                          } else if (isExcessPaid) {
+                            status = 'excess';
+                          } else if (pendingAmount <= 0.01 && paidAmount > 0) {
+                            status = 'paid';
+                          } else if (pendingAmount <= 0.01 && creditAdjusted > 0 && actualReceivable <= 0.01) {
+                            status = 'paid'; // Fully covered by Credit Notes
+                          } else if (paidAmount > 0 && pendingAmount > 0.01) {
+                            status = 'partial';
+                          } else if (creditAdjusted > 0 && pendingAmount > 0.01) {
+                            status = 'partial';
+                          } else {
+                            status = 'pending';
+                          }
+                          
+                          const isPaid = status === 'paid' || status === 'adjusted';
+                          const isPartial = status === 'partial';
                           
                           // Get payment details for this invoice
                           const invoicePayments = payments.filter(p => p.invoice_id === invoice.id);
@@ -4730,7 +4774,15 @@ export default function RetailerDashboard() {
                                   -{formatCurrency(commissionAmt)} ({invoice.commission_percentage || 0}%)
                                 </td>
                                 <td className="p-3 text-right font-bold text-gray-800">
-                                  {formatCurrency(payableAmt)}
+                                  {creditAdjusted > 0 ? (
+                                    <div className="text-xs">
+                                      <div className="text-gray-500 line-through">{formatCurrency(payableAmt)}</div>
+                                      <div className="text-red-500">- {formatCurrency(creditAdjusted)} CN</div>
+                                      <div className="font-semibold text-green-700">{formatCurrency(actualReceivable)}</div>
+                                    </div>
+                                  ) : (
+                                    <span className="font-semibold">{formatCurrency(payableAmt)}</span>
+                                  )}
                                 </td>
                                 <td className="p-3 text-right text-blue-600 font-medium">
                                   {paidAmount > 0 ? formatCurrency(paidAmount) : '-'}

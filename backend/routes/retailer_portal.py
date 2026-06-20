@@ -9178,7 +9178,9 @@ async def execute_narang_cleanup(current_user: dict = Depends(get_current_user))
             "original_invoice_id": linked_invoice.get("id") if linked_invoice else None,
             "original_invoice_number": linked_invoice.get("invoice_number") if linked_invoice else None,
             "rejection_id": rej.get("id"),
-            "rejection_date": rej.get("rejection_date"),
+            "rejection_date": rej.get("rejection_date"),  # This is used for date grouping in frontend
+            "date": rej.get("rejection_date"),  # Also set date field
+            "original_invoice_date": rej.get("rejection_date"),  # For grouping by invoice date
             "rejection_value": rejection_value,
             "commission_percentage": NARANG_COMMISSION_PERCENTAGE,
             "commission_deducted": commission_deducted,

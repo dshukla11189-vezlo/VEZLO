@@ -10828,8 +10828,8 @@ export default function RetailerOrders() {
                                 </span>
                               ) : invoice.narang_cleanup ? (
                                 /* NARANG CLEANUP INDICATOR - shows CN created for rejection */
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200" title={`100% upfront correction: ${invoice.narang_cleanup_cn_number} created`}>
-                                  <RefreshCw size={12} className="mr-1" /> CN Created
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200" title="100% upfront correction: Individual CNs created for rejection items">
+                                  <RefreshCw size={12} className="mr-1" /> Corrected
                                 </span>
                               ) : isExcessPaid ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200 animate-pulse">
@@ -11057,8 +11057,9 @@ export default function RetailerOrders() {
                                       </span>
                                     </div>
                                     <p className="text-blue-700 text-xs mt-1">
-                                      Credit Note <span className="font-semibold">{invoice.narang_cleanup_cn_number}</span> was created for the rejection amount (₹{invoice.rejection_amount?.toLocaleString()}).
-                                      The CN is now pending and can be adjusted against upcoming invoices.
+                                      Individual Credit Notes have been created for each rejection item from this invoice. 
+                                      Total rejection amount: ₹{invoice.rejection_amount?.toLocaleString() || '0'}.
+                                      These CNs are pending and can be adjusted against any invoice.
                                     </p>
                                     <p className="text-blue-600 text-[10px] mt-1">
                                       Correction date: {invoice.narang_cleanup_date ? new Date(invoice.narang_cleanup_date).toLocaleDateString('en-IN') : 'N/A'}
@@ -12196,9 +12197,16 @@ export default function RetailerOrders() {
                                 dateKey = `${match[3]}-${monthMap[match[2]] || '01'}-${match[1]}`;
                               }
                             }
+                            // Fallback to rejection_date for CNs without invoice number (like cleanup CNs)
+                            if (dateKey === 'Unknown' && cn.rejection_date) {
+                              dateKey = cn.rejection_date.substring(0, 10);
+                            }
                           } else {
                             // Group by recorded/created date
-                            if (cn.created_at) {
+                            // First try rejection_date (the actual date of rejection)
+                            if (cn.rejection_date) {
+                              dateKey = cn.rejection_date.substring(0, 10);
+                            } else if (cn.created_at) {
                               dateKey = cn.created_at.substring(0, 10); // YYYY-MM-DD
                             }
                           }

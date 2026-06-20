@@ -3,6 +3,27 @@
 ## Changelog (June 2025)
 
 
+
+### June 20, 2026 - Invoice Status Fix + Admin-Retailer Portal Sync ✅
+- **BUG FIX (P0)**: Fixed invoice showing "Pending" status when fully covered by Credit Notes
+  - **Symptom**: June 17 invoice (NAR-INV-17JUN2026-001) showed "Pending" even though Receivable (₹620) = Credit Note (₹620), net is zero
+  - **Root Cause**: Status calculation required `paidAmount > 0`, but when CNs fully cover an invoice, paidAmount is 0
+  - **Solution**: Added condition: if `pendingAmount <= 0.01 && creditAdjusted > 0 && actualReceivable <= 0.01` → status = 'paid'
+  - **Result**: Invoice now shows "Paid" status with green badge
+- **SYNC FIX (P0)**: Aligned Retailer Portal Invoice view with Admin Panel
+  - **Problem**: Retailer Portal wasn't using 100% upfront calculation logic or showing CN breakdowns
+  - **Changes to Retailer Dashboard.js**:
+    1. Added 100% upfront detection: `isUpfront100 = dashboardData?.retailer?.upfront_collection_percentage === 100`
+    2. For 100% upfront: Use `gross - commission` instead of `gross - rejection - commission`
+    3. Added CN breakdown in RECEIVABLE column: strikethrough original → -CN amount → final amount
+    4. Dynamic status calculation matching Admin panel logic
+    5. Header column renamed from "NET PAYABLE" to "RECEIVABLE" for consistency
+- **FILES MODIFIED**:
+  - `/app/frontend/src/pages/admin/RetailerOrders.js` - Status calculation (lines 10773-10795)
+  - `/app/frontend/src/pages/retailer/Dashboard.js` - Invoice rendering (lines 4695-4810)
+- **TESTED**: Verified via screenshot - Narang Super Mart June 17 invoice shows "Payment Cleared" status in Retailer Portal
+
+
 ### June 19, 2026 - Grand Total Pending Amount Fix (Invoice Table Footer) ✅
 - **BUG FIX (P0)**: Fixed mismatch between sum of individual invoice pending amounts and the footer total in Admin Retailer Orders
   - **Symptom**: User reported: Individual invoices summed to ₹1200.3 but footer showed ₹1153.55 (difference of ₹46.75 = Credit Note amount)

@@ -3,6 +3,25 @@
 ## Changelog (June 2025)
 
 
+### June 21, 2026 - P&L Internal Consistency Fix ✅
+- **BUG FIX (P0)**: Fixed Summary vs Daily P&L Purchase Amount Mismatch
+  - **Symptom**: Summary `total_purchase` (Rs 31557.5) didn't match sum of `daily_pnl.purchase` (Rs 4755.32) 
+  - **Root Cause**: 
+    1. `daily_pnl.purchase` was calculated from original `line_items_by_date` which had COGS=0 for non-combo QC items
+    2. Proper COGS calculation happened later when building `detailed_line_items`
+    3. Summary `total_purchase` used raw procurement data instead of line-item COGS
+  - **Solution**:
+    1. Moved day COGS calculation to AFTER `detailed_line_items` are built (which have proper COGS rates)
+    2. Changed Summary `total_purchase` to use `total_cogs` (line-item based) for consistency
+    3. Added `total_procurement` field to preserve raw procurement value for audit reference
+  - **Consistency Achieved**:
+    - Summary total_purchase = Sum of daily_pnl.purchase ✅
+    - Summary total_wastage = Sum of daily_pnl.wastage ✅  
+    - QC + Retail bifurcation purchase = Summary total_purchase ✅
+- **FILES MODIFIED**:
+  - `/app/backend/routes/dashboard_analytics.py` - Refactored COGS calculation order, updated summary output
+
+
 ### June 21, 2026 - Combo Product COGS Calculation in Datewise P&L ✅
 - **FEATURE (P0)**: Implemented dynamic COGS calculation for combo products
   - **Problem**: New combo products (like "Herbs mix(280 gm Pack)-FK : (Curry 60 gm, Coriander 120 gm, Mint 100 gm)") couldn't be read by GRN upload and P&L didn't calculate their COGS correctly

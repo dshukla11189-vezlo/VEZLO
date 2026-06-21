@@ -80,7 +80,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 # Import modular routers
 from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router
-from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date
+from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date, save_daily_cogs
 from routes.retail_plans import initialize_default_plans
 from routes.retailer_portal import run_blinkit_scrape_scheduled, generate_auto_indents_wrapper
 
@@ -901,11 +901,15 @@ async def compute_daily_cogs_scheduled():
         
         logger.info(f"[DAILY_COGS_SCHEDULER] Starting daily COGS computation for {date_str}")
         
-        # Compute COGS for today
+        # Compute COGS for today - returns dict directly {product: data}
         result = await compute_daily_cogs_for_date(db, date_str)
         
+        # Save the computed COGS to the database
+        if result:
+            await save_daily_cogs(db, result)
+            logger.info(f"[DAILY_COGS_SCHEDULER] Saved daily COGS for {len(result)} products")
+        
         logger.info(f"[DAILY_COGS_SCHEDULER] Completed daily COGS computation for {date_str}")
-        logger.info(f"[DAILY_COGS_SCHEDULER] Products computed: {len(result.get('product_results', {}))}")
         
     except Exception as e:
         logger.error(f"[DAILY_COGS_SCHEDULER] Error computing daily COGS: {e}")

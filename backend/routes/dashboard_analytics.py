@@ -1174,12 +1174,7 @@ async def get_pnl_report(
         day_retail_rejection_cogs = day_data.get("retail_rejection_cogs", 0)
         day_retail_commission = day_data.get("retail_commission", 0)
         
-        # Gross profit = Sales - Purchase - Wastage - Rejection (COGS) - Commission
-        day_gross = day_data["sales"] - day_data["purchase"] - day_data["wastage"] - day_retail_rejection_cogs - day_retail_commission
-        day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
         day_sales_qty = day_data.get("sales_qty", 0)
-        day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
-        day_profit_per_unit = (day_gross / day_sales_qty) if day_sales_qty > 0 else 0
         
         # Product breakdown for this date (legacy - kept for backward compatibility)
         products_detail = []
@@ -1453,6 +1448,25 @@ async def get_pnl_report(
                 "wastage_pct": round(wastage_pct, 1)
             }
         
+        # Calculate day's COGS and wastage from DETAILED line items (which have proper COGS calculation)
+        # This must be done AFTER detailed_line_items are built
+        day_cogs_from_items = 0
+        day_wastage_from_items = 0
+        
+        for line_item in detailed_line_items:
+            day_cogs_from_items += line_item.get("cogs", 0) or 0
+            day_wastage_from_items += line_item.get("wastage_value", 0) or 0
+        
+        # Gross profit using line-item COGS basis (consistent with total_cogs)
+        day_gross = day_data["sales"] - day_cogs_from_items - day_wastage_from_items - day_retail_rejection_cogs - day_retail_commission
+        day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
+        day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
+        day_profit_per_unit = (day_gross / day_sales_qty) if day_sales_qty > 0 else 0
+        
+        # Update day_data for consistency (purchase = COGS from line items)
+        day_data["purchase"] = day_cogs_from_items
+        day_data["wastage"] = day_wastage_from_items
+        
         daily_pnl.append({
             "date": date_key,
             "sales": round(day_data["sales"], 2),
@@ -1496,24 +1510,6 @@ async def get_pnl_report(
             "rejection_cogs": round(rejection_cogs_by_retailer.get(data.get("retailer_id", ""), 0), 2)  # Rejection at COGS
         })
     
-    # Product P&L with additional metrics
-    product_pnl = []
-    for product, data in sorted(sales_by_product.items(), key=lambda x: x[1]["sales_amount"], reverse=True):
-        profit = data["sales_amount"] - data["purchase_amount"] - data["wastage_amount"]
-        margin = (profit / data["sales_amount"] * 100) if data["sales_amount"] > 0 else 0
-        profit_per_unit = (profit / data["sales_qty"]) if data["sales_qty"] > 0 else 0
-        product_pnl.append({
-            "product": product,
-            "sales_amount": round(data["sales_amount"], 2),
-            "sales_qty": round(data["sales_qty"], 2),
-            "purchase_amount": round(data["purchase_amount"], 2),
-            "purchase_qty": round(data["purchase_qty"], 2),
-            "wastage_amount": round(data["wastage_amount"], 2),
-            "profit": round(profit, 2),
-            "margin": round(margin, 1),
-            "profit_per_unit": round(profit_per_unit, 2)
-        })
-    
     # Calculate QC vs Retail bifurcation totals
     total_qc_sales = sum(day.get("qc_sales", 0) for day in daily_pnl)
     total_retail_sales = sum(day.get("retail_sales", 0) for day in daily_pnl)
@@ -1533,6 +1529,54 @@ async def get_pnl_report(
             else:  # Retail
                 actual_retail_cogs += item.get("cogs", 0)
                 actual_retail_wastage += item.get("wastage_value", 0)
+    
+    # Recompute sales_by_product purchase_amount from line-item COGS
+    # This ensures product_pnl.purchase_amount is consistent with total_cogs
+    product_cogs_from_items = {}  # {product: cogs}
+    product_wastage_from_items = {}  # {product: wastage}
+    
+    for day in daily_pnl:
+        for item in day.get("line_items", []):
+            product = item.get("product", "Unknown")
+            item_cogs = item.get("cogs", 0) or 0
+            item_wastage = item.get("wastage_value", 0) or 0
+            
+            if product not in product_cogs_from_items:
+                product_cogs_from_items[product] = 0
+            product_cogs_from_items[product] += item_cogs
+            
+            if product not in product_wastage_from_items:
+                product_wastage_from_items[product] = 0
+            product_wastage_from_items[product] += item_wastage
+    
+    # Update sales_by_product with line-item COGS (overwrite procurement-based values)
+    for product, cogs in product_cogs_from_items.items():
+        if product in sales_by_product:
+            sales_by_product[product]["purchase_amount"] = cogs
+        else:
+            sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": cogs, "purchase_qty": 0, "wastage_amount": 0}
+    
+    for product, wastage in product_wastage_from_items.items():
+        if product in sales_by_product:
+            sales_by_product[product]["wastage_amount"] = wastage
+    
+    # Product P&L with additional metrics - MUST be built AFTER sales_by_product is updated with line-item COGS
+    product_pnl = []
+    for product, data in sorted(sales_by_product.items(), key=lambda x: x[1]["sales_amount"], reverse=True):
+        profit = data["sales_amount"] - data["purchase_amount"] - data["wastage_amount"]
+        margin = (profit / data["sales_amount"] * 100) if data["sales_amount"] > 0 else 0
+        profit_per_unit = (profit / data["sales_qty"]) if data["sales_qty"] > 0 else 0
+        product_pnl.append({
+            "product": product,
+            "sales_amount": round(data["sales_amount"], 2),
+            "sales_qty": round(data["sales_qty"], 2),
+            "purchase_amount": round(data["purchase_amount"], 2),
+            "purchase_qty": round(data["purchase_qty"], 2),
+            "wastage_amount": round(data["wastage_amount"], 2),
+            "profit": round(profit, 2),
+            "margin": round(margin, 1),
+            "profit_per_unit": round(profit_per_unit, 2)
+        })
     
     # Count QC and Retail orders and quantities
     qc_order_count = 0
@@ -1685,11 +1729,12 @@ async def get_pnl_report(
         "summary": {
             "total_sales": round(total_sales, 2),
             "total_sales_qty": round(total_sales_qty, 2),
-            "total_purchase": round(total_purchase, 2),
+            "total_purchase": round(total_cogs, 2),  # Use line-item COGS for consistency with daily_pnl
             "total_purchase_qty": round(total_purchase_qty, 2),
-            "total_cogs": round(total_cogs, 2),  # Sum of line item COGS
+            "total_cogs": round(total_cogs, 2),  # Sum of line item COGS (same as total_purchase now)
+            "total_procurement": round(total_purchase, 2),  # Raw procurement value (for audit reference)
             "total_wastage_qty": round(total_wastage_qty, 2),
-            "total_wastage_value": round(total_wastage_value, 2),
+            "total_wastage_value": round(total_wastage_from_items, 2),  # Use line-item wastage for consistency
             "total_wastage_from_items": round(total_wastage_from_items, 2),  # Sum of line item wastage
             "total_retail_rejection": round(total_retail_rejection, 2),
             "total_retail_commission": round(total_retail_commission, 2),

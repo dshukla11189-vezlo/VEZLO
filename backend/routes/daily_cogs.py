@@ -37,6 +37,9 @@ async def get_db():
     from server import db
     return db
 
+# Import get_current_user for auth
+from dependencies import get_current_user
+
 
 async def get_all_products(db: AsyncIOMotorDatabase) -> list:
     """Get all unique product names from procurements and dispatches."""
@@ -60,6 +63,13 @@ async def get_all_products(db: AsyncIOMotorDatabase) -> list:
     nc_dispatches = await db.ninjacart_dispatches.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
     for disp in nc_dispatches:
         for item in disp.get("items", []):
+            if item.get("product_name"):
+                products.add(item["product_name"])
+    
+    # From QC GRNs
+    qc_grns = await db.qc_grns.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
+    for grn in qc_grns:
+        for item in grn.get("items", []):
             if item.get("product_name"):
                 products.add(item["product_name"])
     
@@ -149,6 +159,34 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
         for item in dispatch.get("items", []):
             product = item.get("product_name", "Unknown")
             qty_kg = item.get("total_weight", 0) or item.get("quantity", 0) or 0
+            
+            if product not in product_sales:
+                product_sales[product] = 0
+            product_sales[product] += qty_kg
+    
+    # QC GRNs - iterate each grn's items, filter by dispatch_date matching date_str
+    qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
+    
+    for grn in qc_grns:
+        for item in grn.get("items", []):
+            # Filter by dispatch_date matching date_str
+            item_dispatch_date = item.get("dispatch_date", "")
+            if not item_dispatch_date or not item_dispatch_date.startswith(date_str):
+                continue
+            
+            product = item.get("product_name", "Unknown")
+            grn_qty = item.get("grn_qty", 0) or 0
+            packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
+            grn_qty_kg = item.get("grn_qty_kg", 0) or 0
+            
+            # Calculate qty_kg: (grn_qty × packaging_weight_gm) / 1000
+            # Fallback chain: packaging_weight_gm -> grn_qty_kg -> grn_qty as-is
+            if packaging_weight_gm > 0:
+                qty_kg = (grn_qty * packaging_weight_gm) / 1000
+            elif grn_qty_kg > 0:
+                qty_kg = grn_qty_kg
+            else:
+                qty_kg = grn_qty  # Assume already in Kg
             
             if product not in product_sales:
                 product_sales[product] = 0
@@ -246,12 +284,18 @@ async def save_daily_cogs(db: AsyncIOMotorDatabase, cogs_data: dict):
 async def backfill_daily_cogs(
     from_date: str = None,
     to_date: str = None,
-    db: AsyncIOMotorDatabase = Depends(get_db)
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Backfill the daily_cogs collection for a date range.
     Processes dates sequentially to ensure proper carryover.
+    Requires admin role.
     """
+    # Check admin role
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
     try:
         # Default to last 90 days if not specified
         if not to_date:
@@ -299,9 +343,14 @@ async def backfill_daily_cogs(
 @router.post("/update/{date_str}")
 async def update_daily_cogs_for_date(
     date_str: str,
-    db: AsyncIOMotorDatabase = Depends(get_db)
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
-    """Update daily COGS for a specific date and all subsequent dates."""
+    """Update daily COGS for a specific date and all subsequent dates. Requires admin role."""
+    # Check admin role
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
     try:
         products = await get_all_products(db)
         

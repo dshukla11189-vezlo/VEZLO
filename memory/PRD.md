@@ -3,6 +3,14 @@
 ## Changelog (June 2025)
 
 
+### June 21, 2026 - Deployment Health Check Fix ✅
+- **BUG FIX**: Added root-level `/health` endpoint for Kubernetes health checks
+  - Kubernetes was checking `/health` but the health router was mounted at `/api/health`
+  - Added direct `/health` endpoint at root level that returns `{"status": "healthy", "service": "harvest-hub-backend"}`
+- **FILES MODIFIED**:
+  - `/app/backend/server.py` - Added root-level health endpoint
+
+
 ### June 21, 2026 - Combo Products Exclusion from Stock Status ✅
 - **FEATURE**: Exclude combo products from daily stock closing
   - Combo products no longer appear in Stock Status tab

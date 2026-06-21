@@ -777,6 +777,12 @@ app.include_router(dashboard_analytics_router, prefix="/api")
 app.include_router(retailer_portal_router, prefix="/api")
 app.include_router(daily_cogs_router)  # Daily COGS tracking
 
+# Root-level health endpoint for Kubernetes health checks (without /api prefix)
+@app.get("/health")
+async def root_health_check():
+    """Root-level health endpoint for Kubernetes liveness/readiness probes"""
+    return {"status": "healthy", "service": "harvest-hub-backend"}
+
 # Add no-cache middleware for API responses
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response

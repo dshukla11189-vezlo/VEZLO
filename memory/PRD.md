@@ -3,6 +3,38 @@
 ## Changelog (June 2025)
 
 
+### June 21, 2026 - Combo Product COGS Calculation in Datewise P&L ✅
+- **FEATURE (P0)**: Implemented dynamic COGS calculation for combo products
+  - **Problem**: New combo products (like "Herbs mix(280 gm Pack)-FK : (Curry 60 gm, Coriander 120 gm, Mint 100 gm)") couldn't be read by GRN upload and P&L didn't calculate their COGS correctly
+  - **Solution**: Created combo parsing and COGS calculation system that:
+    1. Detects combo products by parsing product names with format: `Name (weight Pack)-FK : (ingredient1 qty, ingredient2 qty, ...)`
+    2. Extracts ingredient names and quantities from the product string
+    3. Looks up each ingredient's daily COGS rate from the `daily_cogs` collection
+    4. Calculates total COGS per pack: `sum(ingredient_weight_kg × ingredient_daily_cogs_rate)`
+    5. Distributes wastage proportionally to ingredients based on usage
+  - **5 Combo Products Supported**:
+    1. Coriander and mint leaves (220 gm Pack)-FK : ( Coriander - 120 gm & Mint 100 gm)
+    2. Curry leaves and coriander leaves(220 gm Pack)-FK : (Curry 100gm, Coriander 120 gm)
+    3. Herbs mix(280 gm Pack)-FK : (Curry 60 gm, Coriander 120 gm, Mint 100 gm)
+    4. fresh spices mix(620 gm Pack)-FK : (Green chill 100gm, Coriander 120gm, Garlic 200gm, Ginger 200gm)
+    5. Spinach and Coriander leaves(420 gm Pack)-FK : (Coriander 120 gm, Palak, 300 gm)
+  - **Example COGS Calculation** for Herbs mix:
+    - Curry Leaves: 0.06 kg × Rs 150/kg = Rs 9.00
+    - Coriander: 0.12 kg × Rs 80/kg = Rs 9.60
+    - Fresh Mint Leaves: 0.1 kg × Rs 200/kg = Rs 20.00
+    - **Total COGS per pack: Rs 38.60**
+- **FILES CREATED**:
+  - `/app/backend/routes/combo_utils.py` - Combo parsing, COGS calculation, wastage distribution utilities
+  - `/app/backend/tests/test_combo_utils.py` - 11 unit tests (all passing)
+- **FILES MODIFIED**:
+  - `/app/backend/routes/qc_grn.py` - Added combo detection during GRN Excel upload
+  - `/app/backend/routes/dashboard_analytics.py` - Added combo COGS calculation in P&L, propagated combo fields to response
+- **P&L Response Fields Added**:
+  - `is_combo`: boolean flag for combo products
+  - `combo_cogs_breakdown`: array of ingredient COGS details
+  - `combo_wastage_breakdown`: array of proportional wastage distribution
+- **TESTED**: Unit tests pass (11/11), Integration tests pass (27/28), E2E verified with test data
+
 
 ### June 20, 2026 - Invoice Status Fix + Admin-Retailer Portal Sync ✅
 - **BUG FIX (P0)**: Fixed invoice showing "Pending" status when fully covered by Credit Notes

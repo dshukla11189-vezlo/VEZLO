@@ -316,7 +316,10 @@ async def get_pnl_report(
                 # COGS and wastage will be calculated after we aggregate procurements
                 "cogs": 0,
                 "wastage_kg": 0,
-                "wastage_value": 0
+                "wastage_value": 0,
+                # QC items don't have combo support - set to False for schema consistency
+                "is_combo": False,
+                "combo_cogs_breakdown": None
             })
             # Note: GRN loss is now calculated by the shared calculate_grn_loss() function
         
@@ -1173,7 +1176,12 @@ async def get_pnl_report(
                         "commission_pct": line.get("commission_pct", 0),  # Track commission % for retail
                         "rejection_qty": 0,
                         "rejection_value": 0,
-                        "rejection_cogs": 0
+                        "rejection_cogs": 0,
+                        # Combo product fields
+                        "is_combo": line.get("is_combo", False),
+                        "combo_cogs_breakdown": line.get("combo_cogs_breakdown"),
+                        "combo_wastage_breakdown": line.get("combo_wastage_breakdown"),
+                        "combo_cogs_per_unit": line.get("cogs", 0) / line["supplied_qty"] if line.get("is_combo") and line["supplied_qty"] > 0 else 0
                     }
                 customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
                 customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
@@ -1233,13 +1241,22 @@ async def get_pnl_report(
                 product = item["product"]
                 
                 # Calculate COGS for this line item
-                # Use cost alias if defined (e.g., Spinach uses Palak's cost)
-                lookup_product = cost_alias_map.get(product, product)
-                cogs_rate = product_cogs_rate.get(lookup_product, 0)
-                # Fallback to original product if alias has no cost
-                if cogs_rate == 0 and lookup_product != product:
-                    cogs_rate = product_cogs_rate.get(product, 0)
-                cogs = item["supplied_kg"] * cogs_rate
+                # Special handling for combo products - use pre-calculated combo COGS
+                is_combo = item.get("is_combo", False)
+                cogs_rate = 0  # Initialize cogs_rate
+                if is_combo and item.get("combo_cogs_per_unit", 0) > 0:
+                    # For combo products, use the pre-calculated COGS (per-unit × supplied_qty)
+                    cogs = item["combo_cogs_per_unit"] * item["supplied_qty"]
+                    # For combo, calculate an effective COGS rate per kg for consistency
+                    cogs_rate = (cogs / item["supplied_kg"]) if item["supplied_kg"] > 0 else 0
+                else:
+                    # Regular products: use cost alias if defined (e.g., Spinach uses Palak's cost)
+                    lookup_product = cost_alias_map.get(product, product)
+                    cogs_rate = product_cogs_rate.get(lookup_product, 0)
+                    # Fallback to original product if alias has no cost
+                    if cogs_rate == 0 and lookup_product != product:
+                        cogs_rate = product_cogs_rate.get(product, 0)
+                    cogs = item["supplied_kg"] * cogs_rate
                 
                 # Calculate wastage proportionally based on kg supplied ratio
                 # If there are 3 supplies in the ratio of 50:30:20 kg, wastage is divided in same ratio
@@ -1301,7 +1318,11 @@ async def get_pnl_report(
                     "gross_margin": round(line_gross_margin, 1),
                     "selling_price_per_kg": round(selling_price_per_kg, 2),
                     "purchase_price_per_kg": round(purchase_price_per_kg, 2),
-                    "profit_per_qty": round(profit_per_qty, 2)
+                    "profit_per_qty": round(profit_per_qty, 2),
+                    # Combo product fields
+                    "is_combo": is_combo,
+                    "combo_cogs_breakdown": item.get("combo_cogs_breakdown") if is_combo else None,
+                    "combo_wastage_breakdown": item.get("combo_wastage_breakdown") if is_combo else None
                 })
         
         # Get unsold wastage for this date (products with wastage but no dispatch)

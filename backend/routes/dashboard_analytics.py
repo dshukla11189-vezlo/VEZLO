@@ -1232,8 +1232,13 @@ async def get_pnl_report(
             # Now calculate COGS and wastage allocation per line item
             # Get product-level COGS rate using:
             # 1. Daily COGS snapshot (preferred - accounts for inventory carryover)
-            # 2. Fallback to avg_price_by_product (overall average for the date range)
+            # 2. Fallback to closest available date's daily COGS
+            # 3. Final fallback to avg_price_by_product (overall average for the date range)
             product_cogs_rate = {}
+            
+            # Build sorted list of available dates for fallback
+            available_cogs_dates = sorted(set(d for (p, d) in daily_cogs_map.keys()), reverse=True)
+            
             if date_key in product_by_date:
                 for prod_name, prod_data in product_by_date[date_key].items():
                     # First try daily_cogs_map (persisted daily snapshot with inventory carryover)
@@ -1241,12 +1246,17 @@ async def get_pnl_report(
                     if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
                         product_cogs_rate[prod_name] = daily_cogs_map[daily_cogs_key]
                     else:
-                        # Fallback: try same-day procurement rate
-                        purch_qty = prod_data.get("purchase_qty", 0)
-                        purch_amt = prod_data.get("purchase", 0)
-                        if purch_qty > 0:
-                            product_cogs_rate[prod_name] = purch_amt / purch_qty
-                        else:
+                        # Try to find the closest available date's COGS for this product
+                        fallback_found = False
+                        for fallback_date in available_cogs_dates:
+                            if fallback_date <= date_key:  # Only use dates up to the requested date
+                                fallback_key = (prod_name, fallback_date)
+                                if fallback_key in daily_cogs_map and daily_cogs_map[fallback_key] > 0:
+                                    product_cogs_rate[prod_name] = daily_cogs_map[fallback_key]
+                                    fallback_found = True
+                                    break
+                        
+                        if not fallback_found:
                             # Final fallback: overall average price
                             product_cogs_rate[prod_name] = avg_price_by_product.get(prod_name, 0)
             
@@ -1307,20 +1317,28 @@ async def get_pnl_report(
                 # total pool is 110 kg and wastage is distributed proportionally
                 total_kg_for_alias_group = product_total_supplied_kg_with_alias.get(wastage_lookup_product, 0)
                 
-                # For wastage, combine quantities of aliased products
-                # e.g., if Spinach is aliased to Palak, Spinach dispatches share Palak's wastage pool
-                total_wastage_for_product = product_total_wastage.get(wastage_lookup_product, 0)
-                if total_wastage_for_product == 0 and wastage_lookup_product != product:
-                    total_wastage_for_product = product_total_wastage.get(product, 0)
-                
-                if total_kg_for_alias_group > 0:
-                    # Proportional wastage = (this_line_kg / total_alias_group_kg) * total_wastage
-                    kg_ratio = item["supplied_kg"] / total_kg_for_alias_group
-                    wastage_value = kg_ratio * total_wastage_for_product
-                    wastage_kg = (wastage_value / cogs_rate) if cogs_rate > 0 else 0
+                # For COMBO products: use the pre-calculated wastage from combo_wastage_breakdown
+                # This was calculated earlier by distributing ingredient wastage proportionally
+                if is_combo and item.get("combo_wastage_breakdown"):
+                    # Sum up the wastage from all ingredients in the combo
+                    wastage_kg = sum(w.get('wastage_share_kg', 0) for w in item["combo_wastage_breakdown"])
+                    wastage_value = sum(w.get('wastage_share_value', 0) for w in item["combo_wastage_breakdown"])
                 else:
-                    wastage_value = 0
-                    wastage_kg = 0
+                    # Regular products: distribute wastage from total pool
+                    # For wastage, combine quantities of aliased products
+                    # e.g., if Spinach is aliased to Palak, Spinach dispatches share Palak's wastage pool
+                    total_wastage_for_product = product_total_wastage.get(wastage_lookup_product, 0)
+                    if total_wastage_for_product == 0 and wastage_lookup_product != product:
+                        total_wastage_for_product = product_total_wastage.get(product, 0)
+                    
+                    if total_kg_for_alias_group > 0:
+                        # Proportional wastage = (this_line_kg / total_alias_group_kg) * total_wastage
+                        kg_ratio = item["supplied_kg"] / total_kg_for_alias_group
+                        wastage_value = kg_ratio * total_wastage_for_product
+                        wastage_kg = (wastage_value / cogs_rate) if cogs_rate > 0 else 0
+                    else:
+                        wastage_value = 0
+                        wastage_kg = 0
                 
                 # Calculate commission for retail items (proportional to revenue)
                 commission_pct = item.get("commission_pct", 0)

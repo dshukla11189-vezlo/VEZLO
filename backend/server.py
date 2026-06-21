@@ -80,7 +80,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 # Import modular routers
 from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router
-from routes.daily_cogs import router as daily_cogs_router
+from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date
 from routes.retail_plans import initialize_default_plans
 from routes.retailer_portal import run_blinkit_scrape_scheduled, generate_auto_indents_wrapper
 
@@ -885,6 +885,34 @@ async def seed_default_categories_types_on_startup():
         logger.info(f"Seeded {len(default_types)} default product types")
 
 
+async def compute_daily_cogs_scheduled():
+    """
+    Scheduled job to compute and persist daily COGS for the current day.
+    Runs at 23:55 IST daily to ensure daily_cogs collection stays current.
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        
+        # Get current date in IST (UTC+5:30)
+        utc_now = datetime.now(timezone.utc)
+        ist_offset = timedelta(hours=5, minutes=30)
+        ist_now = utc_now + ist_offset
+        date_str = ist_now.strftime("%Y-%m-%d")
+        
+        logger.info(f"[DAILY_COGS_SCHEDULER] Starting daily COGS computation for {date_str}")
+        
+        # Compute COGS for today
+        result = await compute_daily_cogs_for_date(db, date_str)
+        
+        logger.info(f"[DAILY_COGS_SCHEDULER] Completed daily COGS computation for {date_str}")
+        logger.info(f"[DAILY_COGS_SCHEDULER] Products computed: {len(result.get('product_results', {}))}")
+        
+    except Exception as e:
+        logger.error(f"[DAILY_COGS_SCHEDULER] Error computing daily COGS: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize backup scheduler, Gmail sync scheduler, and seed default data on startup"""
@@ -1052,6 +1080,18 @@ async def startup_event():
             misfire_grace_time=3600  # Allow 1 hour grace period
         )
         logger.info("Blinkit price scraper scheduled for 6:00 AM IST daily")
+        
+        # Add Daily COGS computation job at 11:55 PM IST (18:25 UTC)
+        # IST is UTC+5:30, so 11:55 PM IST = 18:25 UTC
+        # This ensures daily_cogs collection stays current with today's data
+        backup_scheduler.add_job(
+            compute_daily_cogs_scheduled,
+            CronTrigger(hour=18, minute=25),  # 11:55 PM IST
+            id='daily_cogs_computation',
+            replace_existing=True,
+            misfire_grace_time=3600  # Allow 1 hour grace period
+        )
+        logger.info("Daily COGS computation scheduled for 11:55 PM IST daily")
         
         # Check if we missed the 6 AM sync today and run it now
         await check_and_run_missed_gmail_sync()

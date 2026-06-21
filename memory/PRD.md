@@ -49,6 +49,19 @@
   - For combos: use GRN_Qty directly from Excel without proportional distribution
 - **Test Results**: All 5 combos matched with GRN Qty: 36, Supplied: 38
 
+### Unit Conversion & Daily COGS Scheduler (June 21, 2026) ✅
+- **BUG FIX**: PP/Kg was showing price-per-unit instead of price-per-kg for bunch/piece products
+  - Fixed by adding proper bunch/piece/pack → kg conversion in procurement processing
+  - Added fallback to closest available date's `daily_cogs` when exact date not found
+  - Normalized sales_qty to kg for proper comparison with purchase_qty (Button Mushroom fix)
+- **FEATURE**: Added APScheduler job for automatic daily COGS computation
+  - Runs at 23:55 IST (18:25 UTC) daily
+  - Ensures `daily_cogs` collection stays current automatically
+  - Job ID: `daily_cogs_computation`
+- **Files Modified**:
+  - `/app/backend/routes/dashboard_analytics.py` - Fixed unit conversions at lines 800-815 and 850-865, normalized sales_qty to kg
+  - `/app/backend/server.py` - Added `compute_daily_cogs_scheduled()` function and scheduler job
+
 
 ### June 20, 2026 - Invoice Status Fix + Admin-Retailer Portal Sync ✅
 - **BUG FIX (P0)**: Fixed invoice showing "Pending" status when fully covered by Credit Notes

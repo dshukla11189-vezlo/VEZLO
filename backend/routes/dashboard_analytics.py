@@ -284,30 +284,30 @@ async def get_pnl_report(
                     grn_qty_kg = supplied_kg
             
             total_sales += amount
-            total_sales_qty += qty
+            total_sales_qty += supplied_kg  # Use kg for consistent comparison with purchase_qty
             sales_by_customer[customer]["amount"] += amount
-            sales_by_customer[customer]["qty"] += qty
+            sales_by_customer[customer]["qty"] += supplied_kg  # Normalize to kg
             sales_by_customer[customer]["sales_dates"].add(item_dispatch_date)  # Track unique sales dates
             sales_by_date[item_dispatch_date]["sales"] += amount
-            sales_by_date[item_dispatch_date]["sales_qty"] += qty
+            sales_by_date[item_dispatch_date]["sales_qty"] += supplied_kg  # Normalize to kg
             sales_by_date[item_dispatch_date]["qc_sales"] = sales_by_date[item_dispatch_date].get("qc_sales", 0) + amount
             
             if product not in sales_by_product:
                 sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
             sales_by_product[product]["sales_amount"] += amount
-            sales_by_product[product]["sales_qty"] += qty
+            sales_by_product[product]["sales_qty"] += supplied_kg  # Normalize to kg
             
             # Product breakdown per date with customer tracking
             if product not in product_by_date[item_dispatch_date]:
                 product_by_date[item_dispatch_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
             product_by_date[item_dispatch_date][product]["sales"] += amount
-            product_by_date[item_dispatch_date][product]["sales_qty"] += qty
+            product_by_date[item_dispatch_date][product]["sales_qty"] += supplied_kg  # Normalize to kg
             product_by_date[item_dispatch_date][product]["sales_kg"] += supplied_kg  # Use supplied kg for SP/Kg calculation
             # Track sales by customer for this product on this date
             if customer not in product_by_date[item_dispatch_date][product]["customers"]:
                 product_by_date[item_dispatch_date][product]["customers"][customer] = {"sales": 0, "qty": 0}
             product_by_date[item_dispatch_date][product]["customers"][customer]["sales"] += amount
-            product_by_date[item_dispatch_date][product]["customers"][customer]["qty"] += qty
+            product_by_date[item_dispatch_date][product]["customers"][customer]["qty"] += supplied_kg  # Normalize to kg
             
             # Add detailed line item for this customer-product combination
             # Check if this is a combo product
@@ -797,11 +797,16 @@ async def get_pnl_report(
             total_item = item.get("total", 0) or 0
             product = item.get("product_name", "Unknown")
             
-            # NOTE: Do NOT convert to Kg here - keep qty in original units
-            # This ensures purchase_qty and sales_qty are comparable (both in same units)
-            # The unit_size conversion was causing P&L to show incorrect per-unit prices
-            # (e.g., Button Mushroom: sales in packets, purchase in Kg = wrong comparison)
-            qty_kg = qty  # Keep original quantity, regardless of unit
+            # Convert bunch/piece/pack quantities to Kg for proper COGS calculation
+            # This ensures purchase_qty is always in Kg regardless of how it was purchased
+            unit_needs_conversion = unit.lower() in ['bunch', 'piece', 'pack', 'packet', 'box', 'crate', 'dozen', 'pcs']
+            if unit_needs_conversion and unit_size:
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000  # unit_size is in grams
+                except (ValueError, TypeError):
+                    qty_kg = qty  # Fallback if unit_size is not a valid number
+            else:
+                qty_kg = qty  # Already in Kg or no conversion needed
             
             total_purchase += total_item
             total_purchase_qty += qty_kg
@@ -844,9 +849,15 @@ async def get_pnl_report(
             unit_size = item.get("unit_size", "")
             total_value = item.get("total", qty * item.get("rate", 0))
             
-            # NOTE: Keep qty in original units for consistency with sales_by_product
-            # Do NOT convert to Kg here
-            qty_kg = qty
+            # Convert bunch/piece/pack quantities to Kg for proper wastage calculation
+            unit_needs_conversion = unit.lower() in ['bunch', 'piece', 'pack', 'packet', 'box', 'crate', 'dozen', 'pcs']
+            if unit_needs_conversion and unit_size:
+                try:
+                    qty_kg = (qty * float(unit_size)) / 1000  # unit_size is in grams
+                except (ValueError, TypeError):
+                    qty_kg = qty  # Fallback if unit_size is not a valid number
+            else:
+                qty_kg = qty  # Already in Kg or no conversion needed
             
             if product_id not in fresh_purchases_by_date_product[proc_date_str]:
                 fresh_purchases_by_date_product[proc_date_str][product_id] = {"qty": 0, "value": 0}

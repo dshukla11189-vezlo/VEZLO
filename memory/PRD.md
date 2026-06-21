@@ -18,8 +18,12 @@
     - Summary total_purchase = Sum of daily_pnl.purchase ✅
     - Summary total_wastage = Sum of daily_pnl.wastage ✅  
     - QC + Retail bifurcation purchase = Summary total_purchase ✅
+- **ENHANCEMENT**: Wastage now uses daily_cogs rate (same as COGS)
+  - Updated wastage_value calculation at line 902-922 (main aggregation loop)
+  - Updated product_wastage_summary at line 1431-1435
+  - Wastage now valued at same rate as line-item COGS for consistency across all 5 P&L views
 - **FILES MODIFIED**:
-  - `/app/backend/routes/dashboard_analytics.py` - Refactored COGS calculation order, updated summary output
+  - `/app/backend/routes/dashboard_analytics.py` - Refactored COGS calculation order, updated summary output, wastage rate alignment
 
 
 ### June 21, 2026 - Combo Product COGS Calculation in Datewise P&L ✅

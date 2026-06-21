@@ -899,14 +899,20 @@ async def get_pnl_report(
         total_available = opening_qty + purchase_qty - dispatch_qty
         wastage_qty = max(0, total_available - closing_qty)
         
-        # Calculate wastage_value dynamically from current procurement rate
-        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+        # Calculate wastage_value using daily_cogs rate FIRST (same rate as COGS)
+        # This ensures wastage is valued at the same rate as line-item COGS
+        daily_cogs_key = (product, status_date)
+        if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+            avg_price = daily_cogs_map[daily_cogs_key]
+        else:
+            # Fallback to procurement rate
+            avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
         
         # Store this price for future fallback
         if avg_price > 0 and product_id:
             product_recent_prices[product_id] = avg_price
         
-        # If no purchase today, use the most recent price we've seen
+        # If no daily_cogs and no purchase today, use the most recent price we've seen
         if avg_price == 0 and product_id:
             avg_price = product_recent_prices.get(product_id, 0)
         
@@ -1428,8 +1434,16 @@ async def get_pnl_report(
             total_available = opening_qty + purchase_qty - dispatch_qty
             wastage_qty = max(0, total_available - closing_qty)
             
-            # Calculate wastage_value from avg_price
-            avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+            # Calculate wastage_value using daily_cogs rate FIRST (same rate as COGS)
+            # This ensures wastage is valued at the same rate as line-item COGS
+            daily_cogs_key = (prod_name, date_key)
+            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+                avg_price = daily_cogs_map[daily_cogs_key]
+            else:
+                # Fallback to procurement rate
+                avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
+            
+            # Further fallback to product_recent_prices
             if avg_price == 0 and product_id:
                 avg_price = product_recent_prices.get(product_id, 0)
             wastage_value = round(wastage_qty * avg_price, 2)

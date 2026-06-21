@@ -1,0 +1,60 @@
+{
+  "summary": "Backend testing for Combo product support in Datewise Daily P&L. All 27 unit + integration tests on combo_utils PASS (parsing 5 combos, typo handling, name normalization, COGS math, fuzzy ingredient match). However, integration test against /api/reports/pnl uncovered a CRITICAL bug: combo metadata (is_combo, combo_cogs_breakdown, combo_wastage_breakdown) is populated in the inner pipeline but DROPPED during aggregation into detailed_line_items, so the API never surfaces combo info to the frontend. Additionally, combo COGS is recomputed (and zeroed) during aggregation, defeating the whole feature.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/reports/pnl",
+        "issue": "Response line_items NEVER contain is_combo / combo_cogs_breakdown / combo_wastage_breakdown. These keys are set on inner line_items_by_date entries (dashboard_analytics.py L700-701, L981) but the aggregation at L1163-1177 (customer_product_map) and L1285-1305 (detailed_line_items) does not propagate them. Verified against live /api/reports/pnl with from_date=2025-01-01&to_date=2026-12-31 across 92 days and 4092 line items — zero have is_combo key. Frontend cannot render combo breakdown.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET /api/reports/pnl",
+        "issue": "For combo products, the final per-line cogs is recomputed at L1242 as supplied_kg * product_cogs_rate. Combo products have no purchase records, so product_cogs_rate is 0 → returned cogs=0. The dynamic combo COGS computed by calculate_combo_cogs() at L636-641 is overwritten/lost. The combo COGS feature is effectively non-functional in the API output.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/reports/pnl",
+        "issue": "QC line items (dashboard_analytics.py L306-320) don't include is_combo / combo_cogs_breakdown keys at all. Schema inconsistency between QC and Retail line items even before aggregation."
+      },
+      {
+        "endpoint": "GET /api/reports/pnl",
+        "issue": "Preview DB has no combo product dispatches (combo_line_items count = 0). End-to-end runtime path could not be observed with real data; review-based only for the COGS/wastage assignment."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_combo_utils.py",
+    "/app/backend/tests/test_combo_pnl_integration.py",
+    "/app/test_reports/pytest/pytest_combo_pnl.xml"
+  ],
+  "action_items": [
+    "Fix dashboard_analytics.py L1163-1177: propagate is_combo, combo_cogs_breakdown, combo_wastage_breakdown from inner line into customer_product_map (initialize from first line, and consider how to aggregate when multiple lines for same combo+customer+unit roll up).",
+    "Fix dashboard_analytics.py L1285-1305: include is_combo / combo_cogs_breakdown / combo_wastage_breakdown in the final detailed_line_items dict.",
+    "Fix dashboard_analytics.py L1235-1242 cogs override: when item['is_combo'] is true, do NOT recompute cogs via product_cogs_rate. Instead use the combo COGS (per-pack × supplied_qty) computed earlier OR call calculate_combo_cogs(combo_info, daily_cogs_map, date_key) again with the daily_cogs_map keyed on aggregated date. Otherwise combos will surface cogs=0.",
+    "Decide policy for QC line items (L306-320): either also support combos there (unlikely) or explicitly set is_combo=False / combo_cogs_breakdown=None to keep the response schema consistent for the frontend.",
+    "Seed at least one combo dispatch in preview DB so end-to-end can be observed (currently 0 combos dispatched, so the inner combo path doesn't execute at all and the bugs above were caught only via schema/code review)."
+  ],
+  "critical_code_review_comments": [
+    "dashboard_analytics.py is 4623 lines — far above the 700-line guideline. Strong candidate to be split (P&L, stock-status, recalculate endpoints). The combo bug is partly a symptom of this size: the inner combo logic at L630-701 is far from the aggregation at L1160-1305, making it easy to miss field propagation.",
+    "Per-line cogs calculation logic is duplicated (L644-650 inner loop, L1242 aggregation). The aggregation path is authoritative for the response, so the inner value is dead code for cogs. Either remove the inner cogs (and recompute correctly during aggregation, with combo branch) or carry it through. Right now it's misleading.",
+    "Ingredient-name lookup in calculate_combo_cogs uses substring match on the daily_cogs_map (combo_utils.py L224-228). This can produce wrong matches when one product name is a substring of another (e.g., 'Garlic' vs 'Garlic Paste'). Consider stricter normalization or an explicit alias table.",
+    "INGREDIENT_NAME_MAP is hardcoded in combo_utils.py. Long-term, ingredient→product mapping should live alongside cost_alias_map in DB so business users can maintain it.",
+    "is_combo_product() just checks for ':' + '(' + ')' which can produce false positives for normal product names containing all three (e.g., 'Mix (assorted): Special'). Recommend tightening to require the '-FK :' (or location :) pattern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_combo_pnl_integration.py"
+  ],
+  "success_rate": {
+    "backend": "27/28 (96%) — all combo_utils unit/integration tests pass; 1 PnL integration test fails by design to flag the dropped-keys bug",
+    "frontend": "N/A (backend-only test request)"
+  },
+  "test_credentials": "admin@freshflow.com / admin123 via 'identifier' field — WORKS. Token returned in access_token.",
+  "seed_data_creation": "None. No combo dispatches existed in preview DB during the test window 2025-01-01 → 2026-12-31, so the inner combo path was not exercised against real dispatches.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run /app/backend/tests/test_combo_pnl_integration.py after the main agent fixes the aggregation in dashboard_analytics.py (~L1163 and ~L1285). Pre-fix the failing test is 'TestPnlComboIntegration::test_pnl_combo_line_items_have_combo_flags'. Post-fix you also want to seed/upload a single combo dispatch (one of KNOWN_COMBO_PRODUCTS in combo_utils.py) for a date that has daily_cogs_map entries for its ingredients, then assert: response line_item has is_combo=True, combo_cogs_breakdown is a non-empty list, and cogs > 0 matches sum(weight_kg * cogs_rate_per_kg). The combo_utils module itself is solid (11/11 unit + 16 added integration tests pass).",
+  "rca of the issue": "Root cause: dashboard_analytics.get_pnl_report() builds two layers — (a) inner per-dispatch line_items_by_date where combo flags are correctly set at L700-701, then (b) an aggregation step at L1158-1183 that copies only a subset of fields into customer_product_map, then (c) emits detailed_line_items at L1285-1305 with another explicit field whitelist. The combo flags pass through neither (b) nor (c), so the response never contains them. Additionally, COGS is recomputed in (c) at L1242 using product_cogs_rate, which is 0 for combo products (no purchases), silently dropping the per-ingredient COGS from calculate_combo_cogs. Mitigation: in (b) carry over is_combo/combo_cogs_breakdown/combo_wastage_breakdown from first occurrence (these are deterministic per-product), and in (c) when item['is_combo'] branch the COGS computation back to calculate_combo_cogs or use a stored per-pack value × supplied_qty."
+}

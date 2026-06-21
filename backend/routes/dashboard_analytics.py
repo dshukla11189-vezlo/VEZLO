@@ -29,6 +29,12 @@ from models import StockClosingEntry, StockClosingBulkEntry
 from routes.qc_grn import calculate_grn_loss
 from routes.products_packaging import extract_weight_from_packaging_name
 from routes.daily_cogs import get_daily_cogs_map
+from routes.combo_utils import (
+    is_combo_product,
+    parse_combo_product,
+    calculate_combo_cogs,
+    calculate_combo_wastage_share,
+)
 
 router = APIRouter(tags=["dashboard_analytics"])
 
@@ -621,8 +627,28 @@ async def get_pnl_report(
             if avg_purchase_price == 0 and lookup_product != product:
                 avg_purchase_price = avg_price_by_product.get(product, 0)
             
-            # COGS should be based on kg, not pieces
-            item_cogs = supplied_kg * avg_purchase_price
+            # Check if this is a combo product (contains ":" with ingredient list)
+            combo_cogs_info = None
+            if is_combo_product(product):
+                combo_info = parse_combo_product(product)
+                if combo_info:
+                    # Calculate COGS from ingredients
+                    combo_cogs_info = calculate_combo_cogs(combo_info, daily_cogs_map, dispatch_date)
+                    if combo_cogs_info and combo_cogs_info['total_cogs_per_pack'] > 0:
+                        # Use combo COGS: total_cogs_per_pack × qty
+                        item_cogs = combo_cogs_info['total_cogs_per_pack'] * qty
+                        import logging
+                        logging.info(f"[COMBO_COGS] Product: {product}, Qty: {qty}, COGS/pack: {combo_cogs_info['total_cogs_per_pack']}, Total COGS: {item_cogs}")
+                    else:
+                        # Fallback to regular COGS calculation
+                        item_cogs = supplied_kg * avg_purchase_price
+                else:
+                    # Couldn't parse combo - use regular COGS
+                    item_cogs = supplied_kg * avg_purchase_price
+            else:
+                # Regular product - COGS based on kg
+                item_cogs = supplied_kg * avg_purchase_price
+            
             dispatch_cogs += item_cogs
             
             if product not in sales_by_product:
@@ -670,7 +696,9 @@ async def get_pnl_report(
                 "commission_pct": commission_pct,  # Store commission % for proportional allocation
                 "rejection_qty": product_rejection["qty"],
                 "rejection_value": round(product_rejection["value"], 2),  # Rejection at MRP
-                "rejection_cogs": round(product_rejection["cogs"], 2)  # Rejection at COGS/purchase price
+                "rejection_cogs": round(product_rejection["cogs"], 2),  # Rejection at COGS/purchase price
+                "is_combo": combo_cogs_info is not None,
+                "combo_cogs_breakdown": combo_cogs_info.get('ingredients_breakdown') if combo_cogs_info else None
             })
         
         # Track gross MRP for retail (before any deductions)
@@ -866,6 +894,92 @@ async def get_pnl_report(
                 "avg_price": avg_price
             }
     
+    # ========== COMBO PROPORTIONAL WASTAGE DISTRIBUTION ==========
+    # For combo products, distribute wastage from base ingredients proportionally
+    # based on how much of each ingredient was used in combos vs total supplied
+    
+    # Build ingredient totals for wastage distribution
+    # {date: {ingredient_name: {'supplied_kg': X, 'wastage_kg': Y, 'wastage_value': Z}}}
+    ingredient_totals_by_date = {}
+    
+    for status in stock_status:
+        status_date = status.get("date", "")[:10]
+        product = status.get("product_name", "Unknown")
+        
+        # Skip combo products for totals (we only want base ingredients)
+        if is_combo_product(product):
+            continue
+        
+        dispatch_qty = status.get("dispatch_qty", 0) or 0
+        wastage_qty_ing = status.get("wastage_qty", 0) or 0
+        wastage_value_ing = status.get("wastage_value", 0) or 0
+        
+        if status_date not in ingredient_totals_by_date:
+            ingredient_totals_by_date[status_date] = {}
+        
+        # Normalize ingredient name for matching
+        ing_key = product.lower().strip()
+        if ing_key not in ingredient_totals_by_date[status_date]:
+            ingredient_totals_by_date[status_date][ing_key] = {
+                'supplied_kg': 0,
+                'wastage_kg': 0,
+                'wastage_value': 0
+            }
+        
+        ingredient_totals_by_date[status_date][ing_key]['supplied_kg'] += dispatch_qty
+        ingredient_totals_by_date[status_date][ing_key]['wastage_kg'] += wastage_qty_ing
+        ingredient_totals_by_date[status_date][ing_key]['wastage_value'] += wastage_value_ing
+    
+    # Now update combo line items with their proportional wastage share
+    for date_key, line_items in line_items_by_date.items():
+        date_ingredient_totals = ingredient_totals_by_date.get(date_key, {})
+        
+        for line_item in line_items:
+            if line_item.get('is_combo') and line_item.get('combo_cogs_breakdown'):
+                combo_info = parse_combo_product(line_item['product'])
+                if combo_info:
+                    combo_qty_supplied = line_item.get('supplied_qty', 0)
+                    
+                    # Calculate proportional wastage for this combo
+                    total_combo_wastage_kg = 0
+                    total_combo_wastage_value = 0
+                    combo_wastage_breakdown = []
+                    
+                    for ingredient in combo_info['ingredients']:
+                        ing_name = ingredient['name'].lower().strip()
+                        weight_gm = ingredient['weight_gm']
+                        
+                        # How much of this ingredient was used in this combo
+                        used_in_combo_kg = (combo_qty_supplied * weight_gm) / 1000
+                        
+                        # Find matching ingredient in totals (try various name matches)
+                        ing_totals = None
+                        for key in date_ingredient_totals.keys():
+                            if ing_name in key or key in ing_name:
+                                ing_totals = date_ingredient_totals[key]
+                                break
+                        
+                        if ing_totals and ing_totals['supplied_kg'] > 0:
+                            proportion = used_in_combo_kg / ing_totals['supplied_kg']
+                            wastage_share_kg = ing_totals['wastage_kg'] * proportion
+                            wastage_share_value = ing_totals['wastage_value'] * proportion
+                            
+                            total_combo_wastage_kg += wastage_share_kg
+                            total_combo_wastage_value += wastage_share_value
+                            
+                            combo_wastage_breakdown.append({
+                                'ingredient': ingredient['name'],
+                                'used_kg': round(used_in_combo_kg, 4),
+                                'proportion': round(proportion, 4),
+                                'wastage_share_kg': round(wastage_share_kg, 4),
+                                'wastage_share_value': round(wastage_share_value, 2)
+                            })
+                    
+                    # Update line item with proportional wastage
+                    line_item['wastage_kg'] = round(total_combo_wastage_kg, 4)
+                    line_item['wastage_value'] = round(total_combo_wastage_value, 2)
+                    line_item['combo_wastage_breakdown'] = combo_wastage_breakdown
+
     # ========== VARIABLE EXPENSES ==========
     variable_expenses = await db.variable_expenses.find({
         "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}

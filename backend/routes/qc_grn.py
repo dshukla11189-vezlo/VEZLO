@@ -22,6 +22,12 @@ from models import (
     QCGRN,
     QCGRNCreate,
 )
+from routes.combo_utils import (
+    is_combo_product,
+    parse_combo_product,
+    get_combo_sku_mappings,
+    KNOWN_COMBO_PRODUCTS,
+)
 
 router = APIRouter(tags=["qc_grn"])
 
@@ -350,12 +356,22 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             if parsed_date not in csv_data_by_date:
                 csv_data_by_date[parsed_date] = []
             
+            # Check if this is a combo product (contains ":" and ingredient list)
+            combo_info = None
+            if is_combo_product(sku_name):
+                combo_info = parse_combo_product(sku_name)
+                if combo_info:
+                    logger.info(f"GRN Upload: Detected combo product: {sku_name}")
+                    logger.info(f"  -> Parsed as: {combo_info['name']} with {len(combo_info['ingredients'])} ingredients")
+            
             csv_data_by_date[parsed_date].append({
                 'sku_name': sku_name,
                 'grn_qty': grn_qty,
                 'grn_price': grn_price,
                 'total_value': total_value,
-                'weight_unit': weight_unit
+                'weight_unit': weight_unit,
+                'is_combo': combo_info is not None,
+                'combo_info': combo_info
             })
         except Exception as e:
             logger.error(f"Error parsing row {total_csv_rows}: {e}")
@@ -389,7 +405,22 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         'mixed microgreens': 'Herbs Mix',                    # Row 14: Mixed Microgreens(50 g Pack)
         'coriander hybrid (hydroponics)': 'Spinach and Coriander',  # Row 16: Coriander Hybrid
         'coriander hybrid': 'Spinach and Coriander',         # Alternative match
+        # New combo product mappings
+        'coriander and mint leaves': 'Coriander and mint leaves',
+        'coriander and mint': 'Coriander and mint leaves',
+        'curry leaves and coriander leaves': 'Curry leaves and coriander leaves',
+        'curry and coriander': 'Curry leaves and coriander leaves',
+        'herbs mix': 'Herbs mix',
+        'fresh spices mix': 'fresh spices mix',
+        'spices mix': 'fresh spices mix',
+        'spinach and coriander leaves': 'Spinach and Coriander leaves',
+        'spinach and coriander': 'Spinach and Coriander leaves',
+        'palak and coriander': 'Spinach and Coriander leaves',
     }
+    
+    # Also add combo SKU mappings from combo_utils
+    combo_sku_mappings = get_combo_sku_mappings()
+    direct_sku_mappings.update(combo_sku_mappings)
     
     # Variant/color words that MUST match exactly if present in product name
     variant_words = {'red', 'green', 'yellow', 'white', 'black', 'purple', 'orange', 

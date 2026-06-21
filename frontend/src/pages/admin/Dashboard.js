@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { 
   TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Trash2, 
   Receipt, Calculator, Users, RefreshCw, Calendar, ArrowUp, ArrowDown,
-  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet, Building2, Store, ShoppingBag, Check, Eye
+  BarChart3, PieChart, ChevronDown, ChevronRight, Truck, Clock, Zap, Languages, X, Download, FileSpreadsheet, Building2, Store, ShoppingBag, Check, Eye, Database
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -66,6 +66,8 @@ export default function AdminDashboard() {
   const [populatingMarathi, setPopulatingMarathi] = useState(false);
   const [populatingReferrals, setPopulatingReferrals] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [runningCogsBackfill, setRunningCogsBackfill] = useState(false);
+  const [cogsBackfillProgress, setCogsBackfillProgress] = useState('');
   
   // Customer Vertical View State
   const [selectedVertical, setSelectedVertical] = useState(null); // 'qc' or 'retail' or null
@@ -175,6 +177,51 @@ export default function AdminDashboard() {
       toast.error('Error generating referral codes: ' + (error.response?.data?.detail || error.message));
     } finally {
       setPopulatingReferrals(false);
+    }
+  };
+
+  // Run Daily COGS Backfill in monthly chunks
+  const runCogsBackfill = async () => {
+    if (!window.confirm('This will recalculate Daily COGS data from March 2026 onwards. This may take a few minutes. Continue?')) {
+      return;
+    }
+    
+    setRunningCogsBackfill(true);
+    setCogsBackfillProgress('Starting...');
+    
+    const months = [
+      { name: 'March', from: '2026-03-18', to: '2026-03-31' },
+      { name: 'April', from: '2026-04-01', to: '2026-04-30' },
+      { name: 'May', from: '2026-05-01', to: '2026-05-31' },
+      { name: 'June', from: '2026-06-01', to: '2026-06-30' },
+    ];
+    
+    try {
+      for (let i = 0; i < months.length; i++) {
+        const month = months[i];
+        setCogsBackfillProgress(`Processing ${month.name}... (${i + 1}/${months.length})`);
+        
+        const response = await api.post(`/api/daily-cogs/backfill?from_date=${month.from}&to_date=${month.to}`);
+        console.log(`${month.name} backfill:`, response.data);
+        
+        // Small delay between months
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      setCogsBackfillProgress('Complete!');
+      toast.success('Daily COGS backfill completed! Wastage calculations should now be accurate.');
+      
+      // Refresh the P&L data
+      loadPnlData();
+    } catch (error) {
+      console.error('Error running COGS backfill:', error);
+      toast.error('Error during backfill: ' + (error.response?.data?.detail || error.message));
+      setCogsBackfillProgress('Failed');
+    } finally {
+      setTimeout(() => {
+        setRunningCogsBackfill(false);
+        setCogsBackfillProgress('');
+      }, 2000);
     }
   };
   
@@ -1172,6 +1219,18 @@ export default function AdminDashboard() {
             >
               <Users size={14} className="mr-1" />
               {populatingReferrals ? 'Generating...' : 'Setup Referrals'}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={runCogsBackfill}
+              disabled={runningCogsBackfill}
+              className="border-red-300 text-red-600 hover:bg-red-50"
+              title="Recalculate Daily COGS data to fix wastage calculations"
+              data-testid="run-cogs-backfill"
+            >
+              <Database size={14} className="mr-1" />
+              {runningCogsBackfill ? cogsBackfillProgress : 'Fix COGS Data'}
             </Button>
           </div>
         </div>

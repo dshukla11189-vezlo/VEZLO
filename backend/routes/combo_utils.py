@@ -207,6 +207,9 @@ def calculate_combo_cogs(combo_info: Dict, daily_cogs_map: Dict, date_str: str) 
     total_cogs = 0
     ingredients_breakdown = []
     
+    # Build a list of available dates for fallback (sorted descending)
+    available_dates = sorted(set(d for (p, d) in daily_cogs_map.keys()), reverse=True)
+    
     for ingredient in combo_info['ingredients']:
         ing_name = ingredient['name']
         weight_gm = ingredient['weight_gm']
@@ -214,18 +217,42 @@ def calculate_combo_cogs(combo_info: Dict, daily_cogs_map: Dict, date_str: str) 
         
         # Look up the daily COGS for this ingredient
         cogs_rate = 0
+        date_used = date_str
         
         # Try exact match first
         key = (ing_name, date_str)
         if key in daily_cogs_map:
             cogs_rate = daily_cogs_map[key]
         else:
-            # Try to find a partial match in the daily_cogs_map
+            # Try to find a partial match in the daily_cogs_map for the same date
+            found = False
             for (product, d), rate in daily_cogs_map.items():
                 if d == date_str:
                     if ing_name.lower() in product.lower() or product.lower() in ing_name.lower():
                         cogs_rate = rate
+                        found = True
                         break
+            
+            # If not found for exact date, try the most recent available date
+            if not found and available_dates:
+                for fallback_date in available_dates:
+                    if fallback_date <= date_str:  # Only use dates up to the requested date
+                        # Try exact match
+                        fallback_key = (ing_name, fallback_date)
+                        if fallback_key in daily_cogs_map:
+                            cogs_rate = daily_cogs_map[fallback_key]
+                            date_used = fallback_date
+                            break
+                        # Try partial match
+                        for (product, d), rate in daily_cogs_map.items():
+                            if d == fallback_date:
+                                if ing_name.lower() in product.lower() or product.lower() in ing_name.lower():
+                                    cogs_rate = rate
+                                    date_used = fallback_date
+                                    found = True
+                                    break
+                        if found:
+                            break
         
         # Calculate COGS for this ingredient
         cogs_amount = weight_kg * cogs_rate
@@ -237,7 +264,8 @@ def calculate_combo_cogs(combo_info: Dict, daily_cogs_map: Dict, date_str: str) 
             'weight_gm': weight_gm,
             'weight_kg': round(weight_kg, 4),
             'cogs_rate_per_kg': round(cogs_rate, 2),
-            'cogs_amount': round(cogs_amount, 2)
+            'cogs_amount': round(cogs_amount, 2),
+            'date_used': date_used  # Track which date's COGS was used
         })
     
     # Calculate COGS per kg of the combo

@@ -195,7 +195,14 @@ async def get_pnl_report(
     
     # Fetch daily COGS map for the date range (persisted daily snapshots)
     # This gives us date-specific COGS instead of overall average
-    daily_cogs_map = await get_daily_cogs_map(db, from_date, to_date)
+    # Use a wider date range (30 days before from_date) to ensure fallback data for combo COGS
+    from datetime import datetime, timedelta
+    try:
+        from_date_obj = datetime.strptime(from_date, "%Y-%m-%d")
+        extended_from_date = (from_date_obj - timedelta(days=30)).strftime("%Y-%m-%d")
+    except:
+        extended_from_date = from_date
+    daily_cogs_map = await get_daily_cogs_map(db, extended_from_date, to_date)
     
     # Sales by customer
     sales_by_customer = {}
@@ -303,6 +310,37 @@ async def get_pnl_report(
             product_by_date[item_dispatch_date][product]["customers"][customer]["qty"] += qty
             
             # Add detailed line item for this customer-product combination
+            # Check if this is a combo product
+            qc_is_combo = is_combo_product(product)
+            qc_combo_info = None
+            qc_combo_cogs = 0
+            qc_combo_cogs_breakdown = None
+            
+            if qc_is_combo:
+                qc_combo_info = parse_combo_product(product)
+                if qc_combo_info:
+                    # Calculate combo COGS using daily_cogs_map
+                    combo_cogs_result = calculate_combo_cogs(qc_combo_info, daily_cogs_map, item_dispatch_date)
+                    if combo_cogs_result and combo_cogs_result.get('total_cogs_per_pack', 0) > 0:
+                        qc_combo_cogs = combo_cogs_result['total_cogs_per_pack'] * dispatch_qty_units
+                        qc_combo_cogs_breakdown = combo_cogs_result.get('ingredients_breakdown')
+                        import logging
+                        logging.info(f"[QC_COMBO_COGS] Product: {product[:50]}, Qty: {dispatch_qty_units}, COGS/pack: {combo_cogs_result['total_cogs_per_pack']}, Total COGS: {qc_combo_cogs}")
+                        
+                        # Update product_by_date purchase for combo products
+                        product_by_date[item_dispatch_date][product]["purchase"] += qc_combo_cogs
+                        product_by_date[item_dispatch_date][product]["purchase_qty"] += dispatch_qty_units
+                        
+                        # Update daily purchase totals for combo
+                        sales_by_date[item_dispatch_date]["purchase"] = sales_by_date[item_dispatch_date].get("purchase", 0) + qc_combo_cogs
+                        sales_by_date[item_dispatch_date]["purchase_qty"] = sales_by_date[item_dispatch_date].get("purchase_qty", 0) + dispatch_qty_units
+                        
+                        # Update product-level purchase tracking
+                        if product not in sales_by_product:
+                            sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
+                        sales_by_product[product]["purchase_amount"] += qc_combo_cogs
+                        sales_by_product[product]["purchase_qty"] += dispatch_qty_units
+            
             line_items_by_date[item_dispatch_date].append({
                 "customer": customer,
                 "customer_type": "QC",
@@ -313,13 +351,14 @@ async def get_pnl_report(
                 "revenue": round(amount, 2),
                 "rate_per_kg": round(rate_per_kg, 2),
                 "rate_per_unit": round(rate_per_unit, 2),
-                # COGS and wastage will be calculated after we aggregate procurements
-                "cogs": 0,
+                # COGS - for combos use pre-calculated, for others will be calculated later
+                "cogs": round(qc_combo_cogs, 2) if qc_is_combo else 0,
                 "wastage_kg": 0,
                 "wastage_value": 0,
-                # QC items don't have combo support - set to False for schema consistency
-                "is_combo": False,
-                "combo_cogs_breakdown": None
+                # Combo product detection for QC items
+                "is_combo": qc_is_combo,
+                "combo_info": qc_combo_info,
+                "combo_cogs_breakdown": qc_combo_cogs_breakdown
             })
             # Note: GRN loss is now calculated by the shared calculate_grn_loss() function
         

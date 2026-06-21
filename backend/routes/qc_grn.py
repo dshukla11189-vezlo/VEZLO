@@ -542,6 +542,21 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             
             logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs} | SKU_weight: {sku_weight}gm | with_roots={sku_has_with_roots}")
             
+            # Check if this is a combo SKU (matches any of the combo product prefixes)
+            is_combo_sku = False
+            combo_prefixes = [
+                'coriander and mint leaves', 'coriander and mint',
+                'curry leaves and coriander leaves', 'curry and coriander',
+                'herbs mix', 'fresh spices mix', 'spices mix',
+                'spinach and coriander leaves', 'spinach and coriander', 'palak and coriander',
+                'mixed sprouts', 'mixed fruit chat', 'mixed microgreens', 'coriander hybrid'
+            ]
+            for prefix in combo_prefixes:
+                if sku_name_lower.startswith(prefix) or prefix in sku_name_lower:
+                    is_combo_sku = True
+                    logger.info(f"  COMBO SKU DETECTED: {sku_name} (matched prefix: '{prefix}')")
+                    break
+            
             # Find matching product group
             best_match_group = None
             best_match_score = 0
@@ -558,20 +573,38 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     internal_name_lower = internal_name.lower()
                     for base_name, items in product_groups.items():
                         base_name_lower = base_name.lower()
-                        # Match if internal name matches or is contained in base name
-                        if internal_name_lower == base_name_lower or internal_name_lower in base_name_lower or base_name_lower in internal_name_lower:
-                            # Apply PCS vs Kg filter
-                            if sku_is_pcs:
-                                type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
-                            else:
-                                type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
-                            
-                            if type_matched_items:
-                                best_match_group = (base_name, type_matched_items)
-                                best_match_score = 1.0
-                                direct_match_found = True
-                                logger.info(f"  DIRECT MAPPING: SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
-                                break
+                        
+                        # For COMBO products: Match only if base_name STARTS WITH the internal_name
+                        # This prevents "coriander" from matching "coriander and mint leaves"
+                        # The base_name will be the full combo name with ingredients
+                        if is_combo_sku:
+                            # Combo product: base_name should START WITH internal_name
+                            # e.g., "coriander and mint leaves (220 gm pack)-fk : (...)" starts with "coriander and mint leaves"
+                            if base_name_lower.startswith(internal_name_lower):
+                                # For combos, take all items regardless of PCS/Kg type
+                                type_matched_items = items
+                                logger.info(f"  COMBO MATCH: SKU '{sku_name}' -> Product '{base_name}' | items: {len(items)}")
+                                if type_matched_items:
+                                    best_match_group = (base_name, type_matched_items)
+                                    best_match_score = 1.0
+                                    direct_match_found = True
+                                    logger.info(f"  DIRECT MAPPING (COMBO): SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
+                                    break
+                        else:
+                            # Regular products: original matching logic
+                            if internal_name_lower == base_name_lower or internal_name_lower in base_name_lower or base_name_lower in internal_name_lower:
+                                # Apply PCS vs Kg filter
+                                if sku_is_pcs:
+                                    type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
+                                else:
+                                    type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
+                                
+                                if type_matched_items:
+                                    best_match_group = (base_name, type_matched_items)
+                                    best_match_score = 1.0
+                                    direct_match_found = True
+                                    logger.info(f"  DIRECT MAPPING: SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
+                                    break
                     if direct_match_found:
                         break
             
@@ -703,7 +736,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     'grn_qty': grn_qty_kg_or_pcs,
                     'rate': rate_per_kg_or_pcs,
                     'total_value': total_value,
-                    'items': list(matching_items)  # Make a copy to avoid reference issues
+                    'items': list(matching_items),  # Make a copy to avoid reference issues
+                    'is_combo': is_combo_sku  # Flag for combo products
                 })
             else:
                 product_group_matches[base_name]['kg_skus'].append({
@@ -711,7 +745,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     'grn_qty_kg': grn_qty_kg_or_pcs,
                     'rate_per_kg': rate_per_kg_or_pcs,
                     'total_value': total_value,
-                    'items': list(matching_items)  # Make a copy to avoid reference issues
+                    'items': list(matching_items),  # Make a copy to avoid reference issues
+                    'is_combo': is_combo_sku  # Flag for combo products
                 })
         
         # Step 5: Now distribute GRN to dispatch items
@@ -731,10 +766,16 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     grn_qty = pcs_sku['grn_qty']
                     rate_per_pcs = pcs_sku['rate']
                     sku_items = pcs_sku['items']
+                    is_combo = pcs_sku.get('is_combo', False)
                     combined_sku_names.append(sku_name)
                     
-                    # Get only PCS dispatch items for this specific SKU
-                    pcs_items = [item for item in sku_items if item.get('dispatch_is_pcs')]
+                    # For COMBO products: use ALL items regardless of dispatch_is_pcs flag
+                    # (combo packaging doesn't have "(PCS)" but they are Pcs-based)
+                    # For regular products: only get PCS dispatch items
+                    if is_combo:
+                        pcs_items = sku_items  # Use all items for combos
+                    else:
+                        pcs_items = [item for item in sku_items if item.get('dispatch_is_pcs')]
                     
                     if not pcs_items:
                         logger.warning(f"  No PCS dispatch items found for SKU: {sku_name}")
@@ -743,32 +784,27 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                     # Calculate total supplied for this SKU's matched items
                     total_supplied_pcs = sum(item.get('supplied_qty', 0) for item in pcs_items)
                     
-                    logger.info(f"  Processing PCS SKU: {sku_name} | GRN: {grn_qty} pcs | Supplied: {total_supplied_pcs} | Items: {len(pcs_items)}")
+                    logger.info(f"  Processing PCS SKU: {sku_name} | GRN: {grn_qty} pcs | Supplied: {total_supplied_pcs} | Items: {len(pcs_items)} | is_combo: {is_combo}")
                     
                     if total_supplied_pcs == 0:
                         logger.warning(f"  Zero supplied qty for SKU: {sku_name}")
                         continue
                     
-                    # Distribute GRN proportionally to each dispatch item
-                    for item in pcs_items:
-                        supplied_qty = item.get('supplied_qty', 0)
-                        
-                        # Calculate this item's proportion of the total supplied
-                        proportion = supplied_qty / total_supplied_pcs if total_supplied_pcs > 0 else 0
-                        
-                        # Distribute GRN proportionally
-                        grn_qty_for_item = grn_qty * proportion
-                        
-                        # Create unique key for this dispatch item
+                    # For COMBO products: Use GRN_Qty directly from Excel without proportional distribution
+                    # The dispatch qty (supplied_qty) may be different from GRN qty due to various reasons
+                    if is_combo:
+                        # For combo, we use GRN_Qty directly and assign to the first matching dispatch item
+                        # Since combos are unique products, there should typically be only one dispatch item
+                        item = pcs_items[0]  # Use first (and typically only) matching dispatch item
                         item_key = f"{item.get('dispatch_id')}_{item.get('product_id')}_{item.get('packaging_id')}"
                         
                         if item_key in all_pcs_items:
                             # Accumulate GRN qty for same dispatch item
-                            all_pcs_items[item_key]['grn_qty'] += grn_qty_for_item
+                            all_pcs_items[item_key]['grn_qty'] += grn_qty
                             all_pcs_items[item_key]['sku_names'].append(sku_name)
-                            logger.info(f"    Accumulating to existing item: {item_key}, total grn_qty={all_pcs_items[item_key]['grn_qty']:.2f}")
+                            logger.info(f"    COMBO: Accumulating to existing item: {item_key}, total grn_qty={all_pcs_items[item_key]['grn_qty']:.2f}")
                         else:
-                            # New dispatch item
+                            # New dispatch item - use GRN qty directly
                             all_pcs_items[item_key] = {
                                 'dispatch_id': item.get('dispatch_id'),
                                 'dispatch_date': dispatch_date_str,
@@ -778,12 +814,50 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                                 'packaging_id': item.get('packaging_id'),
                                 'packaging_name': item.get('packaging_name'),
                                 'packaging_weight_gm': item.get('packaging_weight_gm', 0),
-                                'supplied_qty': supplied_qty,
-                                'grn_qty': grn_qty_for_item,
+                                'supplied_qty': item.get('supplied_qty', 0),  # Keep dispatch supplied qty
+                                'grn_qty': grn_qty,  # Use GRN qty directly from Excel
                                 'rate_per_pcs': rate_per_pcs,
-                                'sku_names': [sku_name]
+                                'sku_names': [sku_name],
+                                'is_combo': True
                             }
-                            logger.info(f"    New dispatch item: {item_key}, supplied={supplied_qty}, grn={grn_qty_for_item:.2f}")
+                            logger.info(f"    COMBO: New dispatch item: {item_key}, supplied={item.get('supplied_qty', 0)}, grn={grn_qty} (direct from Excel)")
+                    else:
+                        # Regular products: Distribute GRN proportionally to each dispatch item
+                        for item in pcs_items:
+                            supplied_qty = item.get('supplied_qty', 0)
+                            
+                            # Calculate this item's proportion of the total supplied
+                            proportion = supplied_qty / total_supplied_pcs if total_supplied_pcs > 0 else 0
+                            
+                            # Distribute GRN proportionally
+                            grn_qty_for_item = grn_qty * proportion
+                            
+                            # Create unique key for this dispatch item
+                            item_key = f"{item.get('dispatch_id')}_{item.get('product_id')}_{item.get('packaging_id')}"
+                            
+                            if item_key in all_pcs_items:
+                                # Accumulate GRN qty for same dispatch item
+                                all_pcs_items[item_key]['grn_qty'] += grn_qty_for_item
+                                all_pcs_items[item_key]['sku_names'].append(sku_name)
+                                logger.info(f"    Accumulating to existing item: {item_key}, total grn_qty={all_pcs_items[item_key]['grn_qty']:.2f}")
+                            else:
+                                # New dispatch item
+                                all_pcs_items[item_key] = {
+                                    'dispatch_id': item.get('dispatch_id'),
+                                    'dispatch_date': dispatch_date_str,
+                                    'product_id': item.get('product_id'),
+                                    'product_name': item.get('product_name'),
+                                    'product_unit': item.get('product_unit'),
+                                    'packaging_id': item.get('packaging_id'),
+                                    'packaging_name': item.get('packaging_name'),
+                                    'packaging_weight_gm': item.get('packaging_weight_gm', 0),
+                                    'supplied_qty': supplied_qty,
+                                    'grn_qty': grn_qty_for_item,
+                                    'rate_per_pcs': rate_per_pcs,
+                                    'sku_names': [sku_name],
+                                    'is_combo': False
+                                }
+                                logger.info(f"    New dispatch item: {item_key}, supplied={supplied_qty}, grn={grn_qty_for_item:.2f}")
                 
                 # Now add all unique PCS items to matched_items
                 for item_key, item_data in all_pcs_items.items():

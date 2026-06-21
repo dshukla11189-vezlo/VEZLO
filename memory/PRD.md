@@ -27,13 +27,27 @@
   - `/app/backend/routes/combo_utils.py` - Combo parsing, COGS calculation, wastage distribution utilities
   - `/app/backend/tests/test_combo_utils.py` - 11 unit tests (all passing)
 - **FILES MODIFIED**:
-  - `/app/backend/routes/qc_grn.py` - Added combo detection during GRN Excel upload
+  - `/app/backend/routes/qc_grn.py` - Added combo detection during GRN Excel upload, fixed matching to use GRN_Qty directly for combos
   - `/app/backend/routes/dashboard_analytics.py` - Added combo COGS calculation in P&L, propagated combo fields to response
 - **P&L Response Fields Added**:
   - `is_combo`: boolean flag for combo products
   - `combo_cogs_breakdown`: array of ingredient COGS details
   - `combo_wastage_breakdown`: array of proportional wastage distribution
-- **TESTED**: Unit tests pass (11/11), Integration tests pass (27/28), E2E verified with test data
+- **TESTED**: Unit tests pass (11/11), API tests verified all 5 combos with correct GRN_Qty (36) from Excel
+
+### GRN COMBO FIX (June 21, 2026) ✅
+- **BUG FIX**: GRN upload now correctly reads ALL 5 combo products from Excel
+- **Issues Fixed**:
+  1. Only 1 combo was being matched (instead of 5) - Fixed by using `startswith` matching for combo products instead of substring matching
+  2. GRN Qty was showing 82 instead of 36 - Fixed by using GRN_Qty directly from Excel for combo products (instead of proportional distribution from dispatch qty)
+  3. Combo products were filtered out during PCS processing - Fixed by skipping `dispatch_is_pcs` filter for combo items
+- **Changes Made in `/app/backend/routes/qc_grn.py`**:
+  - Added `is_combo_sku` detection based on combo prefixes
+  - Modified matching logic to use `startswith` for combo products (prevents "coriander" from matching "coriander and mint leaves")
+  - Added `is_combo` flag to PCS/Kg SKU tracking
+  - For combos: use ALL items regardless of `dispatch_is_pcs` flag
+  - For combos: use GRN_Qty directly from Excel without proportional distribution
+- **Test Results**: All 5 combos matched with GRN Qty: 36, Supplied: 38
 
 
 ### June 20, 2026 - Invoice Status Fix + Admin-Retailer Portal Sync ✅

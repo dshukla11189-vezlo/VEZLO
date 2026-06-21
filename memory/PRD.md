@@ -3,6 +3,26 @@
 ## Changelog (June 2025)
 
 
+### June 21, 2026 - Combo Products Exclusion from Stock Status ✅
+- **FEATURE**: Exclude combo products from daily stock closing
+  - Combo products no longer appear in Stock Status tab
+  - Combo products no longer appear in Closable Products list
+  - Combo products excluded from Wastage Dashboard
+- **FEATURE**: Add combo ingredient quantities to base product dispatches
+  - When a combo is dispatched, its ingredient quantities are added to respective base products
+  - Example: "Herbs mix(280 gm Pack)" with 76 packs adds:
+    - Curry Leaves: 76 × 0.060 = 4.56 kg
+    - Coriander: 76 × 0.120 = 9.12 kg
+    - Fresh Mint Leaves: 76 × 0.100 = 7.6 kg
+  - Helper function `add_combo_ingredient_dispatches()` handles mapping
+- **FILES MODIFIED**:
+  - `/app/backend/routes/dashboard_analytics.py`:
+    - Added `add_combo_ingredient_dispatches()` helper function
+    - Updated `get_today_stock_status` to exclude combos and add ingredient dispatches
+    - Updated `get_closable_products_for_date` to exclude combos and add ingredient dispatches
+    - Updated `get_wastage_dashboard` to exclude combos
+
+
 ### June 21, 2026 - P&L Internal Consistency Fix ✅
 - **BUG FIX (P0)**: Fixed Summary vs Daily P&L Purchase Amount Mismatch
   - **Symptom**: Summary `total_purchase` (Rs 31557.5) didn't match sum of `daily_pnl.purchase` (Rs 4755.32) 

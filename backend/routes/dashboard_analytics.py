@@ -34,9 +34,111 @@ from routes.combo_utils import (
     parse_combo_product,
     calculate_combo_cogs,
     calculate_combo_wastage_share,
+    INGREDIENT_NAME_MAP,
 )
 
 router = APIRouter(tags=["dashboard_analytics"])
+
+
+def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items: list, products: list, packaging_map: dict) -> dict:
+    """
+    Process combo product dispatches and add ingredient quantities to their respective base products.
+    
+    For example, if a combo "Coriander and mint leaves (220 gm Pack)" with:
+    - Coriander: 120 gm
+    - Mint: 100 gm
+    
+    And 38 packs were dispatched, this function adds:
+    - 38 × 0.120 = 4.56 kg to Coriander's dispatch
+    - 38 × 0.100 = 3.8 kg to Mint's dispatch
+    
+    Args:
+        dispatches_by_product: Existing dispatch totals by product_id
+        dispatch_items: List of dispatch items to process
+        products: List of all products (to map ingredient names to product IDs)
+        packaging_map: Packaging name to weight mapping
+    
+    Returns:
+        Updated dispatches_by_product dict with combo ingredients added
+    """
+    # Build product name to ID mapping (case-insensitive)
+    product_name_to_id = {}
+    for p in products:
+        name_lower = p.get("name", "").lower().strip()
+        product_name_to_id[name_lower] = p.get("id")
+    
+    for item in dispatch_items:
+        product_name = item.get("product_name", "")
+        
+        # Check if this is a combo product
+        if not is_combo_product(product_name):
+            continue
+        
+        # Parse the combo to get ingredients
+        combo_info = parse_combo_product(product_name)
+        if not combo_info or not combo_info.get("ingredients"):
+            continue
+        
+        # Get the supplied quantity (number of packs)
+        supplied_qty = item.get("supplied_qty", 0) or 0
+        if supplied_qty <= 0:
+            continue
+        
+        # Add each ingredient's quantity to its base product
+        for ingredient in combo_info.get("ingredients", []):
+            ing_name = ingredient.get("name", "")  # Normalized name (e.g., "Coriander", "Fresh Mint Leaves")
+            weight_gm = ingredient.get("weight_gm", 0) or 0
+            
+            if not ing_name or weight_gm <= 0:
+                continue
+            
+            # Calculate total kg of this ingredient used in combo dispatches
+            ingredient_qty_kg = (supplied_qty * weight_gm) / 1000
+            
+            # Find the product ID for this ingredient
+            ing_name_lower = ing_name.lower().strip()
+            product_id = product_name_to_id.get(ing_name_lower)
+            
+            # If not found directly, try alternative names
+            if not product_id:
+                # Try common alternatives
+                alternatives = {
+                    "fresh mint leaves": ["mint", "mint leaves"],
+                    "curry leaves": ["curry"],
+                    "green chilli": ["green chili", "chilli", "chili", "chilli light green"],
+                    "fenugreek (methi)": ["methi", "fenugreek"],
+                    "palak": ["spinach"],
+                }
+                for key, alts in alternatives.items():
+                    if ing_name_lower == key or ing_name_lower in alts:
+                        product_id = product_name_to_id.get(key)
+                        if not product_id:
+                            for alt in alts:
+                                product_id = product_name_to_id.get(alt)
+                                if product_id:
+                                    break
+                        break
+            
+            if product_id:
+                # Determine the format of dispatches_by_product (dict with qty/value or simple number)
+                is_dict_format = False
+                if dispatches_by_product:
+                    sample_val = next(iter(dispatches_by_product.values()))
+                    is_dict_format = isinstance(sample_val, dict)
+                
+                if product_id not in dispatches_by_product:
+                    if is_dict_format:
+                        dispatches_by_product[product_id] = {"qty": 0, "value": 0}
+                    else:
+                        dispatches_by_product[product_id] = 0
+                
+                # Add the ingredient quantity
+                if is_dict_format:
+                    dispatches_by_product[product_id]["qty"] += ingredient_qty_kg
+                else:
+                    dispatches_by_product[product_id] += ingredient_qty_kg
+    
+    return dispatches_by_product
 
 # SECTION: DASHBOARD & ANALYTICS ROUTES (Lines ~1839-2480)
 # ============================================================================
@@ -2225,14 +2327,24 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             if pid and pid not in product_historical_price:
                 product_historical_price[pid] = h.get("avg_price", 0)
         
-        # Calculate dispatches by product
+        # Calculate dispatches by product (excluding combo products themselves)
         dispatches_by_product = {}
+        all_dispatch_items = []  # Collect all dispatch items for combo processing
+        
         for dispatch in qc_dispatches + retailer_dispatches:
             for item in dispatch.get("items", []):
                 product_id = item.get("product_id")
+                product_name = item.get("product_name", "")
                 target_product_id = cost_alias_id_map.get(product_id, product_id)
                 supplied_qty = item.get("supplied_qty", 0)
                 packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+                
+                # Collect for combo processing
+                all_dispatch_items.append(item)
+                
+                # Skip combo products from direct dispatch counting (they don't have stock status)
+                if is_combo_product(product_name):
+                    continue
                 
                 weight_gm = packaging_map.get(packaging_name)
                 if not weight_gm:
@@ -2249,11 +2361,20 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 dispatches_by_product[target_product_id]["qty"] += qty_kg
                 dispatches_by_product[target_product_id]["value"] += value
         
-        # Build stock status for each product
+        # Add combo ingredient dispatches to their respective base products
+        dispatches_by_product = add_combo_ingredient_dispatches(
+            dispatches_by_product, all_dispatch_items, products, packaging_map
+        )
+        
+        # Build stock status for each product (excluding combo products)
         result = []
         for product in products:
             product_id = product["id"]
             product_name = product["name"]
+            
+            # Skip combo products from stock status - they shouldn't be tracked
+            if is_combo_product(product_name):
+                continue
             
             purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
             dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
@@ -4152,6 +4273,7 @@ async def get_closable_products_for_date(
                 packaging_map[number_match.group(1)] = weight
     
     dispatches_by_product = {}
+    all_dispatch_items = []  # Collect all dispatch items for combo processing
     
     # Build cost_alias mapping: product_id -> alias_target_id
     # If a product has cost_alias_product_id, its dispatches should count under the alias target
@@ -4171,12 +4293,20 @@ async def get_closable_products_for_date(
         if dispatch_date_str == target_date:
             for item in d.get("items", []):
                 product_id = item.get("product_id")
+                product_name = item.get("product_name", "")
                 # Map to aliased product if applicable (e.g., Spinach dispatches → count under Palak)
                 target_product_id = cost_alias_id_map.get(product_id, product_id)
                 
                 supplied_qty = item.get("supplied_qty", 0)
                 # Check both packaging_name (QC) and variant_name (Retail)
                 packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+                
+                # Collect all items for combo processing
+                all_dispatch_items.append(item)
+                
+                # Skip combo products from direct dispatch counting (they don't have stock status)
+                if is_combo_product(product_name):
+                    continue
                 
                 # Look up weight from packaging map first
                 weight_gm = packaging_map.get(packaging_name)
@@ -4193,6 +4323,11 @@ async def get_closable_products_for_date(
                 # Use target_product_id (mapped from alias) for aggregation
                 dispatches_by_product[target_product_id] = dispatches_by_product.get(target_product_id, 0) + qty_kg
     
+    # Add combo ingredient dispatches to their respective base products
+    dispatches_by_product = add_combo_ingredient_dispatches(
+        dispatches_by_product, all_dispatch_items, products, packaging_map
+    )
+    
     # Build closable products list
     closable_products = []
     
@@ -4203,6 +4338,11 @@ async def get_closable_products_for_date(
             continue
             
         product_name = product["name"]
+        
+        # Skip combo products from stock status - they shouldn't be tracked
+        if is_combo_product(product_name):
+            continue
+        
         status = existing.get("status", "open")
         closing_qty = existing.get("closing_qty", None)
         
@@ -4250,6 +4390,10 @@ async def get_closable_products_for_date(
             continue  # Already added above
             
         product_name = product["name"]
+        
+        # Skip combo products from stock status - they shouldn't be tracked
+        if is_combo_product(product_name):
+            continue
         
         # Opening = yesterday's closing
         opening_qty = yesterday_map.get(product_id, {}).get("closing_qty", 0)
@@ -4304,6 +4448,11 @@ async def get_wastage_dashboard(
     for record in history:
         date = record["date"]
         product_name = record["product_name"]
+        
+        # Skip combo products from wastage dashboard
+        if is_combo_product(product_name):
+            continue
+        
         wastage_qty = record.get("wastage_qty", 0)
         wastage_percent = record.get("wastage_percent", 0)
         opening_qty = record.get("opening_qty", 0)

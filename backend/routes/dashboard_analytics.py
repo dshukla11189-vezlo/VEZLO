@@ -320,7 +320,7 @@ async def get_pnl_report(
     total_sales_qty = 0
     
     # ========== QC SALES (from GRN - actual received values) ==========
-    qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(1000)
+    qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
     
     for grn in qc_grns:
         customer = grn.get("customer_name", "Unknown")
@@ -583,7 +583,7 @@ async def get_pnl_report(
     # Fetch all retailer rejections for the date range
     retailer_rejections = await db.retailer_rejections.find({
         "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(1000)
+    }, {"_id": 0}).to_list(5000)
     
     # Helper function to parse packaging weight from variant name (same logic as dispatch items)
     def get_packaging_weight_gm(unit_str):
@@ -898,7 +898,7 @@ async def get_pnl_report(
     # ========== PURCHASES (from Procurements) ==========
     procurements = await db.procurements.find({
         "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(1000)
+    }, {"_id": 0}).to_list(5000)
     
     purchase_by_farmer = {}
     total_purchase = 0

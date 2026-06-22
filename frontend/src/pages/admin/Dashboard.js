@@ -189,7 +189,7 @@ export default function AdminDashboard() {
     setRunningCogsBackfill(true);
     setCogsBackfillProgress('Starting...');
     
-    const months = [
+    const cogsMonths = [
       { name: 'March', from: '2026-03-18', to: '2026-03-31' },
       { name: 'April', from: '2026-04-01', to: '2026-04-30' },
       { name: 'May', from: '2026-05-01', to: '2026-05-31' },
@@ -197,36 +197,50 @@ export default function AdminDashboard() {
     ];
     
     try {
-      // Step 1: Run COGS backfill for each month
-      for (let i = 0; i < months.length; i++) {
-        const month = months[i];
-        setCogsBackfillProgress(`COGS: ${month.name}... (${i + 1}/${months.length})`);
-        
-        const response = await api.post(`/api/daily-cogs/backfill?from_date=${month.from}&to_date=${month.to}`);
-        console.log(`${month.name} COGS backfill:`, response.data);
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      
-      // Step 2: Recompute historical dispatch quantities (includes combo ingredient decomposition)
-      setCogsBackfillProgress('Recomputing dispatches (Apr-Jun)...');
+      // Step 1: Recompute historical dispatch quantities FIRST
+      // This must complete before COGS backfill so daily_stock_status has correct dispatch/wastage values
+      setCogsBackfillProgress('Recomputing historical stock data...');
       
       try {
         const dispatchResponse = await api.post(`/api/stock-status/recompute-historical-dispatches?from_date=2026-04-01&to_date=2026-06-30`);
         console.log('Historical dispatch recompute:', dispatchResponse.data);
       } catch (dispatchError) {
-        console.error('Dispatch recompute error (continuing):', dispatchError);
-        // Continue even if this fails - COGS backfill is the main fix
+        console.error('Dispatch recompute failed:', dispatchError);
+        toast.error('Failed to recompute historical stock data. Please try again.');
+        setCogsBackfillProgress('Failed at: Recomputing stock data');
+        return;
+      }
+      
+      // Small delay to ensure data is committed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Step 2: Run COGS backfill for each month sequentially
+      for (let i = 0; i < cogsMonths.length; i++) {
+        const month = cogsMonths[i];
+        setCogsBackfillProgress(`Backfilling ${month.name} data... (${i + 1}/${cogsMonths.length})`);
+        
+        try {
+          const response = await api.post(`/api/daily-cogs/backfill?from_date=${month.from}&to_date=${month.to}`);
+          console.log(`${month.name} COGS backfill:`, response.data);
+        } catch (monthError) {
+          console.error(`${month.name} backfill failed:`, monthError);
+          toast.error(`Failed at ${month.name} (${month.from} to ${month.to}): ${monthError.response?.data?.detail || monthError.message}`);
+          setCogsBackfillProgress(`Failed at: ${month.name} (${month.from} - ${month.to})`);
+          return;
+        }
+        
+        // Small delay between chunks to prevent overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
       
       setCogsBackfillProgress('Complete!');
-      toast.success('Daily COGS and dispatch recompute completed! Wastage calculations should now be accurate.');
+      toast.success('Daily COGS data fixed! Wastage calculations should now be accurate.');
       
       // Refresh the P&L data
       loadPnlData();
     } catch (error) {
-      console.error('Error running COGS backfill:', error);
-      toast.error('Error during backfill: ' + (error.response?.data?.detail || error.message));
+      console.error('Error running COGS fix:', error);
+      toast.error('Error during COGS fix: ' + (error.response?.data?.detail || error.message));
       setCogsBackfillProgress('Failed');
     } finally {
       setTimeout(() => {

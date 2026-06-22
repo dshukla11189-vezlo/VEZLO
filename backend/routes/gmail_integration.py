@@ -87,17 +87,11 @@ async def gmail_oauth_debug_headers(request: Request):
     # Determine the actual host - prefer x-forwarded-host for reverse proxy setups
     actual_host = x_forwarded_host or host
     
-    # Detect redirect URI based on actual host
-    if "emergent.host" in actual_host:
-        redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
-    elif "preview.emergentagent.com" in actual_host:
-        redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
-    else:
-        # Fallback: try to detect from referer or origin
-        if "emergent.host" in referer or "emergent.host" in origin:
-            redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
-        else:
-            redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    # Use environment variable for redirect URI
+    redirect_uri = os.environ.get("GMAIL_REDIRECT_URI", "")
+    if not redirect_uri:
+        # Fallback: construct from actual host
+        redirect_uri = f"https://{actual_host}/api/oauth/gmail/callback"
     
     return {
         "headers_received": {
@@ -153,17 +147,11 @@ async def gmail_oauth_login(request: Request, current_user: dict = Depends(get_c
     # Determine the actual host - prefer x-forwarded-host for reverse proxy setups
     actual_host = x_forwarded_host or host
     
-    # Detect redirect URI based on actual host
-    if "emergent.host" in actual_host:
-        redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
-    elif "preview.emergentagent.com" in actual_host:
-        redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
-    else:
-        # Fallback: try to detect from referer or origin
-        if "emergent.host" in referer or "emergent.host" in origin:
-            redirect_uri = "https://harvest-hub-384.emergent.host/api/oauth/gmail/callback"
-        else:
-            redirect_uri = "https://harvest-hub-384.preview.emergentagent.com/api/oauth/gmail/callback"
+    # Use environment variable for redirect URI
+    redirect_uri = os.environ.get("GMAIL_REDIRECT_URI", "")
+    if not redirect_uri:
+        # Fallback: construct from actual host
+        redirect_uri = f"https://{actual_host}/api/oauth/gmail/callback"
     
     logger.info(f"  Selected redirect_uri: {redirect_uri}")
     

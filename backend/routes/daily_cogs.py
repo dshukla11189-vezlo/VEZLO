@@ -311,7 +311,18 @@ async def compute_daily_cogs_for_date(db: AsyncIOMotorDatabase, date_str: str, p
         
         # Sales and end of day stock
         sales_qty = today_sales.get(product, 0) or 0
-        end_of_day_stock = max(0, combined_qty - sales_qty)
+        
+        # Fetch wastage_qty from daily_stock_status for closed records
+        wastage_qty = 0
+        stock_status_record = await db.daily_stock_status.find_one({
+            "date": date_str,
+            "product_name": product,
+            "status": "closed"
+        })
+        if stock_status_record:
+            wastage_qty = stock_status_record.get("wastage_qty", 0) or 0
+        
+        end_of_day_stock = max(0, combined_qty - sales_qty - wastage_qty)
         
         results[product] = {
             "product_name": product,
@@ -324,6 +335,7 @@ async def compute_daily_cogs_for_date(db: AsyncIOMotorDatabase, date_str: str, p
             "combined_amount": round(combined_amount, 2),
             "daily_cogs": round(daily_cogs, 2),
             "sales_qty": round(sales_qty, 3),
+            "wastage_qty": round(wastage_qty, 3),
             "end_of_day_stock": round(end_of_day_stock, 3),
             "updated_at": datetime.utcnow().isoformat()
         }

@@ -3100,6 +3100,7 @@ async def recompute_historical_dispatches(
         current += timedelta(days=1)
     
     total_updated = 0
+    total_matched = 0
     date_summaries = []
     
     # Get packaging weights once
@@ -3115,14 +3116,18 @@ async def recompute_historical_dispatches(
     # Get all products once
     products = await db.products.find({}, {"_id": 0}).to_list(1000)
     cost_alias_id_map = {}
+    product_id_to_name = {}
     for product in products:
         alias_id = product.get("cost_alias_product_id")
         if alias_id:
             cost_alias_id_map[product["id"]] = alias_id
+        product_id_to_name[product["id"]] = product.get("name", "")
     
     # Get all dispatches once
     all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
     all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    
+    logger.info(f"[RECOMPUTE] Starting: {len(dates_to_process)} dates, {len(all_qc_dispatches)} QC dispatches, {len(all_retailer_dispatches)} retailer dispatches")
     
     for date in dates_to_process:
         # Calculate dispatches for this date WITH combo decomposition
@@ -3169,57 +3174,75 @@ async def recompute_historical_dispatches(
         )
         
         # Update stock status entries for this date
-        stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)
+        stock_entries = await db.daily_stock_status.find({"date": date}).to_list(500)
+        matched_count = len(stock_entries)
+        total_matched += matched_count
         updated_count = 0
+        
+        logger.info(f"[RECOMPUTE] {date}: Found {matched_count} stock entries, {len(dispatches_by_product)} products with dispatches")
         
         for entry in stock_entries:
             product_id = entry.get("product_id")
-            old_dispatch = entry.get("dispatch_qty", 0)
+            old_dispatch = entry.get("dispatch_qty", 0) or 0
+            old_wastage = entry.get("wastage_qty", 0) or 0
             
             dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
             new_dispatch = dispatch_data["qty"] if isinstance(dispatch_data, dict) else dispatch_data
             new_dispatch = round(new_dispatch, 2)
             
-            # Only update if there's a change
-            if abs(new_dispatch - old_dispatch) > 0.001:
-                update_data = {
-                    "dispatch_qty": new_dispatch
-                }
+            # Check if dispatch changed OR if this is a closed entry that might need wastage recalculation
+            dispatch_changed = abs(new_dispatch - old_dispatch) > 0.001
+            is_closed = entry.get("status") == "closed" and entry.get("closing_qty") is not None
+            
+            # For closed entries, always recalculate wastage to ensure consistency
+            if dispatch_changed or is_closed:
+                update_data = {}
+                
+                if dispatch_changed:
+                    update_data["dispatch_qty"] = new_dispatch
                 
                 # If closed, recalculate wastage
-                if entry.get("status") == "closed" and entry.get("closing_qty") is not None:
-                    opening_qty = entry.get("opening_qty", 0)
-                    purchase_qty = entry.get("purchase_qty", 0)
-                    closing_qty = entry.get("closing_qty", 0)
-                    avg_price = entry.get("avg_price", 0)
+                if is_closed:
+                    opening_qty = entry.get("opening_qty", 0) or 0
+                    purchase_qty = entry.get("purchase_qty", 0) or 0
+                    closing_qty = entry.get("closing_qty", 0) or 0
+                    avg_price = entry.get("avg_price", 0) or 0
                     
-                    total_available = opening_qty + purchase_qty - new_dispatch
+                    # Use new_dispatch for calculation
+                    dispatch_for_calc = new_dispatch if dispatch_changed else old_dispatch
+                    total_available = opening_qty + purchase_qty - dispatch_for_calc
                     wastage_qty = max(0, total_available - closing_qty)
                     wastage_value = wastage_qty * avg_price
                     total_input = opening_qty + purchase_qty
                     wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
                     
-                    update_data.update({
-                        "wastage_qty": round(wastage_qty, 2),
-                        "wastage_value": round(wastage_value, 2),
-                        "wastage_percent": round(wastage_percent, 2)
-                    })
+                    # Only add wastage updates if there's a change
+                    wastage_changed = abs(wastage_qty - old_wastage) > 0.001
+                    if wastage_changed or dispatch_changed:
+                        update_data.update({
+                            "wastage_qty": round(wastage_qty, 2),
+                            "wastage_value": round(wastage_value, 2),
+                            "wastage_percent": round(wastage_percent, 2)
+                        })
                 
-                await db.daily_stock_status.update_one(
-                    {"date": date, "product_id": product_id},
-                    {"$set": update_data}
-                )
-                updated_count += 1
+                # Only update if there's something to change
+                if update_data:
+                    await db.daily_stock_status.update_one(
+                        {"_id": entry["_id"]},
+                        {"$set": update_data}
+                    )
+                    updated_count += 1
         
         total_updated += updated_count
-        if updated_count > 0:
-            date_summaries.append({"date": date, "updated": updated_count})
+        if updated_count > 0 or matched_count > 0:
+            date_summaries.append({"date": date, "matched": matched_count, "updated": updated_count})
         
-        logger.info(f"[RECOMPUTE] {date}: Updated {updated_count} entries")
+        logger.info(f"[RECOMPUTE] {date}: Matched {matched_count}, Updated {updated_count} entries")
     
     return {
-        "message": f"Recomputed dispatches for {len(dates_to_process)} days, updated {total_updated} entries",
+        "message": f"Recomputed dispatches for {len(dates_to_process)} days, matched {total_matched}, updated {total_updated} entries",
         "dates_processed": len(dates_to_process),
+        "total_matched": total_matched,
         "total_updated": total_updated,
         "date_summaries": date_summaries
     }

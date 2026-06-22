@@ -3174,17 +3174,34 @@ async def recompute_historical_dispatches(
         )
         
         # Update stock status entries for this date
-        stock_entries = await db.daily_stock_status.find({"date": date}).to_list(500)
+        # Handle both string and datetime date formats
+        stock_entries = await db.daily_stock_status.find({
+            "$or": [
+                {"date": date},  # String format: "2026-06-20"
+                {"date": {"$regex": f"^{date}"}},  # ISO string with time: "2026-06-20T..."
+            ]
+        }).to_list(500)
         matched_count = len(stock_entries)
         total_matched += matched_count
         updated_count = 0
+        skipped_not_closed = 0
+        skipped_no_change = 0
         
         logger.info(f"[RECOMPUTE] {date}: Found {matched_count} stock entries, {len(dispatches_by_product)} products with dispatches")
+        
+        # Log sample entry for debugging if no entries found
+        if matched_count == 0:
+            # Try to find any entry to see actual date format
+            sample = await db.daily_stock_status.find_one({})
+            if sample:
+                logger.warning(f"[RECOMPUTE] {date}: NO MATCH. Sample entry date field: {sample.get('date')} (type: {type(sample.get('date')).__name__})")
         
         for entry in stock_entries:
             product_id = entry.get("product_id")
             old_dispatch = entry.get("dispatch_qty", 0) or 0
             old_wastage = entry.get("wastage_qty", 0) or 0
+            entry_status = entry.get("status")
+            entry_closing = entry.get("closing_qty")
             
             dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
             new_dispatch = dispatch_data["qty"] if isinstance(dispatch_data, dict) else dispatch_data
@@ -3192,52 +3209,64 @@ async def recompute_historical_dispatches(
             
             # Check if dispatch changed OR if this is a closed entry that might need wastage recalculation
             dispatch_changed = abs(new_dispatch - old_dispatch) > 0.001
-            is_closed = entry.get("status") == "closed" and entry.get("closing_qty") is not None
+            is_closed = entry_status == "closed" and entry_closing is not None
+            
+            # Skip entries that don't need updates
+            if not dispatch_changed and not is_closed:
+                skipped_not_closed += 1
+                continue
             
             # For closed entries, always recalculate wastage to ensure consistency
-            if dispatch_changed or is_closed:
-                update_data = {}
+            update_data = {}
+            
+            if dispatch_changed:
+                update_data["dispatch_qty"] = new_dispatch
+            
+            # If closed, recalculate wastage
+            if is_closed:
+                opening_qty = entry.get("opening_qty", 0) or 0
+                purchase_qty = entry.get("purchase_qty", 0) or 0
+                closing_qty = entry_closing or 0
+                avg_price = entry.get("avg_price", 0) or 0
                 
-                if dispatch_changed:
-                    update_data["dispatch_qty"] = new_dispatch
+                # Use new_dispatch for calculation
+                dispatch_for_calc = new_dispatch if dispatch_changed else old_dispatch
+                total_available = opening_qty + purchase_qty - dispatch_for_calc
+                wastage_qty = max(0, total_available - closing_qty)
+                wastage_value = wastage_qty * avg_price
+                total_input = opening_qty + purchase_qty
+                wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
                 
-                # If closed, recalculate wastage
-                if is_closed:
-                    opening_qty = entry.get("opening_qty", 0) or 0
-                    purchase_qty = entry.get("purchase_qty", 0) or 0
-                    closing_qty = entry.get("closing_qty", 0) or 0
-                    avg_price = entry.get("avg_price", 0) or 0
-                    
-                    # Use new_dispatch for calculation
-                    dispatch_for_calc = new_dispatch if dispatch_changed else old_dispatch
-                    total_available = opening_qty + purchase_qty - dispatch_for_calc
-                    wastage_qty = max(0, total_available - closing_qty)
-                    wastage_value = wastage_qty * avg_price
-                    total_input = opening_qty + purchase_qty
-                    wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
-                    
-                    # Only add wastage updates if there's a change
-                    wastage_changed = abs(wastage_qty - old_wastage) > 0.001
-                    if wastage_changed or dispatch_changed:
-                        update_data.update({
-                            "wastage_qty": round(wastage_qty, 2),
-                            "wastage_value": round(wastage_value, 2),
-                            "wastage_percent": round(wastage_percent, 2)
-                        })
-                
-                # Only update if there's something to change
-                if update_data:
-                    await db.daily_stock_status.update_one(
-                        {"_id": entry["_id"]},
-                        {"$set": update_data}
-                    )
-                    updated_count += 1
+                # Only add wastage updates if there's a change
+                wastage_changed = abs(wastage_qty - old_wastage) > 0.001
+                if wastage_changed or dispatch_changed:
+                    update_data.update({
+                        "wastage_qty": round(wastage_qty, 2),
+                        "wastage_value": round(wastage_value, 2),
+                        "wastage_percent": round(wastage_percent, 2)
+                    })
+                else:
+                    skipped_no_change += 1
+            
+            # Only update if there's something to change
+            if update_data:
+                await db.daily_stock_status.update_one(
+                    {"_id": entry["_id"]},
+                    {"$set": update_data}
+                )
+                updated_count += 1
         
         total_updated += updated_count
         if updated_count > 0 or matched_count > 0:
-            date_summaries.append({"date": date, "matched": matched_count, "updated": updated_count})
+            date_summaries.append({
+                "date": date, 
+                "matched": matched_count, 
+                "updated": updated_count,
+                "skipped_not_closed": skipped_not_closed,
+                "skipped_no_change": skipped_no_change
+            })
         
-        logger.info(f"[RECOMPUTE] {date}: Matched {matched_count}, Updated {updated_count} entries")
+        logger.info(f"[RECOMPUTE] {date}: Matched {matched_count}, Updated {updated_count}, Skipped (not closed): {skipped_not_closed}, Skipped (no change): {skipped_no_change}")
     
     return {
         "message": f"Recomputed dispatches for {len(dates_to_process)} days, matched {total_matched}, updated {total_updated} entries",

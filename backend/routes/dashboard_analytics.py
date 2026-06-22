@@ -344,9 +344,17 @@ async def get_pnl_report(
             # If packaging_weight_gm not set, try to extract from packaging name
             if not packaging_weight_gm and unit:
                 import re
-                weight_match = re.search(r'(\d+)(?:\s*-\s*\d+)?\s*(?:gm|g)\b', unit.lower())
-                if weight_match:
-                    packaging_weight_gm = float(weight_match.group(1))
+                # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
+                range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit.lower())
+                if range_match:
+                    low = int(range_match.group(1))
+                    high = int(range_match.group(2))
+                    packaging_weight_gm = (low + high) // 2  # Use midpoint
+                else:
+                    # Single value with optional + (e.g., "100+ gm", "250 gm")
+                    weight_match = re.search(r'(\d+)\+?\s*(?:gm|g)\b', unit.lower())
+                    if weight_match:
+                        packaging_weight_gm = float(weight_match.group(1))
             
             rate_per_kg = item.get("rate_per_kg", 0) or 0
             rate_per_unit = item.get("rate_per_unit", 0) or 0
@@ -583,9 +591,16 @@ async def get_pnl_report(
             return 0
         unit_lower = str(unit_str).lower()
         import re
-        # Try to find explicit weight in variant name
-        # Pattern: "500+ gm", "1 Kg", "250+gm", etc.
-        gm_match = re.search(r'(\d+)\+?\s*gm', unit_lower)
+        
+        # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
+        range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit_lower)
+        if range_match:
+            low = int(range_match.group(1))
+            high = int(range_match.group(2))
+            return (low + high) // 2  # Use midpoint
+        
+        # Single value with optional + (e.g., "500+ gm", "250 gm")
+        gm_match = re.search(r'(\d+)\+?\s*(?:gm|g)\b', unit_lower)
         if gm_match:
             return int(gm_match.group(1))
         kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', unit_lower)
@@ -735,24 +750,32 @@ async def get_pnl_report(
                 else:
                     # Try to extract weight from variant_name like "240-260 gm" or "200 gm"
                     import re
-                    weight_match = re.search(r'(\d+)(?:\s*-\s*\d+)?\s*(?:gm|g)\b', unit.lower())
-                    if weight_match:
-                        packaging_weight_gm = float(weight_match.group(1))
+                    # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
+                    range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit.lower())
+                    if range_match:
+                        low = int(range_match.group(1))
+                        high = int(range_match.group(2))
+                        packaging_weight_gm = (low + high) // 2  # Use midpoint
                     else:
-                        # Handle common unit names without explicit weight
-                        unit_lower = unit.lower().strip()
-                        if 'half dozen' in unit_lower or 'half-dozen' in unit_lower:
-                            # Half dozen of banana/similar is typically ~500gm
-                            packaging_weight_gm = 500
-                        elif 'dozen' in unit_lower and 'half' not in unit_lower:
-                            # Full dozen is typically ~1000gm (1kg)
-                            packaging_weight_gm = 1000
-                        elif 'bunch' in unit_lower:
-                            # Bunch is typically used for leafy items, ~100gm
-                            packaging_weight_gm = 100
-                        # Note: For "X Kg Loose" variants (e.g., "10 Kg Loose"), we assume supplied_qty
-                        # is already in kg, not in units. This is because loose items are typically
-                        # weighed and sold by actual weight, not by pre-packaged units.
+                        # Single value with optional + (e.g., "100+ gm", "250 gm")
+                        weight_match = re.search(r'(\d+)\+?\s*(?:gm|g)\b', unit.lower())
+                        if weight_match:
+                            packaging_weight_gm = float(weight_match.group(1))
+                        else:
+                            # Handle common unit names without explicit weight
+                            unit_lower = unit.lower().strip()
+                            if 'half dozen' in unit_lower or 'half-dozen' in unit_lower:
+                                # Half dozen of banana/similar is typically ~500gm
+                                packaging_weight_gm = 500
+                            elif 'dozen' in unit_lower and 'half' not in unit_lower:
+                                # Full dozen is typically ~1000gm (1kg)
+                                packaging_weight_gm = 1000
+                            elif 'bunch' in unit_lower:
+                                # Bunch is typically used for leafy items, ~100gm
+                                packaging_weight_gm = 100
+                            # Note: For "X Kg Loose" variants (e.g., "10 Kg Loose"), we assume supplied_qty
+                            # is already in kg, not in units. This is because loose items are typically
+                            # weighed and sold by actual weight, not by pre-packaged units.
             
             # If we have packaging weight in gm, convert qty to kg; otherwise assume qty is already in kg
             if packaging_weight_gm > 0:

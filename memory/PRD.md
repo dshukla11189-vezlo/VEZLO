@@ -3,6 +3,27 @@
 ## Changelog (June 2025)
 
 
+### June 22, 2026 - P&L and Wastage Dashboard Perfect Alignment ✅
+- **BUG FIX (P0)**: Aligned P&L and Wastage Dashboard to show IDENTICAL wastage quantities and values
+  - **Symptom**: P&L and Wastage Dashboard showed different wastage values (~Rs 4,744 discrepancy on single days, larger on ranges)
+  - **Root Cause**: 
+    1. P&L was recalculating wastage using fresh procurement data instead of stored values
+    2. Wastage Dashboard was recalculating wastage_value using daily_cogs rates instead of stored values
+    3. Both dashboards used different pricing methodologies
+  - **Solution**:
+    1. Changed both dashboards to use stored `wastage_qty` and `wastage_value` directly from `daily_stock_status`
+    2. The stored values are the ground truth (calculated at stock closing time)
+    3. Removed recalculation fallback logic that caused discrepancies
+  - **Result**: Both dashboards now show IDENTICAL values for all date ranges
+    - Full historical range (2026-03-18 to 2026-06-22): 23,917.45 kg / Rs 849,361.31 ✅
+    - June 21: 664.44 kg / Rs 28,290.58 ✅
+    - June 19: 382.66 kg / Rs 13,788.18 ✅
+  - **Files Modified**:
+    - `/app/backend/routes/dashboard_analytics.py` - Simplified wastage logic to use stored values
+  - **Verification**:
+    - Ginger on 2026-06-21: 8.80 kg wastage (correct, dispatch includes 7.60 kg combo ingredients)
+    - Garlic on 2026-06-21: 19.65 kg wastage (correct, dispatch includes 7.60 kg combo ingredients)
+
 ### June 22, 2026 - Wastage Dashboard vs P&L Value Discrepancy Fix ✅
 - **BUG FIX (P0)**: Fixed major discrepancy between Wastage Dashboard and P&L wastage values
   - **Symptom**: Wastage Dashboard showed Rs 842,608 vs P&L showing Rs 506,454 (~65% difference)

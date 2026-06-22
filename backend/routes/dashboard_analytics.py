@@ -1038,49 +1038,11 @@ async def get_pnl_report(
         purchase_qty = round(fresh_purchase.get("qty", 0), 2)
         purchase_value = round(fresh_purchase.get("value", 0), 2)
         
-        # Recalculate wastage using fresh procurement data
-        total_available = opening_qty + purchase_qty - dispatch_qty
-        wastage_qty = max(0, total_available - closing_qty)
-        
-        # PRIORITY 1: Use stored wastage_value from stock_status if available and reasonable
-        stored_wastage_value = status.get("wastage_value", 0) or 0
-        stored_wastage_qty = status.get("wastage_qty", 0) or 0
-        
-        if stored_wastage_value > 0 and stored_wastage_qty > 0:
-            stored_rate = stored_wastage_value / stored_wastage_qty
-            if stored_rate <= MAX_REASONABLE_COGS_PER_KG:
-                avg_price = stored_rate
-                wastage_value = round(wastage_qty * avg_price, 2)
-            else:
-                avg_price = 0  # Stored rate unreasonable, will fall through to COGS
-                wastage_value = None
-        else:
-            avg_price = 0
-            wastage_value = None
-        
-        # PRIORITY 2: Calculate using daily_cogs with sanity check if no valid stored value
-        if wastage_value is None:
-            daily_cogs_key = (product, status_date)
-            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
-                cogs_rate = daily_cogs_map[daily_cogs_key]
-                if cogs_rate <= MAX_REASONABLE_COGS_PER_KG:
-                    avg_price = cogs_rate
-            
-            # Fallback to procurement rate
-            if avg_price == 0 and purchase_qty > 0:
-                proc_rate = purchase_value / purchase_qty
-                if proc_rate <= MAX_REASONABLE_COGS_PER_KG:
-                    avg_price = proc_rate
-            
-            # Store this price for future fallback
-            if avg_price > 0 and product_id:
-                product_recent_prices[product_id] = avg_price
-            
-            # If no daily_cogs and no purchase today, use the most recent price we've seen
-            if avg_price == 0 and product_id:
-                avg_price = product_recent_prices.get(product_id, 0)
-            
-            wastage_value = round(wastage_qty * avg_price, 2) if avg_price > 0 else 0
+        # Use stored wastage_qty and wastage_value directly from stock_status
+        # This ensures P&L matches Wastage Dashboard exactly
+        # Both dashboards now use the same ground truth (stored values from stock closing)
+        wastage_qty = status.get("wastage_qty", 0) or 0
+        wastage_value = status.get("wastage_value", 0) or 0
         
         total_wastage_qty += wastage_qty
         total_wastage_value += wastage_value
@@ -1102,10 +1064,15 @@ async def get_pnl_report(
         if wastage_qty > 0 and dispatch_qty == 0:
             if status_date not in unsold_wastage_by_date:
                 unsold_wastage_by_date[status_date] = {}
+            # Calculate avg_price for tracking
+            if wastage_qty > 0:
+                track_avg_price = wastage_value / wastage_qty
+            else:
+                track_avg_price = 0
             unsold_wastage_by_date[status_date][product] = {
                 "qty": wastage_qty,
                 "value": wastage_value,
-                "avg_price": avg_price
+                "avg_price": track_avg_price
             }
     
     # ========== COMBO PROPORTIONAL WASTAGE DISTRIBUTION ==========
@@ -1622,9 +1589,26 @@ async def get_pnl_report(
         day_cogs_from_items = 0
         day_wastage_from_items = 0
         
+        # Recompute retail_cogs and qc_cogs from line items so they match row sums
+        day_retail_cogs_from_items = 0
+        day_qc_cogs_from_items = 0
+        
         for line_item in detailed_line_items:
-            day_cogs_from_items += line_item.get("cogs", 0) or 0
-            day_wastage_from_items += line_item.get("wastage_value", 0) or 0
+            item_cogs = line_item.get("cogs", 0) or 0
+            item_wastage = line_item.get("wastage_value", 0) or 0
+            
+            day_cogs_from_items += item_cogs
+            day_wastage_from_items += item_wastage
+            
+            # Split COGS by customer type
+            if line_item.get("customer_type") == "Retail":
+                day_retail_cogs_from_items += item_cogs
+            else:  # QC
+                day_qc_cogs_from_items += item_cogs
+        
+        # Update day_data with recomputed retail/qc cogs from line items
+        day_data["retail_cogs"] = day_retail_cogs_from_items
+        day_data["qc_cogs"] = day_qc_cogs_from_items
         
         # Gross profit using line-item COGS basis (consistent with total_cogs)
         day_gross = day_data["sales"] - day_cogs_from_items - day_wastage_from_items - day_retail_rejection_cogs - day_retail_commission
@@ -1648,6 +1632,7 @@ async def get_pnl_report(
             "retail_rejection_cogs": round(day_data.get("retail_rejection_cogs", 0), 2),  # Rejection at COGS/purchase price
             "retail_commission": round(day_data.get("retail_commission", 0), 2),
             "retail_cogs": round(day_data.get("retail_cogs", 0), 2),
+            "qc_cogs": round(day_data.get("qc_cogs", 0), 2),
             "purchase": round(day_data["purchase"], 2),
             "purchase_qty": round(day_data.get("purchase_qty", 0), 2),
             "wastage": round(day_data["wastage"], 2),
@@ -1820,8 +1805,13 @@ async def get_pnl_report(
     total_cogs = actual_qc_cogs + actual_retail_cogs
     total_wastage_from_items = actual_qc_wastage + actual_retail_wastage
     
-    # Recalculate gross profit using actual COGS and wastage from line items (using rejection at COGS)
-    gross_profit_actual = total_sales - total_cogs - total_wastage_from_items - total_retail_rejection_cogs - total_retail_commission
+    # Use stored wastage totals (from daily_stock_status) for consistency with Wastage Dashboard
+    # The line-item wastage is proportionally distributed, but we want to use the actual recorded wastage
+    # This ensures P&L and Wastage Dashboard show identical values
+    total_wastage_for_profit = total_wastage_value  # Use the accumulated stock_status wastage
+    
+    # Recalculate gross profit using actual COGS and wastage from stock status (using rejection at COGS)
+    gross_profit_actual = total_sales - total_cogs - total_wastage_for_profit - total_retail_rejection_cogs - total_retail_commission
     gross_margin_actual = (gross_profit_actual / total_sales * 100) if total_sales > 0 else 0
     
     # Recalculate net profit (including GRN Loss which affects QC)
@@ -1903,8 +1893,8 @@ async def get_pnl_report(
             "total_cogs": round(total_cogs, 2),  # Sum of line item COGS (same as total_purchase now)
             "total_procurement": round(total_purchase, 2),  # Raw procurement value (for audit reference)
             "total_wastage_qty": round(total_wastage_qty, 2),
-            "total_wastage_value": round(total_wastage_from_items, 2),  # Use line-item wastage for consistency
-            "total_wastage_from_items": round(total_wastage_from_items, 2),  # Sum of line item wastage
+            "total_wastage_value": round(total_wastage_value, 2),  # Use stock_status wastage for consistency with Dashboard
+            "total_wastage_from_items": round(total_wastage_from_items, 2),  # Line-item proportional wastage (for audit)
             "total_retail_rejection": round(total_retail_rejection, 2),
             "total_retail_commission": round(total_retail_commission, 2),
             "gross_profit": round(gross_profit_actual, 2),  # Using actual COGS
@@ -4833,48 +4823,15 @@ async def get_wastage_dashboard(
         purchase_qty = record.get("purchase_qty", 0) or 0
         purchase_value = record.get("purchase_value", 0) or 0
         
-        # PRIORITY 1: Use stored wastage_value from stock_status if available and reasonable
+        # Use stored wastage_qty and wastage_value directly from stock_status
         # This is the ground truth as it was calculated during stock closing
+        # This ensures P&L and Wastage Dashboard use identical values
         stored_wastage_value = record.get("wastage_value", 0) or 0
         stored_wastage_qty = record.get("wastage_qty", 0) or 0
         
-        if stored_wastage_value > 0 and stored_wastage_qty > 0:
-            stored_rate = stored_wastage_value / stored_wastage_qty
-            # Verify stored rate is reasonable
-            if stored_rate <= MAX_REASONABLE_COGS_PER_KG:
-                wastage_value = round(wastage_qty * stored_rate, 2)
-            else:
-                # Stored rate is unreasonable, recalculate
-                wastage_value = None
-        else:
-            wastage_value = None
-        
-        # PRIORITY 2: If no valid stored value, calculate using daily_cogs with sanity check
-        if wastage_value is None:
-            daily_cogs_key = (product_name, date)
-            avg_price = 0
-            
-            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
-                cogs_rate = daily_cogs_map[daily_cogs_key]
-                # Sanity check: reject absurd COGS values (data corruption)
-                if cogs_rate <= MAX_REASONABLE_COGS_PER_KG:
-                    avg_price = cogs_rate
-            
-            # Fallback to procurement rate if COGS is invalid/missing
-            if avg_price == 0 and purchase_qty > 0:
-                proc_rate = purchase_value / purchase_qty
-                if proc_rate <= MAX_REASONABLE_COGS_PER_KG:
-                    avg_price = proc_rate
-            
-            # Store price for future fallback (only if valid)
-            if avg_price > 0 and product_id:
-                product_recent_prices[product_id] = avg_price
-            
-            # If no price available, use recent price
-            if avg_price == 0 and product_id:
-                avg_price = product_recent_prices.get(product_id, 0)
-            
-            wastage_value = round(wastage_qty * avg_price, 2) if avg_price > 0 else 0
+        # Use stored values directly (ground truth)
+        wastage_qty = stored_wastage_qty
+        wastage_value = stored_wastage_value
         
         # Daily totals
         if date not in daily_totals:

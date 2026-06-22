@@ -3,6 +3,30 @@
 ## Changelog (June 2025)
 
 
+### June 21, 2026 - Combo Ingredient Decomposition in Daily COGS ✅
+- **BUG FIX**: Fixed `get_sales_by_date()` in `daily_cogs.py` to decompose combo products into base ingredients
+  - Previously, combo dispatches were recorded under the combo name, causing base product stock/wastage/COGS to be wrong
+  - Now, when a combo is dispatched, its ingredient quantities are added to each base product
+  - Example: 38 packs of "Herbs mix(280 gm Pack)" adds:
+    - Curry Leaves: 38 × 0.060 = 2.28 kg
+    - Coriander: 38 × 0.120 = 4.56 kg
+    - Mint: 38 × 0.100 = 3.8 kg
+- **BUG FIX**: Fixed `get_packaging_weight_gm()` regex to use midpoint for ranges
+  - Previously: "90-110 gm" → 90 gm (lower bound), inflating per-kg price
+  - Now: "90-110 gm" → 100 gm (midpoint)
+- **BUG FIX**: Fixed `close_stock_status()` to recompute dispatch_qty with combo ingredient decomposition
+  - Now calculates fresh dispatches including combo ingredients before computing wastage_qty
+- **BUG FIX**: Fixed `recalculate_stock_dispatches()` to include combo ingredient decomposition
+- **NEW ENDPOINT**: `POST /api/stock-status/recompute-historical-dispatches`
+  - Recomputes dispatch quantities for all closed stock status records in a date range
+  - Includes combo ingredient decomposition
+- **"Fix COGS Data" button** now also runs historical dispatch recompute after COGS backfill
+- **FILES MODIFIED**:
+  - `/app/backend/routes/daily_cogs.py` - Combo decomposition in `get_sales_by_date()`, midpoint for ranges
+  - `/app/backend/routes/dashboard_analytics.py` - Combo decomposition in stock closing and recalculation
+  - `/app/frontend/src/pages/admin/Dashboard.js` - Updated button to run both backfills
+
+
 ### June 21, 2026 - Deployment Health Check Fix ✅
 - **BUG FIX**: Added root-level `/health` endpoint for Kubernetes health checks
   - Kubernetes was checking `/health` but the health router was mounted at `/api/health`

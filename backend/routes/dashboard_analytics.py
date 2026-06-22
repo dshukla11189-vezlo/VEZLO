@@ -2473,6 +2473,23 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
     all_products = await db.products.find({}, {"_id": 0}).to_list(1000)
     product_map = {p["id"]: p for p in all_products}
     
+    # Get packaging weights from QC packaging table
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {}
+    for p in packaging_variants:
+        name = p['name']
+        name_lower = name.lower().strip()
+        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight > 0:
+            packaging_map[name_lower] = weight
+    
+    # Build cost_alias mapping
+    cost_alias_id_map = {}
+    for product in all_products:
+        alias_id = product.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[product["id"]] = alias_id
+    
     # Get yesterday's closing (for opening stock)
     yesterday_status = await db.daily_stock_status.find(
         {"date": yesterday, "status": "closed"},
@@ -2525,11 +2542,61 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
                 
                 purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
     
+    # Get dispatches for target date and calculate dispatch_qty INCLUDING combo ingredient decomposition
+    qc_dispatches = await db.qc_dispatches.find({
+        "dispatch_date": {"$regex": f"^{target_date}"}
+    }, {"_id": 0}).to_list(1000)
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$regex": f"^{target_date}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Calculate dispatches with combo ingredient decomposition
+    dispatches_by_product = {}
+    all_dispatch_items = []
+    
+    for dispatch in qc_dispatches + retailer_dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            target_product_id = cost_alias_id_map.get(product_id, product_id)
+            supplied_qty = item.get("supplied_qty", 0)
+            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+            
+            # Collect for combo processing
+            all_dispatch_items.append(item)
+            
+            # Skip combo products from direct dispatch counting (they don't have base stock)
+            if is_combo_product(product_name):
+                continue
+            
+            weight_gm = packaging_map.get(packaging_name)
+            if not weight_gm:
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            if not weight_gm:
+                weight_gm = 1000
+            
+            qty_kg = (supplied_qty * weight_gm) / 1000
+            
+            if target_product_id not in dispatches_by_product:
+                dispatches_by_product[target_product_id] = 0
+            dispatches_by_product[target_product_id] += qty_kg
+    
+    # Add combo ingredient dispatches to their respective base products
+    dispatches_by_product = add_combo_ingredient_dispatches(
+        dispatches_by_product, all_dispatch_items, all_products, packaging_map
+    )
+    
     # Build list of all products that REQUIRE closing (opening > 0 OR purchase > 0 OR dispatch > 0, and not already closed)
     products_requiring_closing = []
     
     for product in all_products:
         product_id = product["id"]
+        product_name = product.get("name", "")
+        
+        # Skip combo products - they don't have stock status
+        if is_combo_product(product_name):
+            continue
+        
         existing = existing_map.get(product_id, {})
         
         # Skip if already closed
@@ -2542,10 +2609,14 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             opening_qty = yesterday_map.get(product_id, {}).get("closing_qty", 0)
         
         purchase_qty = purchases_by_product.get(product_id, 0)
-        dispatch_qty = existing.get("dispatch_qty", 0) or 0
+        
+        # Get dispatch_qty from freshly calculated dispatches (includes combo ingredients)
+        dispatch_qty = dispatches_by_product.get(product_id, 0)
+        if isinstance(dispatch_qty, dict):
+            dispatch_qty = dispatch_qty.get("qty", 0)
         
         # If has opening OR purchase OR dispatch activity, it requires closing
-        if opening_qty > 0 or purchase_qty > 0 or dispatch_qty != 0:
+        if opening_qty > 0 or purchase_qty > 0 or dispatch_qty > 0:
             products_requiring_closing.append({
                 "product_id": product_id,
                 "product_name": product.get("name", "Unknown")
@@ -2592,7 +2663,13 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
         opening_qty = status.get("opening_qty", 0)
         # Use FRESH procurement data instead of stored value to prevent corruption from duplicate API calls
         purchase_qty = round(purchases_by_product.get(entry.product_id, 0), 2)
-        dispatch_qty = status.get("dispatch_qty", 0)
+        
+        # Use freshly calculated dispatch_qty (includes combo ingredients)
+        dispatch_qty = dispatches_by_product.get(entry.product_id, 0)
+        if isinstance(dispatch_qty, dict):
+            dispatch_qty = dispatch_qty.get("qty", 0)
+        dispatch_qty = round(dispatch_qty, 2)
+        
         avg_price = status.get("avg_price", 0)
         
         # If no purchase today (avg_price = 0), get the most recent purchase price for this product
@@ -2660,6 +2737,7 @@ async def recalculate_stock_dispatches(
     """
     Recalculate dispatch quantities for ALL stock status entries on a specific date.
     This fixes closed entries that have incorrect dispatch values.
+    Includes combo ingredient decomposition to base products.
     """
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can recalculate dispatches")
@@ -2691,8 +2769,10 @@ async def recalculate_stock_dispatches(
     all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
     all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
     
-    # Calculate dispatch totals by product (use cost_alias mapping)
+    # Calculate dispatch totals by product (use cost_alias mapping) WITH combo decomposition
     dispatches_by_product = {}
+    all_dispatch_items = []
+    
     for d in all_qc_dispatches + all_retailer_dispatches:
         dispatch_date = d.get("dispatch_date", "")
         if isinstance(dispatch_date, datetime):
@@ -2703,11 +2783,19 @@ async def recalculate_stock_dispatches(
         if dispatch_date_str == date:
             for item in d.get("items", []):
                 product_id = item.get("product_id")
+                product_name = item.get("product_name", "")
                 # Map to aliased product if applicable (e.g., Spinach → Palak)
                 target_product_id = cost_alias_id_map.get(product_id, product_id)
                 
                 supplied_qty = item.get("supplied_qty", 0)
                 packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+                
+                # Collect for combo processing
+                all_dispatch_items.append(item)
+                
+                # Skip combo products from direct dispatch counting (they don't have base stock)
+                if is_combo_product(product_name):
+                    continue
                 
                 # Get weight from packaging map
                 weight_gm = packaging_map.get(packaging_name)
@@ -2723,6 +2811,11 @@ async def recalculate_stock_dispatches(
                     dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
                 dispatches_by_product[target_product_id]["qty"] += qty_kg
                 dispatches_by_product[target_product_id]["value"] += supplied_qty * (item.get("rate") or 0)
+    
+    # Add combo ingredient dispatches to their respective base products
+    dispatches_by_product = add_combo_ingredient_dispatches(
+        dispatches_by_product, all_dispatch_items, products, packaging_map
+    )
     
     # Get all stock status entries for the date
     stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)
@@ -2955,6 +3048,158 @@ async def recalculate_wastage(
         "updates": updated
     }
 
+
+@router.post("/stock-status/recompute-historical-dispatches")
+async def recompute_historical_dispatches(
+    from_date: str,
+    to_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recompute dispatch quantities for all closed stock status records in a date range.
+    This includes combo ingredient decomposition to base products.
+    
+    Use this to fix historical data where combo ingredients weren't added to base product dispatches.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can recompute historical dispatches")
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Generate list of dates
+    start = datetime.strptime(from_date, '%Y-%m-%d')
+    end = datetime.strptime(to_date, '%Y-%m-%d')
+    dates_to_process = []
+    current = start
+    while current <= end:
+        dates_to_process.append(current.strftime('%Y-%m-%d'))
+        current += timedelta(days=1)
+    
+    total_updated = 0
+    date_summaries = []
+    
+    # Get packaging weights once
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+    packaging_map = {}
+    for p in packaging_variants:
+        name = p['name']
+        name_lower = name.lower().strip()
+        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight > 0:
+            packaging_map[name_lower] = weight
+    
+    # Get all products once
+    products = await db.products.find({}, {"_id": 0}).to_list(1000)
+    cost_alias_id_map = {}
+    for product in products:
+        alias_id = product.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[product["id"]] = alias_id
+    
+    # Get all dispatches once
+    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
+    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    
+    for date in dates_to_process:
+        # Calculate dispatches for this date WITH combo decomposition
+        dispatches_by_product = {}
+        all_dispatch_items = []
+        
+        for d in all_qc_dispatches + all_retailer_dispatches:
+            dispatch_date = d.get("dispatch_date", "")
+            if isinstance(dispatch_date, datetime):
+                dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
+            else:
+                dispatch_date_str = str(dispatch_date)[:10]
+            
+            if dispatch_date_str == date:
+                for item in d.get("items", []):
+                    product_id = item.get("product_id")
+                    product_name = item.get("product_name", "")
+                    target_product_id = cost_alias_id_map.get(product_id, product_id)
+                    supplied_qty = item.get("supplied_qty", 0)
+                    packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+                    
+                    all_dispatch_items.append(item)
+                    
+                    # Skip combo products from direct dispatch counting
+                    if is_combo_product(product_name):
+                        continue
+                    
+                    weight_gm = packaging_map.get(packaging_name)
+                    if not weight_gm:
+                        weight_gm = extract_weight_from_packaging_name(packaging_name)
+                    if not weight_gm:
+                        weight_gm = 1000
+                    
+                    qty_kg = (supplied_qty * weight_gm) / 1000
+                    
+                    if target_product_id not in dispatches_by_product:
+                        dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
+                    dispatches_by_product[target_product_id]["qty"] += qty_kg
+                    dispatches_by_product[target_product_id]["value"] += supplied_qty * (item.get("rate") or 0)
+        
+        # Add combo ingredient dispatches
+        dispatches_by_product = add_combo_ingredient_dispatches(
+            dispatches_by_product, all_dispatch_items, products, packaging_map
+        )
+        
+        # Update stock status entries for this date
+        stock_entries = await db.daily_stock_status.find({"date": date}, {"_id": 0}).to_list(500)
+        updated_count = 0
+        
+        for entry in stock_entries:
+            product_id = entry.get("product_id")
+            old_dispatch = entry.get("dispatch_qty", 0)
+            
+            dispatch_data = dispatches_by_product.get(product_id, {"qty": 0, "value": 0})
+            new_dispatch = dispatch_data["qty"] if isinstance(dispatch_data, dict) else dispatch_data
+            new_dispatch = round(new_dispatch, 2)
+            
+            # Only update if there's a change
+            if abs(new_dispatch - old_dispatch) > 0.001:
+                update_data = {
+                    "dispatch_qty": new_dispatch
+                }
+                
+                # If closed, recalculate wastage
+                if entry.get("status") == "closed" and entry.get("closing_qty") is not None:
+                    opening_qty = entry.get("opening_qty", 0)
+                    purchase_qty = entry.get("purchase_qty", 0)
+                    closing_qty = entry.get("closing_qty", 0)
+                    avg_price = entry.get("avg_price", 0)
+                    
+                    total_available = opening_qty + purchase_qty - new_dispatch
+                    wastage_qty = max(0, total_available - closing_qty)
+                    wastage_value = wastage_qty * avg_price
+                    total_input = opening_qty + purchase_qty
+                    wastage_percent = (wastage_qty / total_input * 100) if total_input > 0 else 0
+                    
+                    update_data.update({
+                        "wastage_qty": round(wastage_qty, 2),
+                        "wastage_value": round(wastage_value, 2),
+                        "wastage_percent": round(wastage_percent, 2)
+                    })
+                
+                await db.daily_stock_status.update_one(
+                    {"date": date, "product_id": product_id},
+                    {"$set": update_data}
+                )
+                updated_count += 1
+        
+        total_updated += updated_count
+        if updated_count > 0:
+            date_summaries.append({"date": date, "updated": updated_count})
+        
+        logger.info(f"[RECOMPUTE] {date}: Updated {updated_count} entries")
+    
+    return {
+        "message": f"Recomputed dispatches for {len(dates_to_process)} days, updated {total_updated} entries",
+        "dates_processed": len(dates_to_process),
+        "total_updated": total_updated,
+        "date_summaries": date_summaries
+    }
 
 
 @router.post("/stock-status/recalculate-purchase-from-procurement")

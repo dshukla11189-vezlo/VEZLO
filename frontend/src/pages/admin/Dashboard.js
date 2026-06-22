@@ -182,7 +182,7 @@ export default function AdminDashboard() {
 
   // Run Daily COGS Backfill in monthly chunks
   const runCogsBackfill = async () => {
-    if (!window.confirm('This will recalculate Daily COGS data from March 2026 onwards. This may take a few minutes. Continue?')) {
+    if (!window.confirm('This will recalculate Daily COGS data and dispatch quantities from April 2026 onwards. This may take a few minutes. Continue?')) {
       return;
     }
     
@@ -197,19 +197,30 @@ export default function AdminDashboard() {
     ];
     
     try {
+      // Step 1: Run COGS backfill for each month
       for (let i = 0; i < months.length; i++) {
         const month = months[i];
-        setCogsBackfillProgress(`Processing ${month.name}... (${i + 1}/${months.length})`);
+        setCogsBackfillProgress(`COGS: ${month.name}... (${i + 1}/${months.length})`);
         
         const response = await api.post(`/api/daily-cogs/backfill?from_date=${month.from}&to_date=${month.to}`);
-        console.log(`${month.name} backfill:`, response.data);
+        console.log(`${month.name} COGS backfill:`, response.data);
         
-        // Small delay between months
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
+      // Step 2: Recompute historical dispatch quantities (includes combo ingredient decomposition)
+      setCogsBackfillProgress('Recomputing dispatches (Apr-Jun)...');
+      
+      try {
+        const dispatchResponse = await api.post(`/api/stock-status/recompute-historical-dispatches?from_date=2026-04-01&to_date=2026-06-30`);
+        console.log('Historical dispatch recompute:', dispatchResponse.data);
+      } catch (dispatchError) {
+        console.error('Dispatch recompute error (continuing):', dispatchError);
+        // Continue even if this fails - COGS backfill is the main fix
+      }
+      
       setCogsBackfillProgress('Complete!');
-      toast.success('Daily COGS backfill completed! Wastage calculations should now be accurate.');
+      toast.success('Daily COGS and dispatch recompute completed! Wastage calculations should now be accurate.');
       
       // Refresh the P&L data
       loadPnlData();

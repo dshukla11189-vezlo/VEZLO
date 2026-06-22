@@ -109,24 +109,80 @@ async def get_procurements_by_date(db: AsyncIOMotorDatabase, date_str: str) -> d
 
 
 async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
-    """Get sales qty (in Kg) by product for a specific date."""
+    """Get sales qty (in Kg) by product for a specific date.
+    
+    For combo products, this decomposes them into their base ingredients
+    and adds the ingredient quantities to the base products instead of
+    recording under the combo name. This prevents double-counting and
+    ensures base product stock/wastage calculations are correct.
+    """
+    from routes.combo_utils import is_combo_product, parse_combo_product, normalize_ingredient_name
+    
     product_sales = {}  # {product: qty_kg}
     
     # Helper to parse packaging weight from variant name
+    # For ranges like "90-110 gm", use the midpoint instead of lower bound
     def get_packaging_weight_gm(unit_str):
         if not unit_str:
             return 0
         unit_lower = str(unit_str).lower()
         import re
-        gm_match = re.search(r'(\d+)\+?\s*gm', unit_lower)
+        
+        # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
+        range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit_lower)
+        if range_match:
+            low = int(range_match.group(1))
+            high = int(range_match.group(2))
+            return (low + high) // 2  # Use midpoint
+        
+        # Single value with optional + (e.g., "100+ gm", "250 gm")
+        gm_match = re.search(r'(\d+)\+?\s*(?:gm|g)\b', unit_lower)
         if gm_match:
             return int(gm_match.group(1))
+        
+        # Kg pattern
         kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', unit_lower)
         if kg_match:
             return float(kg_match.group(1)) * 1000
+        
         if 'bunch' in unit_lower:
             return 100
         return 0
+    
+    # Helper to add sales quantity, decomposing combos into base ingredients
+    def add_sales_qty(product_name: str, qty_packs: float, variant_name: str):
+        """Add sales quantity to the appropriate products.
+        
+        For combo products, decompose into base ingredients.
+        For regular products, add directly.
+        """
+        if is_combo_product(product_name):
+            # Decompose combo into base ingredients
+            combo_info = parse_combo_product(product_name)
+            if combo_info and combo_info.get('ingredients'):
+                for ingredient in combo_info['ingredients']:
+                    ing_name = ingredient.get('name', '')
+                    weight_gm = ingredient.get('weight_gm', 0)
+                    
+                    if ing_name and weight_gm > 0:
+                        # Calculate ingredient kg: qty_packs * (weight_gm / 1000)
+                        ingredient_qty_kg = qty_packs * (weight_gm / 1000)
+                        
+                        if ing_name not in product_sales:
+                            product_sales[ing_name] = 0
+                        product_sales[ing_name] += ingredient_qty_kg
+            # Do NOT add combo to product_sales - it has no base stock
+        else:
+            # Regular product - convert to Kg based on packaging
+            packaging_gm = get_packaging_weight_gm(variant_name)
+            if packaging_gm > 0:
+                qty_kg = qty_packs * (packaging_gm / 1000)
+            else:
+                qty_kg = qty_packs  # Assume already in Kg
+            
+            if product_name not in product_sales:
+                product_sales[product_name] = 0
+            product_sales[product_name] += qty_kg
     
     # Retailer dispatches
     retailer_dispatches = await db.retailer_dispatches.find({
@@ -138,17 +194,7 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
             product = item.get("product_name", "Unknown")
             qty = item.get("quantity", 0) or 0
             variant = item.get("variant_name", "") or item.get("unit", "")
-            
-            # Convert to Kg
-            packaging_gm = get_packaging_weight_gm(variant)
-            if packaging_gm > 0:
-                qty_kg = qty * (packaging_gm / 1000)
-            else:
-                qty_kg = qty  # Assume already in Kg
-            
-            if product not in product_sales:
-                product_sales[product] = 0
-            product_sales[product] += qty_kg
+            add_sales_qty(product, qty, variant)
     
     # Ninjacart dispatches
     nc_dispatches = await db.ninjacart_dispatches.find({
@@ -160,9 +206,19 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
             product = item.get("product_name", "Unknown")
             qty_kg = item.get("total_weight", 0) or item.get("quantity", 0) or 0
             
-            if product not in product_sales:
-                product_sales[product] = 0
-            product_sales[product] += qty_kg
+            # For ninjacart, already in Kg, but still check for combos
+            if is_combo_product(product):
+                # For combo in ninjacart, we need to estimate packs from total weight
+                combo_info = parse_combo_product(product)
+                if combo_info and combo_info.get('total_weight_gm', 0) > 0:
+                    # qty_kg is total combo weight, convert to packs
+                    pack_weight_kg = combo_info['total_weight_gm'] / 1000
+                    qty_packs = qty_kg / pack_weight_kg if pack_weight_kg > 0 else 0
+                    add_sales_qty(product, qty_packs, "")
+            else:
+                if product not in product_sales:
+                    product_sales[product] = 0
+                product_sales[product] += qty_kg
     
     # QC GRNs - iterate each grn's items, filter by dispatch_date matching date_str
     qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
@@ -179,18 +235,23 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
             packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
             grn_qty_kg = item.get("grn_qty_kg", 0) or 0
             
-            # Calculate qty_kg: (grn_qty × packaging_weight_gm) / 1000
-            # Fallback chain: packaging_weight_gm -> grn_qty_kg -> grn_qty as-is
-            if packaging_weight_gm > 0:
-                qty_kg = (grn_qty * packaging_weight_gm) / 1000
-            elif grn_qty_kg > 0:
-                qty_kg = grn_qty_kg
+            # Check if combo product
+            if is_combo_product(product):
+                # grn_qty is number of packs for combo
+                add_sales_qty(product, grn_qty, "")
             else:
-                qty_kg = grn_qty  # Assume already in Kg
-            
-            if product not in product_sales:
-                product_sales[product] = 0
-            product_sales[product] += qty_kg
+                # Calculate qty_kg: (grn_qty × packaging_weight_gm) / 1000
+                # Fallback chain: packaging_weight_gm -> grn_qty_kg -> grn_qty as-is
+                if packaging_weight_gm > 0:
+                    qty_kg = (grn_qty * packaging_weight_gm) / 1000
+                elif grn_qty_kg > 0:
+                    qty_kg = grn_qty_kg
+                else:
+                    qty_kg = grn_qty  # Assume already in Kg
+                
+                if product not in product_sales:
+                    product_sales[product] = 0
+                product_sales[product] += qty_kg
     
     return product_sales
 

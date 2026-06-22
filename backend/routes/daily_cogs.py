@@ -192,7 +192,7 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
     for dispatch in retailer_dispatches:
         for item in dispatch.get("items", []):
             product = item.get("product_name", "Unknown")
-            qty = item.get("quantity", 0) or 0
+            qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
             variant = item.get("variant_name", "") or item.get("unit", "")
             add_sales_qty(product, qty, variant)
     
@@ -288,9 +288,24 @@ async def compute_daily_cogs_for_date(db: AsyncIOMotorDatabase, date_str: str, p
     results = {}
     
     for product in products:
-        # Previous day data
+        # Previous day data - first try daily_stock_status for ground truth
+        prev_date = (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        prev_stock_status = await db.daily_stock_status.find_one({
+            "date": prev_date,
+            "product_name": product,
+            "status": "closed"
+        })
+        
+        if prev_stock_status:
+            # Use ground truth from daily_stock_status
+            leftover_qty = prev_stock_status.get("closing_qty", 0) or 0
+        else:
+            # Fall back to computed end_of_day_stock from previous day
+            prev = prev_day_data.get(product, {})
+            leftover_qty = prev.get("end_of_day_stock", 0) or 0
+        
+        # Get previous COGS for pricing
         prev = prev_day_data.get(product, {})
-        leftover_qty = prev.get("end_of_day_stock", 0) or 0
         leftover_price = prev.get("daily_cogs", 0) or 0
         
         # Today's procurement

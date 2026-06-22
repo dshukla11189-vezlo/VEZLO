@@ -317,12 +317,21 @@ async def compute_daily_cogs_for_date(db: AsyncIOMotorDatabase, date_str: str, p
         combined_qty = leftover_qty + today_qty
         combined_amount = (leftover_qty * leftover_price) + today_amount
         
-        # Daily COGS (weighted average)
+        # Daily COGS (weighted average) with sanity check
+        # Maximum reasonable COGS for F&V business is Rs 5000/kg
+        MAX_REASONABLE_COGS = 5000
+        
         if combined_qty > 0:
-            daily_cogs = combined_amount / combined_qty
+            raw_cogs = combined_amount / combined_qty
+            # Sanity check: cap absurd values that indicate data issues
+            if raw_cogs > MAX_REASONABLE_COGS:
+                logging.warning(f"[COGS_SANITY] {product} on {date_str}: raw COGS Rs {raw_cogs:.2f}/kg exceeds max. Using fallback.")
+                daily_cogs = leftover_price if 0 < leftover_price <= MAX_REASONABLE_COGS else 0
+            else:
+                daily_cogs = raw_cogs
         else:
             # No inventory - use previous COGS or 0
-            daily_cogs = leftover_price if leftover_price > 0 else 0
+            daily_cogs = leftover_price if 0 < leftover_price <= MAX_REASONABLE_COGS else 0
         
         # Sales and end of day stock
         sales_qty = today_sales.get(product, 0) or 0

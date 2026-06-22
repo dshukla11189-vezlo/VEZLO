@@ -298,7 +298,6 @@ async def get_pnl_report(
     # Fetch daily COGS map for the date range (persisted daily snapshots)
     # This gives us date-specific COGS instead of overall average
     # Use a wider date range (30 days before from_date) to ensure fallback data for combo COGS
-    from datetime import datetime, timedelta
     try:
         from_date_obj = datetime.strptime(from_date, "%Y-%m-%d")
         extended_from_date = (from_date_obj - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -905,8 +904,12 @@ async def get_pnl_report(
     
     # ========== PURCHASES (from Procurements) ==========
     try:
+        # Handle both string dates and ISO datetime strings
         procurements = await db.procurements.find({
-            "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+            "$or": [
+                {"date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}},
+                {"date": {"$gte": from_date + "T00:00:00", "$lte": to_date + "T23:59:59.999999"}}
+            ]
         }, {"_id": 0}).to_list(10000)
     except Exception as e:
         logger.error(f"Database error fetching procurements: {e}")
@@ -1017,6 +1020,9 @@ async def get_pnl_report(
     # Track unsold wastage by date (products with wastage but no dispatch)
     unsold_wastage_by_date = {}  # date -> {product_name: {qty, value, avg_price}}
     
+    # Maximum reasonable COGS per kg for fresh produce (sanity check)
+    MAX_REASONABLE_COGS_PER_KG = 5000
+    
     for status in stock_status:
         status_date = status.get("date", "")[:10]
         product = status.get("product_name", "Unknown")
@@ -1036,33 +1042,45 @@ async def get_pnl_report(
         total_available = opening_qty + purchase_qty - dispatch_qty
         wastage_qty = max(0, total_available - closing_qty)
         
-        # Calculate wastage_value using daily_cogs rate FIRST (same rate as COGS)
-        # This ensures wastage is valued at the same rate as line-item COGS
-        daily_cogs_key = (product, status_date)
-        if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
-            avg_price = daily_cogs_map[daily_cogs_key]
+        # PRIORITY 1: Use stored wastage_value from stock_status if available and reasonable
+        stored_wastage_value = status.get("wastage_value", 0) or 0
+        stored_wastage_qty = status.get("wastage_qty", 0) or 0
+        
+        if stored_wastage_value > 0 and stored_wastage_qty > 0:
+            stored_rate = stored_wastage_value / stored_wastage_qty
+            if stored_rate <= MAX_REASONABLE_COGS_PER_KG:
+                avg_price = stored_rate
+                wastage_value = round(wastage_qty * avg_price, 2)
+            else:
+                avg_price = 0  # Stored rate unreasonable, will fall through to COGS
+                wastage_value = None
         else:
+            avg_price = 0
+            wastage_value = None
+        
+        # PRIORITY 2: Calculate using daily_cogs with sanity check if no valid stored value
+        if wastage_value is None:
+            daily_cogs_key = (product, status_date)
+            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+                cogs_rate = daily_cogs_map[daily_cogs_key]
+                if cogs_rate <= MAX_REASONABLE_COGS_PER_KG:
+                    avg_price = cogs_rate
+            
             # Fallback to procurement rate
-            avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
-        
-        # Store this price for future fallback
-        if avg_price > 0 and product_id:
-            product_recent_prices[product_id] = avg_price
-        
-        # If no daily_cogs and no purchase today, use the most recent price we've seen
-        if avg_price == 0 and product_id:
-            avg_price = product_recent_prices.get(product_id, 0)
-        
-        # If still no price, use the stored wastage_value from stock status
-        if avg_price == 0:
-            wastage_value = status.get("wastage_value", 0) or 0
-            # Try to get avg_price from the stored value
-            stored_wastage_qty = status.get("wastage_qty", 0) or 0
-            if stored_wastage_qty > 0 and wastage_value > 0:
-                avg_price = wastage_value / stored_wastage_qty
+            if avg_price == 0 and purchase_qty > 0:
+                proc_rate = purchase_value / purchase_qty
+                if proc_rate <= MAX_REASONABLE_COGS_PER_KG:
+                    avg_price = proc_rate
+            
+            # Store this price for future fallback
+            if avg_price > 0 and product_id:
+                product_recent_prices[product_id] = avg_price
+            
+            # If no daily_cogs and no purchase today, use the most recent price we've seen
+            if avg_price == 0 and product_id:
+                avg_price = product_recent_prices.get(product_id, 0)
+            
             wastage_value = round(wastage_qty * avg_price, 2) if avg_price > 0 else 0
-        else:
-            wastage_value = round(wastage_qty * avg_price, 2)
         
         total_wastage_qty += wastage_qty
         total_wastage_value += wastage_value
@@ -4777,28 +4795,86 @@ async def get_wastage_dashboard(
         {"_id": 0}
     ).to_list(10000)
     
+    # Load daily_cogs for consistent pricing (same as P&L)
+    daily_cogs_records = await db.daily_cogs.find(
+        {"date": {"$gte": start_date, "$lte": end_date}},
+        {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}
+    ).to_list(10000)
+    
+    daily_cogs_map = {}
+    for cogs in daily_cogs_records:
+        key = (cogs.get("product_name"), cogs.get("date"))
+        daily_cogs_map[key] = cogs.get("daily_cogs", 0) or 0
+    
+    # Track recent prices for fallback
+    product_recent_prices = {}
+    
     # Aggregate by date
     daily_totals = {}
     product_totals = {}
     
+    # Maximum reasonable COGS per kg for fresh produce (sanity check)
+    # Most expensive items like saffron are Rs 100-500k/kg but typical produce is < Rs 500/kg
+    # Use Rs 5000/kg as upper bound for F&V business to catch corrupt data
+    MAX_REASONABLE_COGS_PER_KG = 5000
+    
     for record in history:
         date = record["date"]
         product_name = record["product_name"]
+        product_id = record.get("product_id")
         
         # Skip combo products from wastage dashboard
         if is_combo_product(product_name):
             continue
         
-        wastage_qty = record.get("wastage_qty", 0)
-        wastage_percent = record.get("wastage_percent", 0)
-        opening_qty = record.get("opening_qty", 0)
-        purchase_qty = record.get("purchase_qty", 0)
-        purchase_value = record.get("purchase_value", 0)
+        wastage_qty = record.get("wastage_qty", 0) or 0
+        wastage_percent = record.get("wastage_percent", 0) or 0
+        opening_qty = record.get("opening_qty", 0) or 0
+        purchase_qty = record.get("purchase_qty", 0) or 0
+        purchase_value = record.get("purchase_value", 0) or 0
         
-        # Calculate wastage_value dynamically based on current avg_price
-        # This ensures wastage value reflects latest procurement rate
-        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
-        wastage_value = round(wastage_qty * avg_price, 2)
+        # PRIORITY 1: Use stored wastage_value from stock_status if available and reasonable
+        # This is the ground truth as it was calculated during stock closing
+        stored_wastage_value = record.get("wastage_value", 0) or 0
+        stored_wastage_qty = record.get("wastage_qty", 0) or 0
+        
+        if stored_wastage_value > 0 and stored_wastage_qty > 0:
+            stored_rate = stored_wastage_value / stored_wastage_qty
+            # Verify stored rate is reasonable
+            if stored_rate <= MAX_REASONABLE_COGS_PER_KG:
+                wastage_value = round(wastage_qty * stored_rate, 2)
+            else:
+                # Stored rate is unreasonable, recalculate
+                wastage_value = None
+        else:
+            wastage_value = None
+        
+        # PRIORITY 2: If no valid stored value, calculate using daily_cogs with sanity check
+        if wastage_value is None:
+            daily_cogs_key = (product_name, date)
+            avg_price = 0
+            
+            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+                cogs_rate = daily_cogs_map[daily_cogs_key]
+                # Sanity check: reject absurd COGS values (data corruption)
+                if cogs_rate <= MAX_REASONABLE_COGS_PER_KG:
+                    avg_price = cogs_rate
+            
+            # Fallback to procurement rate if COGS is invalid/missing
+            if avg_price == 0 and purchase_qty > 0:
+                proc_rate = purchase_value / purchase_qty
+                if proc_rate <= MAX_REASONABLE_COGS_PER_KG:
+                    avg_price = proc_rate
+            
+            # Store price for future fallback (only if valid)
+            if avg_price > 0 and product_id:
+                product_recent_prices[product_id] = avg_price
+            
+            # If no price available, use recent price
+            if avg_price == 0 and product_id:
+                avg_price = product_recent_prices.get(product_id, 0)
+            
+            wastage_value = round(wastage_qty * avg_price, 2) if avg_price > 0 else 0
         
         # Daily totals
         if date not in daily_totals:

@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from dependencies import get_db, get_current_user
+from routes.combo_utils import is_combo_product, parse_combo_product
+from routes.dashboard_analytics import add_combo_ingredient_dispatches
 
 router = APIRouter(prefix="/jobs", tags=["background-jobs"])
 logger = logging.getLogger(__name__)
@@ -217,6 +219,7 @@ async def run_recompute_dispatches_task(db: AsyncIOMotorDatabase, job_id: str, f
             
             # Calculate dispatches for this date
             dispatches_by_product = {}
+            all_dispatch_items = []  # Collect for combo processing
             
             for d in all_qc_dispatches + all_retailer_dispatches:
                 dispatch_date = d.get("dispatch_date", "")
@@ -233,6 +236,9 @@ async def run_recompute_dispatches_task(db: AsyncIOMotorDatabase, job_id: str, f
                         supplied_qty = item.get("supplied_qty", 0) or 0
                         packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
                         
+                        # Collect ALL dispatch items for combo processing
+                        all_dispatch_items.append(item)
+                        
                         if is_combo_product(product_name):
                             continue
                         
@@ -242,6 +248,11 @@ async def run_recompute_dispatches_task(db: AsyncIOMotorDatabase, job_id: str, f
                         if target_product_id not in dispatches_by_product:
                             dispatches_by_product[target_product_id] = {"qty": 0, "value": 0}
                         dispatches_by_product[target_product_id]["qty"] += qty_kg
+            
+            # Add combo ingredient dispatches to their respective base products
+            dispatches_by_product = add_combo_ingredient_dispatches(
+                dispatches_by_product, all_dispatch_items, products, packaging_map
+            )
             
             # Update stock status entries
             stock_entries = await db.daily_stock_status.find({

@@ -3,6 +3,25 @@
 ## Changelog (June 2025)
 
 
+### June 22, 2026 - Wastage Dashboard vs P&L Value Discrepancy Fix ✅
+- **BUG FIX (P0)**: Fixed major discrepancy between Wastage Dashboard and P&L wastage values
+  - **Symptom**: Wastage Dashboard showed Rs 842,608 vs P&L showing Rs 506,454 (~65% difference)
+  - **Root Cause**: 
+    1. Corrupt COGS data in `daily_cogs` collection (e.g., Button Mushroom at Rs 200,000/kg due to division by near-zero quantity)
+    2. Wastage Dashboard recalculated wastage_value using daily_cogs without sanity checks
+  - **Solution**:
+    1. Added `MAX_REASONABLE_COGS_PER_KG = 5000` sanity check in Wastage Dashboard calculation
+    2. Prioritized stored `wastage_value` from `daily_stock_status` (ground truth from stock closing)
+    3. Added same sanity check to P&L wastage calculation for consistency
+    4. Added sanity check in `daily_cogs.py` COGS computation to prevent future data corruption
+    5. Cleaned up 10 corrupt COGS records in database
+  - **Result**: Discrepancy reduced from Rs 336,154 (65%) to Rs 6,535 (1.27%)
+  - **Files Modified**:
+    - `/app/backend/routes/dashboard_analytics.py` - Added sanity checks and prioritized stored wastage values
+    - `/app/backend/routes/daily_cogs.py` - Added COGS sanity check during computation
+
+
+
 ### June 21, 2026 - Combo Ingredient Decomposition in Daily COGS ✅
 - **BUG FIX**: Fixed `get_sales_by_date()` in `daily_cogs.py` to decompose combo products into base ingredients
   - Previously, combo dispatches were recorded under the combo name, causing base product stock/wastage/COGS to be wrong

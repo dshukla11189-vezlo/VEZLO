@@ -174,40 +174,42 @@ async def gmail_oauth_login(request: Request, current_user: dict = Depends(get_c
 @router.get("/oauth/gmail/callback")
 async def gmail_oauth_callback(request: Request, code: str = None, state: str = None, error: str = None):
     """Handle Gmail OAuth callback"""
-    logger.info(f"Gmail OAuth callback received - code: {code[:20] if code else 'None'}..., state: {state}, error: {error}")
-    
-    if error:
-        logger.error(f"Gmail OAuth error from Google: {error}")
-        return RedirectResponse(url=f"/admin/backup?gmail_error={error}")
-    
-    if not code or not state:
-        logger.error(f"Gmail OAuth missing params - code: {bool(code)}, state: {bool(state)}")
-        return RedirectResponse(url="/admin/backup?gmail_error=missing_params")
-    
-    # Verify state
-    state_doc = await db.oauth_states.find_one({"state": state})
-    if not state_doc:
-        # Log all states to debug
-        all_states = await db.oauth_states.find({}).to_list(length=10)
-        logger.error(f"Gmail OAuth invalid_state: {state}")
-        logger.error(f"Available states in DB: {[s.get('state', 'N/A')[:20] for s in all_states]}")
-        return RedirectResponse(url="/admin/backup?gmail_error=invalid_state")
-    
-    logger.info(f"State validated - user_id: {state_doc.get('user_id')}, redirect_uri: {state_doc.get('redirect_uri')}")
-    
-    # Check expiry
-    if datetime.now(timezone.utc) > state_doc["expires_at"].replace(tzinfo=timezone.utc):
-        return RedirectResponse(url="/admin/backup?gmail_error=state_expired")
-    
-    user_id = state_doc["user_id"]
-    
-    # Delete used state
-    await db.oauth_states.delete_one({"state": state})
-    
-    # Get redirect URI from state
-    redirect_uri = state_doc.get("redirect_uri")
+    from fastapi.responses import JSONResponse
     
     try:
+        logger.info(f"Gmail OAuth callback received - code: {code[:20] if code else 'None'}..., state: {state}, error: {error}")
+        
+        if error:
+            logger.error(f"Gmail OAuth error from Google: {error}")
+            return RedirectResponse(url=f"/admin/backup?gmail_error={error}")
+        
+        if not code or not state:
+            logger.error(f"Gmail OAuth missing params - code: {bool(code)}, state: {bool(state)}")
+            return RedirectResponse(url="/admin/backup?gmail_error=missing_params")
+        
+        # Verify state
+        state_doc = await db.oauth_states.find_one({"state": state})
+        if not state_doc:
+            # Log all states to debug
+            all_states = await db.oauth_states.find({}).to_list(length=10)
+            logger.error(f"Gmail OAuth invalid_state: {state}")
+            logger.error(f"Available states in DB: {[s.get('state', 'N/A')[:20] for s in all_states]}")
+            return RedirectResponse(url="/admin/backup?gmail_error=invalid_state")
+        
+        logger.info(f"State validated - user_id: {state_doc.get('user_id')}, redirect_uri: {state_doc.get('redirect_uri')}")
+        
+        # Check expiry
+        if datetime.now(timezone.utc) > state_doc["expires_at"].replace(tzinfo=timezone.utc):
+            return RedirectResponse(url="/admin/backup?gmail_error=state_expired")
+        
+        user_id = state_doc["user_id"]
+        
+        # Delete used state
+        await db.oauth_states.delete_one({"state": state})
+        
+        # Get redirect URI from state
+        redirect_uri = state_doc.get("redirect_uri")
+        
         # Exchange code for tokens
         logger.info(f"Exchanging code for tokens with redirect_uri: {redirect_uri}")
         tokens = exchange_code_for_tokens(code, redirect_uri)
@@ -234,8 +236,11 @@ async def gmail_oauth_callback(request: Request, code: str = None, state: str = 
         
         return RedirectResponse(url="/admin/backup?gmail_success=true")
     except Exception as e:
-        logger.error(f"Gmail OAuth error: {e}", exc_info=True)
-        return RedirectResponse(url=f"/admin/backup?gmail_error={str(e)[:50]}")
+        logger.error(f"Gmail OAuth callback error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "OAuth flow failed", "detail": str(e)}
+        )
 
 @router.post("/oauth/gmail/disconnect")
 async def gmail_disconnect(current_user: dict = Depends(get_current_user)):

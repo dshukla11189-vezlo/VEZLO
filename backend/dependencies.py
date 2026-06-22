@@ -318,3 +318,23 @@ async def log_connection_stats():
         logger.info(f"MongoDB connected: version {server_info.get('version', 'unknown')}")
     except Exception as e:
         logger.error(f"MongoDB connection check failed: {e}")
+
+
+async def safe_db_query(query_coro, error_message: str = "Database temporarily unavailable"):
+    """
+    Wrapper for MongoDB queries that handles timeouts and connection errors gracefully.
+    
+    Usage:
+        results = await safe_db_query(
+            db.collection.find({}).to_list(1000),
+            "Failed to fetch products"
+        )
+    """
+    try:
+        return await query_coro
+    except asyncio.TimeoutError:
+        logger.error(f"Database timeout: {error_message}")
+        raise HTTPException(status_code=503, detail=f"Database timeout: {error_message}")
+    except Exception as e:
+        logger.error(f"Database error: {error_message} - {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Database temporarily unavailable: {error_message}")

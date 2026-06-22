@@ -320,7 +320,11 @@ async def get_pnl_report(
     total_sales_qty = 0
     
     # ========== QC SALES (from GRN - actual received values) ==========
-    qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
+    try:
+        qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
+    except Exception as e:
+        logger.error(f"Database error fetching QC GRNs: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch QC GRNs")
     
     for grn in qc_grns:
         customer = grn.get("customer_name", "Unknown")
@@ -581,9 +585,13 @@ async def get_pnl_report(
     retail_cogs_by_date = {}  # COGS for retail
     
     # Fetch all retailer rejections for the date range
-    retailer_rejections = await db.retailer_rejections.find({
-        "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(5000)
+    try:
+        retailer_rejections = await db.retailer_rejections.find({
+            "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+        }, {"_id": 0}).to_list(5000)
+    except Exception as e:
+        logger.error(f"Database error fetching retailer rejections: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch rejections")
     
     # Helper function to parse packaging weight from variant name (same logic as dispatch items)
     def get_packaging_weight_gm(unit_str):
@@ -896,9 +904,13 @@ async def get_pnl_report(
             sales_by_date[rej_date]["retail_rejection_cogs"] = rej_data["cogs"]
     
     # ========== PURCHASES (from Procurements) ==========
-    procurements = await db.procurements.find({
-        "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-    }, {"_id": 0}).to_list(5000)
+    try:
+        procurements = await db.procurements.find({
+            "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
+        }, {"_id": 0}).to_list(5000)
+    except Exception as e:
+        logger.error(f"Database error fetching procurements: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch procurements")
     
     purchase_by_farmer = {}
     total_purchase = 0
@@ -3103,29 +3115,33 @@ async def recompute_historical_dispatches(
     total_matched = 0
     date_summaries = []
     
-    # Get packaging weights once
-    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
-    packaging_map = {}
-    for p in packaging_variants:
-        name = p['name']
-        name_lower = name.lower().strip()
-        weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
-        if weight > 0:
-            packaging_map[name_lower] = weight
-    
-    # Get all products once
-    products = await db.products.find({}, {"_id": 0}).to_list(1000)
-    cost_alias_id_map = {}
-    product_id_to_name = {}
-    for product in products:
-        alias_id = product.get("cost_alias_product_id")
-        if alias_id:
-            cost_alias_id_map[product["id"]] = alias_id
-        product_id_to_name[product["id"]] = product.get("name", "")
-    
-    # Get all dispatches once
-    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
-    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    try:
+        # Get packaging weights once
+        packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
+        packaging_map = {}
+        for p in packaging_variants:
+            name = p['name']
+            name_lower = name.lower().strip()
+            weight = p.get('weight_gm') or extract_weight_from_packaging_name(name)
+            if weight > 0:
+                packaging_map[name_lower] = weight
+        
+        # Get all products once
+        products = await db.products.find({}, {"_id": 0}).to_list(1000)
+        cost_alias_id_map = {}
+        product_id_to_name = {}
+        for product in products:
+            alias_id = product.get("cost_alias_product_id")
+            if alias_id:
+                cost_alias_id_map[product["id"]] = alias_id
+            product_id_to_name[product["id"]] = product.get("name", "")
+        
+        # Get all dispatches once
+        all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
+        all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    except Exception as e:
+        logger.error(f"[RECOMPUTE] Database error fetching initial data: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch dispatch data")
     
     logger.info(f"[RECOMPUTE] Starting: {len(dates_to_process)} dates, {len(all_qc_dispatches)} QC dispatches, {len(all_retailer_dispatches)} retailer dispatches")
     

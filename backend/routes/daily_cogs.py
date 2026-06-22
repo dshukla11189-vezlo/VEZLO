@@ -43,35 +43,40 @@ from dependencies import get_current_user
 
 async def get_all_products(db: AsyncIOMotorDatabase) -> list:
     """Get all unique product names from procurements and dispatches."""
+    from fastapi import HTTPException
     products = set()
     
-    # From procurements
-    procurements = await db.procurements.find({}, {"products.product_name": 1, "_id": 0}).to_list(10000)
-    for proc in procurements:
-        for item in proc.get("products", []):
-            if item.get("product_name"):
-                products.add(item["product_name"])
-    
-    # From retailer dispatches
-    dispatches = await db.retailer_dispatches.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
-    for disp in dispatches:
-        for item in disp.get("items", []):
-            if item.get("product_name"):
-                products.add(item["product_name"])
-    
-    # From ninjacart dispatches
-    nc_dispatches = await db.ninjacart_dispatches.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
-    for disp in nc_dispatches:
-        for item in disp.get("items", []):
-            if item.get("product_name"):
-                products.add(item["product_name"])
-    
-    # From QC GRNs
-    qc_grns = await db.qc_grns.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
-    for grn in qc_grns:
-        for item in grn.get("items", []):
-            if item.get("product_name"):
-                products.add(item["product_name"])
+    try:
+        # From procurements
+        procurements = await db.procurements.find({}, {"products.product_name": 1, "_id": 0}).to_list(10000)
+        for proc in procurements:
+            for item in proc.get("products", []):
+                if item.get("product_name"):
+                    products.add(item["product_name"])
+        
+        # From retailer dispatches
+        dispatches = await db.retailer_dispatches.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
+        for disp in dispatches:
+            for item in disp.get("items", []):
+                if item.get("product_name"):
+                    products.add(item["product_name"])
+        
+        # From ninjacart dispatches
+        nc_dispatches = await db.ninjacart_dispatches.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
+        for disp in nc_dispatches:
+            for item in disp.get("items", []):
+                if item.get("product_name"):
+                    products.add(item["product_name"])
+        
+        # From QC GRNs
+        qc_grns = await db.qc_grns.find({}, {"items.product_name": 1, "_id": 0}).to_list(10000)
+        for grn in qc_grns:
+            for item in grn.get("items", []):
+                if item.get("product_name"):
+                    products.add(item["product_name"])
+    except Exception as e:
+        logger.error(f"Database error in get_all_products: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch products")
     
     return sorted(list(products))
 

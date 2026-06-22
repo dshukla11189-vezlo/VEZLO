@@ -220,38 +220,33 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
                     product_sales[product] = 0
                 product_sales[product] += qty_kg
     
-    # QC GRNs - iterate each grn's items, filter by dispatch_date matching date_str
-    qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
+    # QC Dispatches - use dispatches instead of GRNs to match close_stock_status
+    # NOTE: Do NOT decompose combos here - daily_stock_status already includes
+    # combo ingredient dispatches via add_combo_ingredient_dispatches()
+    qc_dispatches = await db.qc_dispatches.find({
+        "dispatch_date": {"$regex": f"^{date_str}"}
+    }, {"_id": 0}).to_list(5000)
     
-    for grn in qc_grns:
-        for item in grn.get("items", []):
-            # Filter by dispatch_date matching date_str
-            item_dispatch_date = item.get("dispatch_date", "")
-            if not item_dispatch_date or not item_dispatch_date.startswith(date_str):
+    for dispatch in qc_dispatches:
+        for item in dispatch.get("items", []):
+            product = item.get("product_name", "Unknown")
+            supplied_qty = item.get("supplied_qty", 0) or 0
+            packaging_name = item.get("packaging_name", "") or item.get("product_unit", "")
+            
+            # Skip combo products - their ingredients are already counted in stock_status.dispatch_qty
+            if is_combo_product(product):
                 continue
             
-            product = item.get("product_name", "Unknown")
-            grn_qty = item.get("grn_qty", 0) or 0
-            packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
-            grn_qty_kg = item.get("grn_qty_kg", 0) or 0
-            
-            # Check if combo product
-            if is_combo_product(product):
-                # grn_qty is number of packs for combo
-                add_sales_qty(product, grn_qty, "")
+            # Calculate qty_kg from packaging_name
+            packaging_gm = get_packaging_weight_gm(packaging_name)
+            if packaging_gm > 0:
+                qty_kg = (supplied_qty * packaging_gm) / 1000
             else:
-                # Calculate qty_kg: (grn_qty × packaging_weight_gm) / 1000
-                # Fallback chain: packaging_weight_gm -> grn_qty_kg -> grn_qty as-is
-                if packaging_weight_gm > 0:
-                    qty_kg = (grn_qty * packaging_weight_gm) / 1000
-                elif grn_qty_kg > 0:
-                    qty_kg = grn_qty_kg
-                else:
-                    qty_kg = grn_qty  # Assume already in Kg
-                
-                if product not in product_sales:
-                    product_sales[product] = 0
-                product_sales[product] += qty_kg
+                qty_kg = supplied_qty  # Assume already in Kg
+            
+            if product not in product_sales:
+                product_sales[product] = 0
+            product_sales[product] += qty_kg
     
     return product_sales
 
@@ -296,7 +291,7 @@ async def compute_daily_cogs_for_date(db: AsyncIOMotorDatabase, date_str: str, p
             "status": "closed"
         })
         
-        if prev_stock_status:
+        if prev_stock_status and prev_stock_status.get("closing_qty") is not None:
             # Use ground truth from daily_stock_status
             leftover_qty = prev_stock_status.get("closing_qty", 0) or 0
         else:

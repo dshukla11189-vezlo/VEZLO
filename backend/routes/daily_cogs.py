@@ -192,7 +192,7 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
     for dispatch in retailer_dispatches:
         for item in dispatch.get("items", []):
             product = item.get("product_name", "Unknown")
-            qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
+            qty = item.get("supplied_qty", 0) or 0
             variant = item.get("variant_name", "") or item.get("unit", "")
             add_sales_qty(product, qty, variant)
     

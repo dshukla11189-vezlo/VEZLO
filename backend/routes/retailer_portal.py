@@ -2450,7 +2450,7 @@ async def backfill_missing_credit_notes(
         query["retailer_id"] = retailer_id
     
     # Get rejections created from June 15 onwards only
-    rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(5000)
+    rejections = await db.retailer_rejections.find(query, {"_id": 0}).to_list(10000)
     logger.info(f"Found {len(rejections)} rejections created from {cutoff_date} onwards to check")
     
     created_count = 0
@@ -2745,7 +2745,7 @@ async def diagnose_cn_invoice_sync_issues(
     if retailer_id:
         query["retailer_id"] = retailer_id
     
-    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(2000)
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(10000)
     
     mismatches = []
     invoices_checked = set()
@@ -2928,7 +2928,7 @@ async def fix_cn_invoice_sync_issues(
     if retailer_id:
         query["retailer_id"] = retailer_id
     
-    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(2000)
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).to_list(10000)
     
     # Build a map of invoice_id -> list of CN adjustments that should be on it
     invoice_cn_map = {}  # invoice_id -> [{cn_id, cn_number, adjusted_amount, cn_data...}]
@@ -3587,7 +3587,7 @@ async def get_invoice_final_summary(
     credit_notes = await db.retailer_credit_notes.find({
         "retailer_id": {"$in": retailer_ids} if retailer_ids else {"$exists": True},
         "status": {"$ne": "voided"}
-    }, {"_id": 0}).to_list(5000)
+    }, {"_id": 0}).to_list(10000)
     
     # Build credit note map by adjusted invoice
     cn_by_invoice = {}
@@ -4312,7 +4312,7 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only admin can fix statuses")
     
     # Get all retailer invoices
-    invoices = await db.retailer_invoices.find({}, {"_id": 0}).to_list(5000)
+    invoices = await db.retailer_invoices.find({}, {"_id": 0}).to_list(10000)
     
     fixed_count = 0
     fixed_invoices = []
@@ -7536,7 +7536,7 @@ async def run_uuid_variant_migration(current_user: dict = Depends(get_current_us
                 results["plans_fixed"] += 1
         
         # Step 3: Fix retailer_indents (auto-generated)
-        indents = await db.retailer_indents.find({"is_auto_generated": True}, {"_id": 0}).to_list(5000)
+        indents = await db.retailer_indents.find({"is_auto_generated": True}, {"_id": 0}).to_list(10000)
         for indent in indents:
             indent_updated = False
             items = indent.get("items", [])
@@ -7560,7 +7560,7 @@ async def run_uuid_variant_migration(current_user: dict = Depends(get_current_us
                 results["indents_fixed"] += 1
         
         # Step 4: Fix retailer_dispatches
-        dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+        dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(10000)
         for dispatch in dispatches:
             dispatch_updated = False
             items = dispatch.get("items", [])
@@ -7641,7 +7641,7 @@ async def get_retailer_immediately_payable(
     rejections = await db.retailer_rejections.find(
         {"retailer_id": {"$in": retailer_ids}},
         {"_id": 0, "retailer_id": 1, "rejection_date": 1, "rejection_value": 1}
-    ).to_list(5000)
+    ).to_list(10000)
     
     # Group rejections by retailer_id and date
     rejection_map = {}  # (retailer_id, date_str) -> total_rejection
@@ -7893,7 +7893,7 @@ async def get_retailer_payment_details(
     all_rejections = await db.retailer_rejections.find(
         {"retailer_id": retailer_id},
         {"_id": 0, "product_id": 1, "product_name": 1, "rejection_date": 1, "quantity": 1, "rejection_value": 1}
-    ).to_list(5000)
+    ).to_list(10000)
     
     # Group rejections by date and product for quick lookup
     rejection_map = {}  # (date_str, product_id_or_name) -> {qty, value}
@@ -7920,7 +7920,7 @@ async def get_retailer_payment_details(
     all_payments = await db.retailer_payments.find(
         {"retailer_id": retailer_id},
         {"_id": 0, "invoice_id": 1, "amount": 1, "payment_date": 1, "payment_mode": 1, "remarks": 1}
-    ).to_list(5000)
+    ).to_list(10000)
     
     # Group payments by invoice_id
     payments_map = {}  # invoice_id -> [{amount, date, mode, remarks}]
@@ -8394,7 +8394,7 @@ async def get_all_retailers_immediately_payable(
     invoices = await db.retailer_invoices.find(
         invoice_query,
         {"_id": 0}
-    ).to_list(5000)
+    ).to_list(10000)
     
     # Fetch all rejections to calculate actual rejection amounts per date+retailer
     retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))

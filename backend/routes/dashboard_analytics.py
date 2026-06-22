@@ -321,7 +321,7 @@ async def get_pnl_report(
     
     # ========== QC SALES (from GRN - actual received values) ==========
     try:
-        qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(5000)
+        qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(10000)
     except Exception as e:
         logger.error(f"Database error fetching QC GRNs: {e}")
         raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch QC GRNs")
@@ -588,7 +588,7 @@ async def get_pnl_report(
     try:
         retailer_rejections = await db.retailer_rejections.find({
             "rejection_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-        }, {"_id": 0}).to_list(5000)
+        }, {"_id": 0}).to_list(10000)
     except Exception as e:
         logger.error(f"Database error fetching retailer rejections: {e}")
         raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch rejections")
@@ -907,7 +907,7 @@ async def get_pnl_report(
     try:
         procurements = await db.procurements.find({
             "date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}
-        }, {"_id": 0}).to_list(5000)
+        }, {"_id": 0}).to_list(10000)
     except Exception as e:
         logger.error(f"Database error fetching procurements: {e}")
         raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch procurements")
@@ -1006,7 +1006,7 @@ async def get_pnl_report(
     stock_status = await db.daily_stock_status.find({
         "date": {"$gte": from_date, "$lte": to_date},
         "status": "closed"
-    }, {"_id": 0}).to_list(2000)
+    }, {"_id": 0}).to_list(10000)
     
     total_wastage_qty = 0
     total_wastage_value = 0
@@ -1213,7 +1213,7 @@ async def get_pnl_report(
     # ========== LABOUR COSTS (Variable Daily Costs) ==========
     labour_attendance = await db.labour_attendance.find({
         "date": {"$gte": from_date, "$lte": to_date}
-    }, {"_id": 0}).to_list(5000)
+    }, {"_id": 0}).to_list(10000)
     
     total_labour_cost = 0
     labour_cost_by_date = {}
@@ -3137,8 +3137,8 @@ async def recompute_historical_dispatches(
             product_id_to_name[product["id"]] = product.get("name", "")
         
         # Get all dispatches once
-        all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
-        all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+        all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(10000)
+        all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(10000)
     except Exception as e:
         logger.error(f"[RECOMPUTE] Database error fetching initial data: {e}")
         raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch dispatch data")
@@ -3520,7 +3520,7 @@ async def recalculate_wastage_values(
     all_status = await db.daily_stock_status.find(
         {"avg_price": {"$gt": 0}},
         {"_id": 0, "product_id": 1, "date": 1, "avg_price": 1}
-    ).sort("date", -1).to_list(5000)
+    ).sort("date", -1).to_list(10000)
     
     # Build price history map: product_id -> list of {date, price} sorted by date desc
     price_history = {}
@@ -3615,8 +3615,8 @@ async def fix_all_historical_dispatches(
             cost_alias_id_map[product["id"]] = alias_id
     
     # Get ALL dispatches (we'll filter by date in memory)
-    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
-    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(5000)
+    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(10000)
+    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(10000)
     
     # Build dispatch data by date and product
     dispatches_by_date = {}
@@ -4775,7 +4775,7 @@ async def get_wastage_dashboard(
     history = await db.daily_stock_status.find(
         {"date": {"$gte": start_date, "$lte": end_date}, "status": "closed"},
         {"_id": 0}
-    ).to_list(5000)
+    ).to_list(10000)
     
     # Aggregate by date
     daily_totals = {}
@@ -5048,7 +5048,7 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
             "purchase_qty": {"$gt": 0}
         },
         {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
-    ).sort("date", -1).to_list(2000)
+    ).sort("date", -1).to_list(10000)
     
     for rec in historical_records:
         pid = rec.get("product_id")

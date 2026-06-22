@@ -230,7 +230,7 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
     # combo ingredient dispatches via add_combo_ingredient_dispatches()
     qc_dispatches = await db.qc_dispatches.find({
         "dispatch_date": {"$regex": f"^{date_str}"}
-    }, {"_id": 0}).to_list(5000)
+    }, {"_id": 0}).to_list(10000)
     
     for dispatch in qc_dispatches:
         for item in dispatch.get("items", []):

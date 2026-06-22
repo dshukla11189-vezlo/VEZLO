@@ -180,61 +180,102 @@ export default function AdminDashboard() {
     }
   };
 
-  // Run Daily COGS Backfill in monthly chunks
+  // Run Daily COGS Backfill using background jobs with polling
   const runCogsBackfill = async () => {
     if (!window.confirm('This will recalculate Daily COGS data and dispatch quantities from April 2026 onwards. This may take a few minutes. Continue?')) {
       return;
     }
     
     setRunningCogsBackfill(true);
-    setCogsBackfillProgress('Starting...');
+    setCogsBackfillProgress('Starting background jobs...');
     
-    const cogsMonths = [
-      { name: 'March', from: '2026-03-18', to: '2026-03-31' },
-      { name: 'April', from: '2026-04-01', to: '2026-04-30' },
-      { name: 'May', from: '2026-05-01', to: '2026-05-31' },
-      { name: 'June', from: '2026-06-01', to: '2026-06-30' },
-    ];
+    // Helper function to poll job status
+    const pollJobStatus = async (jobId, jobName) => {
+      let attempts = 0;
+      const maxAttempts = 300; // 5 minutes max (1 second intervals)
+      
+      while (attempts < maxAttempts) {
+        try {
+          const response = await api.get(`/api/jobs/status/${jobId}`);
+          const job = response.data;
+          
+          setCogsBackfillProgress(`${jobName}: ${job.progress_message} (${job.progress}%)`);
+          
+          if (job.status === 'completed') {
+            return { success: true, result: job.result };
+          } else if (job.status === 'failed') {
+            return { success: false, error: job.error };
+          }
+          
+          // Wait 1 second before polling again
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          attempts++;
+        } catch (error) {
+          console.error('Poll error:', error);
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+      
+      return { success: false, error: 'Job timed out' };
+    };
     
     try {
-      // Step 1: Recompute historical dispatch quantities FIRST
-      // This must complete before COGS backfill so daily_stock_status has correct dispatch/wastage values
-      setCogsBackfillProgress('Recomputing historical stock data...');
+      // Step 1: Start recompute dispatches job
+      setCogsBackfillProgress('Starting: Recomputing historical stock data...');
       
+      let recomputeJobId;
       try {
-        const dispatchResponse = await api.post(`/api/stock-status/recompute-historical-dispatches?from_date=2026-04-01&to_date=2026-06-30`);
-        console.log('Historical dispatch recompute:', dispatchResponse.data);
-      } catch (dispatchError) {
-        console.error('Dispatch recompute failed:', dispatchError);
-        toast.error('Failed to recompute historical stock data. Please try again.');
-        setCogsBackfillProgress('Failed at: Recomputing stock data');
+        const recomputeResponse = await api.post('/api/jobs/recompute-dispatches?from_date=2026-04-01&to_date=2026-06-30');
+        recomputeJobId = recomputeResponse.data.job_id;
+        console.log('Recompute job started:', recomputeJobId);
+      } catch (error) {
+        console.error('Failed to start recompute job:', error);
+        toast.error('Failed to start recompute job. Please try again.');
+        setCogsBackfillProgress('Failed to start recompute job');
         return;
       }
       
-      // Small delay to ensure data is committed
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Step 2: Run COGS backfill for each month sequentially
-      for (let i = 0; i < cogsMonths.length; i++) {
-        const month = cogsMonths[i];
-        setCogsBackfillProgress(`Backfilling ${month.name} data... (${i + 1}/${cogsMonths.length})`);
-        
-        try {
-          const response = await api.post(`/api/daily-cogs/backfill?from_date=${month.from}&to_date=${month.to}`);
-          console.log(`${month.name} COGS backfill:`, response.data);
-        } catch (monthError) {
-          console.error(`${month.name} backfill failed:`, monthError);
-          toast.error(`Failed at ${month.name} (${month.from} to ${month.to}): ${monthError.response?.data?.detail || monthError.message}`);
-          setCogsBackfillProgress(`Failed at: ${month.name} (${month.from} - ${month.to})`);
-          return;
-        }
-        
-        // Small delay between chunks to prevent overwhelming the server
-        await new Promise(resolve => setTimeout(resolve, 300));
+      // Poll recompute job
+      const recomputeResult = await pollJobStatus(recomputeJobId, 'Recomputing stock data');
+      if (!recomputeResult.success) {
+        toast.error(`Recompute failed: ${recomputeResult.error}`);
+        setCogsBackfillProgress(`Failed: ${recomputeResult.error}`);
+        return;
       }
       
+      console.log('Recompute completed:', recomputeResult.result);
+      
+      // Small delay between jobs
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Step 2: Start COGS backfill job
+      setCogsBackfillProgress('Starting: COGS backfill...');
+      
+      let cogsJobId;
+      try {
+        const cogsResponse = await api.post('/api/jobs/cogs-backfill?from_date=2026-03-18&to_date=2026-06-30');
+        cogsJobId = cogsResponse.data.job_id;
+        console.log('COGS backfill job started:', cogsJobId);
+      } catch (error) {
+        console.error('Failed to start COGS job:', error);
+        toast.error('Failed to start COGS backfill job. Please try again.');
+        setCogsBackfillProgress('Failed to start COGS job');
+        return;
+      }
+      
+      // Poll COGS job
+      const cogsResult = await pollJobStatus(cogsJobId, 'COGS Backfill');
+      if (!cogsResult.success) {
+        toast.error(`COGS backfill failed: ${cogsResult.error}`);
+        setCogsBackfillProgress(`Failed: ${cogsResult.error}`);
+        return;
+      }
+      
+      console.log('COGS backfill completed:', cogsResult.result);
+      
       setCogsBackfillProgress('Complete!');
-      toast.success('Daily COGS data fixed! Wastage calculations should now be accurate.');
+      toast.success(`Daily COGS data fixed! Processed ${cogsResult.result?.dates_processed || 'all'} dates.`);
       
       // Refresh the P&L data
       loadPnlData();

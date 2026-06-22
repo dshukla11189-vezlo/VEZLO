@@ -1180,7 +1180,7 @@ async def fix_mismatched_grn_ids(current_user: dict = Depends(get_current_user))
             return date_str[:10] if len(date_str) >= 10 else date_str
         
         # Get all dispatches
-        all_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(5000)
+        all_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(10000)
         
         # Build lookup by date -> product_name -> dispatch items
         dispatch_lookup = {}

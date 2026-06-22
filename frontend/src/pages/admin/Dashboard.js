@@ -74,6 +74,14 @@ export default function AdminDashboard() {
   const [selectedRetailers, setSelectedRetailers] = useState([]); // For multi-select comparison
   const [showVerticalModal, setShowVerticalModal] = useState(false);
   
+  // COGS Tab State
+  const [cogsSnapshotDate, setCogsSnapshotDate] = useState(new Date().toISOString().split('T')[0]);
+  const [cogsSnapshot, setCogsSnapshot] = useState(null);
+  const [cogsLoading, setCogsLoading] = useState(false);
+  const [cogsSearch, setCogsSearch] = useState('');
+  const [cogsSortField, setCogsSortField] = useState('product_name');
+  const [cogsSortAsc, setCogsSortAsc] = useState(true);
+  
   // Persist filters to localStorage
   useEffect(() => {
     localStorage.setItem('dashboard_dateFrom', dateFrom);
@@ -290,6 +298,59 @@ export default function AdminDashboard() {
       }, 2000);
     }
   };
+  
+  // Fetch COGS Snapshot data
+  const fetchCogsSnapshot = useCallback(async (date) => {
+    setCogsLoading(true);
+    try {
+      const response = await api.get(`/api/cogs/snapshot?date=${date}`);
+      setCogsSnapshot(response.data);
+    } catch (error) {
+      console.error('Error fetching COGS snapshot:', error);
+      toast.error('Failed to load COGS data');
+      setCogsSnapshot(null);
+    } finally {
+      setCogsLoading(false);
+    }
+  }, []);
+  
+  // Load COGS snapshot when date changes or tab becomes active
+  useEffect(() => {
+    if (activeTab === 'cogs' && cogsSnapshotDate) {
+      fetchCogsSnapshot(cogsSnapshotDate);
+    }
+  }, [activeTab, cogsSnapshotDate, fetchCogsSnapshot]);
+  
+  // Filtered and sorted COGS products
+  const filteredCogsProducts = useMemo(() => {
+    if (!cogsSnapshot?.products) return [];
+    
+    let filtered = cogsSnapshot.products.filter(p => 
+      p.product_name.toLowerCase().includes(cogsSearch.toLowerCase())
+    );
+    
+    // Sort
+    filtered.sort((a, b) => {
+      let aVal = a[cogsSortField];
+      let bVal = b[cogsSortField];
+      
+      // Handle null/undefined
+      if (aVal == null) aVal = cogsSortAsc ? Infinity : -Infinity;
+      if (bVal == null) bVal = cogsSortAsc ? Infinity : -Infinity;
+      
+      // String comparison for product_name
+      if (cogsSortField === 'product_name' || cogsSortField === 'unit') {
+        aVal = (aVal || '').toString().toLowerCase();
+        bVal = (bVal || '').toString().toLowerCase();
+        return cogsSortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      
+      // Numeric comparison
+      return cogsSortAsc ? aVal - bVal : bVal - aVal;
+    });
+    
+    return filtered;
+  }, [cogsSnapshot, cogsSearch, cogsSortField, cogsSortAsc]);
   
   // Multi-level expansion states
   const [expandedDates, setExpandedDates] = useState({});        // Date → QC/Retail
@@ -1712,7 +1773,8 @@ export default function AdminDashboard() {
             { key: 'overview', label: 'Overview', icon: '📊' },
             { key: 'customers', label: 'Customers', icon: '👥' },
             { key: 'products', label: 'Products', icon: '📦' },
-            { key: 'costs', label: 'Costs', icon: '💰' }
+            { key: 'costs', label: 'Costs', icon: '💰' },
+            { key: 'cogs', label: 'COGS', icon: '📋' }
           ].map(tab => (
             <Button
               key={tab.key}
@@ -3173,6 +3235,187 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                 </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* COGS Tab */}
+        {activeTab === 'cogs' && (
+          <div className="space-y-4">
+            {/* Header with Date Picker */}
+            <Card>
+              <CardHeader className="py-3">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Database size={16} /> COGS Snapshot - Purchase Price & Selling Prices
+                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={14} className="text-gray-500" />
+                      <Input
+                        type="date"
+                        value={cogsSnapshotDate}
+                        onChange={(e) => setCogsSnapshotDate(e.target.value)}
+                        className="h-8 text-xs w-36"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fetchCogsSnapshot(cogsSnapshotDate)}
+                      disabled={cogsLoading}
+                    >
+                      {cogsLoading ? <RefreshCw className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {/* Search */}
+                <div className="mb-4">
+                  <Input
+                    placeholder="Search product..."
+                    value={cogsSearch}
+                    onChange={(e) => setCogsSearch(e.target.value)}
+                    className="h-8 text-xs max-w-xs"
+                  />
+                </div>
+                
+                {/* Stats */}
+                {cogsSnapshot && (
+                  <div className="mb-4 text-xs text-gray-500">
+                    Showing {filteredCogsProducts.length} of {cogsSnapshot.total_products} products for {cogsSnapshot.date}
+                  </div>
+                )}
+                
+                {/* Table */}
+                {cogsLoading ? (
+                  <div className="h-64 flex items-center justify-center">
+                    <RefreshCw className="animate-spin text-gray-400" size={24} />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b sticky top-0">
+                        <tr>
+                          <th 
+                            className="p-2 text-left font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                            onClick={() => {
+                              if (cogsSortField === 'product_name') setCogsSortAsc(!cogsSortAsc);
+                              else { setCogsSortField('product_name'); setCogsSortAsc(true); }
+                            }}
+                          >
+                            PRODUCT NAME {cogsSortField === 'product_name' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th 
+                            className="p-2 text-right font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                            onClick={() => {
+                              if (cogsSortField === 'pp_per_kg') setCogsSortAsc(!cogsSortAsc);
+                              else { setCogsSortField('pp_per_kg'); setCogsSortAsc(true); }
+                            }}
+                          >
+                            PP/kg (₹) {cogsSortField === 'pp_per_kg' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th 
+                            className="p-2 text-right font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                            onClick={() => {
+                              if (cogsSortField === 'qc_sp_per_kg') setCogsSortAsc(!cogsSortAsc);
+                              else { setCogsSortField('qc_sp_per_kg'); setCogsSortAsc(true); }
+                            }}
+                          >
+                            QC SP (₹/kg) {cogsSortField === 'qc_sp_per_kg' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th 
+                            className="p-2 text-right font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                            onClick={() => {
+                              if (cogsSortField === 'retail_sp_per_kg') setCogsSortAsc(!cogsSortAsc);
+                              else { setCogsSortField('retail_sp_per_kg'); setCogsSortAsc(true); }
+                            }}
+                          >
+                            RETAIL SP (₹/kg) {cogsSortField === 'retail_sp_per_kg' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th 
+                            className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                            onClick={() => {
+                              if (cogsSortField === 'unit') setCogsSortAsc(!cogsSortAsc);
+                              else { setCogsSortField('unit'); setCogsSortAsc(true); }
+                            }}
+                          >
+                            UNIT {cogsSortField === 'unit' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th 
+                            className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                            onClick={() => {
+                              if (cogsSortField === 'last_updated') setCogsSortAsc(!cogsSortAsc);
+                              else { setCogsSortField('last_updated'); setCogsSortAsc(false); }
+                            }}
+                          >
+                            LAST UPDATED {cogsSortField === 'last_updated' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredCogsProducts.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-8 text-center text-gray-400">
+                              {cogsSearch ? 'No products match your search' : 'No COGS data available for this date'}
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredCogsProducts.map((product, idx) => {
+                            const ppChange = product.pp_change;
+                            const hasIncrease = ppChange != null && ppChange > 0;
+                            const hasDecrease = ppChange != null && ppChange < 0;
+                            
+                            return (
+                              <tr key={idx} className="border-b hover:bg-gray-50">
+                                <td className="p-2 font-medium">{product.product_name}</td>
+                                <td className="p-2 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {product.pp_per_kg != null ? (
+                                      <>
+                                        <span className="font-medium">₹{product.pp_per_kg.toLocaleString()}</span>
+                                        {ppChange != null && ppChange !== 0 && (
+                                          <span className={`text-[10px] flex items-center gap-0.5 px-1 py-0.5 rounded ${
+                                            hasIncrease ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                                          }`}>
+                                            {hasIncrease ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                                            {hasIncrease ? '▲' : '▼'}₹{Math.abs(ppChange).toFixed(1)}
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-gray-300">-</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-2 text-right">
+                                  {product.qc_sp_per_kg != null ? (
+                                    <span className="font-medium text-blue-600">₹{product.qc_sp_per_kg.toLocaleString()}</span>
+                                  ) : (
+                                    <span className="text-gray-300">-</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-right">
+                                  {product.retail_sp_per_kg != null ? (
+                                    <span className="font-medium text-purple-600">₹{product.retail_sp_per_kg.toLocaleString()}</span>
+                                  ) : (
+                                    <span className="text-gray-300">-</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center text-gray-500">{product.unit || 'Kg'}</td>
+                                <td className="p-2 text-center text-gray-400 text-[10px]">
+                                  {product.last_updated || '-'}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

@@ -82,6 +82,7 @@ from apscheduler.triggers.cron import CronTrigger
 from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router
 from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date, save_daily_cogs
 from routes.background_jobs import router as background_jobs_router
+from routes.cogs_snapshot import router as cogs_snapshot_router
 from routes.retail_plans import initialize_default_plans
 from routes.retailer_portal import run_blinkit_scrape_scheduled, generate_auto_indents_wrapper
 
@@ -778,6 +779,7 @@ app.include_router(dashboard_analytics_router, prefix="/api")
 app.include_router(retailer_portal_router, prefix="/api")
 app.include_router(daily_cogs_router)  # Daily COGS tracking
 app.include_router(background_jobs_router, prefix="/api")  # Background job management
+app.include_router(cogs_snapshot_router)  # COGS snapshot API
 
 # Root-level health endpoint for Kubernetes health checks (without /api prefix)
 @app.get("/health")

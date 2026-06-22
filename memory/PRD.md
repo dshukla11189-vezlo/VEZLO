@@ -2,6 +2,29 @@
 
 ## Changelog (June 2025)
 
+### June 22, 2026 - COGS Tab Added to Dashboard ✅
+- **FEATURE**: Added new "COGS" tab on the main dashboard next to the "Costs" tab
+  - **Backend**: New endpoint `GET /api/cogs/snapshot?date=YYYY-MM-DD` with admin auth
+  - **Frontend**: New COGS tab with date picker, search, sortable table
+  - **Features**:
+    - Date picker (default: today's date)
+    - Table columns: Product Name | PP/kg | QC SP (₹/kg) | Retail SP (₹/kg) | Unit | Last Updated
+    - PP/kg from `daily_cogs` collection with date carry-forward
+    - QC SP from `qc_grns` (weighted average rate_per_kg) with carry-forward
+    - Retail SP from `retailer_dispatches` (weighted average) with carry-forward
+    - Search/filter by product name
+    - Sort by any column
+    - PP/kg change indicator (green ▼ decrease, red ▲ increase vs previous day)
+  - **Files Created**:
+    - `/app/backend/routes/cogs_snapshot.py` - New API endpoint
+  - **Files Modified**:
+    - `/app/backend/server.py` - Router registration
+    - `/app/frontend/src/pages/admin/Dashboard.js` - COGS tab UI
+
+### June 22, 2026 - P&L retail_cogs and qc_cogs Alignment ✅
+- **BUG FIX**: Recomputed `retail_cogs` and `qc_cogs` from line items after detailed COGS calculation
+  - Ensures daily totals match sum of individual line items
+  - Added `qc_cogs` to daily_pnl output
 
 ### June 22, 2026 - P&L and Wastage Dashboard Perfect Alignment ✅
 - **BUG FIX (P0)**: Aligned P&L and Wastage Dashboard to show IDENTICAL wastage quantities and values

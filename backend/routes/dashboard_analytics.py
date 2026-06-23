@@ -61,12 +61,19 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
     Returns:
         Updated dispatches_by_product dict with combo ingredients added
     """
+    import logging
+    
     # Build product name to ID mapping (case-insensitive)
     product_name_to_id = {}
     for p in products:
         name_lower = p.get("name", "").lower().strip()
         product_name_to_id[name_lower] = p.get("id")
     
+    # Log available product mappings for key ingredients
+    logging.info(f"[COMBO_DEBUG] Product mappings - Ginger: {product_name_to_id.get('ginger')}, Garlic: {product_name_to_id.get('garlic')}")
+    logging.info(f"[COMBO_DEBUG] Processing {len(dispatch_items)} dispatch items")
+    
+    combo_count = 0
     for item in dispatch_items:
         product_name = item.get("product_name", "")
         
@@ -74,15 +81,24 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
         if not is_combo_product(product_name):
             continue
         
+        combo_count += 1
+        logging.info(f"[COMBO_DEBUG] Found combo item: '{product_name}'")
+        
         # Parse the combo to get ingredients
         combo_info = parse_combo_product(product_name)
         if not combo_info or not combo_info.get("ingredients"):
+            logging.warning(f"[COMBO_DEBUG] Failed to parse combo: '{product_name}' -> {combo_info}")
             continue
+        
+        logging.info(f"[COMBO_DEBUG] Parsed combo '{product_name[:40]}...' -> ingredients: {combo_info.get('ingredients')}")
         
         # Get the supplied quantity (number of packs)
         supplied_qty = item.get("supplied_qty", 0) or 0
         if supplied_qty <= 0:
+            logging.warning(f"[COMBO_DEBUG] Combo has no supplied_qty: '{product_name}'")
             continue
+        
+        logging.info(f"[COMBO_DEBUG] Combo supplied_qty: {supplied_qty} packs")
         
         # Add each ingredient's quantity to its base product
         for ingredient in combo_info.get("ingredients", []):
@@ -90,6 +106,7 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
             weight_gm = ingredient.get("weight_gm", 0) or 0
             
             if not ing_name or weight_gm <= 0:
+                logging.warning(f"[COMBO_DEBUG] Ingredient missing name or weight: {ingredient}")
                 continue
             
             # Calculate total kg of this ingredient used in combo dispatches
@@ -98,6 +115,8 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
             # Find the product ID for this ingredient
             ing_name_lower = ing_name.lower().strip()
             product_id = product_name_to_id.get(ing_name_lower)
+            
+            logging.info(f"[COMBO_DEBUG] Ingredient '{ing_name}' ({weight_gm}gm) x {supplied_qty} = {ingredient_qty_kg:.2f}kg, product_id lookup '{ing_name_lower}' -> {product_id}")
             
             # If not found directly, try alternative names
             if not product_id:
@@ -118,6 +137,11 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
                                 if product_id:
                                     break
                         break
+                
+                if product_id:
+                    logging.info(f"[COMBO_DEBUG] Found via alternative: '{ing_name}' -> {product_id}")
+                else:
+                    logging.warning(f"[COMBO_DEBUG] NO PRODUCT ID FOUND for ingredient '{ing_name}'")
             
             if product_id:
                 # Determine the format of dispatches_by_product (dict with qty/value or simple number)
@@ -125,6 +149,8 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
                 if dispatches_by_product:
                     sample_val = next(iter(dispatches_by_product.values()))
                     is_dict_format = isinstance(sample_val, dict)
+                
+                old_val = dispatches_by_product.get(product_id, 0 if not is_dict_format else {"qty": 0})
                 
                 if product_id not in dispatches_by_product:
                     if is_dict_format:
@@ -135,9 +161,14 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
                 # Add the ingredient quantity
                 if is_dict_format:
                     dispatches_by_product[product_id]["qty"] += ingredient_qty_kg
+                    new_val = dispatches_by_product[product_id]["qty"]
                 else:
                     dispatches_by_product[product_id] += ingredient_qty_kg
+                    new_val = dispatches_by_product[product_id]
+                
+                logging.info(f"[COMBO_DEBUG] Added {ingredient_qty_kg:.2f}kg to {product_id} ({ing_name}): {old_val} -> {new_val}")
     
+    logging.info(f"[COMBO_DEBUG] Processed {combo_count} combo items total")
     return dispatches_by_product
 
 # SECTION: DASHBOARD & ANALYTICS ROUTES (Lines ~1839-2480)

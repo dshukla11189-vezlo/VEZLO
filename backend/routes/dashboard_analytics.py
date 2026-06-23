@@ -1141,7 +1141,7 @@ async def get_pnl_report(
                                 break
                         
                         if ing_totals and ing_totals['supplied_kg'] > 0:
-                            proportion = used_in_combo_kg / ing_totals['supplied_kg']
+                            proportion = min(1.0, used_in_combo_kg / ing_totals['supplied_kg'])
                             wastage_share_kg = ing_totals['wastage_kg'] * proportion
                             wastage_share_value = ing_totals['wastage_value'] * proportion
                             
@@ -1160,6 +1160,19 @@ async def get_pnl_report(
                     line_item['wastage_kg'] = round(total_combo_wastage_kg, 4)
                     line_item['wastage_value'] = round(total_combo_wastage_value, 2)
                     line_item['combo_wastage_breakdown'] = combo_wastage_breakdown
+                    
+                    # SUBTRACT combo wastage shares from product_by_date so regular line items
+                    # only distribute the REMAINING wastage (prevents double-counting)
+                    for cwb_item in combo_wastage_breakdown:
+                        cwb_ingredient = cwb_item['ingredient']
+                        cwb_value = cwb_item['wastage_share_value']
+                        for prod_key in list(product_by_date.get(date_key, {}).keys()):
+                            if prod_key.lower().strip() == cwb_ingredient.lower().strip():
+                                product_by_date[date_key][prod_key]["wastage"] = max(
+                                    0,
+                                    product_by_date[date_key][prod_key]["wastage"] - cwb_value
+                                )
+                                break
 
     # ========== VARIABLE EXPENSES ==========
     variable_expenses = await db.variable_expenses.find({

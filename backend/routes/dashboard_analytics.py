@@ -1666,14 +1666,16 @@ async def get_pnl_report(
         day_data["qc_cogs"] = day_qc_cogs_from_items
         
         # Gross profit using line-item COGS basis (consistent with total_cogs)
-        day_gross = day_data["sales"] - day_cogs_from_items - day_wastage_from_items - day_retail_rejection_cogs - day_retail_commission
+        # Include unsold_wastage_total in wastage for products with wastage but no dispatch
+        total_wastage_for_gross = day_wastage_from_items + unsold_wastage_total
+        day_gross = day_data["sales"] - day_cogs_from_items - total_wastage_for_gross - day_retail_rejection_cogs - day_retail_commission
         day_net = day_gross - day_data["variable_exp"] - day_data["fixed_exp"]
         day_gross_margin = (day_gross / day_data["sales"] * 100) if day_data["sales"] > 0 else 0
         day_profit_per_unit = (day_gross / day_sales_qty) if day_sales_qty > 0 else 0
         
         # Update day_data for consistency (purchase = COGS from line items)
         day_data["purchase"] = day_cogs_from_items
-        day_data["wastage"] = day_wastage_from_items
+        day_data["wastage"] = day_wastage_from_items + unsold_wastage_total  # Include unsold wastage
         
         daily_pnl.append({
             "date": date_key,

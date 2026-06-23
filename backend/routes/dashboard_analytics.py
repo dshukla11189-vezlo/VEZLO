@@ -747,8 +747,14 @@ async def get_pnl_report(
         gross_mrp = dispatch.get("total_mrp_value", 0) or 0
         commission_pct = dispatch.get("commission_percentage", 0) or 0
         
-        # Calculate commission on gross MRP
-        commission_amount = gross_mrp * commission_pct / 100
+        # Get rejection for this retailer on this date to calculate commission on net amount
+        rejection_key = f"{dispatch_date}_{retailer_id}"
+        retailer_date_rejection = rejection_by_date_retailer.get(rejection_key, {})
+        retailer_rejection_mrp = retailer_date_rejection.get("value", 0) or 0
+        
+        # Calculate commission on NET amount (gross MRP minus rejection)
+        net_mrp_for_commission = gross_mrp - retailer_rejection_mrp
+        commission_amount = net_mrp_for_commission * commission_pct / 100 if net_mrp_for_commission > 0 else 0
         
         if customer not in sales_by_customer:
             sales_by_customer[customer] = {"amount": 0, "qty": 0, "invoices": 0, "type": "Retail", "sales_dates": set(), "retailer_id": retailer_id}
@@ -1529,11 +1535,14 @@ async def get_pnl_report(
                         wastage_value = 0
                         wastage_kg = 0
                 
-                # Calculate commission for retail items (proportional to revenue)
+                # Calculate commission for retail items (on net revenue after rejection)
                 commission_pct = item.get("commission_pct", 0)
                 commission_value = 0
                 if item["customer_type"] == "Retail" and commission_pct > 0:
-                    commission_value = item["revenue"] * commission_pct / 100
+                    # Deduct line item's rejection before applying commission
+                    line_rejection_value = item.get("rejection_value", 0) or 0
+                    net_revenue_for_commission = item["revenue"] - line_rejection_value
+                    commission_value = net_revenue_for_commission * commission_pct / 100 if net_revenue_for_commission > 0 else 0
                 
                 # Calculate gross profit and margins for this line item
                 # For retail: Gross Profit = Revenue - COGS - Wastage - Commission

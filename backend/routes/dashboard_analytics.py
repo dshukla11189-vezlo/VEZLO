@@ -823,14 +823,19 @@ async def get_pnl_report(
             
             dispatch_qty += qty
             
-            # Calculate COGS using average purchase price from the product
+            # Calculate COGS using daily_cogs_map first (date-specific COGS), fall back to avg_price_by_product
             # If product has a cost_alias (e.g., Spinach -> Palak), use aliased product's price
             lookup_product = cost_alias_map.get(product, product)
-            avg_purchase_price = avg_price_by_product.get(lookup_product, 0)
             
-            # If no price found for lookup product, try original product
-            if avg_purchase_price == 0 and lookup_product != product:
-                avg_purchase_price = avg_price_by_product.get(product, 0)
+            # Prioritize daily_cogs_map for date-specific COGS (same pattern as rejection calculation)
+            daily_cogs_key = (lookup_product, dispatch_date)
+            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+                avg_purchase_price = daily_cogs_map[daily_cogs_key]
+            else:
+                # Fallback to avg_price_by_product
+                avg_purchase_price = avg_price_by_product.get(lookup_product, 0)
+                if avg_purchase_price == 0 and lookup_product != product:
+                    avg_purchase_price = avg_price_by_product.get(product, 0)
             
             # Check if this is a combo product (contains ":" with ingredient list)
             combo_cogs_info = None

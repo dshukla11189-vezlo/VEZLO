@@ -1038,11 +1038,17 @@ async def get_pnl_report(
         purchase_qty = round(fresh_purchase.get("qty", 0), 2)
         purchase_value = round(fresh_purchase.get("value", 0), 2)
         
-        # Use stored wastage_qty and wastage_value directly from stock_status
-        # This ensures P&L matches Wastage Dashboard exactly
-        # Both dashboards now use the same ground truth (stored values from stock closing)
+        # Use stored wastage_qty but recalculate wastage_value using daily_cogs rate
+        # This prevents corrupt avg_price values from affecting P&L
         wastage_qty = status.get("wastage_qty", 0) or 0
-        wastage_value = status.get("wastage_value", 0) or 0
+        daily_cogs_key = (product, status_date)
+        if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+            wastage_rate = daily_cogs_map[daily_cogs_key]
+        elif purchase_qty > 0:
+            wastage_rate = purchase_value / purchase_qty
+        else:
+            wastage_rate = status.get("avg_price", 0) or 0
+        wastage_value = round(wastage_qty * wastage_rate, 2)
         
         total_wastage_qty += wastage_qty
         total_wastage_value += wastage_value
@@ -2770,6 +2776,7 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
         # Update status - include purchase_qty to ensure correct value is stored (prevents corruption from duplicate API calls)
         update_data = {
             "purchase_qty": purchase_qty,  # Store the fresh calculated value
+            "dispatch_qty": round(dispatch_qty, 2),  # Store dispatch_qty (includes combo decomposition)
             "closing_qty": round(closing_qty, 2),
             "wastage_qty": round(wastage_qty, 2),
             "wastage_value": round(wastage_value, 2),

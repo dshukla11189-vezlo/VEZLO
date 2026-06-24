@@ -520,7 +520,7 @@ async def get_daily_cogs_map(db: AsyncIOMotorDatabase, from_date: str, to_date: 
     """
     records = await db.daily_cogs.find({
         "date": {"$gte": from_date, "$lte": to_date}
-    }, {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}).to_list(10000)
+    }, {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}).to_list(None)
     
     cogs_map = {}
     for rec in records:

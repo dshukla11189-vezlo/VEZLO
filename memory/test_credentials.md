@@ -10,6 +10,11 @@
 - **Password**: staff123
 - **Role**: Staff
 
+## Retailer Portal (Puneri Fresh Mart)
+- **Email**: puneri@gmail.com
+- **Password**: retailer123
+- **Role**: Retailer
+
 ## Retailer Portal (Savtamali)
 - **Email**: kharatsarika013@gmail.com
 - **Password**: retailer123
@@ -24,5 +29,6 @@
 - Admin and Retailer accounts were re-seeded on June 14, 2025 (database was reset)
 - Staff password set on June 16, 2026 for testing
 - Retailer passwords (Savtamali, Narang) reset on June 20, 2026 to 'retailer123'
+- Puneri Fresh Mart password reset on June 25, 2026 to 'retailer123'
 - Production credentials may differ - this file is for preview/testing only
 - The database `test_database` is used in preview (not `mr_organix`)

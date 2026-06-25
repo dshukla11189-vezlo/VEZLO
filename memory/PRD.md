@@ -2,6 +2,25 @@
 
 ## Changelog (June 2025)
 
+### June 25, 2026 - Closing Inventory Auto-Save Feature ✅
+- **FEATURE**: Added auto-save functionality for closing inventory recording
+  - **Problem**: Users were losing entered data if they accidentally clicked elsewhere or navigated away
+  - **Solution**: Auto-save to localStorage on every value change
+  - **Features**:
+    - Values automatically saved to localStorage as user enters quantities
+    - Visual indicator in modal footer shows "Auto-saving..." → "Auto-saved ✓"
+    - Reopening the modal restores previously entered values with toast notification
+    - localStorage is cleared after successful server save
+    - Storage key format: `closing_inventory_{retailerId}_{date}`
+  - **Files Modified**:
+    - `/app/frontend/src/pages/retailer/Dashboard.js`:
+      - Added `autoSaveStatus` state
+      - Added `autoSaveClosingToLocalStorage()` function
+      - Added `loadAutoSavedClosing()` function  
+      - Added `clearAutoSavedClosing()` function
+      - Added auto-save indicator UI in modal footer
+  - **Test Results**: 4/4 frontend scenarios pass (100%)
+
 ### June 25, 2026 - Auto Indent Generation Bug Fix ✅
 - **BUG FIX (P0)**: Fixed Auto Indent Generation merging distinct products with similar names
   - **Symptom**: Parkway retail plan with "Green Chilli" (qty 5) and "Light Green Chilli" (qty 5) generated an indent with only "Green Chilli" (qty 10) - products were incorrectly merged

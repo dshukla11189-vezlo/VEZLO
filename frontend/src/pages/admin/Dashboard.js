@@ -454,6 +454,8 @@ export default function AdminDashboard() {
       const response = await api.get(`/api/reports/pnl?from_date=${customerDetailDateFrom}&to_date=${customerDetailDateTo}`);
       const dailyPnl = response.data?.daily_pnl || [];
       const customerPnlList = response.data?.customer_pnl || [];
+      // Get rejection_by_date_retailer from the RESPONSE, not from stale pnlData state
+      const rejectionByDateRetailer = response.data?.rejection_by_date_retailer || {};
       
       // Find this customer's data from the customer_pnl list to get all financial details
       const customerPnlEntry = customerPnlList.find(c => 
@@ -516,7 +518,7 @@ export default function AdminDashboard() {
         
         // Get EXACT rejection at COGS for this date from rejection_by_date_retailer
         const rejKey = `${day.date}_${retailerId}`;
-        const dayRejectionData = pnlData?.rejection_by_date_retailer?.[rejKey] || { cogs: 0 };
+        const dayRejectionData = rejectionByDateRetailer[rejKey] || { cogs: 0 };
         const dayRejection = Math.round(dayRejectionData.cogs || 0);
         const dayRejectionPct = sales > 0 ? (dayRejection / sales * 100) : 0;
         

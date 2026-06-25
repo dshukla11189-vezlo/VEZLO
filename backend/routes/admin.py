@@ -81,6 +81,7 @@ async def generate_single_auto_indent(
             }
         
         # Calculate average items sold per product
+        # Use composite key (product_id + product_name) to prevent merging distinct products
         product_totals = {}
         for record in same_weekday_records:
             for item in record.get("items", []):
@@ -89,14 +90,17 @@ async def generate_single_auto_indent(
                 items_sold = item.get("items_sold", 0) or 0
                 
                 if product_id and items_sold > 0:
-                    if product_id not in product_totals:
-                        product_totals[product_id] = {
+                    # Use composite key to ensure distinct products aren't merged
+                    composite_key = f"{product_id}|{product_name.strip()}"
+                    if composite_key not in product_totals:
+                        product_totals[composite_key] = {
+                            "product_id": product_id,
                             "product_name": product_name,
                             "total_sold": 0,
                             "count": 0
                         }
-                    product_totals[product_id]["total_sold"] += items_sold
-                    product_totals[product_id]["count"] += 1
+                    product_totals[composite_key]["total_sold"] += items_sold
+                    product_totals[composite_key]["count"] += 1
         
         if not product_totals:
             return {
@@ -106,13 +110,13 @@ async def generate_single_auto_indent(
         
         # Create indent items with average + 10% buffer
         indent_items = []
-        for product_id, data in product_totals.items():
+        for composite_key, data in product_totals.items():
             avg_sold = data["total_sold"] / data["count"]
             recommended_qty = round(avg_sold * 1.1)  # Add 10% buffer
             
             if recommended_qty > 0:
                 indent_items.append({
-                    "product_id": product_id,
+                    "product_id": data["product_id"],  # Extract from data
                     "product_name": data["product_name"],
                     "variant_id": "",
                     "variant_name": "",

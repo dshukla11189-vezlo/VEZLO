@@ -5788,12 +5788,16 @@ def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 3
     """
     from collections import defaultdict
     
-    # Group entries by product_id
+    # Group entries by BOTH product_id AND product_name to avoid merging distinct products
+    # that may accidentally share the same product_id (e.g., "Green Chilli" vs "Light Green Chilli")
     product_entries = defaultdict(list)
     for key, data in product_weight_totals.items():
         product_id = data["product_id"]
+        product_name = data.get("product_name", "")
         weight_bucket = data.get("weight_bucket", 0)
-        product_entries[product_id].append({
+        # Use composite key to prevent merging distinct products
+        composite_key = f"{product_id}|{product_name.strip()}"
+        product_entries[composite_key].append({
             "key": key,
             "weight_bucket": weight_bucket,
             "data": data
@@ -5801,7 +5805,7 @@ def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 3
     
     merged_result = {}
     
-    for product_id, entries in product_entries.items():
+    for composite_key, entries in product_entries.items():
         if len(entries) == 1:
             # Only one entry, keep as-is
             merged_result[entries[0]["key"]] = entries[0]["data"]
@@ -6716,8 +6720,10 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     packaging_name_map = {p.get("id"): p.get("name", "") for p in packaging_variants}
     
-    # De-duplicate plan products - keep FIRST occurrence only (don't sum duplicates)
-    # If plan has "Matki Sprouts qty 2" twice, the requirement is still 2, not 4
+    # De-duplicate plan products using BOTH product_id AND product_name as composite key
+    # This ensures distinct products with similar names (e.g., "Green Chilli" vs "Light Green Chilli")
+    # are NOT merged even if they accidentally share the same product_id
+    # If plan has exact same product_id + product_name twice, keep FIRST occurrence only
     deduplicated_plan = {}
     for plan_item in plan_products:
         product_id = plan_item.get("product_id")
@@ -6726,20 +6732,24 @@ async def generate_plan_based_indent(retailer: dict, retailer_name: str, target_
         variant_name = plan_item.get("variant_name") or ""
         plan_qty = plan_item.get("quantity", 0)
         
-        # Key by product_id - keep FIRST occurrence only (skip duplicates)
-        if product_id not in deduplicated_plan:
-            deduplicated_plan[product_id] = {
+        # CRITICAL FIX: Use composite key of product_id + product_name to prevent merging
+        # distinct products that may accidentally share the same product_id
+        composite_key = f"{product_id}|{product_name.strip()}"
+        
+        if composite_key not in deduplicated_plan:
+            deduplicated_plan[composite_key] = {
                 "product_id": product_id,
                 "product_name": product_name,
                 "variant_id": variant_id,
                 "variant_name": variant_name,
                 "quantity": plan_qty
             }
-        # Skip duplicates - don't add/sum quantities
+        # Skip exact duplicates (same product_id AND product_name) - don't add/sum quantities
     
     # Calculate pending quantities from de-duplicated plan
     indent_items = []
-    for product_id, plan_item in deduplicated_plan.items():
+    for composite_key, plan_item in deduplicated_plan.items():
+        product_id = plan_item.get("product_id")  # Extract from plan_item since key is composite
         product_name = plan_item.get("product_name", "Unknown")
         variant_id = plan_item.get("variant_id") or ""
         variant_name = plan_item.get("variant_name") or ""

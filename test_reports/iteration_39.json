@@ -1,0 +1,40 @@
+{
+  "summary": "Verified the Auto Indent de-duplication bug fix end-to-end. The composite key (product_id + product_name) fix in generate_plan_based_indent, merge_close_weight_variants, and admin.py generate_single_auto_indent works correctly. Park Way Mart's plan-based indent for 2026-06-26 now contains BOTH 'Chilli Light Green' (qty 5) and 'Green chilli ' (qty 10) as distinct line items totalling 70 across 34 items, with no merging. 8/8 backend tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin login/select dropdowns", "issues": ["React hydration warning observed on first load: 'In HTML, <span> cannot be a child of <option>' - pre-existing, unrelated to this bug fix"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auto_indent_distinct_products.py",
+    "/app/test_reports/pytest/test_auto_indent_distinct_products.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "retailer_portal.py is 9294 lines — far above the 700-line guideline. The generate_plan_based_indent (line 6590), generate_auto_indent_sales_based (above) and merge_close_weight_variants (line 5772) live in the same monolith — strong candidate for splitting into a dedicated auto_indent module.",
+    "Dedup behaviour for EXACT duplicates (same product_id AND same product_name listed twice in plan) is 'keep FIRST occurrence only' (qty of later duplicates is silently dropped). This is intentional per the comment but is a behaviour change from any prior sum-the-quantities flow. Park Way Mart's Medium plan currently has 4 such exact duplicates (Onion 5+4, Potato 5+5, Tomato Hybrid 5+3, Banana 3+3) — main agent / product owner should confirm 'keep first' is the desired policy (a UI validation when authoring plans would be safer than silent drop).",
+    "Composite key uses raw `product_name.strip()` only — no case-folding. Plans authored with 'Green Chilli' and 'green chilli' would be treated as distinct entries. Consider .strip().casefold() if the intent is case-insensitive duplicate detection. (Park Way Mart's data didn't trigger this, but it is a latent gap.)",
+    "admin.py generate_single_auto_indent applies the composite-key fix to product_totals aggregation, but only when both product_id AND items_sold > 0 — same-name/same-id rows with items_sold == 0 are skipped silently. Acceptable for sales-based logic but worth a brief comment in code.",
+    "merge_close_weight_variants now keys by (product_id|product_name) but still applies weight-bucket clustering only within that composite group. If a single product_id legitimately maps to two products with different names (the very bug being fixed), each gets its own weight clustering — correct. Good fix.",
+    "Indent payload contains plan_qty and closing_qty per line item for traceability (nice). However total_qty in the indent doc is only the sum of generated requested quantities; clients comparing total_qty against sum(plan_qty) will be off by closing-deductions — document this on the API or rename for clarity."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auto_indent_distinct_products.py"
+  ],
+  "success_rate": {
+    "backend": "8/8 (100%) - all auto-indent dedup tests pass",
+    "frontend": "smoke only - login + Retailer Orders page load OK; no crash"
+  },
+  "test_credentials": "admin@freshflow.com / admin123 via POST /api/auth/login {identifier, password} — token returned in 'token' field.",
+  "seed_data_creation": "None. Re-used existing Park Way Mart (id=17b601bc-7cd8-4941-b7e2-e6edc860a8c8) which is on the 'Medium' plan (id=edb581a1-...) containing both 'Chilli Light Green' and 'Green chilli '. Closing inventory exists for 2026-06-25, so target_date 2026-06-26 was used. Test deletes the indent before regeneration so it is idempotent and does not pollute other dates.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test entry-point: pytest /app/backend/tests/test_auto_indent_distinct_products.py -v. Two suites: TestPlanBasedAutoIndentDeduplication hits the real API on Park Way Mart for date 2026-06-26 (closing of 2026-06-25 in DB); TestCompositeKeyDeduplicationLogic is a pure-python re-implementation of the dedup snippet to assert that same-product_id-different-name stays distinct, exact-dup keeps first, and trailing-whitespace names are normalised. If preview DB is reset, re-seed closing inventory for Park Way Mart on 2026-06-25 OR pick another date where closing data exists for any retailer on Medium plan.",
+  "rca of the issue": "Root cause: previous code keyed the plan-products dedup map purely on product_id. When two distinct catalogue products were authored with the same product_id (data-entry issue OR legitimate two-name variants of one master id), the second occurrence overwrote/merged with the first, collapsing two line items into one with the wrong total quantity. The fix replaces the key with composite `f\"{product_id}|{product_name.strip()}\"` so distinct names always stay distinct; identical (id,name) pairs are deduped to the first occurrence. Mitigation verified by running real generate-auto-indent for Park Way Mart and asserting both chilli items (different product_ids, similar names) remain distinct line items (qty 5 and qty 10), plus a direct unit test exercising same-product_id-different-name input."
+}

@@ -232,6 +232,7 @@ export default function RetailerDashboard() {
   const [editingItemId, setEditingItemId] = useState(null); // ID of item being edited inline
   const [editingItemQty, setEditingItemQty] = useState(''); // Temp value for inline edit
   const [closingSubTab, setClosingSubTab] = useState('closing-history'); // Sub-tab for Closing section
+  const [autoSaveStatus, setAutoSaveStatus] = useState(''); // 'saving', 'saved', '' for auto-save indicator
   
   // Yesterday's closing check
   const [yesterdayClosingMissing, setYesterdayClosingMissing] = useState(false);
@@ -2332,7 +2333,14 @@ export default function RetailerDashboard() {
         return (a.variant_name || '').localeCompare(b.variant_name || '');
       });
       
-      setClosingItems(items);
+      // Load any auto-saved data from localStorage
+      const { items: itemsWithSaved, hasSavedData } = loadAutoSavedClosing(dashboardData.retailer.id, targetDate, items);
+      setClosingItems(itemsWithSaved);
+      
+      if (hasSavedData) {
+        toast.success('Restored previously entered values');
+      }
+      
       setShowRecordClosingModal(true);
       
       // Hide the banner after opening
@@ -2547,7 +2555,13 @@ export default function RetailerDashboard() {
         return (a.variant_name || '').localeCompare(b.variant_name || '');
       });
       
-      setClosingItems(items);
+      // Load any auto-saved data from localStorage
+      const { items: itemsWithSaved, hasSavedData } = loadAutoSavedClosing(dashboardData.retailer.id, today, items);
+      setClosingItems(itemsWithSaved);
+      
+      if (hasSavedData) {
+        toast.success('Restored previously entered values');
+      }
       
       setClosingDate(today);
       setEditingClosingDate(null);
@@ -2576,11 +2590,86 @@ export default function RetailerDashboard() {
 
   // Update closing qty for a product+variant combination
   const updateClosingQty = (productId, variantId, value) => {
-    setClosingItems(prev => prev.map(item => 
-      (item.product_id === productId && item.variant_id === variantId)
-        ? { ...item, closing_qty: value }
-        : item
-    ));
+    setClosingItems(prev => {
+      const updated = prev.map(item => 
+        (item.product_id === productId && item.variant_id === variantId)
+          ? { ...item, closing_qty: value }
+          : item
+      );
+      // Auto-save to localStorage after updating
+      autoSaveClosingToLocalStorage(updated);
+      return updated;
+    });
+  };
+  
+  // Auto-save closing inventory to localStorage
+  const getClosingStorageKey = (retailerId, date) => {
+    return `closing_inventory_${retailerId}_${date}`;
+  };
+  
+  const autoSaveClosingToLocalStorage = (items) => {
+    if (!dashboardData?.retailer?.id || !closingDate) return;
+    
+    try {
+      setAutoSaveStatus('saving');
+      const storageKey = getClosingStorageKey(dashboardData.retailer.id, closingDate);
+      const dataToSave = {
+        items: items.map(item => ({
+          product_id: item.product_id,
+          variant_id: item.variant_id,
+          closing_qty: item.closing_qty
+        })),
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(storageKey, JSON.stringify(dataToSave));
+      
+      // Show "saved" status briefly
+      setTimeout(() => setAutoSaveStatus('saved'), 100);
+      setTimeout(() => setAutoSaveStatus(''), 2000);
+    } catch (error) {
+      console.error('Failed to auto-save closing inventory:', error);
+      setAutoSaveStatus('');
+    }
+  };
+  
+  // Load auto-saved closing inventory from localStorage
+  const loadAutoSavedClosing = (retailerId, date, itemsFromServer) => {
+    try {
+      const storageKey = getClosingStorageKey(retailerId, date);
+      const savedData = localStorage.getItem(storageKey);
+      
+      if (savedData) {
+        const parsed = JSON.parse(savedData);
+        const savedItems = parsed.items || [];
+        
+        // Merge saved quantities with server items
+        const mergedItems = itemsFromServer.map(item => {
+          const savedItem = savedItems.find(
+            s => s.product_id === item.product_id && s.variant_id === item.variant_id
+          );
+          // Only use saved value if it's not empty and server doesn't have a value
+          if (savedItem && (savedItem.closing_qty !== '' && savedItem.closing_qty !== null)) {
+            return { ...item, closing_qty: savedItem.closing_qty };
+          }
+          return item;
+        });
+        
+        return { items: mergedItems, hasSavedData: savedItems.some(s => s.closing_qty !== '' && s.closing_qty !== null) };
+      }
+    } catch (error) {
+      console.error('Failed to load auto-saved closing inventory:', error);
+    }
+    return { items: itemsFromServer, hasSavedData: false };
+  };
+  
+  // Clear auto-saved closing inventory from localStorage (after successful server save)
+  const clearAutoSavedClosing = (retailerId, date) => {
+    try {
+      const storageKey = getClosingStorageKey(retailerId, date);
+      localStorage.removeItem(storageKey);
+    } catch (error) {
+      console.error('Failed to clear auto-saved closing inventory:', error);
+    }
   };
 
   // Save closing inventory
@@ -2624,6 +2713,9 @@ export default function RetailerDashboard() {
         closing_date: closingDate,
         items: itemsToSave
       });
+      
+      // Clear auto-saved data after successful server save
+      clearAutoSavedClosing(dashboardData.retailer.id, closingDate);
       
       toast.success(`Saved closing inventory: ${res.data.items_saved} items`);
       setShowRecordClosingModal(false);
@@ -6777,6 +6869,22 @@ export default function RetailerDashboard() {
                     <span className="text-green-600 font-medium">{filledItemsCount}</span> {t('retailer.filled')}, {' '}
                     <span className="text-orange-600 font-medium">{pendingItemsCount}</span> {t('retailer.pending')}
                   </span>
+                  {/* Auto-save indicator */}
+                  {autoSaveStatus && (
+                    <span className={`text-xs flex items-center gap-1 ${autoSaveStatus === 'saving' ? 'text-blue-500' : 'text-green-500'}`}>
+                      {autoSaveStatus === 'saving' ? (
+                        <>
+                          <RefreshCw size={12} className="animate-spin" />
+                          Auto-saving...
+                        </>
+                      ) : (
+                        <>
+                          <Check size={12} />
+                          Auto-saved
+                        </>
+                      )}
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-3">
                   <Button 

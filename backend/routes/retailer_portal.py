@@ -5788,16 +5788,12 @@ def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 3
     """
     from collections import defaultdict
     
-    # Group entries by BOTH product_id AND product_name to avoid merging distinct products
-    # that may accidentally share the same product_id (e.g., "Green Chilli" vs "Light Green Chilli")
+    # Group entries by product_id to merge weight variants of the SAME product
     product_entries = defaultdict(list)
     for key, data in product_weight_totals.items():
         product_id = data["product_id"]
-        product_name = data.get("product_name", "")
         weight_bucket = data.get("weight_bucket", 0)
-        # Use composite key to prevent merging distinct products
-        composite_key = f"{product_id}|{product_name.strip()}"
-        product_entries[composite_key].append({
+        product_entries[product_id].append({
             "key": key,
             "weight_bucket": weight_bucket,
             "data": data
@@ -5805,7 +5801,7 @@ def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 3
     
     merged_result = {}
     
-    for composite_key, entries in product_entries.items():
+    for product_id, entries in product_entries.items():
         if len(entries) == 1:
             # Only one entry, keep as-is
             merged_result[entries[0]["key"]] = entries[0]["data"]

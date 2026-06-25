@@ -2,6 +2,24 @@
 
 ## Changelog (June 2025)
 
+### June 25, 2026 - Auto Indent Generation Bug Fix ✅
+- **BUG FIX (P0)**: Fixed Auto Indent Generation merging distinct products with similar names
+  - **Symptom**: Parkway retail plan with "Green Chilli" (qty 5) and "Light Green Chilli" (qty 5) generated an indent with only "Green Chilli" (qty 10) - products were incorrectly merged
+  - **Root Cause**: The de-duplication logic in `generate_plan_based_indent` used only `product_id` as the dictionary key. If two distinct products accidentally shared the same `product_id` (or if similar-named products were intended to be separate), they would be merged.
+  - **Solution**: Changed de-duplication key to a composite key using BOTH `product_id` AND `product_name.strip()`:
+    - Format: `f"{product_id}|{product_name.strip()}"`
+    - This ensures distinct products with different names are NEVER merged even if they share the same `product_id`
+    - Exact duplicates (same product_id AND product_name) are still deduplicated to prevent accidental double-counting
+  - **Files Modified**:
+    - `/app/backend/routes/retailer_portal.py`:
+      - `generate_plan_based_indent()` (line 6719) - Uses composite key for plan deduplication
+      - `merge_close_weight_variants()` (line 5772) - Uses composite key for weight merging
+    - `/app/backend/routes/admin.py`:
+      - `generate_single_auto_indent()` (line 83) - Uses composite key for closing-based indent
+  - **Test File Created**: `/app/backend/tests/test_auto_indent_distinct_products.py`
+  - **Test Results**: 8/8 backend tests pass (100%)
+  - **Verified**: Park Way Mart's plan-based indent now correctly shows "Chilli Light Green" (qty 5) and "Green chilli" (qty 10) as distinct line items
+
 ### June 22, 2026 - COGS Tab Added to Dashboard ✅
 - **FEATURE**: Added new "COGS" tab on the main dashboard next to the "Costs" tab
   - **Backend**: New endpoint `GET /api/cogs/snapshot?date=YYYY-MM-DD` with admin auth

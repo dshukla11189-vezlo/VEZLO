@@ -2709,12 +2709,17 @@ async def backfill_missing_credit_notes(
 @router.post("/retailer-credit-notes/reconcile-100-upfront")
 async def reconcile_100_upfront_credit_notes(
     retailer_id: Optional[str] = None,
+    dry_run: bool = True,
     current_user: dict = Depends(get_current_user)
 ):
     """
     Find all rejections for 100% upfront retailers that don't have credit notes
     and create them. Unlike the regular backfill, this creates CNs even if
     no invoice is found (with pending linkage status).
+    
+    Query params:
+        dry_run=true (default): Preview mode - shows what WOULD be created without creating
+        dry_run=false: Actually creates the credit notes
     
     This is the manual trigger for the daily scheduled reconciliation job.
     """
@@ -2732,7 +2737,7 @@ async def reconcile_100_upfront_credit_notes(
     upfront_retailers = await db.users.find(retailer_query, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1, "model_changed_at": 1}).to_list(None)
     
     if not upfront_retailers:
-        return {"message": "No 100% upfront retailers found", "created": 0}
+        return {"message": "No 100% upfront retailers found", "would_create": 0, "dry_run": dry_run}
     
     retailer_ids = [r.get("id") for r in upfront_retailers]
     retailer_map = {r.get("id"): r for r in upfront_retailers}
@@ -2752,11 +2757,11 @@ async def reconcile_100_upfront_credit_notes(
     # Find rejections without credit notes
     rejections_without_cn = [r for r in rejections if r.get("id") not in rejection_ids_with_cn]
     
-    created_count = 0
-    linked_count = 0
-    unlinked_count = 0
+    # First pass: collect all CNs that would be created (for both dry_run and actual run)
+    cns_to_create = []
     skipped_before_model_change = 0
-    created_details = []
+    skipped_zero_value = 0
+    per_retailer_counts = {}  # retailer_name -> count
     
     for rejection in rejections_without_cn:
         ret_id = rejection.get("retailer_id")
@@ -2772,6 +2777,7 @@ async def reconcile_100_upfront_credit_notes(
         rejection_value = rejection.get("rejection_value", 0) or 0
         
         if rejection_value <= 0:
+            skipped_zero_value += 1
             continue
         
         # Check if rejection falls under 100% upfront rules based on model_changed_at
@@ -2780,6 +2786,60 @@ async def reconcile_100_upfront_credit_notes(
             # Rejection is before model change - use 50% rule (needs invoice + fully paid check)
             skipped_before_model_change += 1
             continue
+        
+        retailer_name = retailer.get("company_name", retailer.get("name", ""))
+        commission_pct = retailer.get("commission_percentage", 0) or 0
+        credit_amount = rejection_value * (1 - commission_pct / 100)
+        
+        # Track per-retailer counts
+        if retailer_name not in per_retailer_counts:
+            per_retailer_counts[retailer_name] = 0
+        per_retailer_counts[retailer_name] += 1
+        
+        cns_to_create.append({
+            "retailer_id": ret_id,
+            "retailer": retailer,
+            "rejection": rejection,
+            "dispatch_id": dispatch_id,
+            "rejection_date_str": rejection_date_str,
+            "rejection_value": rejection_value,
+            "credit_amount": credit_amount
+        })
+    
+    # If dry_run, return preview without creating
+    if dry_run:
+        return {
+            "dry_run": True,
+            "message": f"Would create {len(cns_to_create)} credit notes",
+            "would_create": len(cns_to_create),
+            "per_retailer": per_retailer_counts,
+            "summary": {
+                "retailers_checked": len(upfront_retailers),
+                "total_rejections": len(rejections),
+                "rejections_without_cn": len(rejections_without_cn),
+                "would_create": len(cns_to_create),
+                "skipped_before_model_change": skipped_before_model_change,
+                "skipped_zero_value": skipped_zero_value
+            }
+        }
+    
+    # Actually create the credit notes
+    created_count = 0
+    linked_count = 0
+    unlinked_count = 0
+    created_details = []
+    
+    for cn_data in cns_to_create:
+        ret_id = cn_data["retailer_id"]
+        retailer = cn_data["retailer"]
+        rejection = cn_data["rejection"]
+        dispatch_id = cn_data["dispatch_id"]
+        rejection_date_str = cn_data["rejection_date_str"]
+        rejection_value = cn_data["rejection_value"]
+        credit_amount = cn_data["credit_amount"]
+        
+        rej_id = rejection.get("id")
+        rejection_date = rejection.get("rejection_date", "")
         
         # Try to find matching invoice
         invoice = None
@@ -2818,7 +2878,6 @@ async def reconcile_100_upfront_credit_notes(
         credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
         
         commission_pct = retailer.get("commission_percentage", 0) or 0
-        credit_amount = rejection_value * (1 - commission_pct / 100)
         
         has_invoice = invoice is not None
         
@@ -2871,7 +2930,10 @@ async def reconcile_100_upfront_credit_notes(
         })
     
     return {
+        "dry_run": False,
         "message": f"Reconciliation complete. Created {created_count} credit notes.",
+        "created_count": created_count,
+        "per_retailer": per_retailer_counts,
         "summary": {
             "retailers_checked": len(upfront_retailers),
             "total_rejections": len(rejections),

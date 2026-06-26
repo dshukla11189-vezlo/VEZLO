@@ -1120,32 +1120,58 @@ export default function RetailerOrders() {
 
   // Reconcile 100% Upfront CNs - create instant CNs for 100% upfront retailers
   const reconcile100UpfrontCNs = async () => {
-    const retailerFilter = selectedRetailer 
-      ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}`
-      : 'for ALL 100% upfront retailers';
-    
-    if (!window.confirm(`This will create instant credit notes ${retailerFilter} for rejections that don't have CNs yet.\n\nThis applies only to retailers with 100% upfront collection.\n\nContinue?`)) return;
-    
     setIsReconciling100UpfrontCNs(true);
     try {
-      const response = await api.post('/api/retailer-credit-notes/reconcile-100-upfront', {
-        retailer_id: selectedRetailer || null
-      });
+      // First, dry run to get preview
+      const dryRunUrl = selectedRetailer 
+        ? `/api/retailer-credit-notes/reconcile-100-upfront?dry_run=true&retailer_id=${selectedRetailer}`
+        : '/api/retailer-credit-notes/reconcile-100-upfront?dry_run=true';
       
-      const data = response.data;
+      const dryRunResponse = await api.post(dryRunUrl);
+      const previewData = dryRunResponse.data;
+      
+      if (previewData.would_create === 0) {
+        toast.info(
+          `No credit notes to create.\n` +
+          `${previewData.summary?.skipped_before_model_change > 0 ? `${previewData.summary.skipped_before_model_change} skipped (before model switch date)` : 'No eligible rejections found.'}`,
+          { duration: 5000 }
+        );
+        return;
+      }
+      
+      // Build per-retailer breakdown for confirmation
+      const perRetailer = previewData.per_retailer || {};
+      const retailerBreakdown = Object.entries(perRetailer)
+        .map(([name, count]) => `• ${name}: ${count}`)
+        .join('\n');
+      
+      const confirmMessage = 
+        `This will create ${previewData.would_create} credit notes:\n\n` +
+        `${retailerBreakdown}\n\n` +
+        `${previewData.summary?.skipped_before_model_change > 0 ? `(${previewData.summary.skipped_before_model_change} skipped - rejections before model switch date)\n\n` : ''}` +
+        `Proceed with creation?`;
+      
+      if (!window.confirm(confirmMessage)) {
+        toast.info('Reconciliation cancelled.');
+        return;
+      }
+      
+      // Actually create the credit notes
+      const createUrl = selectedRetailer 
+        ? `/api/retailer-credit-notes/reconcile-100-upfront?dry_run=false&retailer_id=${selectedRetailer}`
+        : '/api/retailer-credit-notes/reconcile-100-upfront?dry_run=false';
+      
+      const createResponse = await api.post(createUrl);
+      const data = createResponse.data;
       const created = data.created_count || 0;
-      const skipped = data.skipped_count || 0;
       
       if (created > 0) {
         toast.success(
-          `Successfully created ${created} credit note${created > 1 ? 's' : ''}!\n${skipped > 0 ? `(${skipped} skipped - already have CNs)` : ''}`,
+          `Successfully created ${created} credit note${created > 1 ? 's' : ''}!`,
           { duration: 6000 }
         );
       } else {
-        toast.info(
-          `No new credit notes needed.\n${skipped > 0 ? `${skipped} rejection${skipped > 1 ? 's' : ''} already have CNs.` : 'No eligible rejections found.'}`,
-          { duration: 5000 }
-        );
+        toast.info('No credit notes were created.', { duration: 5000 });
       }
       
       loadCreditNotes(); // Refresh the credit notes list

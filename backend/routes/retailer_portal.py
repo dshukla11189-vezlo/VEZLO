@@ -1061,8 +1061,13 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 # Paid < Payable: No credit note needed for non-100% upfront
                 # Rejection will reduce the payable, retailer pays the reduced amount
                 logger.info(f"Skipping credit note - paid ({total_paid}) < payable ({net_payable}). Rejection will reduce pending amount.")
+        elif is_100_upfront:
+            # For 100% upfront retailers: Create CN even if invoice not found yet
+            # The CN will be created with pending linkage status
+            should_create_credit_note = True
+            logger.info(f"Creating credit note for 100% upfront retailer without invoice match - will be linked later")
         
-        if should_create_credit_note and invoice:
+        if should_create_credit_note:
             # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
             retailer_name = retailer.get("company_name", retailer.get("name", ""))
             retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
@@ -1075,13 +1080,16 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
             commission_pct = retailer.get("commission_percentage", 0) or 0
             credit_amount = rejection_value * (1 - commission_pct / 100)
             
+            # Determine if invoice is linked or pending linkage
+            has_invoice = invoice is not None
+            
             credit_note = {
                 "id": str(uuid.uuid4()),
                 "credit_note_number": credit_note_number,
                 "retailer_id": input.retailer_id,
                 "retailer_name": retailer.get("company_name", retailer.get("name", "")),
-                "original_invoice_id": invoice.get("id"),
-                "original_invoice_number": invoice.get("invoice_number"),
+                "original_invoice_id": invoice.get("id") if has_invoice else None,
+                "original_invoice_number": invoice.get("invoice_number") if has_invoice else None,
                 "rejection_id": rejection.id,
                 "rejection_date": doc["rejection_date"],
                 "rejection_value": round(rejection_value, 2),  # Original MRP value
@@ -1100,19 +1108,21 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 "adjusted_amount": 0,
                 "pending_amount": round(credit_amount, 2),
                 "adjusted_against_invoices": [],
-                "remarks": f"Auto-generated: Rejection on {rejection_date_str} after invoice was fully paid",
+                "remarks": f"Auto-generated: Rejection on {rejection_date_str}" + (" - pending invoice linkage" if not has_invoice else " after invoice was fully paid"),
                 "created_by": current_user["user_id"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "auto_generated": True
+                "auto_generated": True,
+                "invoice_linked": has_invoice  # Track if invoice was linked at creation time
             }
             
             await db.retailer_credit_notes.insert_one(credit_note)
             auto_credit_note = {
                 "id": credit_note["id"],
                 "credit_note_number": credit_note_number,
-                "amount": credit_note["amount"]
+                "amount": credit_note["amount"],
+                "invoice_linked": has_invoice
             }
-            logger.info(f"Auto-created credit note {credit_note_number} for retailer {retailer.get('company_name', retailer.get('name'))} - Rejection: {rejection_value}, Commission: {commission_pct}%, Credit: {credit_amount}")
+            logger.info(f"Auto-created credit note {credit_note_number} for retailer {retailer.get('company_name', retailer.get('name'))} - Rejection: {rejection_value}, Commission: {commission_pct}%, Credit: {credit_amount}, Invoice linked: {has_invoice}")
     
     response = {"id": rejection.id, "message": "Rejection recorded successfully"}
     if auto_credit_note:
@@ -2680,6 +2690,176 @@ async def backfill_missing_credit_notes(
         },
         "created": created_details,
         "errors": errors[:10]  # Limit errors shown
+    }
+
+
+@router.post("/retailer-credit-notes/reconcile-100-upfront")
+async def reconcile_100_upfront_credit_notes(
+    retailer_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Find all rejections for 100% upfront retailers that don't have credit notes
+    and create them. Unlike the regular backfill, this creates CNs even if
+    no invoice is found (with pending linkage status).
+    
+    This is the manual trigger for the daily scheduled reconciliation job.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff can run reconciliation")
+    
+    # Get all 100% upfront retailers
+    retailer_query = {
+        "role": "retailer",
+        "upfront_collection_percentage": 100
+    }
+    if retailer_id:
+        retailer_query["id"] = retailer_id
+    
+    upfront_retailers = await db.users.find(retailer_query, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1}).to_list(None)
+    
+    if not upfront_retailers:
+        return {"message": "No 100% upfront retailers found", "created": 0}
+    
+    retailer_ids = [r.get("id") for r in upfront_retailers]
+    retailer_map = {r.get("id"): r for r in upfront_retailers}
+    
+    # Get all rejections for these retailers
+    rejections = await db.retailer_rejections.find({
+        "retailer_id": {"$in": retailer_ids}
+    }, {"_id": 0}).to_list(None)
+    
+    # Get all credit notes (to check which rejections already have CNs)
+    credit_notes = await db.retailer_credit_notes.find({
+        "retailer_id": {"$in": retailer_ids}
+    }, {"_id": 0, "rejection_id": 1}).to_list(None)
+    
+    rejection_ids_with_cn = set(cn.get("rejection_id") for cn in credit_notes if cn.get("rejection_id"))
+    
+    # Find rejections without credit notes
+    rejections_without_cn = [r for r in rejections if r.get("id") not in rejection_ids_with_cn]
+    
+    created_count = 0
+    linked_count = 0
+    unlinked_count = 0
+    created_details = []
+    
+    for rejection in rejections_without_cn:
+        ret_id = rejection.get("retailer_id")
+        retailer = retailer_map.get(ret_id)
+        
+        if not retailer:
+            continue
+        
+        rej_id = rejection.get("id")
+        rejection_date = rejection.get("rejection_date", "")
+        rejection_date_str = str(rejection_date)[:10]
+        dispatch_id = rejection.get("dispatch_id")
+        rejection_value = rejection.get("rejection_value", 0) or 0
+        
+        if rejection_value <= 0:
+            continue
+        
+        # Try to find matching invoice
+        invoice = None
+        
+        if dispatch_id:
+            # First try standard array query
+            invoice = await db.retailer_invoices.find_one({
+                "retailer_id": ret_id,
+                "dispatch_ids": dispatch_id
+            }, {"_id": 0})
+            
+            # If not found, try normalized lookup
+            if not invoice:
+                potential_invoices = await db.retailer_invoices.find({
+                    "retailer_id": ret_id
+                }, {"_id": 0}).to_list(500)
+                
+                for inv in potential_invoices:
+                    raw_dispatch_ids = inv.get("dispatch_ids")
+                    normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                    if dispatch_id in normalized:
+                        invoice = inv
+                        break
+        
+        # Fallback: find by date
+        if not invoice:
+            invoice = await db.retailer_invoices.find_one({
+                "retailer_id": ret_id,
+                "invoice_date": {"$regex": f"^{rejection_date_str}"}
+            }, {"_id": 0})
+        
+        # Generate credit note
+        retailer_name = retailer.get("company_name", retailer.get("name", ""))
+        retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+        cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": ret_id})
+        credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+        
+        commission_pct = retailer.get("commission_percentage", 0) or 0
+        credit_amount = rejection_value * (1 - commission_pct / 100)
+        
+        has_invoice = invoice is not None
+        
+        credit_note = {
+            "id": str(uuid.uuid4()),
+            "credit_note_number": credit_note_number,
+            "retailer_id": ret_id,
+            "retailer_name": retailer_name,
+            "original_invoice_id": invoice.get("id") if has_invoice else None,
+            "original_invoice_number": invoice.get("invoice_number") if has_invoice else None,
+            "rejection_id": rej_id,
+            "rejection_date": rejection_date,
+            "rejection_value": round(rejection_value, 2),
+            "commission_percentage": commission_pct,
+            "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+            "amount": round(credit_amount, 2),
+            "rejection_details": [{
+                "product_name": rejection.get("product_name"),
+                "variant_name": rejection.get("variant_name"),
+                "quantity": rejection.get("quantity"),
+                "mrp": rejection.get("mrp"),
+                "value": round(rejection_value, 2),
+                "reason": rejection.get("reason")
+            }],
+            "status": "pending",
+            "adjusted_amount": 0,
+            "pending_amount": round(credit_amount, 2),
+            "adjusted_against_invoices": [],
+            "remarks": f"Reconciliation: Rejection on {rejection_date_str}" + (" - pending invoice linkage" if not has_invoice else ""),
+            "created_by": current_user["user_id"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auto_generated": True,
+            "invoice_linked": has_invoice
+        }
+        
+        await db.retailer_credit_notes.insert_one(credit_note)
+        created_count += 1
+        if has_invoice:
+            linked_count += 1
+        else:
+            unlinked_count += 1
+        
+        created_details.append({
+            "credit_note_number": credit_note_number,
+            "retailer": retailer_name,
+            "invoice": invoice.get("invoice_number") if has_invoice else "PENDING LINKAGE",
+            "rejection_value": round(rejection_value, 2),
+            "credit_amount": round(credit_amount, 2),
+            "product": rejection.get("product_name")
+        })
+    
+    return {
+        "message": f"Reconciliation complete. Created {created_count} credit notes.",
+        "summary": {
+            "retailers_checked": len(upfront_retailers),
+            "total_rejections": len(rejections),
+            "rejections_without_cn": len(rejections_without_cn),
+            "credit_notes_created": created_count,
+            "with_invoice_linkage": linked_count,
+            "pending_invoice_linkage": unlinked_count
+        },
+        "created": created_details[:50]  # Limit to first 50
     }
 
 

@@ -1121,6 +1121,17 @@ async def startup_event():
         )
         logger.info("Daily COGS computation scheduled for 11:55 PM IST daily")
         
+        # Add Credit Note Reconciliation job at 12:30 AM IST (19:00 UTC)
+        # This ensures all rejections for 100% upfront retailers have credit notes
+        backup_scheduler.add_job(
+            reconcile_missing_credit_notes_scheduled,
+            CronTrigger(hour=19, minute=0),  # 12:30 AM IST
+            id='credit_note_reconciliation',
+            replace_existing=True,
+            misfire_grace_time=3600  # Allow 1 hour grace period
+        )
+        logger.info("Credit note reconciliation scheduled for 12:30 AM IST daily")
+        
         # Check if we missed the 6 AM sync today and run it now
         await check_and_run_missed_gmail_sync()
         
@@ -1131,6 +1142,158 @@ async def startup_event():
             
     except Exception as e:
         logger.error(f"Failed to initialize schedulers: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def reconcile_missing_credit_notes_scheduled():
+    """
+    Daily scheduled job to find rejections without credit notes for 100% upfront retailers
+    and create them. This ensures no rejection goes without a credit note.
+    
+    Runs at 12:30 AM IST daily.
+    """
+    try:
+        logger.info("[CREDIT_NOTE_RECONCILIATION] Starting daily reconciliation...")
+        
+        # Get all 100% upfront retailers
+        upfront_retailers = await db.users.find({
+            "role": "retailer",
+            "upfront_collection_percentage": 100
+        }, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1}).to_list(None)
+        
+        if not upfront_retailers:
+            logger.info("[CREDIT_NOTE_RECONCILIATION] No 100% upfront retailers found")
+            return
+        
+        retailer_ids = [r.get("id") for r in upfront_retailers]
+        retailer_map = {r.get("id"): r for r in upfront_retailers}
+        
+        logger.info(f"[CREDIT_NOTE_RECONCILIATION] Found {len(retailer_ids)} 100% upfront retailers")
+        
+        # Get all rejections for these retailers
+        rejections = await db.retailer_rejections.find({
+            "retailer_id": {"$in": retailer_ids}
+        }, {"_id": 0}).to_list(None)
+        
+        logger.info(f"[CREDIT_NOTE_RECONCILIATION] Found {len(rejections)} total rejections")
+        
+        # Get all credit notes for these retailers (to check which rejections already have CNs)
+        credit_notes = await db.retailer_credit_notes.find({
+            "retailer_id": {"$in": retailer_ids}
+        }, {"_id": 0, "rejection_id": 1}).to_list(None)
+        
+        rejection_ids_with_cn = set(cn.get("rejection_id") for cn in credit_notes if cn.get("rejection_id"))
+        
+        # Find rejections without credit notes
+        rejections_without_cn = [r for r in rejections if r.get("id") not in rejection_ids_with_cn]
+        
+        logger.info(f"[CREDIT_NOTE_RECONCILIATION] Found {len(rejections_without_cn)} rejections without credit notes")
+        
+        created_count = 0
+        linked_count = 0
+        
+        for rejection in rejections_without_cn:
+            retailer_id = rejection.get("retailer_id")
+            retailer = retailer_map.get(retailer_id)
+            
+            if not retailer:
+                continue
+            
+            rejection_id = rejection.get("id")
+            rejection_date = rejection.get("rejection_date", "")
+            rejection_date_str = str(rejection_date)[:10]
+            dispatch_id = rejection.get("dispatch_id")
+            rejection_value = rejection.get("rejection_value", 0) or 0
+            
+            if rejection_value <= 0:
+                continue
+            
+            # Try to find matching invoice
+            invoice = None
+            
+            if dispatch_id:
+                # First try standard array query
+                invoice = await db.retailer_invoices.find_one({
+                    "retailer_id": retailer_id,
+                    "dispatch_ids": dispatch_id
+                }, {"_id": 0})
+                
+                # If not found, try normalized lookup (for legacy stringified dispatch_ids)
+                if not invoice:
+                    from routes.retailer_portal import normalize_dispatch_ids
+                    potential_invoices = await db.retailer_invoices.find({
+                        "retailer_id": retailer_id
+                    }, {"_id": 0}).to_list(500)
+                    
+                    for inv in potential_invoices:
+                        raw_dispatch_ids = inv.get("dispatch_ids")
+                        normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                        if dispatch_id in normalized:
+                            invoice = inv
+                            break
+            
+            # Fallback: find by date
+            if not invoice:
+                invoice = await db.retailer_invoices.find_one({
+                    "retailer_id": retailer_id,
+                    "invoice_date": {"$regex": f"^{rejection_date_str}"}
+                }, {"_id": 0})
+            
+            # Generate credit note
+            retailer_name = retailer.get("company_name", retailer.get("name", ""))
+            retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
+            cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": retailer_id})
+            credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+            
+            commission_pct = retailer.get("commission_percentage", 0) or 0
+            credit_amount = rejection_value * (1 - commission_pct / 100)
+            
+            has_invoice = invoice is not None
+            
+            credit_note = {
+                "id": str(uuid.uuid4()),
+                "credit_note_number": credit_note_number,
+                "retailer_id": retailer_id,
+                "retailer_name": retailer_name,
+                "original_invoice_id": invoice.get("id") if has_invoice else None,
+                "original_invoice_number": invoice.get("invoice_number") if has_invoice else None,
+                "rejection_id": rejection_id,
+                "rejection_date": rejection_date,
+                "rejection_value": round(rejection_value, 2),
+                "commission_percentage": commission_pct,
+                "commission_deducted": round(rejection_value * commission_pct / 100, 2),
+                "amount": round(credit_amount, 2),
+                "rejection_details": [{
+                    "product_name": rejection.get("product_name"),
+                    "variant_name": rejection.get("variant_name"),
+                    "quantity": rejection.get("quantity"),
+                    "mrp": rejection.get("mrp"),
+                    "value": round(rejection_value, 2),
+                    "reason": rejection.get("reason")
+                }],
+                "status": "pending",
+                "adjusted_amount": 0,
+                "pending_amount": round(credit_amount, 2),
+                "adjusted_against_invoices": [],
+                "remarks": f"Auto-generated via reconciliation: Rejection on {rejection_date_str}" + (" - pending invoice linkage" if not has_invoice else ""),
+                "created_by": "system_reconciliation",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "auto_generated": True,
+                "invoice_linked": has_invoice
+            }
+            
+            await db.retailer_credit_notes.insert_one(credit_note)
+            created_count += 1
+            if has_invoice:
+                linked_count += 1
+            
+            logger.info(f"[CREDIT_NOTE_RECONCILIATION] Created CN {credit_note_number} for rejection {rejection_id}, Invoice linked: {has_invoice}")
+        
+        logger.info(f"[CREDIT_NOTE_RECONCILIATION] Completed: Created {created_count} credit notes ({linked_count} with invoice linkage)")
+        
+    except Exception as e:
+        logger.error(f"[CREDIT_NOTE_RECONCILIATION] Error: {e}")
         import traceback
         traceback.print_exc()
 

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
 import { 
   Users, Plus, Edit, Trash2, Shield, UserCheck, Store, 
   Search, Eye, EyeOff, Mail, Phone, X
@@ -494,7 +495,19 @@ export default function UserManagement() {
                           max="100"
                           step="10"
                           value={formData.upfront_collection_percentage}
-                          onChange={(e) => setFormData(prev => ({ ...prev, upfront_collection_percentage: parseFloat(e.target.value) || 50 }))}
+                          onChange={(e) => {
+                            const newValue = parseFloat(e.target.value) || 50;
+                            setFormData(prev => {
+                              // Auto-fill model_changed_at with today's date if switching to 100% and field is empty
+                              const shouldAutoFillDate = newValue === 100 && !prev.model_changed_at;
+                              const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+                              return {
+                                ...prev,
+                                upfront_collection_percentage: newValue,
+                                model_changed_at: shouldAutoFillDate ? todayDate : prev.model_changed_at
+                              };
+                            });
+                          }}
                           placeholder="e.g., 50"
                           data-testid="user-upfront-input"
                         />

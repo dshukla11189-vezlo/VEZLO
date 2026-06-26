@@ -32,6 +32,7 @@ class User(BaseModel):
     address: Optional[str] = None
     commission_percentage: Optional[float] = 0  # For retailers: their commission %
     upfront_collection_percentage: Optional[float] = 50  # For retailers: 50%, 100%, etc.
+    model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)
     referral_code: Optional[str] = None  # Auto-generated for retailers
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -75,6 +76,7 @@ class UserUpdate(BaseModel):
     address: Optional[str] = None
     commission_percentage: Optional[float] = None
     upfront_collection_percentage: Optional[float] = None
+    model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)
 
 # Product Models
 class Product(BaseModel):

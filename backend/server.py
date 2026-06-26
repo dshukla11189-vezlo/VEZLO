@@ -1160,7 +1160,7 @@ async def reconcile_missing_credit_notes_scheduled():
         upfront_retailers = await db.users.find({
             "role": "retailer",
             "upfront_collection_percentage": 100
-        }, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1}).to_list(None)
+        }, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1, "model_changed_at": 1}).to_list(None)
         
         if not upfront_retailers:
             logger.info("[CREDIT_NOTE_RECONCILIATION] No 100% upfront retailers found")
@@ -1192,6 +1192,7 @@ async def reconcile_missing_credit_notes_scheduled():
         
         created_count = 0
         linked_count = 0
+        skipped_before_model_change = 0
         
         for rejection in rejections_without_cn:
             retailer_id = rejection.get("retailer_id")
@@ -1207,6 +1208,13 @@ async def reconcile_missing_credit_notes_scheduled():
             rejection_value = rejection.get("rejection_value", 0) or 0
             
             if rejection_value <= 0:
+                continue
+            
+            # Check if rejection falls under 100% upfront rules based on model_changed_at
+            model_changed_at = retailer.get("model_changed_at")
+            if model_changed_at and rejection_date_str < model_changed_at:
+                # Rejection is before model change - skip (use 50% rule which is handled elsewhere)
+                skipped_before_model_change += 1
                 continue
             
             # Try to find matching invoice
@@ -1290,7 +1298,7 @@ async def reconcile_missing_credit_notes_scheduled():
             
             logger.info(f"[CREDIT_NOTE_RECONCILIATION] Created CN {credit_note_number} for rejection {rejection_id}, Invoice linked: {has_invoice}")
         
-        logger.info(f"[CREDIT_NOTE_RECONCILIATION] Completed: Created {created_count} credit notes ({linked_count} with invoice linkage)")
+        logger.info(f"[CREDIT_NOTE_RECONCILIATION] Completed: Created {created_count} credit notes ({linked_count} with invoice linkage), Skipped {skipped_before_model_change} before model_changed_at")
         
     except Exception as e:
         logger.error(f"[CREDIT_NOTE_RECONCILIATION] Error: {e}")

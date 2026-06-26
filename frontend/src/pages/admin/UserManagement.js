@@ -35,7 +35,8 @@ export default function UserManagement() {
     company_name: '',
     address: '',
     commission_percentage: 0,
-    upfront_collection_percentage: 50
+    upfront_collection_percentage: 50,
+    model_changed_at: ''
   });
 
   const loadUsers = useCallback(async () => {
@@ -103,7 +104,8 @@ export default function UserManagement() {
       company_name: user.company_name || '',
       address: user.address || '',
       commission_percentage: user.commission_percentage || 0,
-      upfront_collection_percentage: user.upfront_collection_percentage ?? 50
+      upfront_collection_percentage: user.upfront_collection_percentage ?? 50,
+      model_changed_at: user.model_changed_at || ''
     });
     setShowModal(true);
   };
@@ -132,7 +134,8 @@ export default function UserManagement() {
       company_name: '',
       address: '',
       commission_percentage: 0,
-      upfront_collection_percentage: 50
+      upfront_collection_percentage: 50,
+      model_changed_at: ''
     });
     setShowPassword(false);
   };
@@ -503,6 +506,23 @@ export default function UserManagement() {
                           : `Collect ${formData.upfront_collection_percentage}% upfront, ${100 - (formData.upfront_collection_percentage || 50)}% on delivery`}
                       </p>
                     </div>
+                    
+                    {/* Model Changed At - Only show for 100% upfront retailers */}
+                    {formData.upfront_collection_percentage === 100 && (
+                      <div>
+                        <Label className="text-xs text-gray-600">100% Upfront Effective From</Label>
+                        <Input
+                          type="date"
+                          value={formData.model_changed_at || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, model_changed_at: e.target.value }))}
+                          placeholder="YYYY-MM-DD"
+                          data-testid="user-model-changed-at-input"
+                        />
+                        <p className="text-[10px] text-gray-500 mt-1">
+                          Rejections before this date use 50% rule (reduce invoice). After this date, rejections create credit notes.
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
 

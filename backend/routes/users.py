@@ -162,6 +162,11 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         
         update_data["upfront_collection_percentage"] = new_upfront
     
+    # Handle model_changed_at (date when retailer switched to 100% upfront model)
+    if input.model_changed_at is not None:
+        update_data["model_changed_at"] = input.model_changed_at
+        logger.info(f"Model changed at set to {input.model_changed_at} for {existing.get('company_name', existing.get('name'))}")
+    
     if update_data:
         await db.users.update_one({"id": user_id}, {"$set": update_data})
     

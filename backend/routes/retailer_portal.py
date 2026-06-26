@@ -980,20 +980,33 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     
     # Get retailer to check payment model
     retailer = await db.users.find_one({"id": input.retailer_id}, {"_id": 0})
+    
+    # Determine if this rejection falls under the 100% upfront model
+    # If model_changed_at is set, only treat as 100% upfront if rejection date >= model_changed_at
     is_100_upfront = retailer and retailer.get("upfront_collection_percentage") == 100
+    model_changed_at = retailer.get("model_changed_at") if retailer else None
     
     # Sync rejection to invoice ONLY for non-100% upfront retailers
     # For 100% upfront model: Invoice amounts remain fixed once created. Rejections create credit notes instead.
     rejection_date_str = input.rejection_date.strftime("%Y-%m-%d") if isinstance(input.rejection_date, datetime) else str(input.rejection_date)[:10]
-    if not is_100_upfront:
+    
+    # Check if rejection falls under 100% upfront rules based on model_changed_at
+    rejection_is_100_upfront = is_100_upfront
+    if is_100_upfront and model_changed_at:
+        # Only apply 100% upfront rules if rejection date >= model_changed_at
+        rejection_is_100_upfront = rejection_date_str >= model_changed_at
+        if not rejection_is_100_upfront:
+            logger.info(f"Rejection date {rejection_date_str} is before model_changed_at {model_changed_at} - using 50% rules")
+    
+    if not rejection_is_100_upfront:
         await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
     
     # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
     auto_credit_note = None
     
-    # Credit note logic (universal - not based on retailer type):
-    # - If retailer has ALREADY PAID >= payable amount, create credit note for rejection
-    # - If retailer has paid less than payable, no credit note (rejection reduces payable)
+    # Credit note logic:
+    # - For 100% upfront (rejection date >= model_changed_at): ALWAYS create credit note
+    # - For 50% model (or rejection date < model_changed_at): Only if paid >= payable
     
     if rejection_value > 0:
         # Find the invoice for this rejection
@@ -1048,12 +1061,12 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
             ).to_list(100)
             total_paid = sum(p.get("amount", 0) or 0 for p in payments)
             
-            # For 100% upfront retailers: ALWAYS create credit note for rejections
+            # For 100% upfront retailers (rejection date >= model_changed_at): ALWAYS create credit note
             # (Payment happens at delivery time, so rejections always need credit notes)
-            if is_100_upfront:
+            if rejection_is_100_upfront:
                 should_create_credit_note = True
-                logger.info(f"Creating credit note for 100% upfront retailer - rejections always generate credit notes")
-            # For other retailers: Only create credit note if already fully paid
+                logger.info(f"Creating credit note for 100% upfront retailer (rejection date {rejection_date_str} >= model_changed_at {model_changed_at or 'N/A'})")
+            # For other retailers (50% model or rejection date < model_changed_at): Only create credit note if already fully paid
             elif total_paid >= net_payable and net_payable > 0:
                 should_create_credit_note = True
                 logger.info(f"Creating credit note - paid ({total_paid}) >= payable ({net_payable}). Rejection creates excess payment.")
@@ -1061,7 +1074,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
                 # Paid < Payable: No credit note needed for non-100% upfront
                 # Rejection will reduce the payable, retailer pays the reduced amount
                 logger.info(f"Skipping credit note - paid ({total_paid}) < payable ({net_payable}). Rejection will reduce pending amount.")
-        elif is_100_upfront:
+        elif rejection_is_100_upfront:
             # For 100% upfront retailers: Create CN even if invoice not found yet
             # The CN will be created with pending linkage status
             should_create_credit_note = True
@@ -2716,7 +2729,7 @@ async def reconcile_100_upfront_credit_notes(
     if retailer_id:
         retailer_query["id"] = retailer_id
     
-    upfront_retailers = await db.users.find(retailer_query, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1}).to_list(None)
+    upfront_retailers = await db.users.find(retailer_query, {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1, "model_changed_at": 1}).to_list(None)
     
     if not upfront_retailers:
         return {"message": "No 100% upfront retailers found", "created": 0}
@@ -2742,6 +2755,7 @@ async def reconcile_100_upfront_credit_notes(
     created_count = 0
     linked_count = 0
     unlinked_count = 0
+    skipped_before_model_change = 0
     created_details = []
     
     for rejection in rejections_without_cn:
@@ -2758,6 +2772,13 @@ async def reconcile_100_upfront_credit_notes(
         rejection_value = rejection.get("rejection_value", 0) or 0
         
         if rejection_value <= 0:
+            continue
+        
+        # Check if rejection falls under 100% upfront rules based on model_changed_at
+        model_changed_at = retailer.get("model_changed_at")
+        if model_changed_at and rejection_date_str < model_changed_at:
+            # Rejection is before model change - use 50% rule (needs invoice + fully paid check)
+            skipped_before_model_change += 1
             continue
         
         # Try to find matching invoice
@@ -2857,7 +2878,8 @@ async def reconcile_100_upfront_credit_notes(
             "rejections_without_cn": len(rejections_without_cn),
             "credit_notes_created": created_count,
             "with_invoice_linkage": linked_count,
-            "pending_invoice_linkage": unlinked_count
+            "pending_invoice_linkage": unlinked_count,
+            "skipped_before_model_change": skipped_before_model_change
         },
         "created": created_details[:50]  # Limit to first 50
     }

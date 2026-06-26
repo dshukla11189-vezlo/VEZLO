@@ -424,6 +424,7 @@ export default function RetailerOrders() {
   const [isDiagnosingCNSync, setIsDiagnosingCNSync] = useState(false);
   const [isFixingCNSync, setIsFixingCNSync] = useState(false);
   const [cnSyncDiagnostics, setCnSyncDiagnostics] = useState(null);
+  const [isReconciling100UpfrontCNs, setIsReconciling100UpfrontCNs] = useState(false);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1112,6 +1113,46 @@ export default function RetailerOrders() {
       toast.error('Failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsBackfillingMissingCNs(false);
+    }
+  };
+
+  // Reconcile 100% Upfront CNs - create instant CNs for 100% upfront retailers
+  const reconcile100UpfrontCNs = async () => {
+    const retailerFilter = selectedRetailer 
+      ? `for ${retailers.find(r => r.id === selectedRetailer)?.company_name || 'selected retailer'}`
+      : 'for ALL 100% upfront retailers';
+    
+    if (!window.confirm(`This will create instant credit notes ${retailerFilter} for rejections that don't have CNs yet.\n\nThis applies only to retailers with 100% upfront collection.\n\nContinue?`)) return;
+    
+    setIsReconciling100UpfrontCNs(true);
+    try {
+      const response = await api.post('/api/retailer-credit-notes/reconcile-100-upfront', {
+        retailer_id: selectedRetailer || null
+      });
+      
+      const data = response.data;
+      const created = data.created_count || 0;
+      const skipped = data.skipped_count || 0;
+      
+      if (created > 0) {
+        toast.success(
+          `Successfully created ${created} credit note${created > 1 ? 's' : ''}!\n${skipped > 0 ? `(${skipped} skipped - already have CNs)` : ''}`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.info(
+          `No new credit notes needed.\n${skipped > 0 ? `${skipped} rejection${skipped > 1 ? 's' : ''} already have CNs.` : 'No eligible rejections found.'}`,
+          { duration: 5000 }
+        );
+      }
+      
+      loadCreditNotes(); // Refresh the credit notes list
+      loadRejections();  // Refresh rejections too
+    } catch (error) {
+      console.error('Failed to reconcile 100% upfront CNs:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsReconciling100UpfrontCNs(false);
     }
   };
 
@@ -12136,6 +12177,24 @@ export default function RetailerOrders() {
                     ) : (
                       <>
                         <Plus className="h-3 w-3 mr-1" /> Backfill Missing CNs
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={reconcile100UpfrontCNs}
+                    disabled={isReconciling100UpfrontCNs}
+                    className="border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    title="Create instant CNs for 100% upfront retailers with pending rejections"
+                  >
+                    {isReconciling100UpfrontCNs ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Reconciling...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="h-3 w-3 mr-1" /> Reconcile 100% Upfront CNs
                       </>
                     )}
                   </Button>

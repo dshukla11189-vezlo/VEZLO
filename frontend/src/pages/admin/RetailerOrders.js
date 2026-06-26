@@ -425,6 +425,7 @@ export default function RetailerOrders() {
   const [isFixingCNSync, setIsFixingCNSync] = useState(false);
   const [cnSyncDiagnostics, setCnSyncDiagnostics] = useState(null);
   const [isReconciling100UpfrontCNs, setIsReconciling100UpfrontCNs] = useState(false);
+  const [isCleaningBogusCNs, setIsCleaningBogusCNs] = useState(false);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1153,6 +1154,54 @@ export default function RetailerOrders() {
       toast.error('Failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsReconciling100UpfrontCNs(false);
+    }
+  };
+
+  // ONE-TIME CLEANUP: Delete bogus credit notes from June 26 reconciliation
+  const cleanupBogusCreditNotes = async () => {
+    setIsCleaningBogusCNs(true);
+    try {
+      // First, dry run to get count
+      const dryRunResponse = await api.post('/api/retailer-credit-notes/cleanup-bogus-reconciliation?confirm=false');
+      const data = dryRunResponse.data;
+      
+      if (data.bogus_count === 0) {
+        toast.info('No bogus credit notes found. Cleanup already done or not needed.');
+        return;
+      }
+      
+      const breakdown = data.breakdown || {};
+      const confirmMessage = `Found ${data.bogus_count} bogus credit notes to delete:\n\n` +
+        `• Jai Bhawani: ${breakdown.jai_bhawani || 0}\n` +
+        `• Savtamali: ${breakdown.savtamali || 0}\n\n` +
+        `These are the wrong credit notes created on June 26 for pre-June-18 rejections ` +
+        `(before these retailers switched to 100% upfront model).\n\n` +
+        `Current total: ${data.current_total}\n` +
+        `After deletion: ${data.expected_total_after_delete}\n\n` +
+        `Proceed with deletion?`;
+      
+      if (!window.confirm(confirmMessage)) {
+        toast.info('Cleanup cancelled.');
+        return;
+      }
+      
+      // Actually delete
+      const deleteResponse = await api.post('/api/retailer-credit-notes/cleanup-bogus-reconciliation?confirm=true');
+      const deleteData = deleteResponse.data;
+      
+      toast.success(
+        `Successfully deleted ${deleteData.deleted_count} bogus credit notes!\n` +
+        `New total: ${deleteData.new_total}`,
+        { duration: 8000 }
+      );
+      
+      loadCreditNotes(); // Refresh
+      loadRejections();
+    } catch (error) {
+      console.error('Failed to cleanup bogus CNs:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsCleaningBogusCNs(false);
     }
   };
 
@@ -12195,6 +12244,24 @@ export default function RetailerOrders() {
                     ) : (
                       <>
                         <CreditCard className="h-3 w-3 mr-1" /> Reconcile 100% Upfront CNs
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={cleanupBogusCreditNotes}
+                    disabled={isCleaningBogusCNs}
+                    className="border-red-500 bg-red-50 text-red-700 hover:bg-red-100"
+                    title="ONE-TIME: Delete bogus CNs created on June 26 for Jai Bhawani & Savtamali"
+                  >
+                    {isCleaningBogusCNs ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Cleaning...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-3 w-3 mr-1" /> 🚨 Cleanup Bogus CNs
                       </>
                     )}
                   </Button>

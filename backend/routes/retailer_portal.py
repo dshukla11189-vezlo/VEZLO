@@ -2885,6 +2885,104 @@ async def reconcile_100_upfront_credit_notes(
     }
 
 
+@router.post("/retailer-credit-notes/cleanup-bogus-reconciliation")
+async def cleanup_bogus_reconciliation_credit_notes(
+    confirm: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ONE-TIME CLEANUP: Delete bogus credit notes created on June 26, 2026 at 10:58 UTC
+    for Jai Bhawani and Savtamali retailers.
+    
+    These credit notes were wrongly created by the reconciliation process before
+    model_changed_at dates were set on these retailers.
+    
+    Query params:
+        confirm=false (default): Dry run - only counts, doesn't delete
+        confirm=true: Actually deletes the bogus credit notes
+    
+    IMPORTANT: created_at is stored as ISO string, not Date object.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run cleanup")
+    
+    # The two retailers whose credit notes were wrongly created
+    # (they switched from 50% to 100% upfront on June 18, but model_changed_at wasn't set)
+    bogus_retailer_ids = [
+        "f77940fb-3852-4155-9ad1-d90e5d7120ab",  # Jai Bhawani
+        "d36a4f17-bed0-4d8e-bb35-3e83825a0ce8"   # Savtamali
+    ]
+    
+    # Cutoff timestamp - credit notes created at or after this are bogus
+    # Using string comparison since created_at is stored as ISO string
+    cutoff_timestamp = "2026-06-26T10:58:00"
+    
+    # Filter criteria for bogus credit notes
+    filter_criteria = {
+        "auto_generated": True,
+        "status": "pending",
+        "created_at": {"$gte": cutoff_timestamp},
+        "retailer_id": {"$in": bogus_retailer_ids}
+    }
+    
+    # Count bogus credit notes
+    bogus_count = await db.retailer_credit_notes.count_documents(filter_criteria)
+    
+    # Count per retailer for details
+    jai_bhawani_count = await db.retailer_credit_notes.count_documents({
+        **filter_criteria,
+        "retailer_id": "f77940fb-3852-4155-9ad1-d90e5d7120ab"
+    })
+    savtamali_count = await db.retailer_credit_notes.count_documents({
+        **filter_criteria,
+        "retailer_id": "d36a4f17-bed0-4d8e-bb35-3e83825a0ce8"
+    })
+    
+    # Current total
+    current_total = await db.retailer_credit_notes.count_documents({})
+    
+    if not confirm:
+        # Dry run - just return the count
+        return {
+            "dry_run": True,
+            "message": f"Found {bogus_count} bogus credit notes to delete",
+            "bogus_count": bogus_count,
+            "breakdown": {
+                "jai_bhawani": jai_bhawani_count,
+                "savtamali": savtamali_count
+            },
+            "current_total": current_total,
+            "expected_total_after_delete": current_total - bogus_count
+        }
+    
+    # Actually delete
+    if bogus_count == 0:
+        return {
+            "dry_run": False,
+            "message": "No bogus credit notes found. Nothing to delete.",
+            "deleted_count": 0,
+            "new_total": current_total
+        }
+    
+    result = await db.retailer_credit_notes.delete_many(filter_criteria)
+    deleted_count = result.deleted_count
+    
+    # Verify new total
+    new_total = await db.retailer_credit_notes.count_documents({})
+    
+    return {
+        "dry_run": False,
+        "message": f"Successfully deleted {deleted_count} bogus credit notes",
+        "deleted_count": deleted_count,
+        "breakdown": {
+            "jai_bhawani": jai_bhawani_count,
+            "savtamali": savtamali_count
+        },
+        "previous_total": current_total,
+        "new_total": new_total
+    }
+
+
 @router.post("/retailer-credit-notes/fix-orphaned")
 async def fix_orphaned_credit_notes(
     input: dict = {},

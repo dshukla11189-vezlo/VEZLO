@@ -426,6 +426,7 @@ export default function RetailerOrders() {
   const [cnSyncDiagnostics, setCnSyncDiagnostics] = useState(null);
   const [isReconciling100UpfrontCNs, setIsReconciling100UpfrontCNs] = useState(false);
   const [isCleaningBogusCNs, setIsCleaningBogusCNs] = useState(false);
+  const [isSettingModelDates, setIsSettingModelDates] = useState(false);
   
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
@@ -1202,6 +1203,47 @@ export default function RetailerOrders() {
       toast.error('Failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsCleaningBogusCNs(false);
+    }
+  };
+
+  // ONE-TIME: Set model_changed_at dates for Jai Bhawani and Savtamali
+  const setModelChangeDates = async () => {
+    const confirmMessage = 
+      `This will set June 18, 2026 as the model switch date for:\n\n` +
+      `• Jai Bhawani Traders Mundhwa\n` +
+      `• Savtamali\n\n` +
+      `This means:\n` +
+      `- Rejections BEFORE June 18 → use 50% rule (reduce invoice)\n` +
+      `- Rejections ON/AFTER June 18 → use 100% rule (instant credit note)\n\n` +
+      `Continue?`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+    
+    setIsSettingModelDates(true);
+    try {
+      const response = await api.post('/api/admin/set-model-change-dates');
+      const data = response.data;
+      
+      if (data.success) {
+        const resultDetails = data.results.map(r => 
+          `• ${r.retailer_name}: model_changed_at = ${r.current_model_changed_at}`
+        ).join('\n');
+        
+        toast.success(
+          `Successfully set model switch dates!\n\n${resultDetails}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.warning('Some updates may have failed. Check console for details.');
+        console.log('Model change date results:', data.results);
+      }
+    } catch (error) {
+      console.error('Failed to set model change dates:', error);
+      toast.error('Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsSettingModelDates(false);
     }
   };
 
@@ -12262,6 +12304,24 @@ export default function RetailerOrders() {
                     ) : (
                       <>
                         <Trash2 className="h-3 w-3 mr-1" /> 🚨 Cleanup Bogus CNs
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={setModelChangeDates}
+                    disabled={isSettingModelDates}
+                    className="border-orange-500 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                    title="ONE-TIME: Set June 18 as model switch date for Jai Bhawani & Savtamali"
+                  >
+                    {isSettingModelDates ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Setting...
+                      </>
+                    ) : (
+                      <>
+                        <Calendar className="h-3 w-3 mr-1" /> Set Model Switch Dates
                       </>
                     )}
                   </Button>

@@ -2983,6 +2983,62 @@ async def cleanup_bogus_reconciliation_credit_notes(
     }
 
 
+@router.post("/admin/set-model-change-dates")
+async def set_model_change_dates(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ONE-TIME SETUP: Set model_changed_at date for Jai Bhawani and Savtamali.
+    
+    These retailers switched from 50% to 100% upfront model on June 18, 2026.
+    This endpoint sets the model_changed_at field so the system knows to use:
+    - 50% rule (reduce invoice) for rejections BEFORE June 18
+    - 100% rule (instant credit note) for rejections ON or AFTER June 18
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can set model change dates")
+    
+    # The two retailers and their switch date
+    retailers_to_update = [
+        {"id": "f77940fb-3852-4155-9ad1-d90e5d7120ab", "name": "Jai Bhawani Traders Mundhwa"},
+        {"id": "d36a4f17-bed0-4d8e-bb35-3e83825a0ce8", "name": "Savtamali"}
+    ]
+    model_change_date = "2026-06-18"
+    
+    results = []
+    
+    for retailer in retailers_to_update:
+        # Update the retailer
+        result = await db.users.update_one(
+            {"id": retailer["id"]},
+            {"$set": {"model_changed_at": model_change_date}}
+        )
+        
+        # Verify the update
+        updated_user = await db.users.find_one(
+            {"id": retailer["id"]},
+            {"_id": 0, "id": 1, "name": 1, "company_name": 1, "model_changed_at": 1, "upfront_collection_percentage": 1}
+        )
+        
+        results.append({
+            "retailer_id": retailer["id"],
+            "retailer_name": retailer["name"],
+            "matched": result.matched_count,
+            "modified": result.modified_count,
+            "current_model_changed_at": updated_user.get("model_changed_at") if updated_user else None,
+            "upfront_percentage": updated_user.get("upfront_collection_percentage") if updated_user else None
+        })
+    
+    all_success = all(r["modified"] == 1 or r["current_model_changed_at"] == model_change_date for r in results)
+    
+    return {
+        "success": all_success,
+        "message": f"Set model_changed_at to {model_change_date} for Jai Bhawani and Savtamali",
+        "model_change_date": model_change_date,
+        "results": results
+    }
+
+
 @router.post("/retailer-credit-notes/fix-orphaned")
 async def fix_orphaned_credit_notes(
     input: dict = {},

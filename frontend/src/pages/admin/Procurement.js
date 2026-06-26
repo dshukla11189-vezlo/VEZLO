@@ -641,6 +641,9 @@ export default function Procurement() {
 
   const handleProductChange = (index, field, value) => {
     const newProducts = [...procurementForm.products];
+    const product = newProducts[index];
+    const unitsWithSize = ['Bunch', 'Packet', 'Piece'];
+    const isUnitWithSize = unitsWithSize.includes(product.unit);
     
     if (field === 'product_id') {
       const selectedProduct = products.find(p => p.id === value);
@@ -657,7 +660,6 @@ export default function Procurement() {
     } else if (field === 'unit') {
       newProducts[index][field] = value;
       // Reset unit_size if not a unit that supports sizing
-      const unitsWithSize = ['Bunch', 'Packet', 'Piece'];
       if (!unitsWithSize.includes(value)) {
         newProducts[index].unit_size = '';
       }
@@ -665,19 +667,69 @@ export default function Procurement() {
       // Handle empty string for quantity
       newProducts[index][field] = value === '' ? '' : (parseFloat(value) || 0);
     } else if (field === 'rate') {
-      // Handle empty string for rate - keep as string to preserve user input
+      // Handle empty string for rate
       newProducts[index][field] = value === '' ? '' : (parseFloat(value) || 0);
+    } else if (field === 'total') {
+      // Handle total field - mark it as user-edited
+      newProducts[index][field] = value === '' ? '' : (parseFloat(value) || 0);
+      newProducts[index]._totalEdited = true; // Track that total was manually edited
     } else {
       newProducts[index][field] = value;
     }
     
-    // Calculate row total (handle empty values)
+    // BIDIRECTIONAL CALCULATION LOGIC
+    // For Kg-based units: qty, rate, total - any 2 calculates the 3rd
+    // For Bunch/Piece/Packet: qty, unit_size, rate, total - any 3 calculates the 4th
+    
     const qty = parseFloat(newProducts[index].quantity) || 0;
     const rate = parseFloat(newProducts[index].rate) || 0;
-    newProducts[index].total = qty * rate;
+    const total = parseFloat(newProducts[index].total) || 0;
+    
+    const qtyEntered = newProducts[index].quantity !== '' && qty > 0;
+    const rateEntered = newProducts[index].rate !== '' && rate > 0;
+    const totalEntered = newProducts[index].total !== '' && total > 0 && newProducts[index]._totalEdited;
+    
+    if (!isUnitWithSize) {
+      // REGULAR KG-BASED PRODUCTS: Any 2 of (qty, rate, total) calculates the 3rd
+      if (field === 'quantity' || field === 'rate') {
+        // User edited qty or rate -> calculate total
+        if (qtyEntered && rateEntered) {
+          newProducts[index].total = qty * rate;
+          newProducts[index]._totalEdited = false;
+        }
+      } else if (field === 'total' && totalEntered) {
+        // User edited total -> calculate rate (if qty exists) or qty (if rate exists)
+        if (qtyEntered && qty > 0) {
+          // Calculate rate = total / qty
+          newProducts[index].rate = parseFloat((total / qty).toFixed(2));
+        } else if (rateEntered && rate > 0) {
+          // Calculate qty = total / rate
+          newProducts[index].quantity = parseFloat((total / rate).toFixed(2));
+        }
+      }
+    } else {
+      // BUNCH/PIECE/PACKET PRODUCTS: Any 3 of (qty, unit_size, rate, total) calculates the 4th
+      // For simplicity, total = qty * rate (unit_size is informational for display)
+      if (field === 'quantity' || field === 'rate') {
+        // User edited qty or rate -> calculate total
+        if (qtyEntered && rateEntered) {
+          newProducts[index].total = qty * rate;
+          newProducts[index]._totalEdited = false;
+        }
+      } else if (field === 'total' && totalEntered) {
+        // User edited total -> calculate rate (if qty exists) or qty (if rate exists)
+        if (qtyEntered && qty > 0) {
+          // Calculate rate = total / qty
+          newProducts[index].rate = parseFloat((total / qty).toFixed(2));
+        } else if (rateEntered && rate > 0) {
+          // Calculate qty = total / rate
+          newProducts[index].quantity = parseFloat((total / rate).toFixed(2));
+        }
+      }
+    }
     
     // Calculate grand total and pending amount
-    const grandTotal = newProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+    const grandTotal = newProducts.reduce((sum, p) => sum + (parseFloat(p.total) || 0), 0);
     const pendingAmount = grandTotal - (procurementForm.paid_amount || 0);
     
     setProcurementForm({
@@ -718,6 +770,8 @@ export default function Procurement() {
   const handleProductSelect = (index, product) => {
     const newProducts = [...procurementForm.products];
     const existingRate = newProducts[index].rate;
+    const existingTotal = newProducts[index].total;
+    const totalWasEdited = newProducts[index]._totalEdited;
     
     newProducts[index] = {
       ...newProducts[index],
@@ -728,13 +782,19 @@ export default function Procurement() {
       rate: existingRate !== '' && existingRate !== 0 ? existingRate : (product.price_per_kg || '')
     };
     
-    // Calculate row total
-    const qty = parseFloat(newProducts[index].quantity) || 0;
-    const rate = parseFloat(newProducts[index].rate) || 0;
-    newProducts[index].total = qty * rate;
+    // Only recalculate total if it wasn't manually edited
+    if (!totalWasEdited) {
+      const qty = parseFloat(newProducts[index].quantity) || 0;
+      const rate = parseFloat(newProducts[index].rate) || 0;
+      newProducts[index].total = qty * rate;
+    } else {
+      // Preserve the manually edited total
+      newProducts[index].total = existingTotal;
+      newProducts[index]._totalEdited = true;
+    }
     
     // Calculate grand total
-    const grandTotal = newProducts.reduce((sum, p) => sum + (p.total || 0), 0);
+    const grandTotal = newProducts.reduce((sum, p) => sum + (parseFloat(p.total) || 0), 0);
     const pendingAmount = grandTotal - (procurementForm.paid_amount || 0);
     
     setProcurementForm({
@@ -2888,9 +2948,17 @@ export default function Procurement() {
                             onChange={(e) => handleProductChange(index, 'rate', e.target.value)}
                           />
                         </td>
-                        {/* Total */}
-                        <td className="p-2 text-center font-semibold text-green-700">
-                          ₹{(product.total || 0).toFixed(0)}
+                        {/* Total - Now Editable for bidirectional calculation */}
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="1"
+                            placeholder="0"
+                            className="h-7 text-xs text-center font-semibold text-green-700"
+                            data-testid={`total-input-${index}`}
+                            value={product.total || ''}
+                            onChange={(e) => handleProductChange(index, 'total', e.target.value)}
+                          />
                         </td>
                         {/* Paid - editable for ALL rows */}
                         <td className="p-2">

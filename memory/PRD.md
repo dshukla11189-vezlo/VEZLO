@@ -2,6 +2,23 @@
 
 ## Changelog (June 2026)
 
+### June 26, 2026 - Record Purchase Bidirectional Calculation ✅
+- **FEATURE**: Added bidirectional calculation in Record Purchase modal
+  - **Purpose**: Allow users to enter any 2 of (qty, rate, total) and auto-calculate the 3rd
+  - **Calculation Logic**:
+    - For Kg-based products: Enter any 2 fields → 3rd auto-calculates
+    - For Bunch/Piece/Packet: Enter qty + rate → total (or enter qty + total → rate)
+  - **Features**:
+    - Total field is now editable (was previously display-only)
+    - Smart tracking of user-edited fields to determine calculation direction
+    - Preserves manually edited totals when selecting products
+  - **Files Modified**:
+    - `/app/frontend/src/pages/admin/Procurement.js`:
+      - `handleProductChange()` - Added bidirectional calculation logic
+      - `handleProductSelect()` - Preserves manually edited totals
+      - Made Total field an editable Input component
+  - **Verified**: Both calculation directions work correctly
+
 ### June 26, 2026 - Required Purchase Price Column in DPR ✅
 - **FEATURE**: Added "Required Purchase Price" (Req. PP/Kg) column to Daily Purchase Requirement tab
   - **Purpose**: Help procurement team understand target purchase prices based on retail selling prices

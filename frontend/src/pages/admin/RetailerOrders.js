@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../componen
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../../components/ui/command';
 import { 
-  Plus, Package, Truck, AlertTriangle, DollarSign, 
+  Plus, Package, Truck, AlertTriangle, AlertCircle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench
 } from 'lucide-react';
@@ -651,6 +651,10 @@ export default function RetailerOrders() {
 
   // Print language state for Daily Requirement PDF/Excel
   const [dailyReqPrintLang, setDailyReqPrintLang] = useState('en'); // 'en', 'hi', 'mr'
+  
+  // Purchase Price auto-population from COGS
+  const [purchasePriceCogsData, setPurchasePriceCogsData] = useState(null); // COGS data for purchase price calculation
+  const [purchasePriceWarning, setPurchasePriceWarning] = useState(''); // Warning if prices are stale
   
   // Language state for Indent and Dispatch tabs
   const [indentLanguage, setIndentLanguage] = useState('en'); // 'en', 'hi', 'mr'
@@ -3696,6 +3700,9 @@ export default function RetailerOrders() {
       // Show info about the calculation
       toast.success(`Calculated from ${result.indent_count} indent(s) for ${dailyReqDate}`);
       
+      // Auto-populate purchase prices from COGS
+      await fetchPurchasePricesFromCogs(requirementDataWithRemarks);
+      
     } catch (error) {
       console.error('Failed to calculate daily requirement:', error);
       setDailyReqError('Failed to calculate. Please try again.');
@@ -3703,6 +3710,87 @@ export default function RetailerOrders() {
       setDailyReqLoading(false);
     }
   }, [dailyReqDate, dailyReqRetailer]);
+
+  // Fetch COGS data and calculate required purchase prices
+  // Rule: Vegetables/Sprouts/Exotic = SP/kg ÷ 3, Fruits = SP/kg ÷ 2
+  const fetchPurchasePricesFromCogs = useCallback(async (items) => {
+    try {
+      // Fetch COGS snapshot - try today first, then go back up to 3 days
+      let cogsData = null;
+      let cogsDate = null;
+      const today = new Date();
+      
+      for (let daysBack = 0; daysBack <= 3; daysBack++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(checkDate.getDate() - daysBack);
+        const dateStr = checkDate.toISOString().split('T')[0];
+        
+        try {
+          const response = await api.get(`/api/cogs/snapshot?date=${dateStr}`);
+          if (response.data?.products && response.data.products.length > 0) {
+            cogsData = response.data;
+            cogsDate = dateStr;
+            break;
+          }
+        } catch (e) {
+          // Try next date
+        }
+      }
+      
+      if (!cogsData || !cogsData.products) {
+        setPurchasePriceWarning('No COGS data found. Please enter purchase prices manually.');
+        toast.warning('No recent COGS data found. Please enter purchase prices manually.');
+        return;
+      }
+      
+      // Check if data is more than 3 days old
+      const cogsDateObj = new Date(cogsDate);
+      const daysDiff = Math.floor((today - cogsDateObj) / (1000 * 60 * 60 * 24));
+      
+      if (daysDiff > 3) {
+        setPurchasePriceWarning(`COGS prices are ${daysDiff} days old (${cogsDate}). Please verify/enter manually.`);
+        toast.warning(`Prices are more than 3 days old (${cogsDate}). Please verify purchase prices manually.`);
+      } else {
+        setPurchasePriceWarning('');
+      }
+      
+      // Build a map of product_name (lowercase) -> retail_sp_per_kg
+      const cogsMap = {};
+      cogsData.products.forEach(p => {
+        const name = (p.product_name || '').toLowerCase().trim();
+        if (name && p.retail_sp_per_kg > 0) {
+          cogsMap[name] = p.retail_sp_per_kg;
+        }
+      });
+      
+      setPurchasePriceCogsData(cogsMap);
+      
+      // Calculate purchase prices and update dailyReqData
+      setDailyReqData(prev => prev.map(item => {
+        const productName = (item.productName || '').toLowerCase().trim();
+        const retailSp = cogsMap[productName];
+        
+        if (retailSp && retailSp > 0) {
+          const category = (item.category || '').toLowerCase();
+          let divisor = 3; // Default for vegetables, sprouts, exotic
+          
+          if (category === 'fruits') {
+            divisor = 2;
+          }
+          
+          const purchasePrice = parseFloat((retailSp / divisor).toFixed(2));
+          return { ...item, purchasePrice };
+        }
+        
+        // No COGS data for this product
+        return { ...item, purchasePrice: item.purchasePrice || '' };
+      }));
+      
+    } catch (error) {
+      console.error('Failed to fetch COGS for purchase prices:', error);
+      setPurchasePriceWarning('Failed to fetch COGS data. Please enter purchase prices manually.');
+    }
+  }, []);
 
   // Calculate stickers data from indents
   // Dedup key: product_id + canonical variant_id (resolved via packagings map)
@@ -5130,6 +5218,7 @@ export default function RetailerOrders() {
       productName: 'Product Name',
       qtyUnits: 'Qty (Units)',
       purchaseReq: 'Purchase Req',
+      purchasePrice: 'Required PP/Kg',
       quantity: 'Quantity (Kg)',
       remarks: 'Remarks',
       total: 'TOTAL',
@@ -5151,6 +5240,7 @@ export default function RetailerOrders() {
       productName: 'उत्पाद का नाम',
       qtyUnits: 'मात्रा (इकाई)',
       purchaseReq: 'खरीद आवश्यकता',
+      purchasePrice: 'आवश्यक खरीद मूल्य/किलो',
       quantity: 'मात्रा (किलो)',
       remarks: 'टिप्पणी',
       total: 'कुल',
@@ -5172,6 +5262,7 @@ export default function RetailerOrders() {
       productName: 'उत्पादाचे नाव',
       qtyUnits: 'प्रमाण (युनिट)',
       purchaseReq: 'खरेदी आवश्यकता',
+      purchasePrice: 'आवश्यक खरेदी किंमत/किलो',
       quantity: 'प्रमाण (किलो)',
       remarks: 'टीप',
       total: 'एकूण',
@@ -5331,20 +5422,23 @@ export default function RetailerOrders() {
                 <table>
                   <thead>
                     <tr>
-                      <th style="width:6%">${labels.serial}</th>
-                      <th style="width:40%">${labels.productName}</th>
-                      <th style="width:28%" class="text-center">${labels.purchaseReq}</th>
+                      <th style="width:5%">${labels.serial}</th>
+                      <th style="width:35%">${labels.productName}</th>
+                      <th style="width:22%" class="text-center">${labels.purchaseReq}</th>
+                      <th style="width:12%" class="text-center">${labels.purchasePrice}</th>
                       <th style="width:26%">${labels.remarks}</th>
                     </tr>
                   </thead>
                   <tbody>
                     ${items.map((item) => {
                       globalIdx++;
+                      const ppDisplay = item.purchasePrice ? `₹${parseFloat(item.purchasePrice).toFixed(2)}` : '-';
                       return `
                         <tr>
                           <td class="text-center">${globalIdx}</td>
                           <td>${getDisplayName(item)}</td>
                           <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
+                          <td class="text-center" style="color: #15803d; font-weight: 600;">${ppDisplay}</td>
                           <td>${item.remarks || '-'}</td>
                         </tr>
                       `;
@@ -5352,6 +5446,7 @@ export default function RetailerOrders() {
                     <tr style="font-weight:bold; background-color:#f0f9f0;">
                       <td colspan="2">${category} ${labels.total}</td>
                       <td class="text-center">${categoryTotal.toFixed(2)} ${labels.kg}</td>
+                      <td></td>
                       <td></td>
                     </tr>
                   </tbody>
@@ -5438,12 +5533,13 @@ export default function RetailerOrders() {
       }
     };
     
-    // Prepare CSV content - Serial#, Product Name, Purchase Req, Remarks (removed Qty Units column)
-    const headers = [labels.serial, labels.productName, labels.purchaseReq, labels.remarks];
+    // Prepare CSV content - Serial#, Product Name, Purchase Req, Required PP/Kg, Remarks
+    const headers = [labels.serial, labels.productName, labels.purchaseReq, labels.purchasePrice, labels.remarks];
     const rows = dailyReqData.map((item, idx) => [
       idx + 1,
       getDisplayName(item),
       getPurchaseReqDisplay(item),
+      item.purchasePrice ? `₹${parseFloat(item.purchasePrice).toFixed(2)}` : '',
       item.remarks || ''
     ]);
     
@@ -5452,6 +5548,7 @@ export default function RetailerOrders() {
       '',
       labels.total,
       `${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}`,
+      '',
       ''
     ]);
     
@@ -5519,6 +5616,14 @@ export default function RetailerOrders() {
     if (value && newData[idx].kgRequired > 0) {
       newData[idx].ratePerKg = (parseFloat(value) / newData[idx].kgRequired).toFixed(2);
     }
+    setDailyReqData(newData);
+    setDailyReqSaved(false);
+  };
+
+  // Update Purchase Price (required purchase price per kg)
+  const updatePurchasePrice = (idx, value) => {
+    const newData = [...dailyReqData];
+    newData[idx].purchasePrice = value === '' ? '' : parseFloat(value) || 0;
     setDailyReqData(newData);
     setDailyReqSaved(false);
   };
@@ -8847,6 +8952,14 @@ export default function RetailerOrders() {
                     <div className="space-y-3">
                       <p className="text-xs text-gray-500">Calculated from indents for {dailyReqDate}.</p>
                       
+                      {/* Purchase Price Warning */}
+                      {purchasePriceWarning && (
+                        <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                          <AlertCircle size={14} className="text-yellow-600" />
+                          <span>{purchasePriceWarning}</span>
+                        </div>
+                      )}
+                      
                       {/* Category-wise collapsible sections */}
                       {groupedPurchaseData.sortedCategories.map((category) => {
                         const items = groupedPurchaseData.groups[category];
@@ -8887,6 +9000,7 @@ export default function RetailerOrders() {
                                         <th className="p-2 text-left w-24">Variant</th>
                                         <th className="p-2 text-center w-20">Qty (Units)</th>
                                         <th className="p-2 text-center w-40">Purchase Req</th>
+                                        <th className="p-2 text-center w-28">Req. PP/Kg</th>
                                         <th className="p-2 text-left w-48">Remarks</th>
                                         <th className="p-2 text-center w-10">X</th>
                                       </tr>
@@ -9060,6 +9174,23 @@ export default function RetailerOrders() {
                                                   </div>
                                                 )}
                                               </td>
+                                              {/* Required Purchase Price (PP/Kg) - Auto-populated from COGS */}
+                                              <td className="p-2 text-center">
+                                                <Input
+                                                  type="number"
+                                                  step="0.01"
+                                                  min="0"
+                                                  value={item.purchasePrice || ''}
+                                                  onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    updatePurchasePrice(globalIdx, e.target.value);
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  placeholder="Req. ₹/Kg"
+                                                  className="h-7 w-20 text-center text-xs font-bold text-green-700"
+                                                  disabled={dailyReqViewMode === 'original'}
+                                                />
+                                              </td>
                                               <td className="p-2">
                                                 <textarea
                                                   placeholder="Add remarks..."
@@ -9098,7 +9229,7 @@ export default function RetailerOrders() {
                                             {expandedPurchaseItem === `${item.productId}-${item.variantId || localIdx}` && item.retailers?.length > 0 && (
                                               <tr className="bg-blue-50 border-b">
                                                 <td></td>
-                                                <td colSpan="6" className="p-2">
+                                                <td colSpan="7" className="p-2">
                                                   <div className="text-xs text-gray-700">
                                                     <span className="font-semibold text-blue-700">Retailers:</span>
                                                     <div className="flex flex-wrap gap-2 mt-1">

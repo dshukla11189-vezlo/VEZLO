@@ -1,6 +1,26 @@
 # Mr Organix - Product Requirements Document
 
-## Changelog (June 2025)
+## Changelog (June 2026)
+
+### June 26, 2026 - Required Purchase Price Column in DPR ✅
+- **FEATURE**: Added "Required Purchase Price" (Req. PP/Kg) column to Daily Purchase Requirement tab
+  - **Purpose**: Help procurement team understand target purchase prices based on retail selling prices
+  - **Calculation Logic**:
+    - Vegetables/Sprouts/Exotic: Required PP/kg = SP/3
+    - Fruits: Required PP/kg = SP/2
+  - **Data Source**: Latest Retail Selling Price (SP) from COGS tab
+  - **Warning**: Displays alert if COGS data is older than 3 days
+  - **Features**:
+    - Auto-populated values based on category and SP
+    - Editable for manual adjustments
+    - Included in PDF and Excel exports
+    - Multi-language support (English, Hindi, Marathi)
+  - **Files Modified**:
+    - `/app/frontend/src/pages/admin/RetailerOrders.js`:
+      - Updated column header from "PP/Kg" to "Req. PP/Kg"
+      - Updated translations for Hindi (आवश्यक खरीद मूल्य/किलो) and Marathi (आवश्यक खरेदी किंमत/किलो)
+      - Updated placeholder text to "Req. ₹/Kg"
+  - **Verified**: Column displays correctly with auto-calculated values for both Vegetables and Fruits categories
 
 ### June 25, 2026 - Closing Inventory Auto-Save Feature ✅
 - **FEATURE**: Added auto-save functionality for closing inventory recording

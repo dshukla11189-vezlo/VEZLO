@@ -49,6 +49,40 @@ from models import (
 
 router = APIRouter(tags=["retailer_portal"])
 
+def normalize_dispatch_ids(dispatch_ids) -> list:
+    """
+    Normalize dispatch_ids to always be a proper list.
+    Handles cases where it's stored as a stringified list like "['id1','id2']".
+    
+    Args:
+        dispatch_ids: Could be a list, string, or None
+        
+    Returns:
+        A proper list of dispatch IDs (empty list if invalid)
+    """
+    if dispatch_ids is None:
+        return []
+    
+    if isinstance(dispatch_ids, list):
+        return dispatch_ids
+    
+    if isinstance(dispatch_ids, str):
+        # Check if it looks like a stringified list
+        stripped = dispatch_ids.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            try:
+                import ast
+                parsed = ast.literal_eval(stripped)
+                if isinstance(parsed, list):
+                    return parsed
+            except (ValueError, SyntaxError):
+                pass
+        # Single dispatch_id string
+        if stripped:
+            return [stripped]
+    
+    return []
+
 # SECTION: RETAILER PORTAL ROUTES (Lines ~3368-4100)
 # Includes: Retailers, Indents, Dispatches, GRN, Rejections, Payments, Invoices
 # ============================================================================
@@ -968,11 +1002,27 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
         invoice = None
         
         if input.dispatch_id:
-            # Find invoice that includes this dispatch_id
+            # First, try standard array query
             invoice = await db.retailer_invoices.find_one({
                 "retailer_id": input.retailer_id,
                 "dispatch_ids": input.dispatch_id
             }, {"_id": 0})
+            
+            # If not found, search for stringified dispatch_ids (legacy data issue)
+            if not invoice:
+                # Find all invoices for this retailer and check if dispatch_id is in stringified array
+                potential_invoices = await db.retailer_invoices.find({
+                    "retailer_id": input.retailer_id
+                }, {"_id": 0}).to_list(500)
+                
+                for inv in potential_invoices:
+                    raw_dispatch_ids = inv.get("dispatch_ids")
+                    normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                    if input.dispatch_id in normalized:
+                        invoice = inv
+                        logger.info(f"Found invoice {inv.get('invoice_number')} via normalized dispatch_ids lookup")
+                        break
+            
             if invoice:
                 logger.info(f"Found invoice {invoice.get('invoice_number')} via dispatch_id {input.dispatch_id}")
         
@@ -2491,10 +2541,24 @@ async def backfill_missing_credit_notes(
         # Strategy 1: Find invoice via dispatch_id
         dispatch_id = rejection.get("dispatch_id")
         if dispatch_id:
+            # First try standard array query
             invoice = await db.retailer_invoices.find_one({
                 "retailer_id": retailer_id_rej,
                 "dispatch_ids": dispatch_id
             }, {"_id": 0})
+            
+            # If not found, search for stringified dispatch_ids (legacy data issue)
+            if not invoice:
+                potential_invoices = await db.retailer_invoices.find({
+                    "retailer_id": retailer_id_rej
+                }, {"_id": 0}).to_list(500)
+                
+                for inv in potential_invoices:
+                    raw_dispatch_ids = inv.get("dispatch_ids")
+                    normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                    if dispatch_id in normalized:
+                        invoice = inv
+                        break
         
         # Strategy 2: Find invoice by date match (rejection date = invoice date)
         if not invoice:
@@ -7600,8 +7664,71 @@ async def run_uuid_variant_migration(current_user: dict = Depends(get_current_us
     return results
 
 
-# ==================== IMMEDIATELY PAYABLE CALCULATION ====================
-@router.get("/retailer-immediately-payable")
+@router.post("/admin/run-migration/fix-dispatch-ids")
+async def fix_dispatch_ids_migration(current_user: dict = Depends(get_current_user)):
+    """
+    One-time migration to fix dispatch_ids stored as stringified arrays.
+    Converts "['id1','id2']" to proper arrays ['id1', 'id2'].
+    
+    Also ensures all dispatch_ids are always proper arrays going forward.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run migrations")
+    
+    results = {
+        "invoices_checked": 0,
+        "invoices_fixed": 0,
+        "examples_before": [],
+        "examples_after": []
+    }
+    
+    try:
+        import ast
+        
+        # Find all invoices
+        invoices = await db.retailer_invoices.find({}, {"_id": 0, "id": 1, "invoice_number": 1, "dispatch_ids": 1}).to_list(None)
+        results["invoices_checked"] = len(invoices)
+        
+        for inv in invoices:
+            invoice_id = inv.get("id")
+            raw_dispatch_ids = inv.get("dispatch_ids")
+            
+            # Check if it needs fixing
+            if isinstance(raw_dispatch_ids, str):
+                # Store example before
+                if len(results["examples_before"]) < 5:
+                    results["examples_before"].append({
+                        "invoice_number": inv.get("invoice_number"),
+                        "dispatch_ids_before": raw_dispatch_ids
+                    })
+                
+                # Normalize the dispatch_ids
+                normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                
+                # Update the invoice
+                await db.retailer_invoices.update_one(
+                    {"id": invoice_id},
+                    {"$set": {"dispatch_ids": normalized}}
+                )
+                
+                results["invoices_fixed"] += 1
+                
+                # Store example after
+                if len(results["examples_after"]) < 5:
+                    results["examples_after"].append({
+                        "invoice_number": inv.get("invoice_number"),
+                        "dispatch_ids_after": normalized
+                    })
+        
+        results["success"] = True
+        results["message"] = f"Fixed {results['invoices_fixed']} out of {results['invoices_checked']} invoices"
+        
+    except Exception as e:
+        results["success"] = False
+        results["error"] = str(e)
+        logger.error(f"Migration error: {e}")
+    
+    return results
 async def get_retailer_immediately_payable(
     retailer_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)

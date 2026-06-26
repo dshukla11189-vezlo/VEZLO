@@ -2585,10 +2585,29 @@ export default function Procurement() {
                                   value={item?.quantity ?? ''}
                                   onChange={(e) => {
                                     const newQty = parseFloat(e.target.value) || 0;
-                                    const newTotal = newQty * (item?.rate ?? p.rate ?? 0);
+                                    const currentRate = parseFloat(item?.rate ?? p.rate ?? 0) || 0;
+                                    const currentTotal = parseFloat(item?.total ?? 0) || 0;
+                                    const totalWasEdited = item?._totalEdited;
+                                    
+                                    // Bidirectional: if total was manually edited and qty changes, recalculate rate
+                                    // Otherwise, recalculate total from qty * rate
+                                    let newTotal, newRate;
+                                    if (totalWasEdited && currentTotal > 0 && newQty > 0) {
+                                      newRate = parseFloat((currentTotal / newQty).toFixed(2));
+                                      newTotal = currentTotal;
+                                    } else {
+                                      newRate = currentRate;
+                                      newTotal = newQty * currentRate;
+                                    }
+                                    
                                     if (itemIndex >= 0) {
                                       const updated = [...yesterdayItems];
-                                      updated[itemIndex] = { ...updated[itemIndex], quantity: e.target.value === '' ? '' : newQty, total: newTotal };
+                                      updated[itemIndex] = { 
+                                        ...updated[itemIndex], 
+                                        quantity: e.target.value === '' ? '' : newQty, 
+                                        rate: newRate,
+                                        total: newTotal 
+                                      };
                                       setYesterdayItems(updated);
                                     } else {
                                       setYesterdayItems([...yesterdayItems, {
@@ -2600,7 +2619,7 @@ export default function Procurement() {
                                         quantity: e.target.value === '' ? '' : newQty,
                                         unit: p.unit || 'Kg',
                                         unit_size: p.unit_size || '',
-                                        rate: p.rate || 0,
+                                        rate: newRate,
                                         total: newTotal
                                       }]);
                                     }
@@ -2654,10 +2673,11 @@ export default function Procurement() {
                                   value={item?.rate ?? p.rate ?? 0}
                                   onChange={(e) => {
                                     const newRate = parseFloat(e.target.value) || 0;
-                                    const newTotal = (item?.quantity ?? p.quantity ?? 0) * newRate;
+                                    const currentQty = parseFloat(item?.quantity ?? p.quantity ?? 0) || 0;
+                                    const newTotal = currentQty * newRate;
                                     if (itemIndex >= 0) {
                                       const updated = [...yesterdayItems];
-                                      updated[itemIndex] = { ...updated[itemIndex], rate: newRate, total: newTotal };
+                                      updated[itemIndex] = { ...updated[itemIndex], rate: newRate, total: newTotal, _totalEdited: false };
                                       setYesterdayItems(updated);
                                     } else {
                                       setYesterdayItems([...yesterdayItems, {
@@ -2670,7 +2690,8 @@ export default function Procurement() {
                                         unit: p.unit || 'Kg',
                                         unit_size: p.unit_size || '',
                                         rate: newRate,
-                                        total: newTotal
+                                        total: newTotal,
+                                        _totalEdited: false
                                       }]);
                                     }
                                   }}
@@ -2678,8 +2699,45 @@ export default function Procurement() {
                                   disabled={!isSelected}
                                 />
                               </td>
-                              <td className="p-2 text-right font-medium">
-                                ₹{(item?.total ?? (p.quantity || 0) * (p.rate || 0))?.toFixed(0)}
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={item?.total ?? (p.quantity || 0) * (p.rate || 0)}
+                                  onChange={(e) => {
+                                    const newTotal = parseFloat(e.target.value) || 0;
+                                    const currentQty = parseFloat(item?.quantity ?? p.quantity ?? 0) || 0;
+                                    // Calculate rate from total if qty exists
+                                    const calculatedRate = currentQty > 0 ? parseFloat((newTotal / currentQty).toFixed(2)) : (item?.rate ?? p.rate ?? 0);
+                                    if (itemIndex >= 0) {
+                                      const updated = [...yesterdayItems];
+                                      updated[itemIndex] = { 
+                                        ...updated[itemIndex], 
+                                        total: e.target.value === '' ? '' : newTotal,
+                                        rate: currentQty > 0 ? calculatedRate : updated[itemIndex].rate,
+                                        _totalEdited: true
+                                      };
+                                      setYesterdayItems(updated);
+                                    } else {
+                                      setYesterdayItems([...yesterdayItems, {
+                                        selected: true,
+                                        farmer_id: proc.farmer_id,
+                                        farmer_name: proc.farmer_name,
+                                        product_id: p.product_id,
+                                        product_name: p.product_name,
+                                        quantity: p.quantity || 0,
+                                        unit: p.unit || 'Kg',
+                                        unit_size: p.unit_size || '',
+                                        rate: currentQty > 0 ? calculatedRate : (p.rate || 0),
+                                        total: e.target.value === '' ? '' : newTotal,
+                                        _totalEdited: true
+                                      }]);
+                                    }
+                                  }}
+                                  className="h-7 w-full text-center text-sm font-medium text-green-700"
+                                  disabled={!isSelected}
+                                />
                               </td>
                             </tr>
                           );

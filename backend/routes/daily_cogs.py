@@ -75,7 +75,7 @@ async def get_all_products(db: AsyncIOMotorDatabase) -> list:
                 if item.get("product_name"):
                     products.add(item["product_name"])
     except Exception as e:
-        logger.error(f"Database error in get_all_products: {e}")
+        logging.error(f"Database error in get_all_products: {e}")
         raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch products")
     
     return sorted(list(products))
@@ -528,3 +528,49 @@ async def get_daily_cogs_map(db: AsyncIOMotorDatabase, from_date: str, to_date: 
         cogs_map[key] = rec["daily_cogs"]
     
     return cogs_map
+
+
+
+async def trigger_cogs_recompute_from_date(db: AsyncIOMotorDatabase, from_date: str):
+    """
+    Trigger COGS recompute from a specific date through today.
+    Used for self-healing when procurements or stock status changes.
+    
+    Args:
+        db: Database connection
+        from_date: Start date in YYYY-MM-DD format
+    
+    This function runs asynchronously and logs errors but doesn't raise exceptions
+    to avoid blocking the calling operation.
+    """
+    try:
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        
+        # Don't process future dates
+        if from_date > today:
+            logging.info(f"[COGS_TRIGGER] Skipping future date {from_date}")
+            return
+        
+        logging.info(f"[COGS_TRIGGER] Starting recompute from {from_date} to {today}")
+        
+        # Get all products once
+        products = await get_all_products(db)
+        
+        # Recompute each day sequentially (order matters for carry-forward)
+        current = datetime.strptime(from_date, "%Y-%m-%d")
+        end = datetime.strptime(today, "%Y-%m-%d")
+        dates_processed = 0
+        
+        while current <= end:
+            date_str = current.strftime("%Y-%m-%d")
+            cogs_data = await compute_daily_cogs_for_date(db, date_str, products)
+            await save_daily_cogs(db, cogs_data)
+            dates_processed += 1
+            current += timedelta(days=1)
+        
+        logging.info(f"[COGS_TRIGGER] Completed: recomputed {dates_processed} days from {from_date}")
+        
+    except Exception as e:
+        logging.error(f"[COGS_TRIGGER] Error recomputing COGS from {from_date}: {e}")
+        import traceback
+        traceback.print_exc()

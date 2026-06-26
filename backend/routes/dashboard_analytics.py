@@ -2837,6 +2837,19 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             {"$set": {**status, **update_data}},
             upsert=True
         )
+    
+    # SELF-HEALING: Trigger daily COGS recompute from this closed date forward
+    try:
+        from routes.daily_cogs import trigger_cogs_recompute_from_date
+        import asyncio
+        asyncio.create_task(trigger_cogs_recompute_from_date(db, target_date))
+        logger.info(f"[STOCK_CLOSE] Triggered COGS recompute from {target_date}")
+    except Exception as e:
+        logger.warning(f"[STOCK_CLOSE] Could not trigger COGS recompute: {e}")
+    
+    return {"message": f"Closed {len(entries.entries)} products for {target_date}"}
+    
+    return {"message": f"Closed {len(entries.entries)} products for {target_date}"}
 
 
 @router.post("/stock-status/recalculate-dispatches")
@@ -3152,6 +3165,16 @@ async def recalculate_wastage(
                 "old_wastage": round(old_wastage_qty, 2),
                 "new_wastage": round(new_wastage_qty, 2)
             })
+    
+    # SELF-HEALING: Trigger daily COGS recompute from this date forward
+    if updated:
+        try:
+            from routes.daily_cogs import trigger_cogs_recompute_from_date
+            import asyncio
+            asyncio.create_task(trigger_cogs_recompute_from_date(db, date))
+            logger.info(f"[STOCK_RECALC] Triggered COGS recompute from {date}")
+        except Exception as e:
+            logger.warning(f"[STOCK_RECALC] Could not trigger COGS recompute: {e}")
     
     return {
         "message": f"Recalculated {len(updated)} stock entries for {date}",

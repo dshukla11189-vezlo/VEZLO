@@ -297,6 +297,15 @@ async def create_procurement(input: ProcurementCreate, current_user: dict = Depe
             }
             await db.daily_stock_status.insert_one(new_status)
     
+    # SELF-HEALING: Trigger daily COGS recompute from this procurement date forward
+    try:
+        from routes.daily_cogs import trigger_cogs_recompute_from_date
+        import asyncio
+        asyncio.create_task(trigger_cogs_recompute_from_date(db, proc_date))
+        logger.info(f"[PROCUREMENT] Triggered COGS recompute from {proc_date}")
+    except Exception as e:
+        logger.warning(f"[PROCUREMENT] Could not trigger COGS recompute: {e}")
+    
     return procurement
 
 @router.put("/procurement/{procurement_id}")
@@ -551,6 +560,34 @@ async def update_procurement(procurement_id: str, input: dict, current_user: dic
                             {"date": new_date_str, "product_id": product_id},
                             {"$set": {"wastage_value": new_wastage_value}}
                         )
+    
+    # SELF-HEALING: Trigger daily COGS recompute from the earlier of old/new procurement date
+    try:
+        from routes.daily_cogs import trigger_cogs_recompute_from_date
+        import asyncio
+        # Determine the earliest affected date
+        if isinstance(old_date, datetime):
+            old_date_str = old_date.strftime('%Y-%m-%d')
+        else:
+            old_date_str = str(old_date)[:10] if old_date else None
+        
+        new_date_str = input.get("date")
+        if new_date_str:
+            if isinstance(new_date_str, datetime):
+                new_date_str = new_date_str.strftime('%Y-%m-%d')
+            else:
+                new_date_str = str(new_date_str)[:10]
+        
+        # Recompute from the earlier date
+        recompute_from = old_date_str
+        if new_date_str and (not old_date_str or new_date_str < old_date_str):
+            recompute_from = new_date_str
+        
+        if recompute_from:
+            asyncio.create_task(trigger_cogs_recompute_from_date(db, recompute_from))
+            logger.info(f"[PROCUREMENT] Triggered COGS recompute from {recompute_from}")
+    except Exception as e:
+        logger.warning(f"[PROCUREMENT] Could not trigger COGS recompute: {e}")
     
     return {"message": "Procurement updated successfully", "procurement": result}
 

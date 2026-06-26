@@ -897,8 +897,11 @@ async def seed_default_categories_types_on_startup():
 
 async def compute_daily_cogs_scheduled():
     """
-    Scheduled job to compute and persist daily COGS for the current day.
-    Runs at 23:55 IST daily to ensure daily_cogs collection stays current.
+    Scheduled job to compute and persist daily COGS.
+    Runs at 23:55 IST daily.
+    
+    SELF-HEALING: Recomputes the last 7 days (not just today) to catch any
+    retroactive changes to procurements or stock status that affect COGS.
     """
     try:
         from datetime import datetime, timezone, timedelta
@@ -907,19 +910,30 @@ async def compute_daily_cogs_scheduled():
         utc_now = datetime.now(timezone.utc)
         ist_offset = timedelta(hours=5, minutes=30)
         ist_now = utc_now + ist_offset
-        date_str = ist_now.strftime("%Y-%m-%d")
+        today_str = ist_now.strftime("%Y-%m-%d")
         
-        logger.info(f"[DAILY_COGS_SCHEDULER] Starting daily COGS computation for {date_str}")
+        # SELF-HEALING: Recompute last 7 days to catch any retroactive changes
+        start_date = (ist_now - timedelta(days=6)).strftime("%Y-%m-%d")
         
-        # Compute COGS for today - returns dict directly {product: data}
-        result = await compute_daily_cogs_for_date(db, date_str)
+        logger.info(f"[DAILY_COGS_SCHEDULER] Starting self-healing COGS computation from {start_date} to {today_str}")
         
-        # Save the computed COGS to the database
-        if result:
-            await save_daily_cogs(db, result)
-            logger.info(f"[DAILY_COGS_SCHEDULER] Saved daily COGS for {len(result)} products")
+        # Get all products once
+        products = await get_all_products(db)
         
-        logger.info(f"[DAILY_COGS_SCHEDULER] Completed daily COGS computation for {date_str}")
+        # Recompute each day sequentially (order matters for carry-forward)
+        current = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(today_str, "%Y-%m-%d")
+        dates_processed = 0
+        
+        while current <= end:
+            date_str = current.strftime("%Y-%m-%d")
+            result = await compute_daily_cogs_for_date(db, date_str, products)
+            if result:
+                await save_daily_cogs(db, result)
+            dates_processed += 1
+            current += timedelta(days=1)
+        
+        logger.info(f"[DAILY_COGS_SCHEDULER] Completed: recomputed {dates_processed} days ({start_date} to {today_str})")
         
     except Exception as e:
         logger.error(f"[DAILY_COGS_SCHEDULER] Error computing daily COGS: {e}")

@@ -137,6 +137,174 @@ export default function WastageDashboard() {
     localStorage.setItem('wastage_selectedDate', selectedWastageDate);
   }, [selectedWastageDate]);
 
+  // Export date range state
+  const [exportStartDate, setExportStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 7);
+    return date.toISOString().split('T')[0];
+  });
+  const [exportEndDate, setExportEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [exportLanguage, setExportLanguage] = useState('en');
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Get product name in specific language
+  const getProductNameInLanguage = useCallback((item, lang) => {
+    if (!item) return '';
+    
+    // Try to find the product in our lookup map
+    let product = null;
+    
+    if (item.product_id) {
+      product = productMap.get(item.product_id);
+    }
+    
+    if (!product) {
+      const itemName = item.product_name || item.name;
+      if (itemName) {
+        product = productMap.get(itemName);
+      }
+    }
+    
+    if (product) {
+      if (lang === 'hi' && product.name_hi) return product.name_hi;
+      if (lang === 'mr' && product.name_mr) return product.name_mr;
+      return product.name;
+    }
+    
+    // Fallback to item's own translated names
+    if (lang === 'hi' && item.name_hi) return item.name_hi;
+    if (lang === 'mr' && item.name_mr) return item.name_mr;
+    
+    return item.product_name || item.name || '';
+  }, [productMap]);
+
+  // Export wastage data for date range with language support
+  const exportWastageByDateRange = async () => {
+    if (!exportStartDate || !exportEndDate) {
+      toast.error('Please select both start and end dates');
+      return;
+    }
+    
+    if (exportStartDate > exportEndDate) {
+      toast.error('Start date must be before end date');
+      return;
+    }
+    
+    setIsExporting(true);
+    try {
+      // Generate list of dates between start and end
+      const dates = [];
+      let currentDate = new Date(exportStartDate);
+      const endDate = new Date(exportEndDate);
+      
+      while (currentDate <= endDate) {
+        dates.push(currentDate.toISOString().split('T')[0]);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Fetch wastage data for each date
+      const allWastageData = [];
+      let totalWastageKg = 0;
+      let totalWastageValue = 0;
+      
+      for (const date of dates) {
+        try {
+          const response = await api.get(`/api/stock-status/wastage-by-date?date=${date}`);
+          const dayData = response.data;
+          
+          if (dayData && dayData.products && dayData.products.length > 0) {
+            for (const product of dayData.products) {
+              const wastageKg = product.wastage_qty || 0;
+              const wastageValue = product.wastage_value || 0;
+              
+              if (wastageKg > 0) {
+                allWastageData.push({
+                  date: date,
+                  product_name: getProductNameInLanguage(product, exportLanguage),
+                  opening_qty: product.opening_qty || 0,
+                  purchase_qty: product.purchase_qty || 0,
+                  dispatch_qty: product.dispatch_qty || 0,
+                  closing_qty: product.closing_qty || 0,
+                  wastage_qty: wastageKg,
+                  wastage_value: wastageValue,
+                  wastage_percent: product.wastage_percent || 0
+                });
+                
+                totalWastageKg += wastageKg;
+                totalWastageValue += wastageValue;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`No data for ${date}:`, err.message);
+        }
+      }
+      
+      if (allWastageData.length === 0) {
+        toast.warning('No wastage data found for the selected date range');
+        setIsExporting(false);
+        return;
+      }
+      
+      // Column headers in selected language
+      const headers = {
+        en: ['Date', 'Product', 'Opening (Kg)', 'Purchase (Kg)', 'Dispatch (Kg)', 'Closing (Kg)', 'Wastage (Kg)', 'Wastage Value (₹)', 'Wastage %'],
+        hi: ['तारीख', 'उत्पाद', 'प्रारंभिक (किलो)', 'खरीद (किलो)', 'डिस्पैच (किलो)', 'समापन (किलो)', 'बर्बादी (किलो)', 'बर्बादी मूल्य (₹)', 'बर्बादी %'],
+        mr: ['तारीख', 'उत्पादन', 'सुरुवातीचा (किलो)', 'खरेदी (किलो)', 'डिस्पॅच (किलो)', 'शेवटचा (किलो)', 'नासाडी (किलो)', 'नासाडी मूल्य (₹)', 'नासाडी %']
+      };
+      
+      const totalLabels = {
+        en: 'TOTAL',
+        hi: 'कुल',
+        mr: 'एकूण'
+      };
+      
+      // Build CSV content
+      const csvHeaders = headers[exportLanguage] || headers.en;
+      const rows = allWastageData.map(row => [
+        row.date,
+        `"${row.product_name.replace(/"/g, '""')}"`,
+        row.opening_qty.toFixed(2),
+        row.purchase_qty.toFixed(2),
+        row.dispatch_qty.toFixed(2),
+        row.closing_qty.toFixed(2),
+        row.wastage_qty.toFixed(2),
+        row.wastage_value.toFixed(2),
+        `${row.wastage_percent.toFixed(2)}%`
+      ].join(','));
+      
+      // Add total row
+      const totalRow = [
+        totalLabels[exportLanguage] || 'TOTAL',
+        '-',
+        '-',
+        '-',
+        '-',
+        '-',
+        totalWastageKg.toFixed(2),
+        totalWastageValue.toFixed(2),
+        '-'
+      ].join(',');
+      
+      const csvContent = [csvHeaders.join(','), ...rows, totalRow].join('\n');
+      
+      // Add BOM for UTF-8 encoding (important for Hindi/Marathi)
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `wastage_${exportStartDate}_to_${exportEndDate}_${exportLanguage}.csv`;
+      link.click();
+      
+      toast.success(`Exported ${allWastageData.length} records (${dates.length} days)`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export wastage data');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
@@ -372,6 +540,50 @@ export default function WastageDashboard() {
                   className="w-36 h-8 text-sm"
                 />
                 {loading && <RefreshCw size={16} className="animate-spin text-gray-400" />}
+              </div>
+              
+              {/* Export Section with Date Range and Language */}
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <FileSpreadsheet size={16} className="text-blue-600" />
+                <span className="text-sm font-medium text-blue-700">Export:</span>
+                <Input
+                  type="date"
+                  value={exportStartDate}
+                  onChange={(e) => setExportStartDate(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+                <span className="text-gray-500">to</span>
+                <Input
+                  type="date"
+                  value={exportEndDate}
+                  onChange={(e) => setExportEndDate(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                />
+                <select
+                  value={exportLanguage}
+                  onChange={(e) => setExportLanguage(e.target.value)}
+                  className="h-8 px-2 text-sm border rounded-md bg-white"
+                >
+                  <option value="en">English</option>
+                  <option value="hi">हिंदी (Hindi)</option>
+                  <option value="mr">मराठी (Marathi)</option>
+                </select>
+                <Button 
+                  size="sm" 
+                  onClick={exportWastageByDateRange}
+                  disabled={isExporting}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {isExporting ? (
+                    <>
+                      <RefreshCw size={14} className="mr-1 animate-spin" /> Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet size={14} className="mr-1" /> Download Excel
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
 

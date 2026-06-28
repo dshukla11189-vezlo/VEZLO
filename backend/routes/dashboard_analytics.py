@@ -5180,6 +5180,19 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # Get all products for combo detection and packaging info
+    all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+    
+    # Build packaging map for weight conversion
+    packaging_map = {}
+    for p in all_products:
+        for v in p.get("variants", []):
+            variant_name = (v.get("name") or "").lower().strip()
+            if variant_name:
+                weight_gm = extract_weight_from_packaging_name(variant_name)
+                if weight_gm:
+                    packaging_map[variant_name] = weight_gm
+    
     # Get fresh purchase data from procurements
     procurements = await db.procurements.find({}, {"_id": 0}).to_list(10000)
     purchases_by_product = {}
@@ -5225,11 +5238,57 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
                 purchases_by_product[product_id]["qty"] += qty_kg
                 purchases_by_product[product_id]["value"] += total_value
     
+    # Get dispatches for target date and calculate dispatch_qty INCLUDING combo ingredient decomposition
+    qc_dispatches = await db.qc_dispatches.find({
+        "dispatch_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(1000)
+    retailer_dispatches = await db.retailer_dispatches.find({
+        "dispatch_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Calculate dispatches with combo ingredient decomposition
+    dispatches_by_product = {}
+    all_dispatch_items = []
+    
+    for dispatch in qc_dispatches + retailer_dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            supplied_qty = item.get("supplied_qty", 0)
+            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+            
+            # Collect for combo processing
+            all_dispatch_items.append(item)
+            
+            # Skip combo products from direct dispatch counting (they don't have base stock)
+            if is_combo_product(product_name):
+                continue
+            
+            weight_gm = packaging_map.get(packaging_name)
+            if not weight_gm:
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            if not weight_gm:
+                weight_gm = 1000
+            
+            qty_kg = (supplied_qty * weight_gm) / 1000
+            
+            if product_id not in dispatches_by_product:
+                dispatches_by_product[product_id] = 0
+            dispatches_by_product[product_id] += qty_kg
+    
+    # Add combo ingredient dispatches to their respective base products
+    dispatches_by_product = add_combo_ingredient_dispatches(
+        dispatches_by_product, all_dispatch_items, all_products, packaging_map
+    )
+    
     # Get all stock status for the given date
     day_records = await db.daily_stock_status.find(
         {"date": date},
         {"_id": 0}
     ).to_list(500)
+    
+    # Build product lookup map
+    product_id_map = {p.get("id"): p for p in all_products}
     
     # Build historical price cache from recent dates (last 30 days)
     historical_prices = {}
@@ -5261,13 +5320,18 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
         purchase_qty = round(fresh_purchase["qty"], 2)
         purchase_value = round(fresh_purchase["value"], 2)
         
-        # Get other values from stored record
+        # Get opening and closing from stored record
         opening_qty = record.get("opening_qty", 0) or 0
-        dispatch_qty = record.get("dispatch_qty", 0) or 0
         closing_qty = record.get("closing_qty", 0) or 0
         status = record.get("status", "pending")
         
-        # Recalculate wastage using fresh purchase data
+        # Use FRESH dispatch data including combo ingredient decomposition
+        fresh_dispatch_qty = dispatches_by_product.get(product_id, 0)
+        if isinstance(fresh_dispatch_qty, dict):
+            fresh_dispatch_qty = fresh_dispatch_qty.get("qty", 0)
+        dispatch_qty = round(fresh_dispatch_qty, 2)
+        
+        # Recalculate wastage using fresh purchase and dispatch data
         if status == "closed":
             total_available = opening_qty + purchase_qty - dispatch_qty
             wastage_qty = max(0, total_available - closing_qty)

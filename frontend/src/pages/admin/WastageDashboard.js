@@ -442,7 +442,7 @@ export default function WastageDashboard() {
   // Fix historical wastage values - useful when wastage_value is 0 for items without purchases
   const [fixingWastage, setFixingWastage] = useState(false);
   const fixHistoricalWastageValues = async () => {
-    if (!window.confirm('This will recalculate wastage values for ALL historical records using historical purchase prices. This may take a minute. Continue?')) {
+    if (!window.confirm('This will fix ALL historical records:\n\n1. Fix opening stock mismatches (opening = previous day\'s closing)\n2. Recalculate wastage quantities\n3. Fix wastage values using historical prices\n\nThis may take a minute. Continue?')) {
       return;
     }
     

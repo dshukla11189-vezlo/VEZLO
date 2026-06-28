@@ -2757,14 +2757,19 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             product = await db.products.find_one({"id": entry.product_id}, {"_id": 0})
             if not product:
                 continue
+            
+            # FIX: Get opening from yesterday's closing instead of hardcoding to 0
+            yesterday_closing = yesterday_map.get(entry.product_id, {}).get("closing_qty", 0) or 0
+            yesterday_avg_price = yesterday_map.get(entry.product_id, {}).get("avg_price", 0) or 0
+            
             status = {
                 "product_id": entry.product_id,
                 "product_name": product.get("name", "Unknown"),
                 "date": target_date,
-                "opening_qty": 0,
+                "opening_qty": yesterday_closing,  # Use yesterday's closing as today's opening
                 "purchase_qty": 0,
                 "dispatch_qty": 0,
-                "avg_price": 0,
+                "avg_price": yesterday_avg_price,
                 "status": "open"
             }
         
@@ -4388,11 +4393,12 @@ async def fix_all_wastage_values(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Fix all historical wastage_value in daily_stock_status based on avg_price.
-    If no purchase exists for that day, uses historical price from recent purchases.
+    Fix all historical daily_stock_status records:
+    1. Fix opening_qty mismatches (opening should equal previous day's closing)
+    2. Recalculate wastage_qty based on: opening + purchase - dispatch - closing
+    3. Fix wastage_value based on avg_price
     
-    Use this to sync wastage values after any procurement rate changes or to fix
-    past records where wastage_value was incorrectly set to 0.
+    Use this to sync all stock values after any data corrections.
     """
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can fix wastage values")
@@ -4400,6 +4406,19 @@ async def fix_all_wastage_values(
     try:
         # Get all stock status records sorted by date
         all_status = await db.daily_stock_status.find({}, {"_id": 0}).sort("date", 1).to_list(10000)
+        
+        # Group by product for sequential processing
+        product_records = {}  # product_id -> list of records sorted by date
+        for status in all_status:
+            product_id = status.get("product_id", "")
+            if product_id:
+                if product_id not in product_records:
+                    product_records[product_id] = []
+                product_records[product_id].append(status)
+        
+        # Sort each product's records by date
+        for product_id in product_records:
+            product_records[product_id].sort(key=lambda x: x.get("date", ""))
         
         # Build historical price cache per product (most recent purchase price)
         historical_prices = {}  # product_id -> {price, date}
@@ -4413,78 +4432,113 @@ async def fix_all_wastage_values(
             
             if purchase_qty > 0 and product_id:
                 avg_price = purchase_value / purchase_qty
-                # Always update to track the most recent
                 historical_prices[product_id] = {"price": avg_price, "date": date}
         
         updated_count = 0
+        opening_fixed_count = 0
+        wastage_qty_fixed_count = 0
+        wastage_value_fixed_count = 0
         unchanged_count = 0
         fixes_by_product = {}
         
         # Build a running historical price tracker for fallback
         running_prices = {}  # product_id -> most recent price up to current date
         
-        for status in all_status:
-            record_id = status.get("id")
-            product_id = status.get("product_id", "")
-            if not record_id:
-                continue
+        # Process each product's records sequentially
+        for product_id, records in product_records.items():
+            previous_closing = None
+            
+            for i, status in enumerate(records):
+                record_id = status.get("id")
+                if not record_id:
+                    continue
                 
-            wastage_qty = status.get("wastage_qty", 0) or 0
-            purchase_qty = status.get("purchase_qty", 0) or 0
-            purchase_value = status.get("purchase_value", 0) or 0
-            current_wastage_value = status.get("wastage_value", 0) or 0
-            product_name = status.get("product_name", "Unknown")
-            date = status.get("date", "")
-            
-            # Update running prices if this record has purchases
-            if purchase_qty > 0 and product_id:
-                running_prices[product_id] = purchase_value / purchase_qty
-            
-            # Calculate avg_price - use current day's price or fallback to historical
-            if purchase_qty > 0:
-                avg_price = purchase_value / purchase_qty
-            elif product_id in running_prices:
-                # Fallback to most recent historical price
-                avg_price = running_prices[product_id]
-            elif product_id in historical_prices:
-                # Fallback to any known historical price
-                avg_price = historical_prices[product_id]["price"]
-            else:
-                avg_price = 0
-            
-            correct_wastage_value = round(wastage_qty * avg_price, 2)
-            
-            # Check if update needed
-            diff = abs(current_wastage_value - correct_wastage_value)
-            if diff > 0.01 and wastage_qty > 0:
-                # Update the record
-                await db.daily_stock_status.update_one(
-                    {"id": record_id},
-                    {"$set": {
-                        "wastage_value": correct_wastage_value,
-                        "avg_price": round(avg_price, 2)
-                    }}
-                )
-                updated_count += 1
+                product_name = status.get("product_name", "Unknown")
+                date = status.get("date", "")
                 
-                # Track by product
-                if product_name not in fixes_by_product:
-                    fixes_by_product[product_name] = []
-                fixes_by_product[product_name].append({
-                    "date": date,
-                    "wastage_qty": wastage_qty,
-                    "old_value": current_wastage_value,
-                    "new_value": correct_wastage_value,
-                    "avg_price": round(avg_price, 2),
-                    "used_historical": purchase_qty == 0
-                })
-            else:
-                unchanged_count += 1
+                current_opening = status.get("opening_qty", 0) or 0
+                purchase_qty = status.get("purchase_qty", 0) or 0
+                purchase_value = status.get("purchase_value", 0) or 0
+                dispatch_qty = status.get("dispatch_qty", 0) or 0
+                current_closing = status.get("closing_qty") or 0
+                current_wastage_qty = status.get("wastage_qty", 0) or 0
+                current_wastage_value = status.get("wastage_value", 0) or 0
+                
+                updates = {}
+                fix_details = {"date": date}
+                needs_update = False
+                
+                # FIX 1: Opening should equal previous day's closing
+                correct_opening = previous_closing if previous_closing is not None else current_opening
+                if i > 0 and previous_closing is not None and abs(current_opening - correct_opening) > 0.01:
+                    updates["opening_qty"] = round(correct_opening, 2)
+                    fix_details["opening_fixed"] = f"{current_opening} -> {correct_opening}"
+                    opening_fixed_count += 1
+                    needs_update = True
+                    current_opening = correct_opening  # Use corrected value for wastage calc
+                
+                # FIX 2: Recalculate wastage_qty if closing exists
+                if current_closing is not None and current_closing > 0:
+                    correct_wastage_qty = max(0, current_opening + purchase_qty - dispatch_qty - current_closing)
+                    correct_wastage_qty = round(correct_wastage_qty, 2)
+                    
+                    if abs(current_wastage_qty - correct_wastage_qty) > 0.01:
+                        updates["wastage_qty"] = correct_wastage_qty
+                        fix_details["wastage_qty_fixed"] = f"{current_wastage_qty} -> {correct_wastage_qty}"
+                        wastage_qty_fixed_count += 1
+                        needs_update = True
+                        current_wastage_qty = correct_wastage_qty  # Use corrected value for value calc
+                
+                # Update running prices if this record has purchases
+                if purchase_qty > 0:
+                    running_prices[product_id] = purchase_value / purchase_qty
+                
+                # FIX 3: Calculate correct wastage_value
+                if purchase_qty > 0:
+                    avg_price = purchase_value / purchase_qty
+                elif product_id in running_prices:
+                    avg_price = running_prices[product_id]
+                elif product_id in historical_prices:
+                    avg_price = historical_prices[product_id]["price"]
+                else:
+                    avg_price = status.get("avg_price", 0) or 0
+                
+                correct_wastage_value = round(current_wastage_qty * avg_price, 2)
+                
+                if abs(current_wastage_value - correct_wastage_value) > 0.01 and current_wastage_qty > 0:
+                    updates["wastage_value"] = correct_wastage_value
+                    updates["avg_price"] = round(avg_price, 2)
+                    fix_details["wastage_value_fixed"] = f"{current_wastage_value} -> {correct_wastage_value}"
+                    wastage_value_fixed_count += 1
+                    needs_update = True
+                
+                # Apply updates if any
+                if needs_update:
+                    await db.daily_stock_status.update_one(
+                        {"id": record_id},
+                        {"$set": updates}
+                    )
+                    updated_count += 1
+                    
+                    # Track by product
+                    if product_name not in fixes_by_product:
+                        fixes_by_product[product_name] = []
+                    fixes_by_product[product_name].append(fix_details)
+                else:
+                    unchanged_count += 1
+                
+                # Update previous_closing for next iteration
+                previous_closing = current_closing if current_closing and current_closing > 0 else None
         
         return {
             "message": f"Fixed {updated_count} records, {unchanged_count} unchanged",
             "total_fixed": updated_count,
             "total_unchanged": unchanged_count,
+            "details": {
+                "opening_mismatches_fixed": opening_fixed_count,
+                "wastage_qty_recalculated": wastage_qty_fixed_count,
+                "wastage_value_fixed": wastage_value_fixed_count
+            },
             "fixes_by_product": {k: v for k, v in list(fixes_by_product.items())[:10]}  # Limit output
         }
         

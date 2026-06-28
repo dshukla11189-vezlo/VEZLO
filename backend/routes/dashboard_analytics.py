@@ -2760,16 +2760,33 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             
             # FIX: Get opening from yesterday's closing instead of hardcoding to 0
             yesterday_closing = yesterday_map.get(entry.product_id, {}).get("closing_qty", 0) or 0
-            yesterday_avg_price = yesterday_map.get(entry.product_id, {}).get("avg_price", 0) or 0
+            
+            # Get price from COGS table for the target date (or yesterday if not available)
+            product_name = product.get("name", "")
+            cogs_record = await db.daily_cogs.find_one(
+                {"product_name": product_name, "date": target_date},
+                {"_id": 0, "daily_cogs": 1}
+            )
+            if not cogs_record:
+                # Try yesterday's COGS
+                cogs_record = await db.daily_cogs.find_one(
+                    {"product_name": product_name, "date": yesterday},
+                    {"_id": 0, "daily_cogs": 1}
+                )
+            
+            avg_price_from_cogs = cogs_record.get("daily_cogs", 0) if cogs_record else 0
+            # Fallback to yesterday's stock status avg_price if COGS not available
+            if not avg_price_from_cogs:
+                avg_price_from_cogs = yesterday_map.get(entry.product_id, {}).get("avg_price", 0) or 0
             
             status = {
                 "product_id": entry.product_id,
-                "product_name": product.get("name", "Unknown"),
+                "product_name": product_name,
                 "date": target_date,
                 "opening_qty": yesterday_closing,  # Use yesterday's closing as today's opening
                 "purchase_qty": 0,
                 "dispatch_qty": 0,
-                "avg_price": yesterday_avg_price,
+                "avg_price": avg_price_from_cogs,  # Use COGS price
                 "status": "open"
             }
         
@@ -4396,7 +4413,7 @@ async def fix_all_wastage_values(
     Fix all historical daily_stock_status records:
     1. Fix opening_qty mismatches (opening should equal previous day's closing)
     2. Recalculate wastage_qty based on: opening + purchase - dispatch - closing
-    3. Fix wastage_value based on avg_price
+    3. Fix wastage_value based on COGS price from daily_cogs table
     
     Use this to sync all stock values after any data corrections.
     """
@@ -4406,6 +4423,20 @@ async def fix_all_wastage_values(
     try:
         # Get all stock status records sorted by date
         all_status = await db.daily_stock_status.find({}, {"_id": 0}).sort("date", 1).to_list(10000)
+        
+        # Get all COGS records for price lookup
+        all_cogs = await db.daily_cogs.find({}, {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}).to_list(10000)
+        
+        # Build COGS lookup: {product_name: {date: price}}
+        cogs_lookup = {}
+        for cogs in all_cogs:
+            pname = cogs.get("product_name", "")
+            cdate = cogs.get("date", "")
+            price = cogs.get("daily_cogs", 0) or 0
+            if pname and cdate:
+                if pname not in cogs_lookup:
+                    cogs_lookup[pname] = {}
+                cogs_lookup[pname][cdate] = price
         
         # Group by product for sequential processing
         product_records = {}  # product_id -> list of records sorted by date
@@ -4420,20 +4451,6 @@ async def fix_all_wastage_values(
         for product_id in product_records:
             product_records[product_id].sort(key=lambda x: x.get("date", ""))
         
-        # Build historical price cache per product (most recent purchase price)
-        historical_prices = {}  # product_id -> {price, date}
-        
-        # First pass: collect all prices from records with purchases
-        for status in all_status:
-            product_id = status.get("product_id", "")
-            purchase_qty = status.get("purchase_qty", 0) or 0
-            purchase_value = status.get("purchase_value", 0) or 0
-            date = status.get("date", "")
-            
-            if purchase_qty > 0 and product_id:
-                avg_price = purchase_value / purchase_qty
-                historical_prices[product_id] = {"price": avg_price, "date": date}
-        
         updated_count = 0
         opening_fixed_count = 0
         wastage_qty_fixed_count = 0
@@ -4441,12 +4458,10 @@ async def fix_all_wastage_values(
         unchanged_count = 0
         fixes_by_product = {}
         
-        # Build a running historical price tracker for fallback
-        running_prices = {}  # product_id -> most recent price up to current date
-        
         # Process each product's records sequentially
         for product_id, records in product_records.items():
             previous_closing = None
+            last_known_cogs_price = 0  # Track last known COGS price for fallback
             
             for i, status in enumerate(records):
                 record_id = status.get("id")
@@ -4458,7 +4473,6 @@ async def fix_all_wastage_values(
                 
                 current_opening = status.get("opening_qty", 0) or 0
                 purchase_qty = status.get("purchase_qty", 0) or 0
-                purchase_value = status.get("purchase_value", 0) or 0
                 dispatch_qty = status.get("dispatch_qty", 0) or 0
                 current_closing = status.get("closing_qty") or 0
                 current_wastage_qty = status.get("wastage_qty", 0) or 0
@@ -4489,18 +4503,18 @@ async def fix_all_wastage_values(
                         needs_update = True
                         current_wastage_qty = correct_wastage_qty  # Use corrected value for value calc
                 
-                # Update running prices if this record has purchases
-                if purchase_qty > 0:
-                    running_prices[product_id] = purchase_value / purchase_qty
+                # FIX 3: Get price from COGS table (primary source)
+                avg_price = 0
                 
-                # FIX 3: Calculate correct wastage_value
-                if purchase_qty > 0:
-                    avg_price = purchase_value / purchase_qty
-                elif product_id in running_prices:
-                    avg_price = running_prices[product_id]
-                elif product_id in historical_prices:
-                    avg_price = historical_prices[product_id]["price"]
+                # Try to get COGS price for this product on this date
+                if product_name in cogs_lookup and date in cogs_lookup[product_name]:
+                    avg_price = cogs_lookup[product_name][date]
+                    last_known_cogs_price = avg_price  # Update last known price
+                elif last_known_cogs_price > 0:
+                    # Fallback to last known COGS price for this product
+                    avg_price = last_known_cogs_price
                 else:
+                    # Final fallback: use existing avg_price from record
                     avg_price = status.get("avg_price", 0) or 0
                 
                 correct_wastage_value = round(current_wastage_qty * avg_price, 2)

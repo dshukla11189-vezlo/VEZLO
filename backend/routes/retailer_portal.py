@@ -83,6 +83,132 @@ def normalize_dispatch_ids(dispatch_ids) -> list:
     
     return []
 
+
+def compute_invoice_payment_buckets(
+    invoice: dict,
+    today_date,
+    upfront_pct: float = 50,
+    retailer_upfront_map: dict = None
+) -> dict:
+    """
+    Shared helper to compute invoice payment buckets with overdue-aware logic.
+    
+    Used by both retailer portal and admin endpoints for consistent payment calculations.
+    
+    Args:
+        invoice: Invoice document from retailer_invoices
+        today_date: Today's date (date object)
+        upfront_pct: Retailer's upfront collection percentage (default 50)
+        retailer_upfront_map: Optional map of retailer_id -> upfront_pct for admin endpoints
+    
+    Returns:
+        {
+            "upfront_due": float,      # Amount due in upfront bucket
+            "final_due": float,        # Amount due in final/credit bucket  
+            "paid": float,             # Total paid amount
+            "outstanding": float,      # Total outstanding (pending_amount)
+            "pending_amount": float,   # Same as outstanding (alias)
+            "days_since": int,         # Days since invoice
+            "is_overdue": bool,        # True if days_since >= 5
+            "upfront_portion": float,  # Calculated upfront portion of final_payable
+            "final_payable": float,    # Net payable after credit adjustment
+            "is_all_clear": bool       # True if no outstanding amount
+        }
+    """
+    # Parse invoice date
+    inv_date = invoice.get("invoice_date")
+    if isinstance(inv_date, str):
+        inv_date_obj = datetime.fromisoformat(inv_date[:10]).date()
+    elif isinstance(inv_date, datetime):
+        inv_date_obj = inv_date.date()
+    else:
+        # Default to today if date invalid
+        inv_date_obj = today_date
+    
+    # Get retailer-specific upfront percentage if map provided
+    if retailer_upfront_map:
+        retailer_id = invoice.get("retailer_id")
+        upfront_pct = retailer_upfront_map.get(retailer_id, upfront_pct)
+    
+    is_full_upfront = upfront_pct == 100
+    
+    # Get invoice values
+    gross_value = invoice.get("gross_value", 0) or invoice.get("total_mrp_value", 0) or 0
+    rejection_amount = invoice.get("rejection_amount", 0) or 0
+    commission_pct = invoice.get("commission_percentage", 0) or 0
+    commission_amount = invoice.get("commission_amount", 0) or 0
+    paid_amount = invoice.get("paid_amount", 0) or 0
+    total_credit_adjusted = invoice.get("total_credit_adjusted", 0) or 0
+    
+    # Calculate net_payable based on retailer model
+    if is_full_upfront:
+        # 100% upfront: net_payable = gross - commission (rejections handled via Credit Notes)
+        net_payable = gross_value - (gross_value * commission_pct / 100)
+    else:
+        # Standard: use stored net_payable or calculate with rejection
+        net_payable = invoice.get("net_payable", 0) or 0
+        if net_payable <= 0:
+            net_payable = gross_value - rejection_amount - commission_amount
+    
+    # (a) Subtract total_credit_adjusted from net_payable BEFORE computing pending_amount
+    final_payable = net_payable - total_credit_adjusted
+    
+    # Pending amount = final payable - paid
+    pending_amount = max(0, final_payable - paid_amount)
+    is_all_clear = pending_amount <= 0
+    
+    # Calculate days since invoice
+    days_since = (today_date - inv_date_obj).days
+    
+    # Upfront portion based on credit-adjusted final_payable
+    upfront_portion = final_payable * (upfront_pct / 100)
+    
+    # (b) Overdue-aware split logic
+    upfront_due = 0
+    final_due = 0
+    
+    if not is_all_clear:
+        if is_full_upfront:
+            # 100% upfront: ALL pending amount is due immediately
+            upfront_due = pending_amount
+        else:
+            # Calculate unpaid upfront portion
+            unpaid_upfront = max(0, upfront_portion - paid_amount)
+            
+            if days_since == 0:
+                # Today's invoice: upfront portion due
+                upfront_due = min(unpaid_upfront, pending_amount)
+            elif days_since >= 1 and days_since <= 4:
+                # 1-4 days ago: check if upfront portion was paid
+                if unpaid_upfront > 0:
+                    upfront_due = unpaid_upfront
+            elif days_since >= 5:
+                # 5+ days (overdue): split unpaid_upfront into upfront bucket,
+                # put only the remainder into final bucket
+                if unpaid_upfront > 0:
+                    upfront_due = unpaid_upfront
+                    # Remaining after upfront goes to final
+                    remaining = pending_amount - unpaid_upfront
+                    if remaining > 0:
+                        final_due = remaining
+                else:
+                    # Upfront was paid, full pending is final/overdue
+                    final_due = pending_amount
+    
+    return {
+        "upfront_due": round(upfront_due, 2),
+        "final_due": round(final_due, 2),
+        "paid": round(paid_amount, 2),
+        "outstanding": round(pending_amount, 2),
+        "pending_amount": round(pending_amount, 2),
+        "days_since": days_since,
+        "is_overdue": days_since >= 5,
+        "upfront_portion": round(upfront_portion, 2),
+        "final_payable": round(final_payable, 2),
+        "is_all_clear": is_all_clear
+    }
+
+
 # SECTION: RETAILER PORTAL ROUTES (Lines ~3368-4100)
 # Includes: Retailers, Indents, Dispatches, GRN, Rejections, Payments, Invoices
 # ============================================================================
@@ -8502,51 +8628,26 @@ async def get_retailer_payment_details(
         inv_date = inv.get("invoice_date")
         if isinstance(inv_date, str):
             date_str = inv_date[:10]
-            inv_date_obj = datetime.fromisoformat(date_str).date()
         elif isinstance(inv_date, datetime):
             date_str = inv_date.date().isoformat()
-            inv_date_obj = inv_date.date()
         else:
             continue
         
-        # Get invoice values
+        # Get invoice values for display
         gross_value = inv.get("gross_value", 0) or 0
         rejection_amount = inv.get("rejection_amount", 0) or 0
         commission_amount = inv.get("commission_amount", 0) or 0
-        final_payable = inv.get("net_payable", 0) or 0
         paid_amount = inv.get("paid_amount", 0) or 0
         
-        # If net_payable is 0, calculate it
-        if final_payable <= 0:
-            final_payable = gross_value - rejection_amount - commission_amount
+        # Use shared helper for payment bucket calculation (includes credit adjustment and overdue-aware logic)
+        buckets = compute_invoice_payment_buckets(inv, today, upfront_pct)
         
-        pending_amount = max(0, final_payable - paid_amount)
-        is_all_clear = pending_amount <= 0
-        
-        # Calculate days since invoice
-        days_since = (today - inv_date_obj).days
-        upfront_portion = final_payable * (upfront_pct / 100)
-        
-        # Determine upfront due and final payment due
-        upfront_due = 0
-        final_due = 0
-        
-        if not is_all_clear:
-            if is_full_upfront:
-                # 100% upfront: ALL pending amount is due immediately (upfront)
-                upfront_due = pending_amount
-            else:
-                # Standard logic (50% upfront or dynamic percentage)
-                if days_since == 0:
-                    # Today's invoice: upfront portion due
-                    upfront_due = min(upfront_portion, pending_amount)
-                elif days_since >= 1 and days_since <= 4:
-                    # 1-4 days ago: check if upfront portion was paid
-                    if paid_amount < upfront_portion:
-                        upfront_due = max(0, upfront_portion - paid_amount)
-                elif days_since >= 5:
-                    # 5+ days: all remaining is final payment due
-                    final_due = pending_amount
+        upfront_due = buckets["upfront_due"]
+        final_due = buckets["final_due"]
+        pending_amount = buckets["pending_amount"]
+        final_payable = buckets["final_payable"]
+        days_since = buckets["days_since"]
+        is_all_clear = buckets["is_all_clear"]
         
         # Initialize date entry if not exists
         if date_str not in date_aggregates:

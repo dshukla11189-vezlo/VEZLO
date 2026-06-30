@@ -2,6 +2,22 @@
 
 ## Changelog (June 2026)
 
+### June 30, 2026 - Invoice Payment Buckets Helper ✅
+- **REFACTOR**: Created shared `compute_invoice_payment_buckets()` helper for consistent payment calculations
+  - **Purpose**: Align retailer portal payment endpoint with admin endpoint's logic
+  - **Key Changes**:
+    1. **New Helper Function** (`compute_invoice_payment_buckets`):
+       - Subtracts `total_credit_adjusted` from `net_payable` BEFORE computing `pending_amount`
+       - Implements overdue-aware split logic: for days_since >= 5, splits `unpaid_upfront` into upfront bucket, puts only remainder into final
+       - Handles 100% upfront vs standard (50%) retailers correctly
+       - Returns: `upfront_due`, `final_due`, `paid`, `outstanding`, `pending_amount`, `days_since`, `is_overdue`, `final_payable`, `is_all_clear`
+    2. **Updated `get_retailer_payment_details()`** (L8623-8656): Now uses shared helper instead of inline calculation
+  - **Files Modified**:
+    - `/app/backend/routes/retailer_portal.py`:
+      - Added `compute_invoice_payment_buckets()` helper (lines 85-196)
+      - Updated `get_retailer_payment_details()` to use helper
+  - **Result**: Portal and admin endpoints now use identical payment bucket logic
+
 ### June 30, 2026 - Wastage Computation Refactoring ✅
 - **REFACTOR**: Centralized wastage computation using shared `derive_fresh_wastage_for_date()` helper
   - **Purpose**: Align Wastage Dashboard, Daily P&L, and wastage-by-date endpoints to use identical real-time wastage derivation

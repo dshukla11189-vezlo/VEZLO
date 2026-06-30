@@ -10,25 +10,20 @@
 - **Password**: staff123
 - **Role**: Staff
 
-## Retailer Portal (Puneri Fresh Mart)
-- **Email**: puneri@gmail.com
-- **Password**: retailer123
-- **Role**: Retailer
+## Retailer Portal (All Retailers)
+- **Password**: 12345 (standardized for all retailers in preview)
 
-## Retailer Portal (Savtamali)
-- **Email**: kharatsarika013@gmail.com
-- **Password**: retailer123
-- **Upfront %**: Not 100% upfront
+### Current Retailers in Preview DB:
+- **Sarika Kharat**: kharatsarika013@gmail.com
 
-## Retailer Portal (Narang Super Mart)
-- **Email**: Narangsupermart@gmail.com
-- **Password**: retailer123
-- **Upfront %**: 100% upfront (rejections handled via Credit Notes)
+### Note on Tamanna Mart:
+Tamanna Mart does not exist in the preview database. To get all production retailers:
+1. Go to Admin Dashboard → Backup/Sync
+2. Run "Full Sync" from production to preview
 
 ## Notes
 - Admin and Retailer accounts were re-seeded on June 14, 2025 (database was reset)
 - Staff password set on June 16, 2026 for testing
-- Retailer passwords (Savtamali, Narang) reset on June 20, 2026 to 'retailer123'
-- Puneri Fresh Mart password reset on June 25, 2026 to 'retailer123'
+- **June 30, 2026**: All retailer passwords standardized to '12345' in preview
 - Production credentials may differ - this file is for preview/testing only
 - The database `test_database` is used in preview (not `mr_organix`)

@@ -1855,7 +1855,8 @@ export default function AdminDashboard() {
                           // Day total (rejection and commission only apply to retail)
                           // Calculate day purchase from line items COGS, not procurement
                           const dayPurchase = Math.round(qcPurchase + retailPurchase);
-                          const dayWastage = Math.round(qcWastage + retailWastage);
+                          const unsoldWastage = day.unsold_wastage_total || 0;
+                          const dayWastage = Math.round(qcWastage + retailWastage + unsoldWastage);
                           const dayRejection = retailRejection; // Already at COGS from backend
                           const dayCommission = retailCommission;
                           const dayGrossWithDeductions = Math.round(day.sales - dayPurchase - dayWastage - dayRejection - dayCommission);

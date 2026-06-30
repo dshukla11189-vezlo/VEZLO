@@ -171,6 +171,289 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
     logging.info(f"[COMBO_DEBUG] Processed {combo_count} combo items total")
     return dispatches_by_product
 
+
+async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = None) -> dict:
+    """
+    Shared helper to derive fresh wastage data for a specific date.
+    
+    Reads LIVE from:
+    - procurements (with unit_size Kg conversion for Bunch/Piece/Pack/etc.)
+    - qc_dispatches + retailer_dispatches (with combo decomposition)
+    - daily_stock_status (for opening/closing)
+    
+    For CLOSED records: wastage_qty = max(0, opening + fresh_purchase - fresh_dispatch - closing)
+    
+    Pricing cascade:
+    1. daily_cogs (WAC)
+    2. procurement avg (purchase_value / purchase_qty)
+    3. most-recent historical purchase_value/purchase_qty
+    
+    Returns:
+    {
+        "products": {
+            product_id: {
+                "product_id": str,
+                "product_name": str,
+                "opening_qty": float,
+                "purchase_qty": float,
+                "purchase_value": float,
+                "dispatch_qty": float,
+                "closing_qty": float,
+                "wastage_qty": float,
+                "wastage_value": float,
+                "cogs_price": float,
+                "status": str
+            }
+        },
+        "daily_totals": {
+            "total_wastage_kg": float,
+            "total_wastage_value": float,
+            "total_input": float
+        }
+    }
+    
+    NOTE: This helper is READ-ONLY - never writes to daily_stock_status.
+    """
+    MAX_REASONABLE_COGS_PER_KG = 5000
+    
+    # Get all products if not provided (for combo detection and packaging info)
+    if all_products is None:
+        all_products = await db_ref.products.find({}, {"_id": 0}).to_list(500)
+    
+    # Build packaging map for weight conversion
+    packaging_map = {}
+    for p in all_products:
+        for v in p.get("variants", []):
+            variant_name = (v.get("name") or "").lower().strip()
+            if variant_name:
+                weight_gm = extract_weight_from_packaging_name(variant_name)
+                if weight_gm:
+                    packaging_map[variant_name] = weight_gm
+    
+    # Build product name to ID mapping
+    product_name_to_id = {}
+    product_id_to_name = {}
+    for p in all_products:
+        pid = p.get("id")
+        pname = p.get("name", "")
+        if pid and pname:
+            product_name_to_id[pname.lower().strip()] = pid
+            product_id_to_name[pid] = pname
+    
+    # ===== 1. FRESH PURCHASE DATA from procurements =====
+    procurements = await db_ref.procurements.find({}, {"_id": 0}).to_list(10000)
+    purchases_by_product = {}  # product_id -> {"qty": float, "value": float}
+    
+    for proc in procurements:
+        proc_date = proc.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str != date:
+            continue
+        
+        for item in proc.get("products", []):
+            product_id = item.get("product_id")
+            qty = item.get("quantity", 0) or 0
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            rate = item.get("rate", 0) or 0
+            total_value = item.get("total", qty * rate)
+            
+            # Convert to Kg for Bunch/Piece/Pack/Packet/Box/Crate/Dozen/Pcs
+            unit_lower = unit.lower().strip()
+            if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                weight_gm = None
+                # Try unit_size first (grams per unit)
+                if unit_size:
+                    try:
+                        weight_gm = float(unit_size)
+                    except (ValueError, TypeError):
+                        pass
+                # Fallback to standard weights
+                if not weight_gm:
+                    defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000, 'dozen': 1200}
+                    weight_gm = defaults.get(unit_lower)
+                
+                if weight_gm:
+                    qty_kg = (qty * weight_gm) / 1000
+                else:
+                    qty_kg = qty  # Fallback to raw qty if no conversion
+            else:
+                qty_kg = qty  # Already in Kg or unknown unit
+            
+            if product_id not in purchases_by_product:
+                purchases_by_product[product_id] = {"qty": 0, "value": 0}
+            purchases_by_product[product_id]["qty"] += qty_kg
+            purchases_by_product[product_id]["value"] += total_value
+    
+    # ===== 2. FRESH DISPATCH DATA with combo ingredient decomposition =====
+    qc_dispatches = await db_ref.qc_dispatches.find({
+        "dispatch_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(1000)
+    retailer_dispatches = await db_ref.retailer_dispatches.find({
+        "dispatch_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    dispatches_by_product = {}  # product_id -> float (qty in kg)
+    all_dispatch_items = []
+    
+    for dispatch in qc_dispatches + retailer_dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            supplied_qty = item.get("supplied_qty", 0) or 0
+            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+            
+            # Collect ALL items for combo processing
+            all_dispatch_items.append(item)
+            
+            # Skip combo products from direct dispatch counting (they don't have base stock)
+            if is_combo_product(product_name):
+                continue
+            
+            weight_gm = packaging_map.get(packaging_name)
+            if not weight_gm:
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            if not weight_gm:
+                weight_gm = 1000  # Default 1kg
+            
+            qty_kg = (supplied_qty * weight_gm) / 1000
+            
+            if product_id not in dispatches_by_product:
+                dispatches_by_product[product_id] = 0
+            dispatches_by_product[product_id] += qty_kg
+    
+    # Add combo ingredient dispatches to their respective base products
+    dispatches_by_product = add_combo_ingredient_dispatches(
+        dispatches_by_product, all_dispatch_items, all_products, packaging_map
+    )
+    
+    # ===== 3. DAILY_COGS for pricing =====
+    daily_cogs_records = await db_ref.daily_cogs.find(
+        {"date": date},
+        {"_id": 0, "product_name": 1, "daily_cogs": 1}
+    ).to_list(1000)
+    
+    daily_cogs_map = {}  # product_name -> cogs_price
+    for cogs in daily_cogs_records:
+        pname = cogs.get("product_name", "")
+        price = cogs.get("daily_cogs", 0) or 0
+        if pname and price > 0:
+            daily_cogs_map[pname] = price
+    
+    # ===== 4. HISTORICAL PRICES for fallback =====
+    historical_records = await db_ref.daily_stock_status.find(
+        {"date": {"$lte": date}, "purchase_qty": {"$gt": 0}},
+        {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
+    ).sort("date", -1).to_list(10000)
+    
+    historical_prices = {}  # product_id -> price per kg
+    for rec in historical_records:
+        pid = rec.get("product_id")
+        if pid and pid not in historical_prices:
+            pqty = rec.get("purchase_qty", 0) or 0
+            pval = rec.get("purchase_value", 0) or 0
+            if pqty > 0:
+                historical_prices[pid] = pval / pqty
+    
+    # ===== 5. STOCK STATUS for opening/closing =====
+    day_records = await db_ref.daily_stock_status.find(
+        {"date": date},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # ===== 6. COMPUTE FRESH WASTAGE =====
+    product_wastage = {}  # product_id -> {...}
+    total_wastage_kg = 0
+    total_wastage_value = 0
+    total_input = 0
+    
+    for record in day_records:
+        product_name = record.get("product_name", "Unknown")
+        product_id = record.get("product_id", "")
+        status = record.get("status", "pending")
+        
+        # Get opening and closing from stored record
+        opening_qty = record.get("opening_qty", 0) or 0
+        closing_qty = record.get("closing_qty", 0) or 0
+        
+        # Use FRESH purchase data from procurements
+        fresh_purchase = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
+        purchase_qty = round(fresh_purchase["qty"], 2)
+        purchase_value = round(fresh_purchase["value"], 2)
+        
+        # Use FRESH dispatch data including combo ingredient decomposition
+        fresh_dispatch_qty = dispatches_by_product.get(product_id, 0)
+        if isinstance(fresh_dispatch_qty, dict):
+            fresh_dispatch_qty = fresh_dispatch_qty.get("qty", 0)
+        dispatch_qty = round(fresh_dispatch_qty, 2)
+        
+        # Compute wastage for CLOSED records only
+        if status == "closed":
+            wastage_qty = max(0, opening_qty + purchase_qty - dispatch_qty - closing_qty)
+        else:
+            # For non-closed, estimate potential wastage
+            available = opening_qty + purchase_qty
+            if available > 0 and closing_qty == 0:
+                wastage_qty = max(0, available - dispatch_qty)
+            else:
+                wastage_qty = record.get("wastage_qty", 0) or 0
+        
+        wastage_qty = round(wastage_qty, 2)
+        
+        # ===== PRICING CASCADE =====
+        cogs_price = 0
+        
+        # 1. Try daily_cogs (WAC)
+        if product_name in daily_cogs_map and daily_cogs_map[product_name] > 0:
+            cogs_price = daily_cogs_map[product_name]
+        # 2. Fallback to procurement avg
+        elif purchase_qty > 0:
+            cogs_price = purchase_value / purchase_qty
+        # 3. Fallback to historical price
+        elif product_id and product_id in historical_prices:
+            cogs_price = historical_prices[product_id]
+        
+        # Sanity check on COGS price
+        if cogs_price > MAX_REASONABLE_COGS_PER_KG:
+            cogs_price = 0  # Reset unreasonable price
+        
+        wastage_value = round(wastage_qty * cogs_price, 2)
+        
+        # Store result
+        product_wastage[product_id] = {
+            "product_id": product_id,
+            "product_name": product_name,
+            "opening_qty": round(opening_qty, 2),
+            "purchase_qty": purchase_qty,
+            "purchase_value": round(purchase_value, 2),
+            "dispatch_qty": dispatch_qty,
+            "closing_qty": round(closing_qty, 2),
+            "wastage_qty": wastage_qty,
+            "wastage_value": wastage_value,
+            "cogs_price": round(cogs_price, 2),
+            "status": status
+        }
+        
+        # Accumulate totals (skip combo products)
+        if not is_combo_product(product_name):
+            total_wastage_kg += wastage_qty
+            total_wastage_value += wastage_value
+            total_input += opening_qty + purchase_qty
+    
+    return {
+        "products": product_wastage,
+        "daily_totals": {
+            "total_wastage_kg": round(total_wastage_kg, 2),
+            "total_wastage_value": round(total_wastage_value, 2),
+            "total_input": round(total_input, 2)
+        }
+    }
+
+
 # SECTION: DASHBOARD & ANALYTICS ROUTES (Lines ~1839-2480)
 # ============================================================================
 @router.get("/reports/dashboard")
@@ -1046,12 +1329,23 @@ async def get_pnl_report(
             fresh_purchases_by_date_product[proc_date_str][product_id]["qty"] += qty_kg
             fresh_purchases_by_date_product[proc_date_str][product_id]["value"] += total_value
     
-    # ========== WASTAGE (from Daily Stock Status - recalculated with fresh procurement data) ==========
-    # Only include CLOSED stock status records - this ensures proper accountability
-    stock_status = await db.daily_stock_status.find({
-        "date": {"$gte": from_date, "$lte": to_date},
-        "status": "closed"
-    }, {"_id": 0}).to_list(10000)
+    # ========== WASTAGE (Using shared helper for fresh derivation) ==========
+    # Pre-derive fresh wastage for every unique date in range using the helper
+    # Get unique dates with CLOSED records
+    unique_dates = list(set(s.get("date", "")[:10] for s in await db.daily_stock_status.find(
+        {"date": {"$gte": from_date, "$lte": to_date}, "status": "closed"},
+        {"_id": 0, "date": 1}
+    ).to_list(10000)))
+    unique_dates = sorted(unique_dates)
+    
+    # Pre-load all products once for efficiency
+    all_products_for_wastage = await db.products.find({}, {"_id": 0}).to_list(500)
+    
+    # Build fresh wastage data per date using the shared helper
+    fresh_wastage_by_date = {}  # date -> {product_id: {...}}
+    for date_str in unique_dates:
+        fresh_data = await derive_fresh_wastage_for_date(date_str, db, all_products_for_wastage)
+        fresh_wastage_by_date[date_str] = fresh_data["products"]
     
     total_wastage_qty = 0
     total_wastage_value = 0
@@ -1065,32 +1359,39 @@ async def get_pnl_report(
     # Maximum reasonable COGS per kg for fresh produce (sanity check)
     MAX_REASONABLE_COGS_PER_KG = 5000
     
+    # Also keep original stock_status for combo proportional distribution later
+    stock_status = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date},
+        "status": "closed"
+    }, {"_id": 0}).to_list(10000)
+    
     for status in stock_status:
         status_date = status.get("date", "")[:10]
         product = status.get("product_name", "Unknown")
         product_id = status.get("product_id")
-        opening_qty = status.get("opening_qty", 0) or 0
-        dispatch_qty = status.get("dispatch_qty", 0) or 0
-        closing_qty = status.get("closing_qty", 0) or 0
         
-        # Use FRESH procurement data instead of stored purchase_qty to prevent corruption
-        fresh_purchase = {}
-        if status_date in fresh_purchases_by_date_product and product_id:
-            fresh_purchase = fresh_purchases_by_date_product[status_date].get(product_id, {"qty": 0, "value": 0})
-        purchase_qty = round(fresh_purchase.get("qty", 0), 2)
-        purchase_value = round(fresh_purchase.get("value", 0), 2)
+        # Get fresh wastage data from helper
+        fresh_product_data = fresh_wastage_by_date.get(status_date, {}).get(product_id, {})
         
-        # Use stored wastage_qty but recalculate wastage_value using daily_cogs rate
-        # This prevents corrupt avg_price values from affecting P&L
-        wastage_qty = status.get("wastage_qty", 0) or 0
-        daily_cogs_key = (product, status_date)
-        if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
-            wastage_rate = daily_cogs_map[daily_cogs_key]
-        elif purchase_qty > 0:
-            wastage_rate = purchase_value / purchase_qty
-        else:
-            wastage_rate = status.get("avg_price", 0) or 0
-        wastage_value = round(wastage_qty * wastage_rate, 2)
+        # Use FRESH values from helper instead of stored values
+        wastage_qty = fresh_product_data.get("wastage_qty", 0) or 0
+        wastage_value = fresh_product_data.get("wastage_value", 0) or 0
+        fresh_dispatch_qty = fresh_product_data.get("dispatch_qty", 0) or 0
+        
+        # If helper didn't have data, fallback to stored values with COGS pricing
+        if not fresh_product_data:
+            wastage_qty = status.get("wastage_qty", 0) or 0
+            daily_cogs_key = (product, status_date)
+            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
+                wastage_rate = daily_cogs_map[daily_cogs_key]
+            else:
+                # Fallback to fresh procurement rate
+                fresh_purchase = fresh_purchases_by_date_product.get(status_date, {}).get(product_id, {"qty": 0, "value": 0})
+                purchase_qty = fresh_purchase.get("qty", 0)
+                purchase_value = fresh_purchase.get("value", 0)
+                wastage_rate = purchase_value / purchase_qty if purchase_qty > 0 else (status.get("avg_price", 0) or 0)
+            wastage_value = round(wastage_qty * wastage_rate, 2)
+            fresh_dispatch_qty = status.get("dispatch_qty", 0) or 0
         
         total_wastage_qty += wastage_qty
         total_wastage_value += wastage_value
@@ -1108,15 +1409,13 @@ async def get_pnl_report(
             product_by_date[status_date][product] = {"sales": 0, "sales_qty": 0, "sales_kg": 0, "purchase": 0, "purchase_qty": 0, "wastage": 0, "customers": {}}
         product_by_date[status_date][product]["wastage"] += wastage_value
         
-        # Track unsold wastage (products with wastage but NO dispatch on this day)
-        if wastage_qty > 0 and dispatch_qty == 0:
+        # Track unsold wastage using FRESH dispatch_qty from helper
+        # (products with wastage but NO dispatch on this day)
+        if wastage_qty > 0 and fresh_dispatch_qty == 0:
             if status_date not in unsold_wastage_by_date:
                 unsold_wastage_by_date[status_date] = {}
             # Calculate avg_price for tracking
-            if wastage_qty > 0:
-                track_avg_price = wastage_value / wastage_qty
-            else:
-                track_avg_price = 0
+            track_avg_price = wastage_value / wastage_qty if wastage_qty > 0 else 0
             unsold_wastage_by_date[status_date][product] = {
                 "qty": wastage_qty,
                 "value": wastage_value,
@@ -1594,45 +1893,22 @@ async def get_pnl_report(
             unsold_wastage_total += wastage_data["value"]
         
         # Build product-level wastage summary with correct wastage % calculation
-        # Get wastage data from daily_stock_status which has opening, purchase, wastage, and wastage_percent
-        # Use FRESH procurement data to prevent showing corrupted values
+        # Use FRESH wastage data from the shared helper (derive_fresh_wastage_for_date)
         product_wastage_summary = {}
-        date_stock_statuses = [s for s in stock_status if s.get("date") == date_key]
+        date_fresh_wastage = fresh_wastage_by_date.get(date_key, {})
         
-        for stock in date_stock_statuses:
-            prod_name = stock.get("product_name", "")
-            product_id = stock.get("product_id", "")
+        for product_id, fresh_data in date_fresh_wastage.items():
+            prod_name = fresh_data.get("product_name", "")
             if not prod_name:
                 continue
             
-            opening_qty = stock.get("opening_qty", 0) or 0
-            dispatch_qty = stock.get("dispatch_qty", 0) or 0
-            closing_qty = stock.get("closing_qty", 0) or 0
-            
-            # Use FRESH procurement data instead of stored values
-            fresh_purchase = {}
-            if date_key in fresh_purchases_by_date_product and product_id:
-                fresh_purchase = fresh_purchases_by_date_product[date_key].get(product_id, {"qty": 0, "value": 0})
-            purchase_qty = round(fresh_purchase.get("qty", 0), 2)
-            purchase_value = round(fresh_purchase.get("value", 0), 2)
-            
-            # Recalculate wastage using fresh procurement data
-            total_available = opening_qty + purchase_qty - dispatch_qty
-            wastage_qty = max(0, total_available - closing_qty)
-            
-            # Calculate wastage_value using daily_cogs rate FIRST (same rate as COGS)
-            # This ensures wastage is valued at the same rate as line-item COGS
-            daily_cogs_key = (prod_name, date_key)
-            if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
-                avg_price = daily_cogs_map[daily_cogs_key]
-            else:
-                # Fallback to procurement rate
-                avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
-            
-            # Further fallback to product_recent_prices
-            if avg_price == 0 and product_id:
-                avg_price = product_recent_prices.get(product_id, 0)
-            wastage_value = round(wastage_qty * avg_price, 2)
+            # Use values directly from the helper
+            opening_qty = fresh_data.get("opening_qty", 0)
+            purchase_qty = fresh_data.get("purchase_qty", 0)
+            dispatch_qty = fresh_data.get("dispatch_qty", 0)
+            closing_qty = fresh_data.get("closing_qty", 0)
+            wastage_qty = fresh_data.get("wastage_qty", 0)
+            wastage_value = fresh_data.get("wastage_value", 0)
             
             # Wastage % = Wastage / (Opening + Purchase) - matches Wastage Dashboard
             total_input = opening_qty + purchase_qty
@@ -4410,35 +4686,30 @@ async def fix_all_wastage_values(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Fix all historical daily_stock_status records:
-    1. Fix opening_qty mismatches (opening should equal previous day's closing)
-    2. Recalculate wastage_qty based on: opening + purchase - dispatch - closing
-    3. Fix wastage_value based on COGS price from daily_cogs table
+    Fix all historical daily_stock_status records using the shared derive_fresh_wastage_for_date helper.
     
-    Use this to sync all stock values after any data corrections.
+    This endpoint:
+    1. Fixes opening_qty chain (opening = previous day's closing)
+    2. Uses the helper to derive fresh wastage_qty, wastage_value, purchase_qty, dispatch_qty
+    3. Persists corrected values back into daily_stock_status for audit
+    
+    The helper reads LIVE from procurements, dispatches (with combo decomposition), and daily_cogs.
     """
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can fix wastage values")
     
     try:
-        # Get all stock status records sorted by date
+        # Get all unique dates with stock status records
+        all_dates = await db.daily_stock_status.distinct("date")
+        all_dates = sorted(all_dates)
+        
+        # Pre-load all products once
+        all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+        
+        # Get all stock status records for opening chain fix
         all_status = await db.daily_stock_status.find({}, {"_id": 0}).sort("date", 1).to_list(10000)
         
-        # Get all COGS records for price lookup
-        all_cogs = await db.daily_cogs.find({}, {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}).to_list(10000)
-        
-        # Build COGS lookup: {product_name: {date: price}}
-        cogs_lookup = {}
-        for cogs in all_cogs:
-            pname = cogs.get("product_name", "")
-            cdate = cogs.get("date", "")
-            price = cogs.get("daily_cogs", 0) or 0
-            if pname and cdate:
-                if pname not in cogs_lookup:
-                    cogs_lookup[pname] = {}
-                cogs_lookup[pname][cdate] = price
-        
-        # Group by product for sequential processing
+        # Group by product for opening chain fix
         product_records = {}  # product_id -> list of records sorted by date
         for status in all_status:
             product_id = status.get("product_id", "")
@@ -4453,15 +4724,16 @@ async def fix_all_wastage_values(
         
         updated_count = 0
         opening_fixed_count = 0
+        purchase_fixed_count = 0
+        dispatch_fixed_count = 0
         wastage_qty_fixed_count = 0
         wastage_value_fixed_count = 0
         unchanged_count = 0
         fixes_by_product = {}
         
-        # Process each product's records sequentially
+        # PHASE 1: Fix opening_qty chain (opening = previous day's closing)
         for product_id, records in product_records.items():
             previous_closing = None
-            last_known_cogs_price = 0  # Track last known COGS price for fallback
             
             for i, status in enumerate(records):
                 record_id = status.get("id")
@@ -4470,59 +4742,87 @@ async def fix_all_wastage_values(
                 
                 product_name = status.get("product_name", "Unknown")
                 date = status.get("date", "")
-                
                 current_opening = status.get("opening_qty", 0) or 0
-                purchase_qty = status.get("purchase_qty", 0) or 0
-                dispatch_qty = status.get("dispatch_qty", 0) or 0
                 current_closing = status.get("closing_qty") or 0
-                current_wastage_qty = status.get("wastage_qty", 0) or 0
-                current_wastage_value = status.get("wastage_value", 0) or 0
                 
+                # FIX: Opening should equal previous day's closing
+                if i > 0 and previous_closing is not None and abs(current_opening - previous_closing) > 0.01:
+                    await db.daily_stock_status.update_one(
+                        {"id": record_id},
+                        {"$set": {"opening_qty": round(previous_closing, 2)}}
+                    )
+                    opening_fixed_count += 1
+                    
+                    if product_name not in fixes_by_product:
+                        fixes_by_product[product_name] = []
+                    fixes_by_product[product_name].append({
+                        "date": date,
+                        "opening_fixed": f"{current_opening} -> {previous_closing}"
+                    })
+                
+                previous_closing = current_closing if current_closing and current_closing > 0 else None
+        
+        # PHASE 2: Use helper to derive fresh wastage and persist values
+        for date_str in all_dates:
+            # Call the shared helper for fresh wastage derivation
+            fresh_data = await derive_fresh_wastage_for_date(date_str, db, all_products)
+            
+            # Update each product's stock status record
+            for product_id, pdata in fresh_data["products"].items():
+                # Only update CLOSED records
+                if pdata.get("status") != "closed":
+                    continue
+                
+                record = await db.daily_stock_status.find_one(
+                    {"date": date_str, "product_id": product_id},
+                    {"_id": 0}
+                )
+                if not record:
+                    continue
+                
+                record_id = record.get("id")
+                if not record_id:
+                    continue
+                
+                product_name = pdata.get("product_name", "Unknown")
                 updates = {}
-                fix_details = {"date": date}
+                fix_details = {"date": date_str}
                 needs_update = False
                 
-                # FIX 1: Opening should equal previous day's closing
-                correct_opening = previous_closing if previous_closing is not None else current_opening
-                if i > 0 and previous_closing is not None and abs(current_opening - correct_opening) > 0.01:
-                    updates["opening_qty"] = round(correct_opening, 2)
-                    fix_details["opening_fixed"] = f"{current_opening} -> {correct_opening}"
-                    opening_fixed_count += 1
+                # Compare and update purchase_qty
+                stored_purchase = record.get("purchase_qty", 0) or 0
+                fresh_purchase = pdata.get("purchase_qty", 0)
+                if abs(stored_purchase - fresh_purchase) > 0.01:
+                    updates["purchase_qty"] = round(fresh_purchase, 2)
+                    fix_details["purchase_fixed"] = f"{stored_purchase} -> {fresh_purchase}"
+                    purchase_fixed_count += 1
                     needs_update = True
-                    current_opening = correct_opening  # Use corrected value for wastage calc
                 
-                # FIX 2: Recalculate wastage_qty if closing exists
-                if current_closing is not None and current_closing > 0:
-                    correct_wastage_qty = max(0, current_opening + purchase_qty - dispatch_qty - current_closing)
-                    correct_wastage_qty = round(correct_wastage_qty, 2)
-                    
-                    if abs(current_wastage_qty - correct_wastage_qty) > 0.01:
-                        updates["wastage_qty"] = correct_wastage_qty
-                        fix_details["wastage_qty_fixed"] = f"{current_wastage_qty} -> {correct_wastage_qty}"
-                        wastage_qty_fixed_count += 1
-                        needs_update = True
-                        current_wastage_qty = correct_wastage_qty  # Use corrected value for value calc
+                # Compare and update dispatch_qty (with combo decomposition)
+                stored_dispatch = record.get("dispatch_qty", 0) or 0
+                fresh_dispatch = pdata.get("dispatch_qty", 0)
+                if abs(stored_dispatch - fresh_dispatch) > 0.01:
+                    updates["dispatch_qty"] = round(fresh_dispatch, 2)
+                    fix_details["dispatch_fixed"] = f"{stored_dispatch} -> {fresh_dispatch}"
+                    dispatch_fixed_count += 1
+                    needs_update = True
                 
-                # FIX 3: Get price from COGS table (primary source)
-                avg_price = 0
+                # Compare and update wastage_qty
+                stored_wastage_qty = record.get("wastage_qty", 0) or 0
+                fresh_wastage_qty = pdata.get("wastage_qty", 0)
+                if abs(stored_wastage_qty - fresh_wastage_qty) > 0.01:
+                    updates["wastage_qty"] = round(fresh_wastage_qty, 2)
+                    fix_details["wastage_qty_fixed"] = f"{stored_wastage_qty} -> {fresh_wastage_qty}"
+                    wastage_qty_fixed_count += 1
+                    needs_update = True
                 
-                # Try to get COGS price for this product on this date
-                if product_name in cogs_lookup and date in cogs_lookup[product_name]:
-                    avg_price = cogs_lookup[product_name][date]
-                    last_known_cogs_price = avg_price  # Update last known price
-                elif last_known_cogs_price > 0:
-                    # Fallback to last known COGS price for this product
-                    avg_price = last_known_cogs_price
-                else:
-                    # Final fallback: use existing avg_price from record
-                    avg_price = status.get("avg_price", 0) or 0
-                
-                correct_wastage_value = round(current_wastage_qty * avg_price, 2)
-                
-                if abs(current_wastage_value - correct_wastage_value) > 0.01 and current_wastage_qty > 0:
-                    updates["wastage_value"] = correct_wastage_value
-                    updates["avg_price"] = round(avg_price, 2)
-                    fix_details["wastage_value_fixed"] = f"{current_wastage_value} -> {correct_wastage_value}"
+                # Compare and update wastage_value
+                stored_wastage_value = record.get("wastage_value", 0) or 0
+                fresh_wastage_value = pdata.get("wastage_value", 0)
+                if abs(stored_wastage_value - fresh_wastage_value) > 0.01:
+                    updates["wastage_value"] = round(fresh_wastage_value, 2)
+                    updates["avg_price"] = round(pdata.get("cogs_price", 0), 2)
+                    fix_details["wastage_value_fixed"] = f"{stored_wastage_value} -> {fresh_wastage_value}"
                     wastage_value_fixed_count += 1
                     needs_update = True
                 
@@ -4534,22 +4834,20 @@ async def fix_all_wastage_values(
                     )
                     updated_count += 1
                     
-                    # Track by product
                     if product_name not in fixes_by_product:
                         fixes_by_product[product_name] = []
                     fixes_by_product[product_name].append(fix_details)
                 else:
                     unchanged_count += 1
-                
-                # Update previous_closing for next iteration
-                previous_closing = current_closing if current_closing and current_closing > 0 else None
         
         return {
             "message": f"Fixed {updated_count} records, {unchanged_count} unchanged",
             "total_fixed": updated_count,
             "total_unchanged": unchanged_count,
             "details": {
-                "opening_mismatches_fixed": opening_fixed_count,
+                "opening_chain_fixed": opening_fixed_count,
+                "purchase_qty_fixed": purchase_fixed_count,
+                "dispatch_qty_fixed": dispatch_fixed_count,
                 "wastage_qty_recalculated": wastage_qty_fixed_count,
                 "wastage_value_fixed": wastage_value_fixed_count
             },
@@ -4926,7 +5224,12 @@ async def get_wastage_dashboard(
     to_date: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get wastage dashboard data with trends"""
+    """
+    Get wastage dashboard data with trends.
+    
+    Uses derive_fresh_wastage_for_date() helper for real-time recomputation
+    from source collections (procurements, dispatches, stock status).
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -4938,101 +5241,68 @@ async def get_wastage_dashboard(
         end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d')
     
-    history = await db.daily_stock_status.find(
-        {"date": {"$gte": start_date, "$lte": end_date}, "status": "closed"},
-        {"_id": 0}
-    ).to_list(10000)
+    # Get unique dates with CLOSED stock status records in range
+    closed_dates = await db.daily_stock_status.distinct(
+        "date",
+        {"date": {"$gte": start_date, "$lte": end_date}, "status": "closed"}
+    )
+    closed_dates = sorted(closed_dates)
     
-    # Load daily_cogs for consistent pricing (same as P&L)
-    daily_cogs_records = await db.daily_cogs.find(
-        {"date": {"$gte": start_date, "$lte": end_date}},
-        {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}
-    ).to_list(10000)
+    # Pre-load all products once for efficiency
+    all_products = await db.products.find({}, {"_id": 0}).to_list(500)
     
-    daily_cogs_map = {}
-    for cogs in daily_cogs_records:
-        key = (cogs.get("product_name"), cogs.get("date"))
-        daily_cogs_map[key] = cogs.get("daily_cogs", 0) or 0
-    
-    # Track recent prices for fallback
-    product_recent_prices = {}
-    
-    # Aggregate by date
+    # Aggregate by date and product using the shared helper
     daily_totals = {}
     product_totals = {}
     
-    # Maximum reasonable COGS per kg for fresh produce (sanity check)
-    # Most expensive items like saffron are Rs 100-500k/kg but typical produce is < Rs 500/kg
-    # Use Rs 5000/kg as upper bound for F&V business to catch corrupt data
-    MAX_REASONABLE_COGS_PER_KG = 5000
-    
-    for record in history:
-        date = record["date"]
-        product_name = record["product_name"]
-        product_id = record.get("product_id")
+    for date in closed_dates:
+        # Call shared helper for fresh wastage derivation
+        fresh_data = await derive_fresh_wastage_for_date(date, db, all_products)
         
-        # Skip combo products from wastage dashboard
-        if is_combo_product(product_name):
-            continue
+        # Extract daily totals from helper
+        dt = fresh_data["daily_totals"]
+        daily_totals[date] = {
+            "date": date,
+            "total_wastage_kg": dt["total_wastage_kg"],
+            "total_wastage_value": dt["total_wastage_value"],
+            "total_input": dt["total_input"],
+            "avg_wastage_percent": 0
+        }
         
-        wastage_qty = record.get("wastage_qty", 0) or 0
-        wastage_percent = record.get("wastage_percent", 0) or 0
-        opening_qty = record.get("opening_qty", 0) or 0
-        purchase_qty = record.get("purchase_qty", 0) or 0
-        purchase_value = record.get("purchase_value", 0) or 0
-        
-        # Use stored wastage_qty and wastage_value directly from stock_status
-        # This is the ground truth as it was calculated during stock closing
-        # This ensures P&L and Wastage Dashboard use identical values
-        stored_wastage_value = record.get("wastage_value", 0) or 0
-        stored_wastage_qty = record.get("wastage_qty", 0) or 0
-        
-        # Use stored values directly (ground truth)
-        wastage_qty = stored_wastage_qty
-        wastage_value = stored_wastage_value
-        
-        # Daily totals
-        if date not in daily_totals:
-            daily_totals[date] = {
-                "date": date,
-                "total_wastage_kg": 0,
-                "total_wastage_value": 0,
-                "total_input": 0,
-                "avg_wastage_percent": 0
-            }
-        daily_totals[date]["total_wastage_kg"] += wastage_qty
-        daily_totals[date]["total_wastage_value"] += wastage_value
-        daily_totals[date]["total_input"] += opening_qty + purchase_qty
-        
-        # Product totals
-        if product_name not in product_totals:
-            product_totals[product_name] = {
-                "product_name": product_name,
-                "total_wastage_kg": 0,
-                "total_wastage_value": 0,
-                "total_input": 0,
-                "wastage_percent": 0,
-                "days_count": 0
-            }
-        product_totals[product_name]["total_wastage_kg"] += wastage_qty
-        product_totals[product_name]["total_wastage_value"] += wastage_value
-        product_totals[product_name]["total_input"] += opening_qty + purchase_qty
-        product_totals[product_name]["days_count"] += 1
-    
-    # Calculate averages for daily data
-    for date in daily_totals:
-        total_input = daily_totals[date]["total_input"]
-        if total_input > 0:
+        # Calculate avg wastage percent
+        if dt["total_input"] > 0:
             daily_totals[date]["avg_wastage_percent"] = round(
-                (daily_totals[date]["total_wastage_kg"] / total_input) * 100, 2
+                (dt["total_wastage_kg"] / dt["total_input"]) * 100, 2
             )
-        daily_totals[date]["total_wastage_kg"] = round(daily_totals[date]["total_wastage_kg"], 2)
-        daily_totals[date]["total_wastage_value"] = round(daily_totals[date]["total_wastage_value"], 2)
+        
+        # Aggregate product totals from helper
+        for pid, pdata in fresh_data["products"].items():
+            product_name = pdata["product_name"]
+            
+            # Skip combo products
+            if is_combo_product(product_name):
+                continue
+            
+            # Only include CLOSED records
+            if pdata["status"] != "closed":
+                continue
+            
+            if product_name not in product_totals:
+                product_totals[product_name] = {
+                    "product_name": product_name,
+                    "total_wastage_kg": 0,
+                    "total_wastage_value": 0,
+                    "total_input": 0,
+                    "wastage_percent": 0,
+                    "days_count": 0
+                }
+            
+            product_totals[product_name]["total_wastage_kg"] += pdata["wastage_qty"]
+            product_totals[product_name]["total_wastage_value"] += pdata["wastage_value"]
+            product_totals[product_name]["total_input"] += pdata["opening_qty"] + pdata["purchase_qty"]
+            product_totals[product_name]["days_count"] += 1
     
-    # Sort daily data by date
-    daily_data = sorted(daily_totals.values(), key=lambda x: x["date"])
-    
-    # Calculate wastage_percent for each product
+    # Round and calculate wastage_percent for each product
     for product_name in product_totals:
         total_input = product_totals[product_name]["total_input"]
         if total_input > 0:
@@ -5041,6 +5311,9 @@ async def get_wastage_dashboard(
             )
         product_totals[product_name]["total_wastage_kg"] = round(product_totals[product_name]["total_wastage_kg"], 2)
         product_totals[product_name]["total_wastage_value"] = round(product_totals[product_name]["total_wastage_value"], 2)
+    
+    # Sort daily data by date
+    daily_data = sorted(daily_totals.values(), key=lambda x: x["date"])
     
     # Top wastage products - sorted by wastage_percent descending
     product_data = sorted(product_totals.values(), key=lambda x: x["wastage_percent"], reverse=True)[:15]
@@ -5176,233 +5449,60 @@ async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
 
 @router.get("/stock-status/wastage-by-date")
 async def get_wastage_by_date(date: str, current_user: dict = Depends(get_current_user)):
-    """Get product-wise wastage for a specific date"""
+    """
+    Get product-wise wastage for a specific date.
+    
+    Uses derive_fresh_wastage_for_date() helper for real-time recomputation
+    from source collections (procurements, dispatches, stock status).
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Get all products for combo detection and packaging info
-    all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+    # Call the shared helper for fresh wastage derivation
+    fresh_data = await derive_fresh_wastage_for_date(date, db)
     
-    # Build packaging map for weight conversion
-    packaging_map = {}
-    for p in all_products:
-        for v in p.get("variants", []):
-            variant_name = (v.get("name") or "").lower().strip()
-            if variant_name:
-                weight_gm = extract_weight_from_packaging_name(variant_name)
-                if weight_gm:
-                    packaging_map[variant_name] = weight_gm
-    
-    # Get fresh purchase data from procurements
-    procurements = await db.procurements.find({}, {"_id": 0}).to_list(10000)
-    purchases_by_product = {}
-    for proc in procurements:
-        proc_date = proc.get("date", "")
-        if isinstance(proc_date, datetime):
-            proc_date_str = proc_date.strftime('%Y-%m-%d')
-        else:
-            proc_date_str = str(proc_date)[:10]
-        
-        if proc_date_str == date:
-            for item in proc.get("products", []):
-                product_id = item.get("product_id")
-                qty = item.get("quantity", 0)
-                unit = item.get("unit", "Kg")
-                unit_size = item.get("unit_size", "")
-                total_value = item.get("total", qty * item.get("rate", 0))
-                
-                # Convert to Kg for Packet, Bunch, Piece, Box etc.
-                unit_lower = unit.lower().strip()
-                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
-                    weight_gm = None
-                    # Try unit_size first
-                    if unit_size:
-                        try:
-                            weight_gm = float(unit_size)
-                        except (ValueError, TypeError):
-                            pass
-                    # Fallback to standard weights
-                    if not weight_gm:
-                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
-                        weight_gm = defaults.get(unit_lower)
-                    
-                    if weight_gm:
-                        qty_kg = (qty * weight_gm) / 1000
-                    else:
-                        qty_kg = qty
-                else:
-                    qty_kg = qty
-                
-                if product_id not in purchases_by_product:
-                    purchases_by_product[product_id] = {"qty": 0, "value": 0}
-                purchases_by_product[product_id]["qty"] += qty_kg
-                purchases_by_product[product_id]["value"] += total_value
-    
-    # Get dispatches for target date and calculate dispatch_qty INCLUDING combo ingredient decomposition
-    qc_dispatches = await db.qc_dispatches.find({
-        "dispatch_date": {"$regex": f"^{date}"}
-    }, {"_id": 0}).to_list(1000)
-    retailer_dispatches = await db.retailer_dispatches.find({
-        "dispatch_date": {"$regex": f"^{date}"}
-    }, {"_id": 0}).to_list(1000)
-    
-    # Calculate dispatches with combo ingredient decomposition
-    dispatches_by_product = {}
-    all_dispatch_items = []
-    
-    for dispatch in qc_dispatches + retailer_dispatches:
-        for item in dispatch.get("items", []):
-            product_id = item.get("product_id")
-            product_name = item.get("product_name", "")
-            supplied_qty = item.get("supplied_qty", 0)
-            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
-            
-            # Collect for combo processing
-            all_dispatch_items.append(item)
-            
-            # Skip combo products from direct dispatch counting (they don't have base stock)
-            if is_combo_product(product_name):
-                continue
-            
-            weight_gm = packaging_map.get(packaging_name)
-            if not weight_gm:
-                weight_gm = extract_weight_from_packaging_name(packaging_name)
-            if not weight_gm:
-                weight_gm = 1000
-            
-            qty_kg = (supplied_qty * weight_gm) / 1000
-            
-            if product_id not in dispatches_by_product:
-                dispatches_by_product[product_id] = 0
-            dispatches_by_product[product_id] += qty_kg
-    
-    # Add combo ingredient dispatches to their respective base products
-    dispatches_by_product = add_combo_ingredient_dispatches(
-        dispatches_by_product, all_dispatch_items, all_products, packaging_map
-    )
-    
-    # Get all stock status for the given date
-    day_records = await db.daily_stock_status.find(
-        {"date": date},
-        {"_id": 0}
-    ).to_list(500)
-    
-    # Build product lookup map
-    product_id_map = {p.get("id"): p for p in all_products}
-    
-    # Build historical price cache from recent dates (last 30 days)
-    historical_prices = {}
-    historical_records = await db.daily_stock_status.find(
-        {
-            "date": {"$lte": date},
-            "purchase_qty": {"$gt": 0}
-        },
-        {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
-    ).sort("date", -1).to_list(10000)
-    
-    for rec in historical_records:
-        pid = rec.get("product_id")
-        if pid and pid not in historical_prices:
-            pqty = rec.get("purchase_qty", 0) or 0
-            pval = rec.get("purchase_value", 0) or 0
-            if pqty > 0:
-                historical_prices[pid] = pval / pqty
-    
-    # Aggregate wastage by product
-    product_wastage = {}
-    
-    for record in day_records:
-        product_name = record.get("product_name", "Unknown")
-        product_id = record.get("product_id", "")
-        
-        # Use FRESH purchase data from procurements instead of stored values
-        fresh_purchase = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
-        purchase_qty = round(fresh_purchase["qty"], 2)
-        purchase_value = round(fresh_purchase["value"], 2)
-        
-        # Get opening and closing from stored record
-        opening_qty = record.get("opening_qty", 0) or 0
-        closing_qty = record.get("closing_qty", 0) or 0
-        status = record.get("status", "pending")
-        
-        # Use FRESH dispatch data including combo ingredient decomposition
-        fresh_dispatch_qty = dispatches_by_product.get(product_id, 0)
-        if isinstance(fresh_dispatch_qty, dict):
-            fresh_dispatch_qty = fresh_dispatch_qty.get("qty", 0)
-        dispatch_qty = round(fresh_dispatch_qty, 2)
-        
-        # Recalculate wastage using fresh purchase and dispatch data
-        if status == "closed":
-            total_available = opening_qty + purchase_qty - dispatch_qty
-            wastage_qty = max(0, total_available - closing_qty)
-        else:
-            wastage_qty = record.get("wastage_qty", 0) or 0
-        
-        # Calculate avg_price from fresh procurement data, or fallback to historical
-        avg_price = purchase_value / purchase_qty if purchase_qty > 0 else 0
-        
-        # FALLBACK: Use historical price if no purchases today
-        if avg_price == 0 and product_id:
-            avg_price = historical_prices.get(product_id, 0)
-        
-        # Calculate wastage_value dynamically based on avg_price
-        wastage_value = round(wastage_qty * avg_price, 2)
-        
-        # For pending entries, calculate potential wastage if not closed
-        if status != "closed" and wastage_qty == 0:
-            available = opening_qty + purchase_qty
-            if available > 0 and closing_qty == 0:
-                wastage_qty = max(0, available - dispatch_qty)
-                wastage_value = round(wastage_qty * avg_price, 2)
-        
-        if wastage_qty > 0:
-            if product_name not in product_wastage:
-                product_wastage[product_name] = {
-                    "product_name": product_name,
-                    "product_id": product_id,
-                    "opening_qty": 0,
-                    "purchase_qty": 0,
-                    "dispatch_qty": 0,
-                    "closing_qty": 0,
-                    "wastage_qty": 0,
-                    "wastage_value": 0,
-                    "status": status
-                }
-            
-            # Aggregate values
-            product_wastage[product_name]["opening_qty"] += opening_qty
-            product_wastage[product_name]["purchase_qty"] += purchase_qty
-            product_wastage[product_name]["dispatch_qty"] += dispatch_qty
-            product_wastage[product_name]["closing_qty"] += closing_qty
-            product_wastage[product_name]["wastage_qty"] += wastage_qty
-            product_wastage[product_name]["wastage_value"] += wastage_value
-            if status == "closed":
-                product_wastage[product_name]["status"] = "closed"
-    
-    # Calculate wastage percent
+    # Build response from helper output
     wastage_products = []
     total_wastage_kg = 0
     total_wastage_value = 0
     
-    for product_name, data in product_wastage.items():
-        available = data["opening_qty"] + data["purchase_qty"]
-        wastage_percent = (data["wastage_qty"] / available * 100) if available > 0 else 0
+    for product_id, pdata in fresh_data["products"].items():
+        product_name = pdata.get("product_name", "Unknown")
         
-        wastage_products.append({
-            "product_name": product_name,
-            "product_id": data["product_id"],
-            "opening_qty": round(data["opening_qty"], 2),
-            "purchase_qty": round(data["purchase_qty"], 2),
-            "dispatch_qty": round(data["dispatch_qty"], 2),
-            "closing_qty": round(data["closing_qty"], 2),
-            "wastage_qty": round(data["wastage_qty"], 2),
-            "wastage_value": round(data["wastage_value"], 2),
-            "wastage_percent": round(wastage_percent, 1),
-            "status": data["status"]
-        })
+        # Skip combo products from wastage-by-date
+        if is_combo_product(product_name):
+            continue
         
-        total_wastage_kg += data["wastage_qty"]
-        total_wastage_value += data["wastage_value"]
+        wastage_qty = pdata.get("wastage_qty", 0)
+        wastage_value = pdata.get("wastage_value", 0)
+        
+        # Only include products with wastage > 0
+        if wastage_qty > 0:
+            opening_qty = pdata.get("opening_qty", 0)
+            purchase_qty = pdata.get("purchase_qty", 0)
+            dispatch_qty = pdata.get("dispatch_qty", 0)
+            closing_qty = pdata.get("closing_qty", 0)
+            status = pdata.get("status", "pending")
+            
+            # Calculate wastage percent
+            available = opening_qty + purchase_qty
+            wastage_percent = (wastage_qty / available * 100) if available > 0 else 0
+            
+            wastage_products.append({
+                "product_name": product_name,
+                "product_id": product_id,
+                "opening_qty": round(opening_qty, 2),
+                "purchase_qty": round(purchase_qty, 2),
+                "dispatch_qty": round(dispatch_qty, 2),
+                "closing_qty": round(closing_qty, 2),
+                "wastage_qty": round(wastage_qty, 2),
+                "wastage_value": round(wastage_value, 2),
+                "wastage_percent": round(wastage_percent, 1),
+                "status": status
+            })
+            
+            total_wastage_kg += wastage_qty
+            total_wastage_value += wastage_value
     
     # Sort by wastage percent descending
     wastage_products.sort(key=lambda x: x.get("wastage_percent", 0), reverse=True)

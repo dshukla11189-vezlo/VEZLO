@@ -2,6 +2,53 @@
 
 ## Changelog (June 2026)
 
+### June 30, 2026 - Wastage Computation Refactoring ✅
+- **REFACTOR**: Centralized wastage computation using shared `derive_fresh_wastage_for_date()` helper
+  - **Purpose**: Align Wastage Dashboard, Daily P&L, and wastage-by-date endpoints to use identical real-time wastage derivation
+  - **Key Changes**:
+    1. **New Helper Function** (`derive_fresh_wastage_for_date`):
+       - Reads LIVE from procurements (with unit_size Kg conversion for Bunch/Piece/Pack/etc.)
+       - Reads LIVE from qc_dispatches + retailer_dispatches (with combo ingredient decomposition via `add_combo_ingredient_dispatches`)
+       - Reads LIVE from daily_stock_status (for opening/closing)
+       - For CLOSED records: `wastage_qty = max(0, opening + fresh_purchase - fresh_dispatch - closing)`
+       - Pricing cascade: daily_cogs (WAC) → procurement avg → historical price
+       - MAX_REASONABLE_COGS_PER_KG sanity check (5000)
+       - READ-ONLY - never writes to daily_stock_status
+    2. **Wastage Dashboard** (`get_wastage_dashboard`): Now calls helper per-date
+    3. **P&L Report** (`get_pnl_report`): Pre-derives fresh wastage for all dates, uses helper values for wastage_qty, unsold detection
+    4. **Wastage By Date** (`get_wastage_by_date`): Simplified to use helper
+    5. **Fix Historical Values** (`fix_all_wastage_values`): Repurposed to persist helper-derived values back to stock_status for audit
+    6. **Frontend Dashboard.js**: `dayWastage` now includes `unsold_wastage_total`
+    7. **WastageDashboard.js**: Updated confirmation text for "Fix Historical Values" button
+  - **Files Modified**:
+    - `/app/backend/routes/dashboard_analytics.py`:
+      - Added `derive_fresh_wastage_for_date()` helper (lines 175-453)
+      - Updated `get_wastage_dashboard()` (lines 5205-5328)
+      - Updated P&L wastage section (lines 1332-1430)
+      - Updated `product_wastage_summary` (lines 1895-1925)
+      - Updated `fix_all_wastage_values()` (lines 4684-4860)
+      - Updated `get_wastage_by_date()` (lines 5450-5517)
+    - `/app/frontend/src/pages/admin/Dashboard.js`:
+      - Added `unsoldWastage` variable and included in `dayWastage` calculation (line 1858)
+    - `/app/frontend/src/pages/admin/WastageDashboard.js`:
+      - Updated confirmation text (line 445)
+  - **Contract**: Real-time recompute on every page load - edits to procurement/dispatch/closing reflect immediately
+
+### June 30, 2026 - Full Sync Collections Added ✅
+- **FEATURE**: Added 9 new collections to prod-to-preview Full Sync endpoint
+  - **Collections Added**: daily_cogs, payments, cogs_snapshots, retailer_inventory, retailer_closing_inventory, retailer_grn, retailer_daily_requirements, qc_daily_requirements, procurement_templates
+  - **New Endpoints Created**:
+    - `GET /api/daily-cogs` - Returns all daily_cogs records
+    - `GET /api/payments` - Returns all payments
+    - `GET /api/cogs-snapshots` - Returns all COGS snapshots
+    - `GET /api/retailer-inventory` - Returns all retailer inventory
+    - `GET /api/retailer-closing-inventory` - Returns all closing inventory
+  - **Updated Endpoints**: Increased limit for retailer-daily-requirements and qc-daily-requirements from 100 to 10000
+  - **Files Modified**:
+    - `/app/backend/routes/backup_data.py` (lines 648-686)
+    - `/app/backend/routes/daily_cogs.py` (added GET endpoint)
+    - `/app/backend/server.py` (added 4 sync endpoints)
+
 ### June 26, 2026 - Record Purchase Bidirectional Calculation ✅
 - **FEATURE**: Added bidirectional calculation in Record Purchase modal
   - **Purpose**: Allow users to enter any 2 of (qty, rate, total) and auto-calculate the 3rd

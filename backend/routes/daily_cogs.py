@@ -377,6 +377,19 @@ async def save_daily_cogs(db: AsyncIOMotorDatabase, cogs_data: dict):
         )
 
 
+@router.get("")
+async def get_all_daily_cogs(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all daily_cogs records for sync purposes."""
+    if current_user.get("role") not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    records = await db.daily_cogs.find({}, {"_id": 0}).to_list(50000)
+    return records
+
+
 @router.post("/backfill")
 async def backfill_daily_cogs(
     from_date: str = None,

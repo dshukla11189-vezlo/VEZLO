@@ -2924,7 +2924,7 @@ async def get_retailer_daily_requirement(
 
 @app.get("/api/retailer-daily-requirements")
 async def list_retailer_daily_requirements(
-    limit: int = Query(default=30, le=100),
+    limit: int = Query(default=30, le=10000),
     current_user: dict = Depends(get_current_user)
 ):
     """List recent daily requirements"""
@@ -3186,13 +3186,55 @@ async def get_qc_daily_requirement(
 
 @app.get("/api/qc-daily-requirements")
 async def list_qc_daily_requirements(
-    limit: int = Query(default=30, le=100),
+    limit: int = Query(default=30, le=10000),
     current_user: dict = Depends(get_current_user)
 ):
     """List recent QC daily requirements"""
     docs = await db.qc_daily_requirements.find(
         {}, {"_id": 0}
     ).sort("requirement_date", -1).to_list(limit)
+    return docs
+
+
+# ==================== SYNC ENDPOINTS FOR PROD-TO-PREVIEW ====================
+
+@app.get("/api/retailer-inventory")
+async def list_all_retailer_inventory(
+    limit: int = Query(default=10000, le=50000),
+    current_user: dict = Depends(get_current_user)
+):
+    """List all retailer inventory records for sync"""
+    docs = await db.retailer_inventory.find({}, {"_id": 0}).to_list(limit)
+    return docs
+
+
+@app.get("/api/retailer-closing-inventory")
+async def list_all_retailer_closing_inventory(
+    limit: int = Query(default=10000, le=50000),
+    current_user: dict = Depends(get_current_user)
+):
+    """List all retailer closing inventory records for sync"""
+    docs = await db.retailer_closing_inventory.find({}, {"_id": 0}).to_list(limit)
+    return docs
+
+
+@app.get("/api/cogs-snapshots")
+async def list_all_cogs_snapshots(
+    limit: int = Query(default=10000, le=50000),
+    current_user: dict = Depends(get_current_user)
+):
+    """List all COGS snapshots for sync"""
+    docs = await db.cogs_snapshots.find({}, {"_id": 0}).to_list(limit)
+    return docs
+
+
+@app.get("/api/payments")
+async def list_all_payments(
+    limit: int = Query(default=10000, le=50000),
+    current_user: dict = Depends(get_current_user)
+):
+    """List all payments for sync (generic payments collection)"""
+    docs = await db.payments.find({}, {"_id": 0}).to_list(limit)
     return docs
 
 

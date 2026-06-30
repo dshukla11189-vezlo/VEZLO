@@ -674,6 +674,15 @@ async def sync_from_production_full(
                 'users': '/api/users',
                 'blinkit_prices': '/api/blinkit-prices',
                 'retail_plans': '/api/retail-plans',
+                'daily_cogs': '/api/daily-cogs',
+                'payments': '/api/payments',
+                'cogs_snapshots': '/api/cogs-snapshots',
+                'retailer_inventory': '/api/retailer-inventory',
+                'retailer_closing_inventory': '/api/retailer-closing-inventory',
+                'retailer_grn': '/api/retailer-grn',
+                'retailer_daily_requirements': '/api/retailer-daily-requirements?limit=10000',
+                'qc_daily_requirements': '/api/qc-daily-requirements?limit=10000',
+                'procurement_templates': '/api/procurement-templates',
             }
             
             # Date range endpoints

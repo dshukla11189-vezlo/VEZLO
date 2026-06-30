@@ -580,18 +580,11 @@ export default function AdminDashboard() {
       totals.variableExpenses = variableExpenses;
       totals.commissionFromPnl = commissionFromPnl;
       
-      // CORRECT FORMULA for Retail customers:
-      // Gross P/L = Sales - Purchase - Wastage - Rejection (at COGS)
-      totals.grossProfit = Math.round(totals.sales - totals.purchase - totals.wastage - rejectionShareAtCOGS);
-      
-      // Net P/L calculation differs by customer type:
-      // For Retail: Net P/L = Gross P/L - Commission - Variable Expenses
-      // For QC: Net P/L = Gross P/L - GRN Loss - Variable Expenses
-      if (customerType === 'QC') {
-        totals.netProfit = Math.round(totals.grossProfit - grnLossShare - variableExpenses);
-      } else {
-        totals.netProfit = Math.round(totals.grossProfit - commissionFromPnl - variableExpenses);
-      }
+      // Use backend values directly for gross and net profit
+      // Backend formula: gross = sales - cogs_share, net = gross - grn_loss - rejection - commission - variable_expenses
+      // Wastage is display-only at customer level, not subtracted
+      totals.grossProfit = Math.round(customerPnlEntry?.gross_profit || 0);
+      totals.netProfit = Math.round(customerPnlEntry?.net_profit || 0);
       totals.netMarginPct = totals.sales > 0 ? Math.round((totals.netProfit / totals.sales * 100) * 10) / 10 : 0;
       
       // Calculate period days for Daily Avg (use total calendar days, not active days)
@@ -1185,10 +1178,11 @@ export default function AdminDashboard() {
           const cust_qty = c.sales_qty || 0;
           const cust_sales_days = c.sales_days || 1;
           
-          // Correct Gross P/L = Sales - COGS - Wastage - Rejection
-          const cust_gross_profit = cust_sales - cust_cogs - cust_wastage - cust_rejection;
-          // Correct Net P/L = Gross P/L - Commission
-          const cust_net_profit = cust_gross_profit - cust_commission;
+          // Use backend values directly for gross and net profit
+          // Backend formula: gross = sales - cogs_share, net = gross - grn_loss - rejection - commission - variable_expenses
+          // Wastage is display-only at customer level, not subtracted
+          const cust_gross_profit = c.gross_profit || 0;
+          const cust_net_profit = c.net_profit || 0;
           
           return {
             ...c,

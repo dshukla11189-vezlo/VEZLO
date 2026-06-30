@@ -13,17 +13,20 @@
 ## Retailer Portal (All Retailers)
 - **Password**: 12345 (standardized for all retailers in preview)
 
-### Current Retailers in Preview DB:
-- **Sarika Kharat**: kharatsarika013@gmail.com
-
-### Note on Tamanna Mart:
-Tamanna Mart does not exist in the preview database. To get all production retailers:
-1. Go to Admin Dashboard → Backup/Sync
-2. Run "Full Sync" from production to preview
+### Retailers in Preview DB:
+| Shop Name | Email |
+|-----------|-------|
+| Tamanna Mart (Ghisendra Choudhary) | tamannamart08@gmail.com |
+| Lucky | bhaveshdewasi803@gmail.com |
+| Rohan | rohansirvi69@gmail.com |
+| Sonaji Kharat | kharatsarika013@gmail.com |
+| Chelaram | puneri@gmail.com |
+| Kartik Narang | Narangsupermart@gmail.com |
+| Ashish Gurkha | dev@gmail.com |
+| Deep Barhaiya | deep.barhaiya@gmail.com |
 
 ## Notes
-- Admin and Retailer accounts were re-seeded on June 14, 2025 (database was reset)
-- Staff password set on June 16, 2026 for testing
 - **June 30, 2026**: All retailer passwords standardized to '12345' in preview
+- Admin password: admin123
 - Production credentials may differ - this file is for preview/testing only
-- The database `test_database` is used in preview (not `mr_organix`)
+- Database: `test_database`

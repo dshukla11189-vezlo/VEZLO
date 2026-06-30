@@ -4856,9 +4856,14 @@ async def record_invoice_payment(invoice_id: str, input: dict, current_user: dic
     current_paid = invoice.get("paid_amount", 0)
     new_paid = current_paid + amount + total_credit_applied
     net_payable = invoice.get("net_payable", 0)
+    total_credit_adjusted = invoice.get("total_credit_adjusted", 0) or 0
+    
+    # Final payable after credit adjustments
+    final_payable_after_credit = net_payable - total_credit_adjusted - total_credit_applied
     
     # Determine payment status (use tolerance for floating point comparison)
-    if new_paid >= net_payable - 0.01:  # Tolerance of 0.01 for floating point precision
+    # Check against credit-adjusted final_payable, not raw net_payable
+    if new_paid >= final_payable_after_credit - 0.01:  # Tolerance of 0.01 for floating point precision
         new_status = "paid"
     elif new_paid > 0:
         new_status = "partial"
@@ -4991,9 +4996,10 @@ async def fix_invoice_statuses(current_user: dict = Depends(get_current_user)):
         # Use the higher of actual payments vs stored paid_amount
         effective_paid = max(actual_paid, stored_paid)
         
-        # Also account for credit note adjustments
+        # Compute final_payable LIVE instead of trusting stored value
+        # final_payable = net_payable - total_credit_adjusted
         credit_adjusted = float(inv.get("total_credit_adjusted", 0) or 0)
-        final_payable = float(inv.get("final_payable") if inv.get("final_payable") is not None else effective_net_payable)
+        final_payable = effective_net_payable - credit_adjusted
         
         # Determine correct status with tolerance for floating point
         # If final_payable (after credit adjustments) is <=0, it's paid via credit notes

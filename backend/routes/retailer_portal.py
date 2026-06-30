@@ -176,12 +176,18 @@ def compute_invoice_payment_buckets(
             unpaid_upfront = max(0, upfront_portion - paid_amount)
             
             if days_since == 0:
-                # Today's invoice: upfront portion due
+                # Today's invoice: upfront portion due, remainder in final bucket
                 upfront_due = min(unpaid_upfront, pending_amount)
+                final_due = max(0, pending_amount - upfront_due)
             elif days_since >= 1 and days_since <= 4:
-                # 1-4 days ago: check if upfront portion was paid
+                # 1-4 days ago: split into upfront and final buckets
+                # This ensures grand_total = upfront_due + final_due = total_pending
                 if unpaid_upfront > 0:
                     upfront_due = unpaid_upfront
+                    final_due = max(0, pending_amount - unpaid_upfront)
+                else:
+                    # Upfront was fully paid, all remaining goes to final
+                    final_due = pending_amount
             elif days_since >= 5:
                 # 5+ days (overdue): split unpaid_upfront into upfront bucket,
                 # put only the remainder into final bucket

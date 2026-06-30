@@ -1426,37 +1426,38 @@ async def get_pnl_report(
     # For combo products, distribute wastage from base ingredients proportionally
     # based on how much of each ingredient was used in combos vs total supplied
     
-    # Build ingredient totals for wastage distribution
+    # Build ingredient totals for wastage distribution using FRESH values from helper
     # {date: {ingredient_name: {'supplied_kg': X, 'wastage_kg': Y, 'wastage_value': Z}}}
     ingredient_totals_by_date = {}
     
-    for status in stock_status:
-        status_date = status.get("date", "")[:10]
-        product = status.get("product_name", "Unknown")
-        
-        # Skip combo products for totals (we only want base ingredients)
-        if is_combo_product(product):
-            continue
-        
-        dispatch_qty = status.get("dispatch_qty", 0) or 0
-        wastage_qty_ing = status.get("wastage_qty", 0) or 0
-        wastage_value_ing = status.get("wastage_value", 0) or 0
-        
-        if status_date not in ingredient_totals_by_date:
-            ingredient_totals_by_date[status_date] = {}
-        
-        # Normalize ingredient name for matching
-        ing_key = product.lower().strip()
-        if ing_key not in ingredient_totals_by_date[status_date]:
-            ingredient_totals_by_date[status_date][ing_key] = {
-                'supplied_kg': 0,
-                'wastage_kg': 0,
-                'wastage_value': 0
-            }
-        
-        ingredient_totals_by_date[status_date][ing_key]['supplied_kg'] += dispatch_qty
-        ingredient_totals_by_date[status_date][ing_key]['wastage_kg'] += wastage_qty_ing
-        ingredient_totals_by_date[status_date][ing_key]['wastage_value'] += wastage_value_ing
+    for date_key, products_data in fresh_wastage_by_date.items():
+        for product_id, pdata in products_data.items():
+            product_name = pdata.get("product_name", "Unknown")
+            
+            # Skip combo products for totals (we only want base ingredients)
+            if is_combo_product(product_name):
+                continue
+            
+            # Use FRESH values from helper
+            dispatch_qty = pdata.get("dispatch_qty", 0) or 0
+            wastage_qty_ing = pdata.get("wastage_qty", 0) or 0
+            wastage_value_ing = pdata.get("wastage_value", 0) or 0
+            
+            if date_key not in ingredient_totals_by_date:
+                ingredient_totals_by_date[date_key] = {}
+            
+            # Normalize ingredient name for matching
+            ing_key = product_name.lower().strip()
+            if ing_key not in ingredient_totals_by_date[date_key]:
+                ingredient_totals_by_date[date_key][ing_key] = {
+                    'supplied_kg': 0,
+                    'wastage_kg': 0,
+                    'wastage_value': 0
+                }
+            
+            ingredient_totals_by_date[date_key][ing_key]['supplied_kg'] += dispatch_qty
+            ingredient_totals_by_date[date_key][ing_key]['wastage_kg'] += wastage_qty_ing
+            ingredient_totals_by_date[date_key][ing_key]['wastage_value'] += wastage_value_ing
     
     # Now update combo line items with their proportional wastage share
     for date_key, line_items in line_items_by_date.items():

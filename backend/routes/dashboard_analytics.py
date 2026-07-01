@@ -217,8 +217,9 @@ async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = 
     MAX_REASONABLE_COGS_PER_KG = 5000
     
     # Get all products if not provided (for combo detection and packaging info)
+    # Exclude image_url to reduce data transfer (~32MB savings)
     if all_products is None:
-        all_products = await db_ref.products.find({}, {"_id": 0}).to_list(500)
+        all_products = await db_ref.products.find({}, {"_id": 0, "image_url": 0}).to_list(500)
     
     # Build packaging map for weight conversion
     packaging_map = {}
@@ -1342,8 +1343,8 @@ async def get_pnl_report(
     ).to_list(10000)))
     unique_dates = sorted(unique_dates)
     
-    # Pre-load all products once for efficiency
-    all_products_for_wastage = await db.products.find({}, {"_id": 0}).to_list(500)
+    # Pre-load all products once for efficiency (exclude image_url to reduce transfer)
+    all_products_for_wastage = await db.products.find({}, {"_id": 0, "image_url": 0}).to_list(500)
     
     # Build fresh wastage data per date using the shared helper
     fresh_wastage_by_date = {}  # date -> {product_id: {...}}

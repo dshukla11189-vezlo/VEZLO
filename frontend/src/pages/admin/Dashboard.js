@@ -516,30 +516,41 @@ export default function AdminDashboard() {
         const wastage = customerItems.reduce((sum, item) => sum + (item.wastage_value || 0), 0);
         const commission = customerItems.reduce((sum, item) => sum + (item.commission || 0), 0);
         
-        // Get EXACT rejection at COGS for this date from rejection_by_date_retailer
+        // Get EXACT rejection at both MRP and COGS for this date from rejection_by_date_retailer
         const rejKey = `${day.date}_${retailerId}`;
-        const dayRejectionData = rejectionByDateRetailer[rejKey] || { cogs: 0 };
-        const dayRejection = Math.round(dayRejectionData.cogs || 0);
-        const dayRejectionPct = sales > 0 ? (dayRejection / sales * 100) : 0;
+        const dayRejectionData = rejectionByDateRetailer[rejKey] || { value: 0, cogs: 0 };
+        const dayRejectionMRP = Math.round(dayRejectionData.value || 0);   // Rejection at MRP
+        const dayRejectionCOGS = Math.round(dayRejectionData.cogs || 0);   // Rejection at purchase price
         
-        // CORRECT FORMULA: Gross P/L = Sales - COGS - Wastage - Rejection (at COGS)
-        const grossProfit = Math.round(sales - purchase - wastage - dayRejection);
-        const grossMargin = sales > 0 ? (grossProfit / sales * 100) : 0;
+        // FIXED: Gross P/L should only account for COGS on actually-sold goods
+        // Net Sales = Gross dispatched MRP - Rejection at MRP (what was actually sold)
+        const netSales = Math.max(0, sales - dayRejectionMRP);
+        // Net COGS = Dispatch COGS - Rejection COGS (cost of only the sold portion)
+        const netCogs = Math.max(0, purchase - dayRejectionCOGS);
+        // Gross P/L = what was sold minus cost of what was sold minus wastage
+        const grossProfit = Math.round(netSales - netCogs - wastage);
+        const grossMargin = netSales > 0 ? (grossProfit / netSales * 100) : 0;
+        
+        // Rejection % relative to original dispatched sales
+        const dayRejectionPct = sales > 0 ? (dayRejectionCOGS / sales * 100) : 0;
         
         // Net P/L = Gross P/L - Commission
         const netProfit = Math.round(grossProfit - commission);
-        const netMargin = sales > 0 ? (netProfit / sales * 100) : 0;
+        const netMargin = netSales > 0 ? (netProfit / netSales * 100) : 0;
         
         const profitPerUnit = qty > 0 ? (grossProfit / qty) : 0;
         
         return {
           date: day.date,
           sales: Math.round(sales),
+          netSales: Math.round(netSales),  // Sales minus rejection at MRP
           qty,
           kg,
           purchase: Math.round(purchase),
+          netCogs: Math.round(netCogs),  // COGS minus rejection at COGS
           wastage: Math.round(wastage),
-          rejection: dayRejection,  // Exact rejection for this date (at COGS)
+          rejection: dayRejectionCOGS,  // Rejection at COGS for display
+          rejectionMRP: dayRejectionMRP,  // Rejection at MRP for reference
           rejectionPct: dayRejectionPct,  // Rejection % for this date
           grossProfit,
           grossMargin,
@@ -564,12 +575,9 @@ export default function AdminDashboard() {
         netProfit: acc.netProfit + day.netProfit
       }), { sales: 0, qty: 0, kg: 0, purchase: 0, wastage: 0, rejection: 0, grossProfit: 0, commission: 0, netProfit: 0 });
       
-      // For Retail customers, the line-item gross_profit doesn't include rejection
-      // We need to subtract rejection_share (at COGS) to get the TRUE gross profit that matches dashboard
-      // Gross Profit (Retail) = Sum of line_item profits - Rejection Loss (at COGS)
-      const adjustedGrossProfit = customerType === 'Retail' 
-        ? totals.grossProfit - rejectionShareAtCOGS 
-        : totals.grossProfit;
+      // Rejection is now already factored into each day's grossProfit calculation
+      // (netSales - netCogs - wastage), so no separate adjustment needed
+      const adjustedGrossProfit = totals.grossProfit;
       
       totals.grossMargin = totals.sales > 0 ? (adjustedGrossProfit / totals.sales * 100) : 0;
       totals.profitPerUnit = totals.qty > 0 ? (adjustedGrossProfit / totals.qty) : 0;

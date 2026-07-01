@@ -1004,6 +1004,11 @@ async def get_pnl_report(
         kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', unit_lower)
         if kg_match:
             return float(kg_match.group(1)) * 1000
+        # Handle Half Dozen and Dozen variants (same as dispatch section)
+        if 'half dozen' in unit_lower or 'half-dozen' in unit_lower:
+            return 500
+        elif 'dozen' in unit_lower and 'half' not in unit_lower:
+            return 1000
         # Fallback patterns
         if 'bunch' in unit_lower:
             return 100  # Bunch is typically ~100gm

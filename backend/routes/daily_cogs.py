@@ -150,6 +150,12 @@ async def get_sales_by_date(db: AsyncIOMotorDatabase, date_str: str) -> dict:
         if kg_match:
             return float(kg_match.group(1)) * 1000
         
+        # Handle Half Dozen and Dozen variants
+        if 'half dozen' in unit_lower or 'half-dozen' in unit_lower:
+            return 500
+        elif 'dozen' in unit_lower and 'half' not in unit_lower:
+            return 1000
+        
         if 'bunch' in unit_lower:
             return 100
         return 0

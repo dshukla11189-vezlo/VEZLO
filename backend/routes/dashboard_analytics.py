@@ -634,7 +634,11 @@ async def get_pnl_report(
     
     # ========== QC SALES (from GRN - actual received values) ==========
     try:
-        qc_grns = await db.qc_grns.find({}, {"_id": 0}).to_list(None)
+        # Filter GRNs by items.dispatch_date in range (uses index)
+        qc_grns = await db.qc_grns.find(
+            {"items.dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}},
+            {"_id": 0}
+        ).to_list(None)
     except Exception as e:
         logger.error(f"Database error fetching QC GRNs: {e}")
         raise HTTPException(status_code=503, detail="Database temporarily unavailable - failed to fetch QC GRNs")

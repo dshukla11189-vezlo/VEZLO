@@ -172,9 +172,29 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
     return dispatches_by_product
 
 
-async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = None) -> dict:
+async def derive_fresh_wastage_for_date(
+    date: str, 
+    db_ref, 
+    all_products: list = None,
+    prefetched_data: dict = None
+) -> dict:
     """
     Shared helper to derive fresh wastage data for a specific date.
+    
+    Can operate in two modes:
+    1. Standalone (prefetched_data=None): Fetches all data from DB per-date
+    2. Batch mode (prefetched_data provided): Uses pre-fetched data for efficiency
+    
+    prefetched_data structure (for batch mode):
+    {
+        "procurements_by_date": {date_str: [proc_items...]},
+        "qc_dispatches_by_date": {date_str: [dispatches...]},
+        "retailer_dispatches_by_date": {date_str: [dispatches...]},
+        "stock_status_by_date": {date_str: [records...]},
+        "daily_cogs_by_date": {date_str: {product_name: price}},
+        "historical_prices": {product_id: price},
+        "packaging_map": {variant_name: weight_gm}
+    }
     
     Reads LIVE from:
     - procurements (with unit_size Kg conversion for Bunch/Piece/Pack/etc.)
@@ -221,15 +241,18 @@ async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = 
     if all_products is None:
         all_products = await db_ref.products.find({}, {"_id": 0, "image_url": 0}).to_list(500)
     
-    # Build packaging map for weight conversion
-    packaging_map = {}
-    for p in all_products:
-        for v in p.get("variants", []):
-            variant_name = (v.get("name") or "").lower().strip()
-            if variant_name:
-                weight_gm = extract_weight_from_packaging_name(variant_name)
-                if weight_gm:
-                    packaging_map[variant_name] = weight_gm
+    # Build packaging map (use prefetched if available)
+    if prefetched_data and "packaging_map" in prefetched_data:
+        packaging_map = prefetched_data["packaging_map"]
+    else:
+        packaging_map = {}
+        for p in all_products:
+            for v in p.get("variants", []):
+                variant_name = (v.get("name") or "").lower().strip()
+                if variant_name:
+                    weight_gm = extract_weight_from_packaging_name(variant_name)
+                    if weight_gm:
+                        packaging_map[variant_name] = weight_gm
     
     # Build product name to ID mapping
     product_name_to_id = {}
@@ -242,20 +265,12 @@ async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = 
             product_id_to_name[pid] = pname
     
     # ===== 1. FRESH PURCHASE DATA from procurements =====
-    procurements = await db_ref.procurements.find({}, {"_id": 0}).to_list(10000)
     purchases_by_product = {}  # product_id -> {"qty": float, "value": float}
     
-    for proc in procurements:
-        proc_date = proc.get("date", "")
-        if isinstance(proc_date, datetime):
-            proc_date_str = proc_date.strftime('%Y-%m-%d')
-        else:
-            proc_date_str = str(proc_date)[:10]
-        
-        if proc_date_str != date:
-            continue
-        
-        for item in proc.get("products", []):
+    if prefetched_data and "procurements_by_date" in prefetched_data:
+        # Use pre-fetched procurements for this date
+        day_procurements = prefetched_data["procurements_by_date"].get(date, [])
+        for item in day_procurements:
             product_id = item.get("product_id")
             qty = item.get("quantity", 0) or 0
             unit = item.get("unit", "Kg")
@@ -267,13 +282,11 @@ async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = 
             unit_lower = unit.lower().strip()
             if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
                 weight_gm = None
-                # Try unit_size first (grams per unit)
                 if unit_size:
                     try:
                         weight_gm = float(unit_size)
                     except (ValueError, TypeError):
                         pass
-                # Fallback to standard weights
                 if not weight_gm:
                     defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000, 'dozen': 1200}
                     weight_gm = defaults.get(unit_lower)
@@ -281,25 +294,75 @@ async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = 
                 if weight_gm:
                     qty_kg = (qty * weight_gm) / 1000
                 else:
-                    qty_kg = qty  # Fallback to raw qty if no conversion
+                    qty_kg = qty
             else:
-                qty_kg = qty  # Already in Kg or unknown unit
+                qty_kg = qty
             
             if product_id not in purchases_by_product:
                 purchases_by_product[product_id] = {"qty": 0, "value": 0}
             purchases_by_product[product_id]["qty"] += qty_kg
             purchases_by_product[product_id]["value"] += total_value
+    else:
+        # Standalone mode: fetch from DB
+        procurements = await db_ref.procurements.find({}, {"_id": 0}).to_list(10000)
+        for proc in procurements:
+            proc_date = proc.get("date", "")
+            if isinstance(proc_date, datetime):
+                proc_date_str = proc_date.strftime('%Y-%m-%d')
+            else:
+                proc_date_str = str(proc_date)[:10]
+            
+            if proc_date_str != date:
+                continue
+            
+            for item in proc.get("products", []):
+                product_id = item.get("product_id")
+                qty = item.get("quantity", 0) or 0
+                unit = item.get("unit", "Kg")
+                unit_size = item.get("unit_size", "")
+                rate = item.get("rate", 0) or 0
+                total_value = item.get("total", qty * rate)
+                
+                unit_lower = unit.lower().strip()
+                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                    weight_gm = None
+                    if unit_size:
+                        try:
+                            weight_gm = float(unit_size)
+                        except (ValueError, TypeError):
+                            pass
+                    if not weight_gm:
+                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000, 'dozen': 1200}
+                        weight_gm = defaults.get(unit_lower)
+                    
+                    if weight_gm:
+                        qty_kg = (qty * weight_gm) / 1000
+                    else:
+                        qty_kg = qty
+                else:
+                    qty_kg = qty
+                
+                if product_id not in purchases_by_product:
+                    purchases_by_product[product_id] = {"qty": 0, "value": 0}
+                purchases_by_product[product_id]["qty"] += qty_kg
+                purchases_by_product[product_id]["value"] += total_value
     
     # ===== 2. FRESH DISPATCH DATA with combo ingredient decomposition =====
-    qc_dispatches = await db_ref.qc_dispatches.find({
-        "dispatch_date": {"$regex": f"^{date}"}
-    }, {"_id": 0}).to_list(1000)
-    retailer_dispatches = await db_ref.retailer_dispatches.find({
-        "dispatch_date": {"$regex": f"^{date}"}
-    }, {"_id": 0}).to_list(1000)
-    
     dispatches_by_product = {}  # product_id -> float (qty in kg)
     all_dispatch_items = []
+    
+    if prefetched_data and "qc_dispatches_by_date" in prefetched_data:
+        # Use pre-fetched dispatches
+        qc_dispatches = prefetched_data["qc_dispatches_by_date"].get(date, [])
+        retailer_dispatches = prefetched_data["retailer_dispatches_by_date"].get(date, [])
+    else:
+        # Standalone mode: fetch from DB
+        qc_dispatches = await db_ref.qc_dispatches.find({
+            "dispatch_date": {"$regex": f"^{date}"}
+        }, {"_id": 0}).to_list(1000)
+        retailer_dispatches = await db_ref.retailer_dispatches.find({
+            "dispatch_date": {"$regex": f"^{date}"}
+        }, {"_id": 0}).to_list(1000)
     
     for dispatch in qc_dispatches + retailer_dispatches:
         for item in dispatch.get("items", []):
@@ -333,38 +396,47 @@ async def derive_fresh_wastage_for_date(date: str, db_ref, all_products: list = 
     )
     
     # ===== 3. DAILY_COGS for pricing =====
-    daily_cogs_records = await db_ref.daily_cogs.find(
-        {"date": date},
-        {"_id": 0, "product_name": 1, "daily_cogs": 1}
-    ).to_list(1000)
-    
-    daily_cogs_map = {}  # product_name -> cogs_price
-    for cogs in daily_cogs_records:
-        pname = cogs.get("product_name", "")
-        price = cogs.get("daily_cogs", 0) or 0
-        if pname and price > 0:
-            daily_cogs_map[pname] = price
+    if prefetched_data and "daily_cogs_by_date" in prefetched_data:
+        daily_cogs_map = prefetched_data["daily_cogs_by_date"].get(date, {})
+    else:
+        daily_cogs_records = await db_ref.daily_cogs.find(
+            {"date": date},
+            {"_id": 0, "product_name": 1, "daily_cogs": 1}
+        ).to_list(1000)
+        
+        daily_cogs_map = {}
+        for cogs in daily_cogs_records:
+            pname = cogs.get("product_name", "")
+            price = cogs.get("daily_cogs", 0) or 0
+            if pname and price > 0:
+                daily_cogs_map[pname] = price
     
     # ===== 4. HISTORICAL PRICES for fallback =====
-    historical_records = await db_ref.daily_stock_status.find(
-        {"date": {"$lte": date}, "purchase_qty": {"$gt": 0}},
-        {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
-    ).sort("date", -1).to_list(10000)
-    
-    historical_prices = {}  # product_id -> price per kg
-    for rec in historical_records:
-        pid = rec.get("product_id")
-        if pid and pid not in historical_prices:
-            pqty = rec.get("purchase_qty", 0) or 0
-            pval = rec.get("purchase_value", 0) or 0
-            if pqty > 0:
-                historical_prices[pid] = pval / pqty
+    if prefetched_data and "historical_prices" in prefetched_data:
+        historical_prices = prefetched_data["historical_prices"]
+    else:
+        historical_records = await db_ref.daily_stock_status.find(
+            {"date": {"$lte": date}, "purchase_qty": {"$gt": 0}},
+            {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
+        ).sort("date", -1).to_list(10000)
+        
+        historical_prices = {}
+        for rec in historical_records:
+            pid = rec.get("product_id")
+            if pid and pid not in historical_prices:
+                pqty = rec.get("purchase_qty", 0) or 0
+                pval = rec.get("purchase_value", 0) or 0
+                if pqty > 0:
+                    historical_prices[pid] = pval / pqty
     
     # ===== 5. STOCK STATUS for opening/closing =====
-    day_records = await db_ref.daily_stock_status.find(
-        {"date": date},
-        {"_id": 0}
-    ).to_list(500)
+    if prefetched_data and "stock_status_by_date" in prefetched_data:
+        day_records = prefetched_data["stock_status_by_date"].get(date, [])
+    else:
+        day_records = await db_ref.daily_stock_status.find(
+            {"date": date},
+            {"_id": 0}
+        ).to_list(500)
     
     # ===== 6. COMPUTE FRESH WASTAGE =====
     product_wastage = {}  # product_id -> {...}
@@ -1334,22 +1406,134 @@ async def get_pnl_report(
             fresh_purchases_by_date_product[proc_date_str][product_id]["qty"] += qty_kg
             fresh_purchases_by_date_product[proc_date_str][product_id]["value"] += total_value
     
-    # ========== WASTAGE (Using shared helper for fresh derivation) ==========
-    # Pre-derive fresh wastage for every unique date in range using the helper
-    # Get unique dates with CLOSED records
-    unique_dates = list(set(s.get("date", "")[:10] for s in await db.daily_stock_status.find(
-        {"date": {"$gte": from_date, "$lte": to_date}, "status": "closed"},
-        {"_id": 0, "date": 1}
-    ).to_list(10000)))
-    unique_dates = sorted(unique_dates)
+    # ========== WASTAGE (Using shared helper with batch-prefetched data) ==========
+    # Batch-prefetch all wastage inputs once, then run helper in-memory per date
+    # This drops the wastage loop from ~174 DB queries to ~5
     
-    # Pre-load all products once for efficiency (exclude image_url to reduce transfer)
+    # 1. Pre-load all products once (exclude image_url to reduce transfer)
     all_products_for_wastage = await db.products.find({}, {"_id": 0, "image_url": 0}).to_list(500)
     
-    # Build fresh wastage data per date using the shared helper
+    # Build packaging map once
+    packaging_map = {}
+    for p in all_products_for_wastage:
+        for v in p.get("variants", []):
+            variant_name = (v.get("name") or "").lower().strip()
+            if variant_name:
+                weight_gm = extract_weight_from_packaging_name(variant_name)
+                if weight_gm:
+                    packaging_map[variant_name] = weight_gm
+    
+    # 2. Fetch all procurements in date range and group by date
+    all_procurements = await db.procurements.find(
+        {"date": {"$gte": from_date, "$lte": to_date}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    procurements_by_date = {}  # date -> [items...]
+    for proc in all_procurements:
+        proc_date = proc.get("date", "")
+        if isinstance(proc_date, datetime):
+            proc_date_str = proc_date.strftime('%Y-%m-%d')
+        else:
+            proc_date_str = str(proc_date)[:10]
+        
+        if proc_date_str not in procurements_by_date:
+            procurements_by_date[proc_date_str] = []
+        
+        for item in proc.get("products", []):
+            procurements_by_date[proc_date_str].append(item)
+    
+    # 3. Fetch all QC dispatches in date range and group by date
+    all_qc_dispatches = await db.qc_dispatches.find(
+        {"dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    qc_dispatches_by_date = {}  # date -> [dispatches...]
+    for dispatch in all_qc_dispatches:
+        disp_date = (dispatch.get("dispatch_date") or "")[:10]
+        if disp_date not in qc_dispatches_by_date:
+            qc_dispatches_by_date[disp_date] = []
+        qc_dispatches_by_date[disp_date].append(dispatch)
+    
+    # 4. Fetch all retailer dispatches in date range and group by date
+    all_retailer_dispatches = await db.retailer_dispatches.find(
+        {"dispatch_date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    retailer_dispatches_by_date = {}  # date -> [dispatches...]
+    for dispatch in all_retailer_dispatches:
+        disp_date = (dispatch.get("dispatch_date") or "")[:10]
+        if disp_date not in retailer_dispatches_by_date:
+            retailer_dispatches_by_date[disp_date] = []
+        retailer_dispatches_by_date[disp_date].append(dispatch)
+    
+    # 5. Fetch all daily_stock_status in date range (CLOSED only) and group by date
+    stock_status = await db.daily_stock_status.find({
+        "date": {"$gte": from_date, "$lte": to_date},
+        "status": "closed"
+    }, {"_id": 0}).to_list(10000)
+    
+    stock_status_by_date = {}  # date -> [records...]
+    unique_dates = set()
+    for status in stock_status:
+        status_date = status.get("date", "")[:10]
+        if status_date:
+            unique_dates.add(status_date)
+            if status_date not in stock_status_by_date:
+                stock_status_by_date[status_date] = []
+            stock_status_by_date[status_date].append(status)
+    unique_dates = sorted(unique_dates)
+    
+    # 6. Fetch all daily_cogs in date range and group by date
+    all_daily_cogs = await db.daily_cogs.find(
+        {"date": {"$gte": from_date, "$lte": to_date}},
+        {"_id": 0, "product_name": 1, "daily_cogs": 1, "date": 1}
+    ).to_list(10000)
+    
+    daily_cogs_by_date = {}  # date -> {product_name: price}
+    for cogs in all_daily_cogs:
+        cogs_date = cogs.get("date", "")
+        pname = cogs.get("product_name", "")
+        price = cogs.get("daily_cogs", 0) or 0
+        if cogs_date and pname and price > 0:
+            if cogs_date not in daily_cogs_by_date:
+                daily_cogs_by_date[cogs_date] = {}
+            daily_cogs_by_date[cogs_date][pname] = price
+    
+    # 7. Fetch historical prices once (for fallback pricing)
+    historical_records = await db.daily_stock_status.find(
+        {"date": {"$lte": to_date}, "purchase_qty": {"$gt": 0}},
+        {"_id": 0, "product_id": 1, "purchase_qty": 1, "purchase_value": 1, "date": 1}
+    ).sort("date", -1).to_list(10000)
+    
+    historical_prices = {}  # product_id -> price per kg
+    for rec in historical_records:
+        pid = rec.get("product_id")
+        if pid and pid not in historical_prices:
+            pqty = rec.get("purchase_qty", 0) or 0
+            pval = rec.get("purchase_value", 0) or 0
+            if pqty > 0:
+                historical_prices[pid] = pval / pqty
+    
+    # Build prefetched_data structure for the helper
+    prefetched_data = {
+        "procurements_by_date": procurements_by_date,
+        "qc_dispatches_by_date": qc_dispatches_by_date,
+        "retailer_dispatches_by_date": retailer_dispatches_by_date,
+        "stock_status_by_date": stock_status_by_date,
+        "daily_cogs_by_date": daily_cogs_by_date,
+        "historical_prices": historical_prices,
+        "packaging_map": packaging_map
+    }
+    
+    # Build fresh wastage data per date using the shared helper (in-memory, no DB queries)
     fresh_wastage_by_date = {}  # date -> {product_id: {...}}
     for date_str in unique_dates:
-        fresh_data = await derive_fresh_wastage_for_date(date_str, db, all_products_for_wastage)
+        fresh_data = await derive_fresh_wastage_for_date(
+            date_str, db, all_products_for_wastage, prefetched_data
+        )
         fresh_wastage_by_date[date_str] = fresh_data["products"]
     
     total_wastage_qty = 0
@@ -1363,12 +1547,6 @@ async def get_pnl_report(
     
     # Maximum reasonable COGS per kg for fresh produce (sanity check)
     MAX_REASONABLE_COGS_PER_KG = 5000
-    
-    # Also keep original stock_status for combo proportional distribution later
-    stock_status = await db.daily_stock_status.find({
-        "date": {"$gte": from_date, "$lte": to_date},
-        "status": "closed"
-    }, {"_id": 0}).to_list(10000)
     
     for status in stock_status:
         status_date = status.get("date", "")[:10]

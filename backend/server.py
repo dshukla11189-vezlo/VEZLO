@@ -1986,6 +1986,33 @@ async def get_retailer_closing_summary(
             {"retailer_id": retailer_id, "closing_date": prev_date_str},
             {"_id": 0}
         ).to_list(500)
+        
+        # TIMING-BASED ADJUSTMENT:
+        # If closing was recorded BEFORE dispatch arrived on previous day,
+        # we need to add dispatch items to get the true ending inventory
+        # (which becomes today's opening)
+        
+        # Find max closing timestamp from previous day
+        closing_timestamps = [item.get("created_at", "") for item in prev_items if item.get("created_at")]
+        last_closing_time = max(closing_timestamps) if closing_timestamps else ""
+        
+        # Get previous day's dispatches for this retailer
+        prev_day_dispatches = await db.retailer_dispatches.find({
+            "retailer_id": retailer_id,
+            "dispatch_date": {"$regex": f"^{prev_date_str}"}
+        }, {"_id": 0}).to_list(100)
+        
+        # Find max dispatch timestamp (use created_at or updated_at, whichever is later)
+        dispatch_timestamps = []
+        for d in prev_day_dispatches:
+            created = d.get("created_at", "")
+            updated = d.get("updated_at", "")
+            ts = max(created, updated) if updated else created
+            if ts:
+                dispatch_timestamps.append(ts)
+        last_dispatch_time = max(dispatch_timestamps) if dispatch_timestamps else ""
+        
+        # Build initial closing map from prev_items
         for item in prev_items:
             product_id = item.get('product_id')
             variant_id = item.get('variant_id')
@@ -1996,10 +2023,48 @@ async def get_retailer_closing_summary(
             prev_closing[key] = closing_qty
             
             # Also store product-level aggregate for fallback
-            # If multiple variants exist, sum them up (though typically there's one)
             if product_id not in prev_closing_product_only:
                 prev_closing_product_only[product_id] = 0
             prev_closing_product_only[product_id] += closing_qty
+        
+        # If closing was recorded BEFORE dispatch, add dispatch items to get true ending inventory
+        if last_closing_time and last_dispatch_time and last_closing_time < last_dispatch_time:
+            for dispatch in prev_day_dispatches:
+                for item in dispatch.get("items", []):
+                    product_id = item.get("product_id")
+                    variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+                    supplied_qty = item.get("supplied_qty", 0) or 0
+                    
+                    # Try multiple key formats for matching (same as retailer_portal.py)
+                    key = f"{product_id}_{variant_id}"
+                    key_default = f"{product_id}_default"
+                    key_empty = f"{product_id}_"
+                    key_unit_piece = f"{product_id}_unit_piece"
+                    key_unit_packet = f"{product_id}_unit_packet"
+                    
+                    key_matched = None
+                    if key in prev_closing:
+                        key_matched = key
+                    elif key_default in prev_closing:
+                        key_matched = key_default
+                    elif key_empty in prev_closing:
+                        key_matched = key_empty
+                    elif key_unit_piece in prev_closing:
+                        key_matched = key_unit_piece
+                    elif key_unit_packet in prev_closing:
+                        key_matched = key_unit_packet
+                    
+                    if key_matched:
+                        prev_closing[key_matched] += supplied_qty
+                        # Also update product-level aggregate
+                        if product_id in prev_closing_product_only:
+                            prev_closing_product_only[product_id] += supplied_qty
+                    else:
+                        # New item not in closing - add it
+                        prev_closing[key_default] = supplied_qty
+                        if product_id not in prev_closing_product_only:
+                            prev_closing_product_only[product_id] = 0
+                        prev_closing_product_only[product_id] += supplied_qty
     
     # Get dispatches for this date (received qty) and build variant name map from ALL dispatches
     dispatches = await db.retailer_dispatches.find({

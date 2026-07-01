@@ -26,7 +26,6 @@
 | Deep Barhaiya | deep.barhaiya@gmail.com |
 
 ## Notes
-- **June 30, 2026**: All retailer passwords standardized to '12345' in preview
-- Admin password: admin123
+- **July 1, 2026**: Admin password reset to 'admin123', all retailer passwords set to '12345'
 - Production credentials may differ - this file is for preview/testing only
 - Database: `test_database`

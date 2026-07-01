@@ -1015,6 +1015,13 @@ async def startup_event():
             # QC GRNs (for date filter on items.dispatch_date)
             await db.qc_grns.create_index("items.dispatch_date")
             
+            # Retailer daily sales (new collection)
+            await db.retailer_daily_sales.create_index(
+                [("retailer_id", 1), ("date", 1), ("product_id", 1), ("variant_id", 1)],
+                unique=True
+            )
+            await db.retailer_daily_sales.create_index("date")
+            
             # Retailer payments
             await db.retailer_payments.create_index("payment_date")
             await db.retailer_payments.create_index("retailer_id")
@@ -1922,6 +1929,7 @@ async def record_retailer_closing_inventory(
     
     # Insert new closing inventory items
     saved_count = 0
+    saved_items = []  # Track saved items for daily sales computation
     for item in items:
         closing_qty = item.get("closing_qty")
         
@@ -1947,11 +1955,407 @@ async def record_retailer_closing_inventory(
             }
             await db.retailer_closing_inventory.insert_one(inventory_record)
             saved_count += 1
+            saved_items.append({
+                "product_id": item.get("product_id"),
+                "product_name": item.get("product_name"),
+                "variant_id": item.get("variant_id"),
+                "variant_name": item.get("variant_name") or "Kg",
+                "closing_qty": closing_qty_num
+            })
+    
+    # ===== Compute and upsert retailer_daily_sales =====
+    await compute_and_upsert_daily_sales(
+        db, retailer_id, retailer_name, closing_date, saved_items
+    )
+    
+    # ===== Cascade: Update next day's record if it exists =====
+    try:
+        next_date = (datetime.strptime(closing_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        next_day_records = await db.retailer_daily_sales.find(
+            {"retailer_id": retailer_id, "date": next_date},
+            {"_id": 0}
+        ).to_list(500)
+        
+        if next_day_records:
+            # Recompute next day's records since D's closing (their opening) just changed
+            next_day_items = []
+            for rec in next_day_records:
+                # Get next day's closing from retailer_closing_inventory
+                next_closing = await db.retailer_closing_inventory.find_one({
+                    "retailer_id": retailer_id,
+                    "closing_date": next_date,
+                    "product_id": rec.get("product_id"),
+                    "variant_id": rec.get("variant_id")
+                }, {"_id": 0})
+                
+                if next_closing:
+                    next_day_items.append({
+                        "product_id": rec.get("product_id"),
+                        "product_name": rec.get("product_name"),
+                        "variant_id": rec.get("variant_id"),
+                        "variant_name": rec.get("variant_name", "Kg"),
+                        "closing_qty": next_closing.get("closing_qty", 0)
+                    })
+            
+            if next_day_items:
+                await compute_and_upsert_daily_sales(
+                    db, retailer_id, retailer_name, next_date, next_day_items
+                )
+    except Exception as cascade_err:
+        logger.warning(f"Cascade update for next day failed: {cascade_err}")
     
     return {
         "message": f"Recorded closing inventory for {closing_date}",
         "items_saved": saved_count
     }
+
+
+async def compute_and_upsert_daily_sales(
+    db_ref, 
+    retailer_id: str, 
+    retailer_name: str, 
+    date: str, 
+    closing_items: list
+):
+    """
+    Compute and upsert retailer_daily_sales records for a given date.
+    
+    For each product in closing_items:
+    - opening_qty: Previous day's closing (with timing-aware adjustment)
+    - received_qty: Sum of dispatches for this date
+    - closing_qty: The submitted value
+    - rejection_qty: Sum of rejections for this date
+    - sold_qty: max(0, opening + received - closing - rejection)
+    """
+    from datetime import timedelta
+    
+    try:
+        prev_date = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    except:
+        prev_date = None
+    
+    # Get previous day's closing records for this retailer
+    prev_closing_map = {}
+    if prev_date:
+        prev_items = await db_ref.retailer_closing_inventory.find(
+            {"retailer_id": retailer_id, "closing_date": prev_date},
+            {"_id": 0}
+        ).to_list(500)
+        
+        # TIMING-BASED ADJUSTMENT (same as Change 1)
+        closing_timestamps = [item.get("created_at", "") for item in prev_items if item.get("created_at")]
+        last_closing_time = max(closing_timestamps) if closing_timestamps else ""
+        
+        prev_day_dispatches = await db_ref.retailer_dispatches.find({
+            "retailer_id": retailer_id,
+            "dispatch_date": {"$regex": f"^{prev_date}"}
+        }, {"_id": 0}).to_list(100)
+        
+        dispatch_timestamps = []
+        for d in prev_day_dispatches:
+            created = d.get("created_at", "")
+            updated = d.get("updated_at", "")
+            ts = max(created, updated) if updated else created
+            if ts:
+                dispatch_timestamps.append(ts)
+        last_dispatch_time = max(dispatch_timestamps) if dispatch_timestamps else ""
+        
+        # Build initial closing map
+        for item in prev_items:
+            product_id = item.get('product_id')
+            variant_id = item.get('variant_id') or ""
+            closing_qty = item.get("closing_qty", 0)
+            key = f"{product_id}_{variant_id}"
+            prev_closing_map[key] = closing_qty
+        
+        # Apply timing adjustment if closing was before dispatch
+        if last_closing_time and last_dispatch_time and last_closing_time < last_dispatch_time:
+            for dispatch in prev_day_dispatches:
+                for item in dispatch.get("items", []):
+                    product_id = item.get("product_id")
+                    variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+                    supplied_qty = item.get("supplied_qty", 0) or 0
+                    
+                    key = f"{product_id}_{variant_id}"
+                    key_empty = f"{product_id}_"
+                    key_default = f"{product_id}_default"
+                    key_unit_piece = f"{product_id}_unit_piece"
+                    key_unit_packet = f"{product_id}_unit_packet"
+                    
+                    key_matched = None
+                    if key in prev_closing_map:
+                        key_matched = key
+                    elif key_empty in prev_closing_map:
+                        key_matched = key_empty
+                    elif key_default in prev_closing_map:
+                        key_matched = key_default
+                    elif key_unit_piece in prev_closing_map:
+                        key_matched = key_unit_piece
+                    elif key_unit_packet in prev_closing_map:
+                        key_matched = key_unit_packet
+                    
+                    if key_matched:
+                        prev_closing_map[key_matched] += supplied_qty
+                    else:
+                        prev_closing_map[key] = supplied_qty
+    
+    # Get today's dispatches for received_qty
+    today_dispatches = await db_ref.retailer_dispatches.find({
+        "retailer_id": retailer_id,
+        "dispatch_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(100)
+    
+    received_map = {}  # {product_id}_{variant_id} -> qty
+    for dispatch in today_dispatches:
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id")
+            variant_id = item.get("variant_id") or item.get("packaging_id") or ""
+            supplied_qty = item.get("supplied_qty", 0) or 0
+            key = f"{product_id}_{variant_id}"
+            received_map[key] = received_map.get(key, 0) + supplied_qty
+    
+    # Get today's rejections for rejection_qty
+    today_rejections = await db_ref.retailer_rejections.find({
+        "retailer_id": retailer_id,
+        "rejection_date": {"$regex": f"^{date}"}
+    }, {"_id": 0}).to_list(100)
+    
+    rejection_map = {}  # product_id -> qty (rejections typically don't have variants)
+    for rej in today_rejections:
+        product_id = rej.get("product_id")
+        qty = rej.get("quantity", 0) or 0
+        rejection_map[product_id] = rejection_map.get(product_id, 0) + qty
+    
+    # Compute and upsert daily sales for each product
+    now = datetime.now(timezone.utc).isoformat()
+    
+    for item in closing_items:
+        product_id = item.get("product_id")
+        product_name = item.get("product_name", "")
+        variant_id = item.get("variant_id") or ""
+        variant_name = item.get("variant_name", "Kg")
+        closing_qty = item.get("closing_qty", 0)
+        
+        # Get opening from previous day's (adjusted) closing
+        key = f"{product_id}_{variant_id}"
+        key_empty = f"{product_id}_"
+        key_default = f"{product_id}_default"
+        
+        opening_qty = 0
+        if key in prev_closing_map:
+            opening_qty = prev_closing_map[key]
+        elif key_empty in prev_closing_map:
+            opening_qty = prev_closing_map[key_empty]
+        elif key_default in prev_closing_map:
+            opening_qty = prev_closing_map[key_default]
+        
+        # Get received from dispatches
+        received_qty = received_map.get(key, 0)
+        if received_qty == 0:
+            received_qty = received_map.get(key_empty, 0)
+        if received_qty == 0:
+            received_qty = received_map.get(key_default, 0)
+        
+        # Get rejection
+        rejection_qty = rejection_map.get(product_id, 0)
+        
+        # Calculate sold_qty
+        sold_qty = max(0, opening_qty + received_qty - closing_qty - rejection_qty)
+        
+        # Upsert daily sales record
+        filter_doc = {
+            "retailer_id": retailer_id,
+            "date": date,
+            "product_id": product_id,
+            "variant_id": variant_id
+        }
+        
+        update_doc = {
+            "$set": {
+                "retailer_name": retailer_name,
+                "product_name": product_name,
+                "variant_name": variant_name,
+                "opening_qty": round(opening_qty, 2),
+                "received_qty": round(received_qty, 2),
+                "closing_qty": round(closing_qty, 2),
+                "rejection_qty": round(rejection_qty, 2),
+                "sold_qty": round(sold_qty, 2),
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "created_at": now
+            }
+        }
+        
+        await db_ref.retailer_daily_sales.update_one(filter_doc, update_doc, upsert=True)
+
+
+# ===== RETAILER DAILY SALES API ENDPOINTS =====
+
+@app.get("/api/retailer-daily-sales/{retailer_id}")
+async def get_retailer_daily_sales(
+    retailer_id: str,
+    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all retailer_daily_sales records for a retailer in date range.
+    Returns items sorted by date ascending, then product_name ascending.
+    """
+    items = await db.retailer_daily_sales.find(
+        {
+            "retailer_id": retailer_id,
+            "date": {"$gte": from_date, "$lte": to_date}
+        },
+        {"_id": 0}
+    ).sort([("date", 1), ("product_name", 1)]).to_list(10000)
+    
+    total_sold = sum(item.get("sold_qty", 0) or 0 for item in items)
+    
+    return {
+        "items": items,
+        "total_sold": round(total_sold, 2),
+        "date_range": {
+            "from": from_date,
+            "to": to_date
+        }
+    }
+
+
+@app.get("/api/retailer-daily-sales/summary")
+async def get_retailer_daily_sales_summary(
+    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., description="End date YYYY-MM-DD"),
+    retailer_id: Optional[str] = Query(None, description="Optional retailer filter"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get aggregated daily sales grouped by date.
+    If retailer_id is provided, filter to that retailer only.
+    """
+    match_filter = {"date": {"$gte": from_date, "$lte": to_date}}
+    if retailer_id:
+        match_filter["retailer_id"] = retailer_id
+    
+    pipeline = [
+        {"$match": match_filter},
+        {"$group": {
+            "_id": "$date",
+            "total_opening": {"$sum": "$opening_qty"},
+            "total_received": {"$sum": "$received_qty"},
+            "total_closing": {"$sum": "$closing_qty"},
+            "total_sold": {"$sum": "$sold_qty"},
+            "total_rejection": {"$sum": "$rejection_qty"}
+        }},
+        {"$sort": {"_id": 1}},
+        {"$project": {
+            "_id": 0,
+            "date": "$_id",
+            "total_opening": {"$round": ["$total_opening", 2]},
+            "total_received": {"$round": ["$total_received", 2]},
+            "total_closing": {"$round": ["$total_closing", 2]},
+            "total_sold": {"$round": ["$total_sold", 2]},
+            "total_rejection": {"$round": ["$total_rejection", 2]}
+        }}
+    ]
+    
+    daily_results = await db.retailer_daily_sales.aggregate(pipeline).to_list(100)
+    
+    grand_total_sold = sum(d.get("total_sold", 0) or 0 for d in daily_results)
+    
+    return {
+        "daily": daily_results,
+        "grand_total_sold": round(grand_total_sold, 2),
+        "date_range": {
+            "from": from_date,
+            "to": to_date
+        }
+    }
+
+
+@app.post("/api/retailer-daily-sales/backfill")
+async def backfill_retailer_daily_sales(
+    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., description="End date YYYY-MM-DD"),
+    retailer_id: Optional[str] = Query(None, description="Optional retailer filter"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Admin-only endpoint to backfill retailer_daily_sales records.
+    Iterates through each date in range, for each retailer, computes and upserts records.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can backfill daily sales")
+    
+    from datetime import timedelta
+    
+    # Parse date range
+    try:
+        start_date = datetime.strptime(from_date, "%Y-%m-%d")
+        end_date = datetime.strptime(to_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    # Get all retailers (or specific one)
+    if retailer_id:
+        retailers = await db.users.find(
+            {"id": retailer_id, "role": "retailer"},
+            {"_id": 0, "id": 1, "name": 1, "company_name": 1}
+        ).to_list(1)
+    else:
+        retailers = await db.users.find(
+            {"role": "retailer"},
+            {"_id": 0, "id": 1, "name": 1, "company_name": 1}
+        ).to_list(500)
+    
+    records_created = 0
+    
+    # Iterate through each date
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = current_date.strftime("%Y-%m-%d")
+        
+        # For each retailer
+        for retailer in retailers:
+            ret_id = retailer.get("id")
+            ret_name = retailer.get("company_name") or retailer.get("name", "Unknown")
+            
+            # Get closing inventory for this retailer on this date
+            closing_items = await db.retailer_closing_inventory.find(
+                {"retailer_id": ret_id, "closing_date": date_str},
+                {"_id": 0}
+            ).to_list(500)
+            
+            if closing_items:
+                # Convert to the format expected by compute_and_upsert_daily_sales
+                items_for_compute = []
+                for item in closing_items:
+                    items_for_compute.append({
+                        "product_id": item.get("product_id"),
+                        "product_name": item.get("product_name"),
+                        "variant_id": item.get("variant_id"),
+                        "variant_name": item.get("variant_name", "Kg"),
+                        "closing_qty": item.get("closing_qty", 0)
+                    })
+                
+                await compute_and_upsert_daily_sales(
+                    db, ret_id, ret_name, date_str, items_for_compute
+                )
+                records_created += len(items_for_compute)
+        
+        current_date += timedelta(days=1)
+    
+    return {
+        "message": f"Backfilled {records_created} records for date range {from_date} to {to_date}",
+        "records_created": records_created,
+        "date_range": {
+            "from": from_date,
+            "to": to_date
+        }
+    }
+
 
 @app.get("/api/retailer-closing-inventory/summary/{retailer_id}")
 async def get_retailer_closing_summary(

@@ -1005,6 +1005,16 @@ async def startup_event():
             await db.retailer_rejections.create_index("retailer_id")
             await db.retailer_rejections.create_index([("rejection_date", -1), ("retailer_id", 1)])
             
+            # Daily stock status (for wastage queries and P&L)
+            await db.daily_stock_status.create_index("date")
+            await db.daily_stock_status.create_index("status")
+            await db.daily_stock_status.create_index([("date", 1), ("status", 1)])
+            await db.daily_stock_status.create_index([("date", 1), ("purchase_qty", 1)])
+            await db.daily_stock_status.create_index("product_id")
+            
+            # QC GRNs (for date filter on items.dispatch_date)
+            await db.qc_grns.create_index("items.dispatch_date")
+            
             # Retailer payments
             await db.retailer_payments.create_index("payment_date")
             await db.retailer_payments.create_index("retailer_id")

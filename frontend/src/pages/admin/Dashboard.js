@@ -1377,7 +1377,7 @@ export default function AdminDashboard() {
                 </div>
                 <div>
                   <p className="text-[10px] text-green-800 font-medium uppercase">Total Sales</p>
-                  <p className="text-lg font-bold text-green-900">{formatCurrency(summary.total_sales)}</p>
+                  <p className="text-lg font-bold text-green-900">{formatCurrency(summary.total_sales - (summary.total_retail_rejection || 0))}</p>
                 </div>
               </div>
             </CardContent>
@@ -1706,7 +1706,7 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-center">
                   <div className="p-1.5 bg-emerald-100/50 rounded">
                     <p className="text-[9px] text-emerald-600 font-medium">SALES</p>
-                    <p className="text-sm font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales)}</p>
+                    <p className="text-sm font-bold text-emerald-900">{formatCurrency(pnlData.vertical_bifurcation.retail.sales - (pnlData.vertical_bifurcation.retail.rejection || 0))}</p>
                   </div>
                   <div className="p-1.5 bg-red-100/50 rounded">
                     <p className="text-[9px] text-red-600 font-medium">PURCHASE</p>
@@ -1904,7 +1904,7 @@ export default function AdminDashboard() {
                                 <td className="p-2 text-right text-orange-600">₹{dayPurchase.toLocaleString()}</td>
                                 <td className="p-2 text-right text-gray-400">-</td>
                                 <td className="p-2 text-right text-red-600">₹{dayWastage.toLocaleString()}</td>
-                                <td className="p-2 text-right text-red-500">{retailRejectionMRP > 0 ? `-₹${retailRejectionMRP.toLocaleString()}` : '-'}</td>
+                                <td className="p-2 text-right text-red-500">{retailRejectionCOGS > 0 ? `-₹${retailRejectionCOGS.toLocaleString()}` : '-'}</td>
                                 <td className="p-2 text-right text-amber-600">{dayCommission > 0 ? `-₹${dayCommission.toLocaleString()}` : '-'}</td>
                                 <td className={`p-2 text-right font-semibold ${dayGrossWithDeductions >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                   {dayGrossWithDeductions >= 0 ? '' : '-'}₹{Math.abs(dayGrossWithDeductions).toLocaleString()}
@@ -2085,8 +2085,8 @@ export default function AdminDashboard() {
                                         <td className="p-2 text-right text-orange-600">₹{Math.round(retailNetCogs).toLocaleString()}</td>
                                         <td className="p-2 text-right text-gray-400">-</td>
                                         <td className="p-2 text-right text-red-600">₹{retailWastage.toLocaleString()}</td>
-                                        <td className="p-2 text-right text-red-500" title={`At COGS: ₹${retailRejectionCOGS.toLocaleString()}`}>
-                                          {retailRejectionMRP > 0 ? `₹${retailRejectionMRP.toLocaleString()}` : '-'}
+                                        <td className="p-2 text-right text-red-500">
+                                          {retailRejectionCOGS > 0 ? `₹${retailRejectionCOGS.toLocaleString()}` : '-'}
                                         </td>
                                         <td className="p-2 text-right text-amber-600">{retailCommission > 0 ? `-₹${retailCommission.toLocaleString()}` : '-'}</td>
                                         <td className={`p-2 text-right font-semibold ${retailGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -2503,7 +2503,7 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">Sales</p>
-                      <p className="text-base font-bold text-green-700">{formatCurrency(verticalData.retail.sales_amount)}</p>
+                      <p className="text-base font-bold text-green-700">{formatCurrency(verticalData.retail.sales_amount - (pnlData.vertical_bifurcation.retail.rejection || 0))}</p>
                     </div>
                     <div className="bg-white rounded-lg p-2 border">
                       <p className="text-[10px] text-gray-500 uppercase">COGS</p>
@@ -2635,7 +2635,7 @@ export default function AdminDashboard() {
                   {/* Row 1 */}
                   <div className="bg-green-50 rounded-lg p-2 text-center border border-green-200">
                     <p className="text-lg font-bold text-green-700">
-                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount)}
+                      {formatCurrency(selectedVertical === 'qc' ? verticalData.qc.sales_amount : (verticalData.retail.sales_amount - (pnlData.vertical_bifurcation.retail.rejection || 0)))}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Sales</p>
                   </div>
@@ -2647,7 +2647,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="bg-indigo-50 rounded-lg p-2 text-center border border-indigo-200">
                     <p className="text-lg font-bold text-indigo-700">
-                      {formatCurrency((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / (selectedVertical === 'qc' ? verticalData.qc.max_sales_days : verticalData.retail.max_sales_days))}
+                      {formatCurrency((selectedVertical === 'qc' ? verticalData.qc.sales_amount : (verticalData.retail.sales_amount - (pnlData.vertical_bifurcation.retail.rejection || 0))) / (selectedVertical === 'qc' ? verticalData.qc.max_sales_days : verticalData.retail.max_sales_days))}
                     </p>
                     <p className="text-[10px] text-gray-600 uppercase">Avg Sales/Day</p>
                     <p className="text-[9px] text-gray-400">({selectedVertical === 'qc' ? verticalData.qc.max_sales_days : verticalData.retail.max_sales_days} active days)</p>
@@ -2839,9 +2839,9 @@ export default function AdminDashboard() {
                           {selectedVertical === 'retail' && <td className="p-2"></td>}
                           <td className="p-2"></td>
                           <td className="p-2 font-bold">TOTAL</td>
-                          <td className="p-2 text-right text-green-700">₹{(selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount).toLocaleString()}</td>
+                          <td className="p-2 text-right text-green-700">₹{(selectedVertical === 'qc' ? verticalData.qc.sales_amount : (verticalData.retail.sales_amount - (pnlData.vertical_bifurcation.retail.rejection || 0))).toLocaleString()}</td>
                           <td className="p-2 text-right">{(selectedVertical === 'qc' ? verticalData.qc.sales_qty : verticalData.retail.sales_qty).toLocaleString()}</td>
-                          <td className="p-2 text-right text-indigo-600">₹{Math.round((selectedVertical === 'qc' ? verticalData.qc.sales_amount : verticalData.retail.sales_amount) / daysInRange).toLocaleString()}</td>
+                          <td className="p-2 text-right text-indigo-600">₹{Math.round((selectedVertical === 'qc' ? verticalData.qc.sales_amount : (verticalData.retail.sales_amount - (pnlData.vertical_bifurcation.retail.rejection || 0))) / daysInRange).toLocaleString()}</td>
                           <td className="p-2 text-right text-red-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.cogs : verticalData.retail.cogs).toLocaleString()}</td>
                           <td className="p-2 text-right text-orange-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.wastage : verticalData.retail.wastage).toLocaleString()}</td>
                           <td className="p-2 text-right text-rose-600">₹{Math.round(selectedVertical === 'qc' ? verticalData.qc.rejection : verticalData.retail.rejection).toLocaleString()}</td>

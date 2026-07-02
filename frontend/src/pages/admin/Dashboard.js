@@ -1710,7 +1710,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="p-1.5 bg-red-100/50 rounded">
                     <p className="text-[9px] text-red-600 font-medium">PURCHASE</p>
-                    <p className="text-sm font-bold text-red-700">{formatCurrency(pnlData.vertical_bifurcation.retail.purchase)}</p>
+                    <p className="text-sm font-bold text-red-700">{formatCurrency(pnlData.vertical_bifurcation.retail.purchase - (pnlData.vertical_bifurcation.retail.rejection_cogs || 0))}</p>
                   </div>
                   <div className="p-1.5 bg-orange-100/50 rounded">
                     <p className="text-[9px] text-orange-600 font-medium">WASTAGE</p>
@@ -1856,9 +1856,9 @@ export default function AdminDashboard() {
                           const retailRejectionMRP = Math.round(day.retail_rejection || 0);
                           const retailRejectionCOGS = Math.round(day.retail_rejection_cogs || 0);
                           const retailCommission = Math.round(day.retail_commission || 0);
-                          // Gross P/L = Net Sales - Net COGS - Wastage - Commission
-                          // (Rejection is already factored out of Net Sales and Net COGS)
-                          const retailGross = Math.round(retailNetSales - retailNetCogs - retailWastage - retailCommission);
+                          // Gross P/L = Net Sales - Net COGS - Rejection COGS - Wastage - Commission
+                          // Rejection COGS is deducted as a separate line item
+                          const retailGross = Math.round(retailNetSales - retailNetCogs - retailRejectionCOGS - retailWastage - retailCommission);
                           const retailMargin = retailNetSales > 0 ? (retailGross / retailNetSales * 100) : 0;
                           
                           // Day total (rejection and commission only apply to retail)

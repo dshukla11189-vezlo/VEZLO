@@ -1430,7 +1430,7 @@ async def get_pnl_report(
     
     # 2. Fetch all procurements in date range and group by date
     all_procurements = await db.procurements.find(
-        {"date": {"$gte": from_date, "$lte": to_date}},
+        {"date": {"$gte": from_date, "$lte": to_date + "T23:59:59"}},
         {"_id": 0}
     ).to_list(10000)
     
@@ -2285,7 +2285,7 @@ async def get_pnl_report(
     # Calculate QC and Retail specific P&L metrics
     # Use ACTUAL COGS and wastage from line items (not proportional allocation)
     qc_sales_pct = (total_qc_sales / total_sales * 100) if total_sales > 0 else 0
-    retail_sales_pct = (total_retail_sales / total_sales * 100) if total_sales > 0 else 0
+    retail_sales_pct = ((total_retail_sales - total_retail_rejection) / total_sales * 100) if total_sales > 0 else 0
     
     # Use actual calculated values from line items
     qc_purchase = actual_qc_cogs
@@ -2326,12 +2326,14 @@ async def get_pnl_report(
     qc_net_margin = (qc_net_profit / total_qc_sales * 100) if total_qc_sales > 0 else 0
     
     # Calculate Retail P&L (using rejection at COGS for accurate profit calculation)
-    # Gross Profit = Sales - COGS - Wastage - Rejection (at COGS) - Commission
-    retail_gross_profit = total_retail_sales - retail_purchase - retail_wastage - total_retail_rejection_cogs - total_retail_commission
+    # Gross Profit = Net Sales - Net Purchase - Rejection COGS - Wastage - Commission
+    retail_net_sales_amt = total_retail_sales - total_retail_rejection
+    retail_net_purchase = retail_purchase - total_retail_rejection_cogs
+    retail_gross_profit = retail_net_sales_amt - retail_net_purchase - total_retail_rejection_cogs - retail_wastage - total_retail_commission
     retail_cost_base = retail_purchase + retail_wastage + total_retail_rejection_cogs + total_retail_commission
-    retail_gross_margin = (retail_gross_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
+    retail_gross_margin = (retail_gross_profit / retail_net_sales_amt * 100) if retail_net_sales_amt > 0 else 0
     retail_net_profit = retail_gross_profit - retail_variable_exp - retail_fixed_exp
-    retail_net_margin = (retail_net_profit / total_retail_sales * 100) if total_retail_sales > 0 else 0
+    retail_net_margin = (retail_net_profit / retail_net_sales_amt * 100) if retail_net_sales_amt > 0 else 0
     
     # Also calculate overall gross margin %
     total_cost_base = total_purchase + total_wastage_value + total_retail_rejection_cogs + total_retail_commission

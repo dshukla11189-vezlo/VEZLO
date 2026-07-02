@@ -1904,7 +1904,7 @@ export default function AdminDashboard() {
                                 <td className="p-2 text-right text-orange-600">₹{dayPurchase.toLocaleString()}</td>
                                 <td className="p-2 text-right text-gray-400">-</td>
                                 <td className="p-2 text-right text-red-600">₹{dayWastage.toLocaleString()}</td>
-                                <td className="p-2 text-right text-red-500">{dayRejection > 0 ? `-₹${dayRejection.toLocaleString()}` : '-'}</td>
+                                <td className="p-2 text-right text-red-500">{retailRejectionMRP > 0 ? `-₹${retailRejectionMRP.toLocaleString()}` : '-'}</td>
                                 <td className="p-2 text-right text-amber-600">{dayCommission > 0 ? `-₹${dayCommission.toLocaleString()}` : '-'}</td>
                                 <td className={`p-2 text-right font-semibold ${dayGrossWithDeductions >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                   {dayGrossWithDeductions >= 0 ? '' : '-'}₹{Math.abs(dayGrossWithDeductions).toLocaleString()}

@@ -2161,6 +2161,11 @@ async def get_pnl_report(
             "retail_rejection": round(day_data.get("retail_rejection", 0), 2),
             "retail_rejection_qty": round(day_data.get("retail_rejection_qty", 0), 2),
             "retail_rejection_cogs": round(day_data.get("retail_rejection_cogs", 0), 2),  # Rejection at COGS/purchase price
+            # NET SALES AND NET COGS: Retail sales/COGS after deducting rejections
+            # Net Sales = Gross MRP - Rejection MRP (what was actually sold)
+            # Net COGS = Dispatch COGS - Rejection COGS (cost of only the sold portion)
+            "retail_net_sales": round(max(0, day_data.get("retail_gross_mrp", 0) - day_data.get("retail_rejection", 0)), 2),
+            "retail_net_cogs": round(max(0, day_data.get("retail_cogs", 0) - day_data.get("retail_rejection_cogs", 0)), 2),
             "retail_commission": round(day_data.get("retail_commission", 0), 2),
             "retail_cogs": round(day_data.get("retail_cogs", 0), 2),
             "qc_cogs": round(day_data.get("qc_cogs", 0), 2),

@@ -1843,26 +1843,35 @@ export default function AdminDashboard() {
                           const qcGross = qcSales - qcPurchase - qcWastage;
                           const qcMargin = qcSales > 0 ? (qcGross / qcSales * 100) : 0;
                           
-                          // Retail aggregates - use data from API including rejection/commission
-                          const retailSales = day.retail_gross_mrp || day.retail_sales || retailItems.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                          // Retail aggregates - use NET values from API (after rejections)
+                          // retail_net_sales = retail_gross_mrp - retail_rejection (MRP)
+                          // retail_net_cogs = retail_cogs - retail_rejection_cogs (purchase price)
+                          const retailGrossSales = day.retail_gross_mrp || day.retail_sales || retailItems.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                          const retailNetSales = day.retail_net_sales || Math.max(0, retailGrossSales - (day.retail_rejection || 0));
                           const retailQty = retailItems.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
-                          const retailPurchase = day.retail_cogs || retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                          const retailGrossCogs = day.retail_cogs || retailItems.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                          const retailNetCogs = day.retail_net_cogs || Math.max(0, retailGrossCogs - (day.retail_rejection_cogs || 0));
                           const retailWastage = retailItems.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
-                          // Use rejection_cogs directly from API (calculated at actual product purchase price)
-                          const retailRejection = Math.round(day.retail_rejection_cogs || 0);
+                          // Rejection at MRP (for display) and COGS (for P&L)
+                          const retailRejectionMRP = Math.round(day.retail_rejection || 0);
+                          const retailRejectionCOGS = Math.round(day.retail_rejection_cogs || 0);
                           const retailCommission = Math.round(day.retail_commission || 0);
-                          const retailGross = Math.round(retailSales - retailPurchase - retailWastage - retailRejection - retailCommission);
-                          const retailMargin = retailSales > 0 ? (retailGross / retailSales * 100) : 0;
+                          // Gross P/L = Net Sales - Net COGS - Wastage - Commission
+                          // (Rejection is already factored out of Net Sales and Net COGS)
+                          const retailGross = Math.round(retailNetSales - retailNetCogs - retailWastage - retailCommission);
+                          const retailMargin = retailNetSales > 0 ? (retailGross / retailNetSales * 100) : 0;
                           
                           // Day total (rejection and commission only apply to retail)
                           // Calculate day purchase from line items COGS, not procurement
-                          const dayPurchase = Math.round(qcPurchase + retailPurchase);
+                          // Use NET values for retail to reflect only what was actually sold
+                          const dayPurchase = Math.round(qcPurchase + retailNetCogs);
                           const unsoldWastage = day.unsold_wastage_total || 0;
                           const dayWastage = Math.round(qcWastage + retailWastage + unsoldWastage);
-                          const dayRejection = retailRejection; // Already at COGS from backend
+                          // Day sales should also use net retail sales
+                          const dayNetSales = Math.round(qcSales + retailNetSales);
                           const dayCommission = retailCommission;
-                          const dayGrossWithDeductions = Math.round(day.sales - dayPurchase - dayWastage - dayRejection - dayCommission);
-                          const dayMarginWithDeductions = day.sales > 0 ? (dayGrossWithDeductions / day.sales * 100) : 0;
+                          const dayGrossWithDeductions = Math.round(dayNetSales - dayPurchase - dayWastage - dayCommission);
+                          const dayMarginWithDeductions = dayNetSales > 0 ? (dayGrossWithDeductions / dayNetSales * 100) : 0;
                           
                           // Group by customer within each vertical
                           const qcByCustomer = qcItems.reduce((acc, item) => {
@@ -2063,15 +2072,22 @@ export default function AdminDashboard() {
                                             <ShoppingCart size={12} className="text-emerald-600" />
                                             <span className="font-medium text-emerald-800">Retail</span>
                                             <span className="text-[10px] text-emerald-500">({Object.keys(retailByCustomer).length} customers)</span>
+                                            {retailRejectionMRP > 0 && (
+                                              <span className="text-[9px] text-red-500" title={`Gross: ₹${retailGrossSales.toLocaleString()}, Rejection: ₹${retailRejectionMRP.toLocaleString()}`}>
+                                                (Net of ₹{retailRejectionMRP.toLocaleString()} rejection)
+                                              </span>
+                                            )}
                                           </span>
                                         </td>
-                                        <td className="p-2 text-right text-emerald-700 font-medium">₹{retailSales.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-emerald-700 font-medium">₹{Math.round(retailNetSales).toLocaleString()}</td>
                                         <td className="p-2 text-right text-emerald-600">{retailQty.toLocaleString()}</td>
                                         <td className="p-2 text-right text-gray-400">-</td>
-                                        <td className="p-2 text-right text-orange-600">₹{retailPurchase.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-orange-600">₹{Math.round(retailNetCogs).toLocaleString()}</td>
                                         <td className="p-2 text-right text-gray-400">-</td>
                                         <td className="p-2 text-right text-red-600">₹{retailWastage.toLocaleString()}</td>
-                                        <td className="p-2 text-right text-red-500">{retailRejection > 0 ? `-₹${retailRejection.toLocaleString()}` : '-'}</td>
+                                        <td className="p-2 text-right text-red-500" title={`At COGS: ₹${retailRejectionCOGS.toLocaleString()}`}>
+                                          {retailRejectionMRP > 0 ? `₹${retailRejectionMRP.toLocaleString()}` : '-'}
+                                        </td>
                                         <td className="p-2 text-right text-amber-600">{retailCommission > 0 ? `-₹${retailCommission.toLocaleString()}` : '-'}</td>
                                         <td className={`p-2 text-right font-semibold ${retailGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                           {retailGross >= 0 ? '' : '-'}₹{Math.abs(retailGross).toLocaleString()}

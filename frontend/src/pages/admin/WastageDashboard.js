@@ -218,6 +218,7 @@ export default function WastageDashboard() {
               const wastageValue = product.wastage_value || 0;
               
               if (wastageKg > 0) {
+                const closingValue = (product.closing_qty || 0) * (product.cogs_price || 0);
                 allWastageData.push({
                   date: date,
                   product_name: getProductNameInLanguage(product, exportLanguage),
@@ -225,6 +226,7 @@ export default function WastageDashboard() {
                   purchase_qty: product.purchase_qty || 0,
                   dispatch_qty: product.dispatch_qty || 0,
                   closing_qty: product.closing_qty || 0,
+                  closing_value: closingValue,
                   wastage_qty: wastageKg,
                   wastage_value: wastageValue,
                   wastage_percent: product.wastage_percent || 0
@@ -248,9 +250,9 @@ export default function WastageDashboard() {
       
       // Column headers in selected language
       const headers = {
-        en: ['Date', 'Product', 'Opening (Kg)', 'Purchase (Kg)', 'Dispatch (Kg)', 'Closing (Kg)', 'Wastage (Kg)', 'Wastage Value (₹)', 'Wastage %'],
-        hi: ['तारीख', 'उत्पाद', 'प्रारंभिक (किलो)', 'खरीद (किलो)', 'डिस्पैच (किलो)', 'समापन (किलो)', 'बर्बादी (किलो)', 'बर्बादी मूल्य (₹)', 'बर्बादी %'],
-        mr: ['तारीख', 'उत्पादन', 'सुरुवातीचा (किलो)', 'खरेदी (किलो)', 'डिस्पॅच (किलो)', 'शेवटचा (किलो)', 'नासाडी (किलो)', 'नासाडी मूल्य (₹)', 'नासाडी %']
+        en: ['Date', 'Product', 'Opening (Kg)', 'Purchase (Kg)', 'Dispatch (Kg)', 'Closing (Kg)', 'Closing Value (₹)', 'Wastage (Kg)', 'Wastage Value (₹)', 'Wastage %'],
+        hi: ['तारीख', 'उत्पाद', 'प्रारंभिक (किलो)', 'खरीद (किलो)', 'डिस्पैच (किलो)', 'समापन (किलो)', 'समापन मूल्य (₹)', 'बर्बादी (किलो)', 'बर्बादी मूल्य (₹)', 'बर्बादी %'],
+        mr: ['तारीख', 'उत्पादन', 'सुरुवातीचा (किलो)', 'खरेदी (किलो)', 'डिस्पॅच (किलो)', 'शेवटचा (किलो)', 'शेवटचा मूल्य (₹)', 'नासाडी (किलो)', 'नासाडी मूल्य (₹)', 'नासाडी %']
       };
       
       const totalLabels = {
@@ -268,12 +270,14 @@ export default function WastageDashboard() {
         row.purchase_qty.toFixed(2),
         row.dispatch_qty.toFixed(2),
         row.closing_qty.toFixed(2),
+        row.closing_value.toFixed(2),
         row.wastage_qty.toFixed(2),
         row.wastage_value.toFixed(2),
         `${row.wastage_percent.toFixed(2)}%`
       ].join(','));
       
       // Add total row
+      const totalClosingValue = allWastageData.reduce((sum, row) => sum + (row.closing_value || 0), 0);
       const totalRow = [
         totalLabels[exportLanguage] || 'TOTAL',
         '-',
@@ -281,6 +285,7 @@ export default function WastageDashboard() {
         '-',
         '-',
         '-',
+        totalClosingValue.toFixed(2),
         totalWastageKg.toFixed(2),
         totalWastageValue.toFixed(2),
         '-'
@@ -703,6 +708,7 @@ export default function WastageDashboard() {
                     <th className="p-2 text-right font-medium text-red-700">Purchase</th>
                     <th className="p-2 text-right font-medium text-red-700">Dispatch</th>
                     <th className="p-2 text-right font-medium text-red-700">Closing</th>
+                    <th className="p-2 text-right font-medium text-red-700">Closing Value</th>
                     <th className="p-2 text-right font-medium text-red-700">Wastage (Kg)</th>
                     <th className="p-2 text-right font-medium text-red-700">Value (₹)</th>
                     <th className="p-2 text-right font-medium text-red-700">%</th>
@@ -718,6 +724,7 @@ export default function WastageDashboard() {
                       <td className="p-2 text-right text-green-600">+{product.purchase_qty?.toFixed(1)}</td>
                       <td className="p-2 text-right text-blue-600">-{product.dispatch_qty?.toFixed(1)}</td>
                       <td className="p-2 text-right">{product.closing_qty?.toFixed(1)}</td>
+                      <td className="p-2 text-right text-purple-600">₹{(product.closing_value || (product.closing_qty * (product.cogs_price || 0)))?.toFixed(0)}</td>
                       <td className="p-2 text-right text-red-600 font-semibold">{product.wastage_qty?.toFixed(2)}</td>
                       <td className="p-2 text-right text-red-600">₹{product.wastage_value?.toFixed(0)}</td>
                       <td className="p-2 text-right">
@@ -735,6 +742,7 @@ export default function WastageDashboard() {
                     <td className="p-2 text-right">-</td>
                     <td className="p-2 text-right">-</td>
                     <td className="p-2 text-right">-</td>
+                    <td className="p-2 text-right text-purple-700">₹{selectedDateWastage.products.reduce((sum, p) => sum + (p.closing_value || (p.closing_qty * (p.cogs_price || 0)) || 0), 0).toFixed(0)}</td>
                     <td className="p-2 text-right text-red-700">{selectedDateWastage.total_wastage_kg?.toFixed(2)} Kg</td>
                     <td className="p-2 text-right text-red-700">₹{selectedDateWastage.total_wastage_value?.toFixed(0)}</td>
                     <td className="p-2 text-right">-</td>

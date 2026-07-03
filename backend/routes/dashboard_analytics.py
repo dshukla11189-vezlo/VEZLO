@@ -5691,6 +5691,8 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
                 "purchase_qty": round(purchase_qty, 2),
                 "dispatch_qty": round(dispatch_qty, 2),
                 "closing_qty": round(closing_qty, 2),
+                "cogs_price": round(pdata.get("cogs_price", 0), 2),
+                "closing_value": round(closing_qty * pdata.get("cogs_price", 0), 2),
                 "wastage_qty": round(wastage_qty, 2),
                 "wastage_value": round(wastage_value, 2),
                 "wastage_percent": round(wastage_percent, 1),

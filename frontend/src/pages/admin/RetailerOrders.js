@@ -11698,12 +11698,13 @@ export default function RetailerOrders() {
                       <th className="p-3 text-center font-medium text-gray-500">QTY</th>
                       <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
                       <th className="p-3 text-left font-medium text-gray-500">REASON</th>
+                      <th className="p-3 text-center font-medium text-gray-500">CREDIT NOTE</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredRejections.length === 0 ? (
-                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">No rejections found</td></tr>
+                      <tr><td colSpan={9} className="p-8 text-center text-gray-400">No rejections found</td></tr>
                     ) : (() => {
                       // Group rejections by date
                       const rejectionsByDate = filteredRejections.reduce((acc, r) => {
@@ -11765,6 +11766,22 @@ export default function RetailerOrders() {
                                 <td className="p-2 text-right text-red-500">{formatCurrency(rejection.rejection_value)}</td>
                                 <td className="p-2 text-gray-500">{rejection.reason}</td>
                                 <td className="p-2 text-center">
+                                  {rejection.credit_note_number ? (
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="text-xs font-medium text-purple-700">{rejection.credit_note_number}</span>
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                        rejection.credit_note_status === 'adjusted' ? 'bg-green-100 text-green-700' :
+                                        rejection.credit_note_status === 'partial' ? 'bg-amber-100 text-amber-700' :
+                                        'bg-purple-100 text-purple-700'
+                                      }`}>
+                                        {rejection.credit_note_status || 'pending'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-300 text-xs">—</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center">
                                   <div className="flex items-center justify-center gap-1">
                                     <Button 
                                       size="sm" 
@@ -11801,7 +11818,7 @@ export default function RetailerOrders() {
                         <td colSpan={2} className="p-3 text-right">Total Rejected:</td>
                         <td className="p-3 text-center text-red-600">{filteredRejections.reduce((sum, r) => sum + (r.quantity || 0), 0)}</td>
                         <td className="p-3 text-right text-red-600">{formatCurrency(filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0))}</td>
-                        <td colSpan={2}></td>
+                        <td colSpan={3}></td>
                       </tr>
                     </tfoot>
                   )}
@@ -12551,12 +12568,11 @@ export default function RetailerOrders() {
                               dateKey = cn.rejection_date.substring(0, 10);
                             }
                           } else {
-                            // Group by recorded/created date
-                            // First try rejection_date (the actual date of rejection)
-                            if (cn.rejection_date) {
+                            // Group by recorded/created date (when the credit note was created in the system)
+                            if (cn.created_at) {
+                              dateKey = cn.created_at.substring(0, 10);
+                            } else if (cn.rejection_date) {
                               dateKey = cn.rejection_date.substring(0, 10);
-                            } else if (cn.created_at) {
-                              dateKey = cn.created_at.substring(0, 10); // YYYY-MM-DD
                             }
                           }
                           

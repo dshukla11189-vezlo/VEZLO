@@ -27,6 +27,7 @@ from dependencies import (
     HINDI_PRODUCT_NAMES,
     MARATHI_PRODUCT_NAMES,
 )
+from pymongo import ReturnDocument
 from models import (
     RetailerIndent,
     RetailerIndentCreate,
@@ -48,6 +49,24 @@ from models import (
 )
 
 router = APIRouter(tags=["retailer_portal"])
+
+
+# ============================================================================
+# ATOMIC CREDIT NOTE NUMBER GENERATOR
+# ============================================================================
+async def get_next_credit_note_number(db_instance, retailer_prefix: str) -> str:
+    """
+    Generate the next credit note number atomically using a counter collection.
+    This prevents duplicate credit note numbers when multiple requests are processed concurrently.
+    """
+    result = await db_instance.counters.find_one_and_update(
+        {"_id": f"credit_note:{retailer_prefix}"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return f"CN-{retailer_prefix}-{str(result['seq']).zfill(4)}"
+
 
 def normalize_dispatch_ids(dispatch_ids) -> list:
     """
@@ -1029,6 +1048,33 @@ async def get_retailer_rejections(
         query["rejection_date"] = date_query
     
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", -1).to_list(limit)
+    
+    # Bulk lookup credit notes for these rejections
+    if rejections:
+        rejection_ids = [r.get("id") for r in rejections if r.get("id")]
+        if rejection_ids:
+            credit_notes = await db.retailer_credit_notes.find(
+                {"rejection_id": {"$in": rejection_ids}},
+                {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1}
+            ).to_list(len(rejection_ids))
+            
+            # Create a map of rejection_id -> credit note info
+            cn_map = {
+                cn.get("rejection_id"): {
+                    "credit_note_id": cn.get("id"),
+                    "credit_note_number": cn.get("credit_note_number"),
+                    "credit_note_amount": cn.get("amount"),
+                    "credit_note_status": cn.get("status", "pending")
+                }
+                for cn in credit_notes if cn.get("rejection_id")
+            }
+            
+            # Attach credit note info to rejections
+            for rejection in rejections:
+                rej_id = rejection.get("id")
+                if rej_id and rej_id in cn_map:
+                    rejection.update(cn_map[rej_id])
+    
     return rejections
 
 @router.post("/retailer-rejections")
@@ -1216,8 +1262,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
             # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
             retailer_name = retailer.get("company_name", retailer.get("name", ""))
             retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
-            cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": input.retailer_id})
-            credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+            credit_note_number = await get_next_credit_note_number(db, retailer_prefix)
             
             # Calculate credit amount after deducting commission
             # Credit = Rejection Value × (1 - Commission%)
@@ -2274,8 +2319,7 @@ async def create_retailer_credit_note(
     # Generate credit note number with retailer prefix (e.g., CN-TAM-0001)
     retailer_name = retailer.get("company_name", retailer.get("name", ""))
     retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
-    count = await db.retailer_credit_notes.count_documents({"retailer_id": input.get("retailer_id")})
-    credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
+    credit_note_number = await get_next_credit_note_number(db, retailer_prefix)
     
     # Calculate credit amount after deducting commission
     # Credit = Rejection Value × (1 - Commission%)
@@ -2365,8 +2409,7 @@ async def create_credit_note_from_excess(
     # Generate credit note number
     retailer_name = retailer.get("company_name", retailer.get("name", ""))
     retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
-    count = await db.retailer_credit_notes.count_documents({"retailer_id": retailer_id})
-    credit_note_number = f"CN-{retailer_prefix}-{str(count + 1).zfill(4)}"
+    credit_note_number = await get_next_credit_note_number(db, retailer_prefix)
     
     # Create credit note - no commission deduction for excess payments (already collected)
     credit_note = {
@@ -2769,8 +2812,7 @@ async def backfill_missing_credit_notes(
         # Generate credit note number
         retailer_name = retailer.get("company_name", retailer.get("name", ""))
         retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
-        cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": retailer_id_rej})
-        credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+        credit_note_number = await get_next_credit_note_number(db, retailer_prefix)
         
         # Calculate credit amount after deducting commission
         commission_pct = retailer.get("commission_percentage", 0) or 0
@@ -3006,8 +3048,7 @@ async def reconcile_100_upfront_credit_notes(
         # Generate credit note
         retailer_name = retailer.get("company_name", retailer.get("name", ""))
         retailer_prefix = ''.join(c for c in retailer_name.upper() if c.isalpha())[:3] or "RET"
-        cn_count = await db.retailer_credit_notes.count_documents({"retailer_id": ret_id})
-        credit_note_number = f"CN-{retailer_prefix}-{str(cn_count + 1).zfill(4)}"
+        credit_note_number = await get_next_credit_note_number(db, retailer_prefix)
         
         commission_pct = retailer.get("commission_percentage", 0) or 0
         

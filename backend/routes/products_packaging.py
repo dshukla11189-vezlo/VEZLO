@@ -83,6 +83,11 @@ def extract_weight_from_packaging_name(name: str) -> float:
     if range_match:
         return (float(range_match.group(1)) + float(range_match.group(2))) / 2
     
+    # Pattern 2.5: "200+ gm", "250+ gm" format — number with plus sign
+    plus_match = re.search(r'(\d+)\s*\+\s*(gm|g)\b', name_lower)
+    if plus_match:
+        return float(plus_match.group(1))
+    
     # Pattern 3: Number + gm/g anywhere in the string
     anywhere_match = re.search(r'(\d+)\s*(gm|g)\b', name_lower)
     if anywhere_match:

@@ -489,6 +489,12 @@ async def derive_fresh_wastage_for_date(
         # 3. Fallback to historical price
         elif product_id and product_id in historical_prices:
             cogs_price = historical_prices[product_id]
+        # 4. Fallback to stored avg_price from stock status record
+        # (for products with no purchase on this day but have prior pricing)
+        if cogs_price == 0:
+            stored_avg_price = record.get("avg_price", 0) or 0
+            if stored_avg_price > 0:
+                cogs_price = stored_avg_price
         
         # Sanity check on COGS price
         if cogs_price > MAX_REASONABLE_COGS_PER_KG:
@@ -5734,6 +5740,10 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
     fields_affecting_wastage = ['purchase_qty', 'dispatch_qty', 'closing_qty', 'opening_qty']
     needs_wastage_recalc = current.get("status") == "closed" and any(f in updates for f in fields_affecting_wastage)
     
+    # Track if closing_qty changed for cascade to next day
+    closing_qty_changed = "closing_qty" in updates and updates["closing_qty"] != current.get("closing_qty")
+    new_closing_qty = updates.get("closing_qty", current.get("closing_qty", 0)) or 0
+    
     if needs_wastage_recalc:
         # Get the updated values (use new value if provided, else keep current)
         opening_qty = updates.get("opening_qty", current.get("opening_qty", 0)) or 0
@@ -5766,7 +5776,60 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Stock status not found")
     
-    return {"message": "Stock status updated", "wastage_recalculated": needs_wastage_recalc}
+    # CASCADE: If closing_qty changed, update next day's opening_qty
+    next_day_updated = False
+    if closing_qty_changed:
+        current_date = current.get("date")
+        product_id = current.get("product_id")
+        
+        if current_date and product_id:
+            # Calculate next day's date
+            try:
+                from datetime import timedelta
+                current_dt = datetime.strptime(current_date[:10], "%Y-%m-%d")
+                next_date = (current_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+                
+                # Find next day's stock status for the same product
+                next_day_record = await db.daily_stock_status.find_one({
+                    "product_id": product_id,
+                    "date": next_date
+                }, {"_id": 0})
+                
+                if next_day_record:
+                    next_day_updates = {"opening_qty": round(new_closing_qty, 2)}
+                    
+                    # If next day is also closed, recalculate its wastage
+                    if next_day_record.get("status") == "closed":
+                        next_opening = new_closing_qty
+                        next_purchase = next_day_record.get("purchase_qty", 0) or 0
+                        next_dispatch = next_day_record.get("dispatch_qty", 0) or 0
+                        next_closing = next_day_record.get("closing_qty", 0) or 0
+                        next_avg_price = next_day_record.get("avg_price", 0) or 0
+                        
+                        # Recalculate wastage for next day
+                        next_wastage_qty = max(0, next_opening + next_purchase - next_dispatch - next_closing)
+                        next_total_input = next_opening + next_purchase
+                        next_wastage_pct = (next_wastage_qty / next_total_input * 100) if next_total_input > 0 else 0
+                        next_wastage_value = round(next_wastage_qty * next_avg_price, 2)
+                        
+                        next_day_updates["wastage_qty"] = round(next_wastage_qty, 2)
+                        next_day_updates["wastage_value"] = next_wastage_value
+                        next_day_updates["wastage_percent"] = round(next_wastage_pct, 2)
+                    
+                    await db.daily_stock_status.update_one(
+                        {"id": next_day_record.get("id")},
+                        {"$set": next_day_updates}
+                    )
+                    next_day_updated = True
+                    logger.info(f"Cascaded closing_qty change to next day ({next_date}) for product {product_id}")
+            except Exception as e:
+                logger.error(f"Error cascading closing_qty to next day: {e}")
+    
+    return {
+        "message": "Stock status updated", 
+        "wastage_recalculated": needs_wastage_recalc,
+        "next_day_updated": next_day_updated
+    }
 
 @router.delete("/stock-status/{status_id}")
 async def delete_stock_status(status_id: str, current_user: dict = Depends(get_current_user)):

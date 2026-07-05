@@ -1176,8 +1176,68 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
         if not rejection_is_100_upfront:
             logger.info(f"Rejection date {rejection_date_str} is before model_changed_at {model_changed_at} - using 50% rules")
     
+    # For 50% upfront retailers, we need to decide BEFORE syncing whether to:
+    # 1. Reduce the invoice payable (if not fully paid yet) - sync_invoice_rejection_amount
+    # 2. Create a credit note (if already fully paid) - refund via credit
+    # This prevents double-compensation (reducing payable AND issuing credit note)
+    
+    # Pre-fetch invoice and payment status BEFORE any sync for 50% model
+    original_net_payable = None
+    original_total_paid = None
+    pre_sync_invoice = None
+    
+    if not rejection_is_100_upfront and rejection_value > 0:
+        # Find the invoice BEFORE sync to capture original values
+        if input.dispatch_id:
+            pre_sync_invoice = await db.retailer_invoices.find_one({
+                "retailer_id": input.retailer_id,
+                "dispatch_ids": input.dispatch_id
+            }, {"_id": 0})
+            
+            if not pre_sync_invoice:
+                potential_invoices = await db.retailer_invoices.find({
+                    "retailer_id": input.retailer_id
+                }, {"_id": 0}).to_list(500)
+                
+                for inv in potential_invoices:
+                    raw_dispatch_ids = inv.get("dispatch_ids")
+                    normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                    if input.dispatch_id in normalized:
+                        pre_sync_invoice = inv
+                        break
+        
+        if not pre_sync_invoice:
+            pre_sync_invoice = await db.retailer_invoices.find_one({
+                "retailer_id": input.retailer_id,
+                "invoice_date": {"$regex": f"^{rejection_date_str}"}
+            }, {"_id": 0})
+        
+        if pre_sync_invoice:
+            original_net_payable = pre_sync_invoice.get("net_payable", 0) or 0
+            invoice_id = pre_sync_invoice.get("id")
+            
+            # Calculate total paid BEFORE sync
+            payments = await db.retailer_payments.find(
+                {"invoice_id": invoice_id},
+                {"_id": 0, "amount": 1}
+            ).to_list(100)
+            original_total_paid = sum(p.get("amount", 0) or 0 for p in payments)
+            
+            logger.info(f"Pre-sync check: paid={original_total_paid}, payable={original_net_payable}")
+    
+    # For 50% upfront retailers: Only sync if NOT already fully paid
+    # If already fully paid, we'll create a credit note instead (no sync needed)
     if not rejection_is_100_upfront:
-        await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
+        # Determine if we should sync or create credit note
+        should_sync = True
+        if original_net_payable is not None and original_total_paid is not None:
+            if original_total_paid >= original_net_payable and original_net_payable > 0:
+                # Already fully paid - don't sync, will create credit note instead
+                should_sync = False
+                logger.info(f"Skipping sync - already fully paid. Will create credit note instead.")
+        
+        if should_sync:
+            await sync_invoice_rejection_amount(input.retailer_id, rejection_date_str)
     
     # AUTO-CREATE CREDIT NOTE for 100% upfront retailers
     auto_credit_note = None
@@ -1188,70 +1248,81 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     
     if rejection_value > 0:
         # Find the invoice for this rejection
-        # Strategy 1: If dispatch_id is provided, find the invoice that contains this dispatch
-        # Strategy 2: Fall back to finding invoice by date (legacy behavior)
-        invoice = None
+        # For 50% model, we already have pre_sync_invoice from earlier
+        # For 100% upfront, we need to fetch it now
+        invoice = pre_sync_invoice  # May be None for 100% upfront
         
-        if input.dispatch_id:
-            # First, try standard array query
-            invoice = await db.retailer_invoices.find_one({
-                "retailer_id": input.retailer_id,
-                "dispatch_ids": input.dispatch_id
-            }, {"_id": 0})
-            
-            # If not found, search for stringified dispatch_ids (legacy data issue)
-            if not invoice:
-                # Find all invoices for this retailer and check if dispatch_id is in stringified array
-                potential_invoices = await db.retailer_invoices.find({
-                    "retailer_id": input.retailer_id
-                }, {"_id": 0}).to_list(500)
+        if invoice is None:
+            # Need to find invoice (100% upfront case or pre_sync didn't find one)
+            if input.dispatch_id:
+                # First, try standard array query
+                invoice = await db.retailer_invoices.find_one({
+                    "retailer_id": input.retailer_id,
+                    "dispatch_ids": input.dispatch_id
+                }, {"_id": 0})
                 
-                for inv in potential_invoices:
-                    raw_dispatch_ids = inv.get("dispatch_ids")
-                    normalized = normalize_dispatch_ids(raw_dispatch_ids)
-                    if input.dispatch_id in normalized:
-                        invoice = inv
-                        logger.info(f"Found invoice {inv.get('invoice_number')} via normalized dispatch_ids lookup")
-                        break
+                # If not found, search for stringified dispatch_ids (legacy data issue)
+                if not invoice:
+                    # Find all invoices for this retailer and check if dispatch_id is in stringified array
+                    potential_invoices = await db.retailer_invoices.find({
+                        "retailer_id": input.retailer_id
+                    }, {"_id": 0}).to_list(500)
+                    
+                    for inv in potential_invoices:
+                        raw_dispatch_ids = inv.get("dispatch_ids")
+                        normalized = normalize_dispatch_ids(raw_dispatch_ids)
+                        if input.dispatch_id in normalized:
+                            invoice = inv
+                            logger.info(f"Found invoice {inv.get('invoice_number')} via normalized dispatch_ids lookup")
+                            break
+                
+                if invoice:
+                    logger.info(f"Found invoice {invoice.get('invoice_number')} via dispatch_id {input.dispatch_id}")
             
-            if invoice:
-                logger.info(f"Found invoice {invoice.get('invoice_number')} via dispatch_id {input.dispatch_id}")
-        
-        if not invoice:
-            # Fallback: Find invoice by rejection date (legacy behavior for backward compatibility)
-            invoice = await db.retailer_invoices.find_one({
-                "retailer_id": input.retailer_id,
-                "invoice_date": {"$regex": f"^{rejection_date_str}"}
-            }, {"_id": 0})
-            if invoice:
-                logger.info(f"Found invoice {invoice.get('invoice_number')} via date match {rejection_date_str}")
+            if not invoice:
+                # Fallback: Find invoice by rejection date (legacy behavior for backward compatibility)
+                invoice = await db.retailer_invoices.find_one({
+                    "retailer_id": input.retailer_id,
+                    "invoice_date": {"$regex": f"^{rejection_date_str}"}
+                }, {"_id": 0})
+                if invoice:
+                    logger.info(f"Found invoice {invoice.get('invoice_number')} via date match {rejection_date_str}")
         
         should_create_credit_note = False
         
         if invoice:
             invoice_id = invoice.get("id")
-            net_payable = invoice.get("net_payable", 0) or 0
             
-            # Calculate total paid from retailer_payments for this invoice
-            payments = await db.retailer_payments.find(
-                {"invoice_id": invoice_id},
-                {"_id": 0, "amount": 1}
-            ).to_list(100)
-            total_paid = sum(p.get("amount", 0) or 0 for p in payments)
+            # For 50% model: Use pre-captured values (BEFORE sync)
+            # For 100% upfront: Fetch current values (no sync was done)
+            if not rejection_is_100_upfront and original_net_payable is not None:
+                # Use pre-sync values to avoid double-compensation
+                net_payable = original_net_payable
+                total_paid = original_total_paid
+                logger.info(f"Using pre-sync values: paid={total_paid}, payable={net_payable}")
+            else:
+                # Fetch current values (100% upfront case)
+                net_payable = invoice.get("net_payable", 0) or 0
+                payments = await db.retailer_payments.find(
+                    {"invoice_id": invoice_id},
+                    {"_id": 0, "amount": 1}
+                ).to_list(100)
+                total_paid = sum(p.get("amount", 0) or 0 for p in payments)
             
             # For 100% upfront retailers (rejection date >= model_changed_at): ALWAYS create credit note
             # (Payment happens at delivery time, so rejections always need credit notes)
             if rejection_is_100_upfront:
                 should_create_credit_note = True
                 logger.info(f"Creating credit note for 100% upfront retailer (rejection date {rejection_date_str} >= model_changed_at {model_changed_at or 'N/A'})")
-            # For other retailers (50% model or rejection date < model_changed_at): Only create credit note if already fully paid
+            # For other retailers (50% model): Only create credit note if ALREADY fully paid BEFORE sync
+            # If not fully paid, sync already reduced the payable - no credit note needed
             elif total_paid >= net_payable and net_payable > 0:
                 should_create_credit_note = True
-                logger.info(f"Creating credit note - paid ({total_paid}) >= payable ({net_payable}). Rejection creates excess payment.")
+                logger.info(f"Creating credit note - paid ({total_paid}) >= original payable ({net_payable}). Already fully paid, refund via credit.")
             else:
                 # Paid < Payable: No credit note needed for non-100% upfront
-                # Rejection will reduce the payable, retailer pays the reduced amount
-                logger.info(f"Skipping credit note - paid ({total_paid}) < payable ({net_payable}). Rejection will reduce pending amount.")
+                # Sync already reduced the payable, retailer pays the reduced amount
+                logger.info(f"Skipping credit note - paid ({total_paid}) < original payable ({net_payable}). Invoice payable reduced instead.")
         elif rejection_is_100_upfront:
             # For 100% upfront retailers: Create CN even if invoice not found yet
             # The CN will be created with pending linkage status

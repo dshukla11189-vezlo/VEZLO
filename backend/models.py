@@ -620,6 +620,7 @@ class StockClosingEntry(BaseModel):
 
 class StockClosingBulkEntry(BaseModel):
     entries: List[StockClosingEntry]
+    force_close: Optional[bool] = False  # Set to True to bypass zero-dispatch warning
 
 
 

@@ -580,7 +580,8 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
     )
     
     doc = dispatch.model_dump()
-    doc["dispatch_date"] = doc["dispatch_date"].isoformat()
+    dispatch_date_str = doc["dispatch_date"].isoformat() if hasattr(doc["dispatch_date"], 'isoformat') else str(doc["dispatch_date"])
+    doc["dispatch_date"] = dispatch_date_str
     doc["created_at"] = doc["created_at"].isoformat()
     
     await db.retailer_dispatches.insert_one(doc)
@@ -620,7 +621,25 @@ async def create_retailer_dispatch(input: RetailerDispatchCreate, current_user: 
         {"$set": {"status": new_status}}
     )
     
-    return {"id": dispatch.id, "message": "Dispatch created successfully"}
+    # AUTO-SYNC: If stock is already closed for this date, recalculate dispatches
+    dispatch_date_only = dispatch_date_str[:10]
+    closed_status_exists = await db.daily_stock_status.find_one({
+        "date": dispatch_date_only,
+        "status": "closed"
+    })
+    
+    stock_synced = False
+    if closed_status_exists:
+        try:
+            # Import and call the recalculate function
+            from routes.dashboard_analytics import recalculate_dispatches_for_date
+            result = await recalculate_dispatches_for_date(dispatch_date_only)
+            stock_synced = True
+            logger.info(f"Auto-synced stock status for {dispatch_date_only} after retailer dispatch creation")
+        except Exception as e:
+            logger.error(f"Failed to auto-sync stock status for {dispatch_date_only}: {e}")
+    
+    return {"id": dispatch.id, "message": "Dispatch created successfully", "stock_synced": stock_synced}
 
 # Edit Retailer Dispatch
 @router.put("/retailer-dispatches/{dispatch_id}")

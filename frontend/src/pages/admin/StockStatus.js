@@ -324,14 +324,30 @@ export default function StockStatus() {
 
     setSavingClosing(true);
     try {
-      await api.post(`/api/stock-status/close?date=${filterDate}`, { entries });
+      const response = await api.post(`/api/stock-status/close?date=${filterDate}`, { entries });
       toast.success(`Closed stock for ${entries.length} products`);
+      
+      // Show any validation warnings as orange toast notifications
+      if (response.data?.warnings && response.data.warnings.length > 0) {
+        response.data.warnings.forEach((warning, idx) => {
+          setTimeout(() => {
+            toast.warning(warning, { duration: 8000 });
+          }, idx * 500); // Stagger the warnings
+        });
+      }
+      
       loadStockStatus(filterDate);
       setShowClosingDialog(false);
     } catch (error) {
       console.error('Save closing error:', error);
-      const errorMsg = error.response?.data?.detail || 'Failed to save closing data';
-      toast.error(errorMsg);
+      // Check if error has warnings in the detail (for zero-dispatch safeguard)
+      const errorDetail = error.response?.data?.detail;
+      if (typeof errorDetail === 'object' && errorDetail?.warning === 'zero_dispatches') {
+        toast.error(errorDetail.message, { duration: 10000 });
+      } else {
+        const errorMsg = typeof errorDetail === 'string' ? errorDetail : 'Failed to save closing data';
+        toast.error(errorMsg);
+      }
     } finally {
       setSavingClosing(false);
     }
@@ -376,8 +392,18 @@ export default function StockStatus() {
         updates.status = 'closed';
       }
       
-      await api.put(`/api/stock-status/${editingItem.id}`, updates);
+      const response = await api.put(`/api/stock-status/${editingItem.id}`, updates);
       toast.success('Stock status updated successfully');
+      
+      // Show any validation warnings as orange toast notifications
+      if (response.data?.warnings && response.data.warnings.length > 0) {
+        response.data.warnings.forEach((warning, idx) => {
+          setTimeout(() => {
+            toast.warning(warning, { duration: 8000 });
+          }, idx * 500);
+        });
+      }
+      
       setShowEditDialog(false);
       setEditingItem(null);
       loadStockStatus();

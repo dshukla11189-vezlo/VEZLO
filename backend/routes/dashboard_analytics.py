@@ -3414,6 +3414,11 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             detail=f"Cannot save! Missing closing values for: {', '.join(missing_names)}"
         )
     
+    # ===== CLOSING QTY VALIDATION =====
+    # Validate closing_qty against available stock (opening + purchase)
+    # Flag suspicious entries where closing > available by more than 10%
+    closing_warnings = []
+    
     updated = []
     
     for entry in entries.entries:
@@ -3471,6 +3476,25 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
         if isinstance(dispatch_qty, dict):
             dispatch_qty = dispatch_qty.get("qty", 0)
         dispatch_qty = round(dispatch_qty, 2)
+        
+        # ===== CLOSING QTY VALIDATION =====
+        # Check if closing_qty exceeds available stock (opening + purchase)
+        available_stock = opening_qty + purchase_qty
+        product_name = status.get("product_name", "Unknown")
+        
+        if closing_qty > available_stock:
+            # Calculate difference percentage
+            if available_stock > 0:
+                diff_pct = ((closing_qty - available_stock) / available_stock) * 100
+            else:
+                diff_pct = 100 if closing_qty > 0 else 0
+            
+            # Flag if difference > 10%
+            if diff_pct > 10:
+                closing_warnings.append(
+                    f"{product_name}: closing {closing_qty:.2f} Kg exceeds available {available_stock:.2f} Kg (opening {opening_qty:.2f} + purchase {purchase_qty:.2f}) — please verify"
+                )
+                logger.warning(f"[CLOSING_VALIDATION] {product_name}: closing={closing_qty}, available={available_stock}, diff={diff_pct:.1f}%")
         
         avg_price = status.get("avg_price", 0)
         
@@ -3540,9 +3564,13 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
     except Exception as e:
         logger.warning(f"[STOCK_CLOSE] Could not trigger COGS recompute: {e}")
     
-    return {"message": f"Closed {len(entries.entries)} products for {target_date}"}
+    # Return response with any validation warnings
+    response = {"message": f"Closed {len(entries.entries)} products for {target_date}"}
+    if closing_warnings:
+        response["warnings"] = closing_warnings
+        logger.warning(f"[STOCK_CLOSE] {len(closing_warnings)} closing qty warnings for {target_date}")
     
-    return {"message": f"Closed {len(entries.entries)} products for {target_date}"}
+    return response
 
 
 @router.post("/stock-status/recalculate-dispatches")
@@ -5808,6 +5836,28 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
     closing_qty_changed = "closing_qty" in updates and updates["closing_qty"] != current.get("closing_qty")
     new_closing_qty = updates.get("closing_qty", current.get("closing_qty", 0)) or 0
     
+    # ===== CLOSING QTY VALIDATION =====
+    closing_warning = None
+    if "closing_qty" in updates:
+        # Get values for validation
+        opening_qty_val = updates.get("opening_qty", current.get("opening_qty", 0)) or 0
+        purchase_qty_val = updates.get("purchase_qty", current.get("purchase_qty", 0)) or 0
+        closing_qty_val = updates["closing_qty"]
+        available_stock = opening_qty_val + purchase_qty_val
+        product_name = current.get("product_name", "Unknown")
+        
+        if closing_qty_val > available_stock:
+            # Calculate difference percentage
+            if available_stock > 0:
+                diff_pct = ((closing_qty_val - available_stock) / available_stock) * 100
+            else:
+                diff_pct = 100 if closing_qty_val > 0 else 0
+            
+            # Flag if difference > 10%
+            if diff_pct > 10:
+                closing_warning = f"{product_name}: closing {closing_qty_val:.2f} Kg exceeds available {available_stock:.2f} Kg (opening {opening_qty_val:.2f} + purchase {purchase_qty_val:.2f}) — please verify"
+                logger.warning(f"[CLOSING_VALIDATION] {closing_warning}")
+    
     if needs_wastage_recalc:
         # Get the updated values (use new value if provided, else keep current)
         opening_qty = updates.get("opening_qty", current.get("opening_qty", 0)) or 0
@@ -5889,11 +5939,16 @@ async def update_stock_status(status_id: str, updates: dict, current_user: dict 
             except Exception as e:
                 logger.error(f"Error cascading closing_qty to next day: {e}")
     
-    return {
+    response = {
         "message": "Stock status updated", 
         "wastage_recalculated": needs_wastage_recalc,
         "next_day_updated": next_day_updated
     }
+    
+    if closing_warning:
+        response["warnings"] = [closing_warning]
+    
+    return response
 
 @router.delete("/stock-status/{status_id}")
 async def delete_stock_status(status_id: str, current_user: dict = Depends(get_current_user)):

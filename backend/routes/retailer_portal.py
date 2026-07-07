@@ -653,6 +653,9 @@ async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCrea
     
     indent_id = existing.get("indent_id")
     
+    # Capture old dispatch date for sync
+    old_dispatch_date = str(existing.get("dispatch_date", ""))[:10]
+    
     # Track items that existed before the edit (for done status management)
     old_item_keys = {f"{item.get('product_id')}|{item.get('variant_id', '')}" for item in existing.get("items", [])}
     new_item_keys = {f"{item.product_id}|{item.variant_id or ''}" for item in input.items}
@@ -673,8 +676,11 @@ async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCrea
     
     net_payable = total_mrp_value * (1 - commission / 100)
     
+    dispatch_date_str = input.dispatch_date.isoformat() if hasattr(input.dispatch_date, 'isoformat') else str(input.dispatch_date)
+    new_dispatch_date = dispatch_date_str[:10]
+    
     update_data = {
-        "dispatch_date": input.dispatch_date.isoformat(),
+        "dispatch_date": dispatch_date_str,
         "items": items_with_totals,
         "total_mrp_value": round(total_mrp_value, 2),
         "commission_percentage": commission,
@@ -721,7 +727,27 @@ async def update_retailer_dispatch(dispatch_id: str, input: RetailerDispatchCrea
                     {"$set": {"items": updated_items}}
                 )
     
-    return {"id": dispatch_id, "message": "Dispatch updated successfully"}
+    # AUTO-SYNC: If stock is already closed for either date, recalculate dispatches
+    stock_synced = []
+    dates_to_sync = set([old_dispatch_date, new_dispatch_date])
+    
+    for sync_date in dates_to_sync:
+        if sync_date:
+            closed_status_exists = await db.daily_stock_status.find_one({
+                "date": sync_date,
+                "status": "closed"
+            })
+            
+            if closed_status_exists:
+                try:
+                    from routes.dashboard_analytics import recalculate_dispatches_for_date
+                    await recalculate_dispatches_for_date(sync_date)
+                    stock_synced.append(sync_date)
+                    logger.info(f"Auto-synced stock status for {sync_date} after retailer dispatch update")
+                except Exception as e:
+                    logger.error(f"Failed to auto-sync stock status for {sync_date}: {e}")
+    
+    return {"id": dispatch_id, "message": "Dispatch updated successfully", "stock_synced": stock_synced}
 
 # Delete Retailer Dispatch
 @router.delete("/retailer-dispatches/{dispatch_id}")
@@ -806,7 +832,26 @@ async def delete_retailer_dispatch(dispatch_id: str, current_user: dict = Depend
                     {"$set": {"status": new_status, "items": updated_items}}
                 )
     
-    return {"message": "Dispatch deleted successfully"}
+    # AUTO-SYNC: If stock is already closed for this date, recalculate dispatches
+    dispatch_date_str = str(existing.get("dispatch_date", ""))[:10]
+    stock_synced = False
+    
+    if dispatch_date_str:
+        closed_status_exists = await db.daily_stock_status.find_one({
+            "date": dispatch_date_str,
+            "status": "closed"
+        })
+        
+        if closed_status_exists:
+            try:
+                from routes.dashboard_analytics import recalculate_dispatches_for_date
+                await recalculate_dispatches_for_date(dispatch_date_str)
+                stock_synced = True
+                logger.info(f"Auto-synced stock status for {dispatch_date_str} after retailer dispatch deletion")
+            except Exception as e:
+                logger.error(f"Failed to auto-sync stock status for {dispatch_date_str}: {e}")
+    
+    return {"message": "Dispatch deleted successfully", "stock_synced": stock_synced}
 
 @router.get("/retailer-dispatches/yesterday-mrp")
 async def get_yesterday_mrp(current_user: dict = Depends(get_current_user)):

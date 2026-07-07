@@ -388,15 +388,40 @@ async def update_qc_dispatch(dispatch_id: str, input: QCDispatchCreate, current_
     if not existing:
         raise HTTPException(status_code=404, detail="Dispatch not found")
     
+    # Capture both old and new dispatch dates for potential sync
+    old_dispatch_date = str(existing.get("dispatch_date", ""))[:10]
+    
     update_data = input.model_dump()
-    update_data['dispatch_date'] = update_data['dispatch_date'].isoformat()
+    dispatch_date_str = update_data['dispatch_date'].isoformat() if hasattr(update_data['dispatch_date'], 'isoformat') else str(update_data['dispatch_date'])
+    update_data['dispatch_date'] = dispatch_date_str
+    new_dispatch_date = dispatch_date_str[:10]
     
     await db.qc_dispatches.update_one(
         {"id": dispatch_id},
         {"$set": update_data}
     )
     
-    return {"id": dispatch_id, "message": "Dispatch updated successfully"}
+    # AUTO-SYNC: If stock is already closed for either date, recalculate dispatches
+    stock_synced = []
+    dates_to_sync = set([old_dispatch_date, new_dispatch_date])
+    
+    for sync_date in dates_to_sync:
+        if sync_date:
+            closed_status_exists = await db.daily_stock_status.find_one({
+                "date": sync_date,
+                "status": "closed"
+            })
+            
+            if closed_status_exists:
+                try:
+                    from routes.dashboard_analytics import recalculate_dispatches_for_date
+                    await recalculate_dispatches_for_date(sync_date)
+                    stock_synced.append(sync_date)
+                    logger.info(f"Auto-synced stock status for {sync_date} after QC dispatch update")
+                except Exception as e:
+                    logger.error(f"Failed to auto-sync stock status for {sync_date}: {e}")
+    
+    return {"id": dispatch_id, "message": "Dispatch updated successfully", "stock_synced": stock_synced}
 
 
 @router.delete("/qc-dispatches/{dispatch_id}")
@@ -456,7 +481,26 @@ async def delete_qc_dispatch(dispatch_id: str, current_user: dict = Depends(get_
                     {"$set": {"status": new_status}}
                 )
     
-    return {"message": "Dispatch deleted successfully"}
+    # AUTO-SYNC: If stock is already closed for this date, recalculate dispatches
+    dispatch_date_str = str(dispatch.get("dispatch_date", ""))[:10]
+    stock_synced = False
+    
+    if dispatch_date_str:
+        closed_status_exists = await db.daily_stock_status.find_one({
+            "date": dispatch_date_str,
+            "status": "closed"
+        })
+        
+        if closed_status_exists:
+            try:
+                from routes.dashboard_analytics import recalculate_dispatches_for_date
+                await recalculate_dispatches_for_date(dispatch_date_str)
+                stock_synced = True
+                logger.info(f"Auto-synced stock status for {dispatch_date_str} after QC dispatch deletion")
+            except Exception as e:
+                logger.error(f"Failed to auto-sync stock status for {dispatch_date_str}: {e}")
+    
+    return {"message": "Dispatch deleted successfully", "stock_synced": stock_synced}
 
 
 @router.delete("/qc-dispatches/{dispatch_id}/items/{product_id}")

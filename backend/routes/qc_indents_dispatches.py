@@ -514,6 +514,9 @@ async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_use
     if not dispatch:
         raise HTTPException(status_code=404, detail="Dispatch not found")
     
+    # Extract dispatch date for auto-sync
+    dispatch_date_str = str(dispatch.get("dispatch_date", ""))[:10]
+    
     items = dispatch.get("items", [])
     original_count = len(items)
     
@@ -522,6 +525,24 @@ async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_use
     
     if len(items) == original_count:
         raise HTTPException(status_code=404, detail="Item not found in dispatch")
+    
+    # Helper function for auto-sync
+    async def auto_sync_stock():
+        stock_synced = False
+        if dispatch_date_str:
+            closed_status_exists = await db.daily_stock_status.find_one({
+                "date": dispatch_date_str,
+                "status": "closed"
+            })
+            if closed_status_exists:
+                try:
+                    from routes.dashboard_analytics import recalculate_dispatches_for_date
+                    await recalculate_dispatches_for_date(dispatch_date_str)
+                    stock_synced = True
+                    logger.info(f"Auto-synced stock status for {dispatch_date_str} after QC dispatch item deletion")
+                except Exception as e:
+                    logger.error(f"Failed to auto-sync stock status for {dispatch_date_str}: {e}")
+        return stock_synced
     
     if len(items) == 0:
         # If no items left, delete the entire dispatch
@@ -534,7 +555,8 @@ async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_use
             if remaining_dispatches == 0:
                 await db.qc_indents.update_one({"id": indent_id}, {"$set": {"status": "pending"}})
         
-        return {"message": "Dispatch deleted (no items remaining)"}
+        stock_synced = await auto_sync_stock()
+        return {"message": "Dispatch deleted (no items remaining)", "stock_synced": stock_synced}
     
     # Update the dispatch with remaining items
     await db.qc_dispatches.update_one(
@@ -542,7 +564,8 @@ async def delete_qc_dispatch_item(dispatch_id: str, product_id: str, current_use
         {"$set": {"items": items}}
     )
     
-    return {"message": "Item removed from dispatch"}
+    stock_synced = await auto_sync_stock()
+    return {"message": "Item removed from dispatch", "stock_synced": stock_synced}
 
 
 @router.get("/qc-dispatches/{dispatch_id}/invoice-status")
@@ -620,7 +643,24 @@ async def update_qc_dispatch_item(
         {"$set": {"items": items}}
     )
     
-    return {"message": "Dispatch item updated successfully", "new_qty": input.supplied_qty, "new_crates": input.no_of_crates}
+    # AUTO-SYNC: If stock is already closed for this date, recalculate dispatches
+    dispatch_date_str = str(dispatch.get("dispatch_date", ""))[:10]
+    stock_synced = False
+    if dispatch_date_str:
+        closed_status_exists = await db.daily_stock_status.find_one({
+            "date": dispatch_date_str,
+            "status": "closed"
+        })
+        if closed_status_exists:
+            try:
+                from routes.dashboard_analytics import recalculate_dispatches_for_date
+                await recalculate_dispatches_for_date(dispatch_date_str)
+                stock_synced = True
+                logger.info(f"Auto-synced stock status for {dispatch_date_str} after QC dispatch item update")
+            except Exception as e:
+                logger.error(f"Failed to auto-sync stock status for {dispatch_date_str}: {e}")
+    
+    return {"message": "Dispatch item updated successfully", "new_qty": input.supplied_qty, "new_crates": input.no_of_crates, "stock_synced": stock_synced}
 
 
 @router.delete("/qc-dispatches/{dispatch_id}/items-by-index/{item_index}")
@@ -637,6 +677,9 @@ async def delete_qc_dispatch_item_by_index(
     dispatch = await db.qc_dispatches.find_one({"id": dispatch_id}, {"_id": 0})
     if not dispatch:
         raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Extract dispatch date for auto-sync
+    dispatch_date_str = str(dispatch.get("dispatch_date", ""))[:10]
     
     # Check if dispatch is invoiced
     invoice = await db.qc_invoices.find_one(
@@ -656,6 +699,24 @@ async def delete_qc_dispatch_item_by_index(
     # Remove the item at the specified index
     deleted_item = items.pop(item_index)
     
+    # Helper function for auto-sync
+    async def auto_sync_stock():
+        stock_synced = False
+        if dispatch_date_str:
+            closed_status_exists = await db.daily_stock_status.find_one({
+                "date": dispatch_date_str,
+                "status": "closed"
+            })
+            if closed_status_exists:
+                try:
+                    from routes.dashboard_analytics import recalculate_dispatches_for_date
+                    await recalculate_dispatches_for_date(dispatch_date_str)
+                    stock_synced = True
+                    logger.info(f"Auto-synced stock status for {dispatch_date_str} after QC dispatch item deletion by index")
+                except Exception as e:
+                    logger.error(f"Failed to auto-sync stock status for {dispatch_date_str}: {e}")
+        return stock_synced
+    
     if len(items) == 0:
         # If no items left, delete the entire dispatch
         await db.qc_dispatches.delete_one({"id": dispatch_id})
@@ -667,7 +728,8 @@ async def delete_qc_dispatch_item_by_index(
             if remaining_dispatches == 0:
                 await db.qc_indents.update_one({"id": indent_id}, {"$set": {"status": "pending"}})
         
-        return {"message": "Dispatch deleted (no items remaining)", "deleted_item": deleted_item}
+        stock_synced = await auto_sync_stock()
+        return {"message": "Dispatch deleted (no items remaining)", "deleted_item": deleted_item, "stock_synced": stock_synced}
     
     # Update the dispatch with remaining items
     await db.qc_dispatches.update_one(
@@ -675,4 +737,5 @@ async def delete_qc_dispatch_item_by_index(
         {"$set": {"items": items}}
     )
     
-    return {"message": "Item removed from dispatch", "deleted_item": deleted_item}
+    stock_synced = await auto_sync_stock()
+    return {"message": "Item removed from dispatch", "deleted_item": deleted_item, "stock_synced": stock_synced}

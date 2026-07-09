@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
@@ -40,6 +40,9 @@ import AutocompleteInput from '../../components/AutocompleteInput';
 
 export default function QuickCommerce() {
   const { t, i18n } = useTranslation();
+  
+  // Refs
+  const grnFileInputRef = useRef(null);
   
   // ============================================================================
   // SECTION: STATE DECLARATIONS
@@ -4765,29 +4768,26 @@ Email: ${companyEmail}`;
                   <p className="text-sm text-gray-500 mt-1">Upload Ninjacart CSV or Excel file to match with dispatches</p>
                 </div>
                 <div className="flex gap-3">
-                  <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      accept=".csv,.xlsx,.xls"
-                      onChange={handleGrnCsvUpload}
-                      className="hidden"
-                      disabled={uploadingGrn}
-                    />
-                    <Button
-                      className="bg-[#14532D] hover:bg-[#166534]"
-                      disabled={uploadingGrn}
-                      asChild
-                    >
-                      <span>
-                        {uploadingGrn ? (
-                          <Loader2 size={16} className="mr-2 animate-spin" />
-                        ) : (
-                          <Upload size={16} className="mr-2" />
-                        )}
-                        Upload Ninjacart File
-                      </span>
-                    </Button>
-                  </label>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={handleGrnCsvUpload}
+                    className="hidden"
+                    disabled={uploadingGrn}
+                    ref={grnFileInputRef}
+                  />
+                  <Button
+                    className="bg-[#14532D] hover:bg-[#166534]"
+                    disabled={uploadingGrn}
+                    onClick={() => grnFileInputRef.current?.click()}
+                  >
+                    {uploadingGrn ? (
+                      <Loader2 size={16} className="mr-2 animate-spin" />
+                    ) : (
+                      <Upload size={16} className="mr-2" />
+                    )}
+                    Upload Ninjacart File
+                  </Button>
                   {grnMatchedItems.length > 0 && (
                     <>
                       <Button onClick={() => exportGrnToCsv(grnMatchedItems)} variant="outline">

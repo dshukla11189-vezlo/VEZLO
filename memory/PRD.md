@@ -1,5 +1,21 @@
 # Mr Organix - Product Requirements Document
 
+## Changelog (July 2026)
+
+### July 11, 2026 - Auto-Indent Datetime Bug Fix ✅
+- **BUG FIX**: Fixed `TypeError: can't compare offset-naive and offset-aware datetimes` in auto-indent generation
+  - **Root Cause**: Invoice dates stored as naive ISO strings (without 'Z' or timezone offset) were parsed inconsistently - some became timezone-aware (when 'Z' was present), others remained naive
+  - **Impact**: Historical sales auto-indent generation (`POST /api/admin/generate-auto-indent`) crashed with 500 error when comparing invoice dates
+  - **Fix Applied**: Added timezone awareness enforcement after parsing - if `parsed_dt.tzinfo is None`, apply `replace(tzinfo=timezone.utc)`
+  - **Files Modified**:
+    - `/app/backend/routes/retailer_portal.py`:
+      - Lines 7143-7160: Fixed datetime parsing in `generate_single_auto_indent()`
+      - Lines 6760-6775: Applied same fix to bulk auto-indent generation loop
+  - **Testing**: Verified via `testing_agent_v3_fork` - 10/16 retailers successfully generated auto-indents, 6 returned expected "No historical data" message, zero 500 errors
+  - **Regression Test**: `/app/backend/tests/test_auto_indent_datetime_fix.py` (3 tests, all passing)
+
+---
+
 ## Changelog (June 2026)
 
 ### June 30, 2026 - Invoice Payment Buckets Helper ✅

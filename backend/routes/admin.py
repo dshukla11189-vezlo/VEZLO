@@ -64,7 +64,15 @@ async def generate_single_auto_indent(
         same_weekday_records = []
         for record in closing_records:
             try:
-                record_date = datetime.strptime(record["closing_date"], "%Y-%m-%d").date()
+                closing_date_raw = record.get("closing_date")
+                # Handle both string and datetime objects
+                if isinstance(closing_date_raw, datetime):
+                    record_date = closing_date_raw.date()
+                elif isinstance(closing_date_raw, str):
+                    record_date = datetime.strptime(closing_date_raw[:10], "%Y-%m-%d").date()
+                else:
+                    continue
+                    
                 if record_date.weekday() == target_weekday and record_date < target_date:
                     same_weekday_records.append(record)
                     if len(same_weekday_records) >= 7:

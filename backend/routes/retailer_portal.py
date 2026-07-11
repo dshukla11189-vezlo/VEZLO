@@ -6759,7 +6759,17 @@ async def generate_auto_indents_for_tomorrow():
                 
                 for inv in same_weekday_invoices:
                     inv_date_str = inv.get("invoice_date", "")[:10]
-                    inv_date = datetime.fromisoformat(inv.get("invoice_date", "").replace('Z', '+00:00'))
+                    # Parse invoice date and ensure timezone awareness for comparisons
+                    raw_inv_date = inv.get("invoice_date", "")
+                    if raw_inv_date:
+                        parsed_dt = datetime.fromisoformat(raw_inv_date.replace('Z', '+00:00'))
+                        # Ensure timezone awareness - add UTC if naive
+                        if parsed_dt.tzinfo is None:
+                            inv_date = parsed_dt.replace(tzinfo=timezone.utc)
+                        else:
+                            inv_date = parsed_dt
+                    else:
+                        inv_date = datetime.now(timezone.utc)
                     
                     for item in inv.get("items", []):
                         product_id = item.get("product_id")
@@ -7142,7 +7152,17 @@ async def generate_single_auto_indent(
         
         for inv in same_weekday_invoices:
             inv_date_str = inv.get("invoice_date", "")[:10]
-            inv_date = datetime.fromisoformat(inv.get("invoice_date", "").replace('Z', '+00:00'))
+            # Parse invoice date and ensure timezone awareness for comparisons
+            raw_inv_date = inv.get("invoice_date", "")
+            if raw_inv_date:
+                parsed_dt = datetime.fromisoformat(raw_inv_date.replace('Z', '+00:00'))
+                # Ensure timezone awareness - add UTC if naive
+                if parsed_dt.tzinfo is None:
+                    inv_date = parsed_dt.replace(tzinfo=timezone.utc)
+                else:
+                    inv_date = parsed_dt
+            else:
+                inv_date = datetime.now(timezone.utc)
             
             for item in inv.get("items", []):
                 product_id = item.get("product_id")

@@ -54,77 +54,126 @@ async def generate_single_auto_indent(
         
         # Get the target weekday (0=Monday, 6=Sunday)
         target_weekday = target_date.weekday()
+        # Next day weekday (wraps around: Sunday -> Monday)
+        next_day_weekday = (target_weekday + 1) % 7
         
-        # Find the last 7 occurrences of this weekday in retailer closing data
+        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        # Find closing records for this retailer
         closing_records = await db.retailer_closing.find({
             "retailer_id": retailer_id
-        }).sort("closing_date", -1).to_list(100)
+        }).sort("closing_date", -1).to_list(200)  # Get more records to find both weekdays
         
-        # Filter to only include same weekday
-        same_weekday_records = []
-        for record in closing_records:
-            try:
-                closing_date_raw = record.get("closing_date")
-                # Handle both string and datetime objects
-                if isinstance(closing_date_raw, datetime):
-                    record_date = closing_date_raw.date()
-                elif isinstance(closing_date_raw, str):
-                    record_date = datetime.strptime(closing_date_raw[:10], "%Y-%m-%d").date()
-                else:
+        # Helper function to filter records by weekday
+        def filter_by_weekday(records, weekday, before_date, max_count=7):
+            filtered = []
+            for record in records:
+                try:
+                    closing_date_raw = record.get("closing_date")
+                    # Handle both string and datetime objects
+                    if isinstance(closing_date_raw, datetime):
+                        record_date = closing_date_raw.date()
+                    elif isinstance(closing_date_raw, str):
+                        record_date = datetime.strptime(closing_date_raw[:10], "%Y-%m-%d").date()
+                    else:
+                        continue
+                        
+                    if record_date.weekday() == weekday and record_date < before_date:
+                        filtered.append(record)
+                        if len(filtered) >= max_count:
+                            break
+                except:
                     continue
+            return filtered
+        
+        # Get last 7 occurrences of target weekday (e.g., Sundays)
+        target_day_records = filter_by_weekday(closing_records, target_weekday, target_date, 7)
+        
+        # Get last 7 occurrences of next day weekday (e.g., Mondays)
+        next_day_records = filter_by_weekday(closing_records, next_day_weekday, target_date, 7)
+        
+        # Check if we have data for at least one of the weekdays
+        if len(target_day_records) == 0 and len(next_day_records) == 0:
+            return {
+                "success": False,
+                "message": f"No historical data found for {retailer_name}. The retailer needs to have at least one closing record for {weekday_names[target_weekday]} or {weekday_names[next_day_weekday]}."
+            }
+        
+        # Helper function to calculate average sales per product from records
+        def calculate_product_averages(records):
+            product_totals = {}
+            for record in records:
+                for item in record.get("items", []):
+                    product_id = item.get("product_id")
+                    product_name = item.get("product_name", "")
+                    items_sold = item.get("items_sold", 0) or 0
                     
-                if record_date.weekday() == target_weekday and record_date < target_date:
-                    same_weekday_records.append(record)
-                    if len(same_weekday_records) >= 7:
-                        break
-            except:
-                continue
+                    if product_id and items_sold > 0:
+                        composite_key = f"{product_id}|{product_name.strip()}"
+                        if composite_key not in product_totals:
+                            product_totals[composite_key] = {
+                                "product_id": product_id,
+                                "product_name": product_name,
+                                "total_sold": 0,
+                                "count": 0
+                            }
+                        product_totals[composite_key]["total_sold"] += items_sold
+                        product_totals[composite_key]["count"] += 1
+            
+            # Calculate averages
+            averages = {}
+            for key, data in product_totals.items():
+                averages[key] = {
+                    "product_id": data["product_id"],
+                    "product_name": data["product_name"],
+                    "avg_sold": data["total_sold"] / data["count"]
+                }
+            return averages
         
-        # Use whatever data is available (even 1 record is fine)
-        weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        if len(same_weekday_records) == 0:
-            return {
-                "success": False,
-                "message": f"No historical data found for {retailer_name} on this weekday. The retailer needs to have at least one closing record for a {weekday_names[target_weekday]}."
+        # Calculate averages for target day and next day
+        target_day_averages = calculate_product_averages(target_day_records)
+        next_day_averages = calculate_product_averages(next_day_records)
+        
+        # Combine both days' averages
+        # For each product: total = avg(target_day) + avg(next_day)
+        combined_products = {}
+        
+        # Add target day averages
+        for key, data in target_day_averages.items():
+            combined_products[key] = {
+                "product_id": data["product_id"],
+                "product_name": data["product_name"],
+                "target_day_avg": data["avg_sold"],
+                "next_day_avg": 0
             }
         
-        # Calculate average items sold per product
-        # Use composite key (product_id + product_name) to prevent merging distinct products
-        product_totals = {}
-        for record in same_weekday_records:
-            for item in record.get("items", []):
-                product_id = item.get("product_id")
-                product_name = item.get("product_name", "")
-                items_sold = item.get("items_sold", 0) or 0
-                
-                if product_id and items_sold > 0:
-                    # Use composite key to ensure distinct products aren't merged
-                    composite_key = f"{product_id}|{product_name.strip()}"
-                    if composite_key not in product_totals:
-                        product_totals[composite_key] = {
-                            "product_id": product_id,
-                            "product_name": product_name,
-                            "total_sold": 0,
-                            "count": 0
-                        }
-                    product_totals[composite_key]["total_sold"] += items_sold
-                    product_totals[composite_key]["count"] += 1
+        # Add next day averages
+        for key, data in next_day_averages.items():
+            if key in combined_products:
+                combined_products[key]["next_day_avg"] = data["avg_sold"]
+            else:
+                combined_products[key] = {
+                    "product_id": data["product_id"],
+                    "product_name": data["product_name"],
+                    "target_day_avg": 0,
+                    "next_day_avg": data["avg_sold"]
+                }
         
-        if not product_totals:
+        if not combined_products:
             return {
                 "success": False,
-                "message": f"No sales data found for {retailer_name} on this weekday"
+                "message": f"No sales data found for {retailer_name}"
             }
         
-        # Create indent items with average + 10% buffer
+        # Create indent items: (target_day_avg + next_day_avg) * 1.1 buffer
         indent_items = []
-        for composite_key, data in product_totals.items():
-            avg_sold = data["total_sold"] / data["count"]
-            recommended_qty = round(avg_sold * 1.1)  # Add 10% buffer
+        for composite_key, data in combined_products.items():
+            total_avg = data["target_day_avg"] + data["next_day_avg"]
+            recommended_qty = round(total_avg * 1.1)  # Add 10% buffer
             
             if recommended_qty > 0:
                 indent_items.append({
-                    "product_id": data["product_id"],  # Extract from data
+                    "product_id": data["product_id"],
                     "product_name": data["product_name"],
                     "variant_id": "",
                     "variant_name": "",
@@ -141,6 +190,16 @@ async def generate_single_auto_indent(
         # Sort by product name
         indent_items.sort(key=lambda x: x["product_name"])
         
+        # Build remarks message
+        target_day_count = len(target_day_records)
+        next_day_count = len(next_day_records)
+        remarks_parts = []
+        if target_day_count > 0:
+            remarks_parts.append(f"{target_day_count} {weekday_names[target_weekday]}s")
+        if next_day_count > 0:
+            remarks_parts.append(f"{next_day_count} {weekday_names[next_day_weekday]}s")
+        remarks_str = " + ".join(remarks_parts)
+        
         # Create the indent
         new_indent = {
             "id": str(uuid.uuid4()),
@@ -150,7 +209,7 @@ async def generate_single_auto_indent(
             "items": indent_items,
             "total_qty": sum(item["quantity"] for item in indent_items),
             "status": "pending",
-            "remarks": f"Auto-generated based on {len(same_weekday_records)} weeks of {weekday_names[target_weekday]} sales",
+            "remarks": f"Auto-generated based on avg sales of {remarks_str} (covers {weekday_names[target_weekday]} + {weekday_names[next_day_weekday]})",
             "is_auto_generated": True,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
@@ -160,7 +219,7 @@ async def generate_single_auto_indent(
         
         return {
             "success": True,
-            "message": f"Auto indent created for {retailer_name} with {len(indent_items)} products",
+            "message": f"Auto indent created for {retailer_name} with {len(indent_items)} products (based on {weekday_names[target_weekday]} + {weekday_names[next_day_weekday]} sales)",
             "retailer_name": retailer_name,
             "indent_id": new_indent["id"],
             "products_count": len(indent_items),

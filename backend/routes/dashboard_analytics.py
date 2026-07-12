@@ -2565,16 +2565,34 @@ async def get_pnl_report(
             customer_entry["cogs_share"] = 0
             customer_entry["wastage_share"] = 0
         
-        # Calculate Gross Profit = Sales - COGS
-        gross_profit = customer_sales - customer_entry["cogs_share"]
+        # Get rejection at MRP for this retailer (to calculate Net Sales)
+        retailer_id = cust_data.get("retailer_id", "")
+        rejection_mrp = rejection_by_retailer.get(retailer_id, 0) if retailer_id else 0
+        customer_entry["rejection_mrp"] = round(rejection_mrp, 2)
+        
+        # NEW FORMULA (aligned with daily P&L):
+        # 1. Sales = Gross Value at MRP − Rejection Value at MRP (Net Sales)
+        net_sales = max(0, customer_sales - rejection_mrp)
+        customer_entry["net_sales"] = round(net_sales, 2)
+        
+        # 2. Gross P&L = Sales − Purchase(COGS) − Wastage(COGS) − Rejection(COGS)
+        # Note: Sales here is the original gross sales at MRP
+        gross_profit = customer_sales - customer_entry["cogs_share"] - customer_entry["wastage_share"] - customer_entry["rejection_share"]
         customer_entry["gross_profit"] = round(gross_profit, 2)
         customer_entry["gross_margin_pct"] = round((gross_profit / customer_sales * 100) if customer_sales > 0 else 0, 1)
         
-        # Calculate Net Profit = Gross - GRN Loss - Rejection - Commission - Variable Expenses
+        # 3. Commission = calculated on net amount sold (Sales after removing Rejection at MRP)
+        # Recalculate commission based on net_sales instead of gross sales
+        # Commission rate derived from total commission / total retail sales
+        if customer_type == "Retail" and total_retail_sales > 0:
+            commission_rate = total_retail_commission / total_retail_sales if total_retail_sales > 0 else 0
+            # Commission on net sales (after rejection)
+            customer_entry["commission"] = round(net_sales * commission_rate, 2)
+        
+        # 4. Net P&L = Gross P&L − Commission − Variable Expenses
         # NOTE: Fixed expenses NOT included in customer-level Net P/L
         net_profit = (gross_profit - customer_entry["grn_loss_share"] - 
-                      customer_entry["rejection_share"] - customer_entry["commission"] -
-                      customer_entry["variable_expenses"])
+                      customer_entry["commission"] - customer_entry["variable_expenses"])
         customer_entry["net_profit"] = round(net_profit, 2)
         customer_entry["net_margin_pct"] = round((net_profit / customer_sales * 100) if customer_sales > 0 else 0, 1)
         

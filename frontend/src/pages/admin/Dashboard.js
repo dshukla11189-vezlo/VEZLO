@@ -522,21 +522,25 @@ export default function AdminDashboard() {
         const dayRejectionMRP = Math.round(dayRejectionData.value || 0);   // Rejection at MRP
         const dayRejectionCOGS = Math.round(dayRejectionData.cogs || 0);   // Rejection at purchase price
         
-        // FIXED: Gross P/L should only account for COGS on actually-sold goods
-        // Net Sales = Gross dispatched MRP - Rejection at MRP (what was actually sold)
+        // NEW FORMULA (aligned with daily P&L requirements):
+        // 1. Sales = Gross Value at MRP − Rejection Value at MRP
         const netSales = Math.max(0, sales - dayRejectionMRP);
-        // Net COGS = Dispatch COGS - Rejection COGS (cost of only the sold portion)
-        const netCogs = Math.max(0, purchase - dayRejectionCOGS);
-        // Gross P/L = what was sold minus cost of what was sold minus wastage
-        const grossProfit = Math.round(netSales - netCogs - wastage);
-        const grossMargin = netSales > 0 ? (grossProfit / netSales * 100) : 0;
+        
+        // 2. Gross P/L = Sales(MRP) − Purchase(COGS) − Wastage(COGS) − Rejection(COGS)
+        // Note: Using original gross 'sales' here, then subtracting all costs at COGS
+        const grossProfit = Math.round(sales - purchase - wastage - dayRejectionCOGS);
+        const grossMargin = sales > 0 ? (grossProfit / sales * 100) : 0;
         
         // Rejection % relative to original dispatched sales
         const dayRejectionPct = sales > 0 ? (dayRejectionCOGS / sales * 100) : 0;
         
-        // Net P/L = Gross P/L - Commission
+        // 3. Commission is calculated on net sales (after rejection at MRP)
+        // The 'commission' from line items is already calculated this way
+        
+        // 4. Net P/L = Gross P/L - Commission - Variable Expenses
+        // (Variable expenses are allocated at period level, not daily, so just subtract commission here)
         const netProfit = Math.round(grossProfit - commission);
-        const netMargin = netSales > 0 ? (netProfit / netSales * 100) : 0;
+        const netMargin = sales > 0 ? (netProfit / sales * 100) : 0;
         
         const profitPerUnit = qty > 0 ? (grossProfit / qty) : 0;
         
@@ -546,8 +550,7 @@ export default function AdminDashboard() {
           netSales: Math.round(netSales),  // Sales minus rejection at MRP
           qty,
           kg,
-          purchase: Math.round(purchase),
-          netCogs: Math.round(netCogs),  // COGS minus rejection at COGS
+          purchase: Math.round(purchase),  // COGS at purchase price
           wastage: Math.round(wastage),
           rejection: dayRejectionCOGS,  // Rejection at COGS for display
           rejectionMRP: dayRejectionMRP,  // Rejection at MRP for reference
@@ -589,8 +592,11 @@ export default function AdminDashboard() {
       totals.commissionFromPnl = commissionFromPnl;
       
       // Use backend values directly for gross and net profit
-      // Backend formula: gross = sales - cogs_share, net = gross - grn_loss - rejection - commission - variable_expenses
-      // Wastage is display-only at customer level, not subtracted
+      // Backend formula (aligned with daily P&L):
+      // 1. Sales = Gross Value at MRP (displayed as Sales)
+      // 2. Gross P/L = Sales − Purchase(COGS) − Wastage(COGS) − Rejection(COGS)
+      // 3. Commission = calculated on net amount sold (Sales − Rejection at MRP)
+      // 4. Net P/L = Gross P/L − Commission − Variable Expenses
       totals.grossProfit = Math.round(customerPnlEntry?.gross_profit || 0);
       totals.netProfit = Math.round(customerPnlEntry?.net_profit || 0);
       totals.netMarginPct = totals.sales > 0 ? Math.round((totals.netProfit / totals.sales * 100) * 10) / 10 : 0;

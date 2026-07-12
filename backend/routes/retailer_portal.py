@@ -3894,6 +3894,8 @@ async def fix_invoice_rejection_data(
     Fix invoices that have incorrect rejection_amount stored.
     This recalculates rejection_amount from actual retailer_rejections records.
     
+    GUARD: Skips 100% upfront retailers - their rejections are handled via Credit Notes, not invoice deductions.
+    
     Body (optional): {"retailer_id": "xxx", "invoice_id": "yyy"} to fix specific retailer/invoice
     """
     if current_user["role"] != "admin":
@@ -3911,15 +3913,32 @@ async def fix_invoice_rejection_data(
     
     invoices = await db.retailer_invoices.find(query, {"_id": 0}).to_list(500)
     
+    # Pre-fetch all retailer data for upfront percentage check
+    retailer_ids = list(set(inv.get("retailer_id") for inv in invoices if inv.get("retailer_id")))
+    retailers_data = {}
+    for rid in retailer_ids:
+        retailer = await db.users.find_one({"id": rid}, {"_id": 0, "id": 1, "upfront_collection_percentage": 1, "company_name": 1})
+        if retailer:
+            retailers_data[rid] = retailer
+    
     fixed_count = 0
+    skipped_100_upfront = 0
     fixed_details = []
     
     for inv in invoices:
         inv_id = inv.get("id")
+        inv_retailer_id = inv.get("retailer_id")
         dispatch_ids = inv.get("dispatch_ids", [])
         old_rejection = inv.get("rejection_amount", 0) or 0
         old_gross = inv.get("gross_value", 0) or 0
         old_total_mrp = inv.get("total_mrp_value", 0) or 0
+        
+        # GUARD: Skip 100% upfront retailers - their rejections are handled via Credit Notes
+        retailer_data = retailers_data.get(inv_retailer_id, {})
+        is_100_upfront = (retailer_data.get("upfront_collection_percentage", 0) or 0) == 100
+        if is_100_upfront:
+            skipped_100_upfront += 1
+            continue
         
         # Calculate actual rejection from retailer_rejections that match this invoice's dispatches
         actual_rejection = 0
@@ -3974,8 +3993,114 @@ async def fix_invoice_rejection_data(
             })
     
     return {
-        "message": f"Fixed {fixed_count} invoices with incorrect rejection data.",
+        "message": f"Fixed {fixed_count} invoices with incorrect rejection data. Skipped {skipped_100_upfront} invoices for 100% upfront retailers (handled via Credit Notes).",
         "fixed_count": fixed_count,
+        "skipped_100_upfront": skipped_100_upfront,
+        "fixed_details": fixed_details
+    }
+
+
+
+@router.post("/retailer-invoices/cleanup-100-upfront-rejections")
+async def cleanup_100_upfront_rejections(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    One-time cleanup endpoint: Finds all invoices for 100% upfront retailers that have
+    rejection_amount > 0, and resets them to:
+      - rejection_amount = 0
+      - total_mrp_value = gross_value
+      - Recalculates commission_amount and net_payable
+    
+    For 100% upfront retailers, rejections are handled via Credit Notes, not invoice deductions.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run this cleanup")
+    
+    # Find all 100% upfront retailers
+    upfront_retailers = await db.users.find(
+        {"role": "retailer", "upfront_collection_percentage": 100},
+        {"_id": 0, "id": 1, "company_name": 1, "name": 1, "commission_percentage": 1}
+    ).to_list(100)
+    
+    upfront_retailer_ids = [r["id"] for r in upfront_retailers]
+    retailer_commission_map = {r["id"]: r.get("commission_percentage", 0) or 0 for r in upfront_retailers}
+    retailer_name_map = {r["id"]: r.get("company_name") or r.get("name", "Unknown") for r in upfront_retailers}
+    
+    if not upfront_retailer_ids:
+        return {
+            "message": "No 100% upfront retailers found.",
+            "fixed_count": 0,
+            "fixed_details": []
+        }
+    
+    # Find invoices for these retailers with rejection_amount > 0
+    invoices_to_fix = await db.retailer_invoices.find({
+        "retailer_id": {"$in": upfront_retailer_ids},
+        "rejection_amount": {"$gt": 0}
+    }, {"_id": 0}).to_list(500)
+    
+    fixed_count = 0
+    fixed_details = []
+    
+    for inv in invoices_to_fix:
+        inv_id = inv.get("id")
+        retailer_id = inv.get("retailer_id")
+        retailer_name = retailer_name_map.get(retailer_id, inv.get("retailer_name", "Unknown"))
+        
+        old_rejection = inv.get("rejection_amount", 0) or 0
+        gross_value = inv.get("gross_value", 0) or 0
+        old_total_mrp = inv.get("total_mrp_value", 0) or 0
+        old_commission = inv.get("commission_amount", 0) or 0
+        old_net_payable = inv.get("net_payable", 0) or 0
+        
+        # Recalculate with rejection_amount = 0
+        new_total_mrp = gross_value  # No rejection deducted
+        commission_pct = retailer_commission_map.get(retailer_id, inv.get("commission_percentage", 0) or 0)
+        new_commission = round(gross_value * commission_pct / 100, 2)
+        new_net_payable = round(gross_value - new_commission, 2)
+        
+        # Update the invoice
+        await db.retailer_invoices.update_one(
+            {"id": inv_id},
+            {"$set": {
+                "rejection_amount": 0,
+                "total_mrp_value": round(new_total_mrp, 2),
+                "commission_amount": new_commission,
+                "net_payable": new_net_payable,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "upfront_rejection_cleanup": {
+                    "cleaned_at": datetime.now(timezone.utc).isoformat(),
+                    "cleaned_by": current_user["user_id"],
+                    "old_rejection": old_rejection,
+                    "old_total_mrp": old_total_mrp,
+                    "old_commission": old_commission,
+                    "old_net_payable": old_net_payable
+                }
+            }}
+        )
+        
+        fixed_count += 1
+        fixed_details.append({
+            "invoice_number": inv.get("invoice_number"),
+            "retailer": retailer_name,
+            "invoice_date": inv.get("invoice_date", "")[:10],
+            "old_rejection": old_rejection,
+            "gross_value": gross_value,
+            "old_total_mrp": old_total_mrp,
+            "new_total_mrp": new_total_mrp,
+            "old_commission": old_commission,
+            "new_commission": new_commission,
+            "old_net_payable": old_net_payable,
+            "new_net_payable": new_net_payable
+        })
+        
+        logger.info(f"[100% UPFRONT CLEANUP] Invoice {inv.get('invoice_number')}: rejection ₹{old_rejection} -> ₹0, net_payable ₹{old_net_payable} -> ₹{new_net_payable}")
+    
+    return {
+        "message": f"Cleaned up {fixed_count} invoices for 100% upfront retailers. Rejection amounts reset to 0, values recalculated.",
+        "fixed_count": fixed_count,
+        "upfront_retailers_count": len(upfront_retailer_ids),
         "fixed_details": fixed_details
     }
 

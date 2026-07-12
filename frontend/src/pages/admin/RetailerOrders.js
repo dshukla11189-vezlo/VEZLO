@@ -10887,6 +10887,7 @@ export default function RetailerOrders() {
                         return;
                       }
                       setClosingInventoryRetailer(invoiceForm.retailer_id);
+                      setSelectedRetailer(invoiceForm.retailer_id);
                       loadUnpaidInvoices(invoiceForm.retailer_id);
                     }}
                     className="text-purple-700 border-purple-300 hover:bg-purple-50"

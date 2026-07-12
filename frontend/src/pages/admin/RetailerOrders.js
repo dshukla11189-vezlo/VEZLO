@@ -433,6 +433,7 @@ export default function RetailerOrders() {
   // Rejection Analytics state (for the Rejection Loss block)
   const [rejectionAnalyticsState, setRejectionAnalyticsState] = useState({
     totalValue: 0,
+    totalCogs: 0,
     count: 0,
     totalQty: 0,
     topProductByQty: null
@@ -513,7 +514,8 @@ export default function RetailerOrders() {
     totalInvoiced: 0,
     totalPayments: 0,
     pendingAmount: 0,
-    totalRejections: 0
+    totalRejections: 0,
+    totalRejectionCogs: 0
   });
   
   // Rejection Loss date filter
@@ -945,6 +947,7 @@ export default function RetailerOrders() {
     });
     
     const totalValue = filtered.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    const totalCogs = filtered.reduce((sum, r) => sum + (r.rejection_cogs || 0), 0);
     const totalQty = filtered.reduce((sum, r) => sum + (r.quantity || 0), 0);
     
     // Find top rejected product
@@ -971,11 +974,13 @@ export default function RetailerOrders() {
       totalRejections: rejections.length,
       filteredCount: filtered.length,
       totalValue,
+      totalCogs,
       totalQty
     });
     
     setRejectionAnalyticsState({
       totalValue,
+      totalCogs,
       count: filtered.length,
       totalQty,
       topProductByQty: topProduct
@@ -2654,6 +2659,7 @@ export default function RetailerOrders() {
       return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
     });
     const totalRejections = filteredRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+    const totalRejectionCogs = filteredRejections.reduce((sum, r) => sum + (r.rejection_cogs || 0), 0);
     const totalRejectionCount = filteredRejections.length;
     const totalRejectionItems = filteredRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
     
@@ -2712,6 +2718,7 @@ export default function RetailerOrders() {
       totalInvoiced: filteredTotalInvoiced,
       totalPayments: filteredTotalPayments,
       totalRejections,
+      totalRejectionCogs,
       totalRejectionCount,
       totalRejectionItems,
       pendingAmount: filteredTotalInvoiced - filteredTotalPayments,
@@ -8116,10 +8123,18 @@ export default function RetailerOrders() {
             <div>
               <p className="text-3xl font-bold text-red-600">
                 {formatCurrency(rejectionAnalyticsState.totalValue)}
+                {rejectionAnalyticsState.totalCogs > 0 && (
+                  <span className="text-lg text-gray-500 font-normal ml-2">
+                    ({formatCurrency(rejectionAnalyticsState.totalCogs)})
+                  </span>
+                )}
               </p>
               <p className="text-xs text-red-500 mt-1">
                 {rejectionAnalyticsState.count} rejection(s) • {rejectionAnalyticsState.totalQty} items
                 <span className="text-gray-400 ml-2">(of {rejections.length} total)</span>
+                {rejectionAnalyticsState.totalCogs > 0 && (
+                  <span className="text-gray-400 ml-1">• MRP (COGS)</span>
+                )}
               </p>
             </div>
             {rejectionAnalyticsState.topProductByQty && (
@@ -8243,7 +8258,8 @@ export default function RetailerOrders() {
                   orderValue: 0,       // Net value (after rejections) - kept for reference
                   totalCommission: 0, 
                   orderDays: new Set(), 
-                  rejectionValue: 0, 
+                  rejectionValue: 0,
+                  rejectionCogs: 0,
                   rejectionCount: 0 
                 };
               }
@@ -8265,6 +8281,7 @@ export default function RetailerOrders() {
               const retailer = retailers.find(ret => ret.id === r.retailer_id);
               const commPct = retailer?.commission_percentage || 0;
               const rejValue = r.rejection_value || 0;
+              const rejCogs = r.rejection_cogs || 0;
               
               let key;
               if (earningsChartViewMode === 'daily') {
@@ -8280,6 +8297,7 @@ export default function RetailerOrders() {
                 groupedData[key].orderValue -= rejValue;
                 groupedData[key].totalCommission -= rejValue * commPct / 100;
                 groupedData[key].rejectionValue += rejValue;
+                groupedData[key].rejectionCogs += rejCogs;
                 groupedData[key].rejectionCount += 1;
               } else {
                 // Create entry for periods with only rejections (no dispatches)
@@ -8300,7 +8318,8 @@ export default function RetailerOrders() {
                   orderValue: 0, 
                   totalCommission: 0, 
                   orderDays: new Set(),
-                  rejectionValue: rejValue, 
+                  rejectionValue: rejValue,
+                  rejectionCogs: rejCogs,
                   rejectionCount: 1 
                 };
               }
@@ -8318,6 +8337,7 @@ export default function RetailerOrders() {
                   earnings: Math.round(Math.max(0, d.totalCommission)),
                   avgEarningsPerDay: Math.round(Math.max(0, d.totalCommission) / daysCount),
                   rejectionValue: Math.round(d.rejectionValue || 0),
+                  rejectionCogs: Math.round(d.rejectionCogs || 0),
                   rejectionCount: d.rejectionCount || 0,
                   daysCount
                 };
@@ -8328,6 +8348,7 @@ export default function RetailerOrders() {
             const totalOrderValue = chartData.reduce((sum, d) => sum + d.orderValue, 0);
             const totalEarnings = chartData.reduce((sum, d) => sum + d.earnings, 0);
             const totalRejections = chartData.reduce((sum, d) => sum + d.rejectionValue, 0);
+            const totalRejectionCogs = chartData.reduce((sum, d) => sum + d.rejectionCogs, 0);
             const totalRejectionCount = chartData.reduce((sum, d) => sum + d.rejectionCount, 0);
             const totalDays = new Set(filteredDispatches.map(d => d.dispatch_date?.split('T')[0]).filter(Boolean)).size;
             const avgEarningsPerDay = totalDays > 0 ? Math.round(totalEarnings / totalDays) : 0;
@@ -8365,8 +8386,16 @@ export default function RetailerOrders() {
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-red-100">
                     <p className="text-[9px] md:text-[10px] text-red-600 uppercase font-medium truncate">Total Rejections</p>
-                    <p className="text-sm md:text-lg font-bold text-red-700">{formatCurrency(totalRejections)}</p>
-                    <p className="text-[8px] md:text-[9px] text-gray-500">({totalRejectionCount} items)</p>
+                    <p className="text-sm md:text-lg font-bold text-red-700">
+                      {formatCurrency(totalRejections)}
+                      {totalRejectionCogs > 0 && (
+                        <span className="text-xs text-gray-500 font-normal ml-1">({formatCurrency(totalRejectionCogs)})</span>
+                      )}
+                    </p>
+                    <p className="text-[8px] md:text-[9px] text-gray-500">
+                      ({totalRejectionCount} items)
+                      {totalRejectionCogs > 0 && <span className="ml-1">• MRP (COGS)</span>}
+                    </p>
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-emerald-100">
                     <p className="text-[9px] md:text-[10px] text-emerald-600 uppercase font-medium truncate">Total Earnings</p>
@@ -8446,10 +8475,14 @@ export default function RetailerOrders() {
                           <YAxis hide={true} />
                           <Tooltip 
                             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                            formatter={(value, name, props) => [
-                              `₹${value.toLocaleString()} (${props.payload.rejectionCount} items)`, 
-                              'Rejections'
-                            ]}
+                            formatter={(value, name, props) => {
+                              const cogs = props.payload.rejectionCogs;
+                              const cogsStr = cogs > 0 ? ` (COGS: ₹${cogs.toLocaleString()})` : '';
+                              return [
+                                `₹${value.toLocaleString()}${cogsStr} • ${props.payload.rejectionCount} items`, 
+                                'Rejections'
+                              ];
+                            }}
                             labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
                             trigger="click"
                           />
@@ -11652,12 +11685,12 @@ export default function RetailerOrders() {
                   </Button>
                 </div>
               </div>
-              {/* Filters row */}
+              {/* Filters row - syncs with Rejection Loss block dates */}
               <div className="flex flex-wrap gap-2 items-center">
                 <span className="text-xs text-gray-500">From:</span>
                 <Input
                   type="date"
-                  value={rejectionDateFrom}
+                  value={rejectionDateFrom || rejectionLossDateFrom}
                   onChange={(e) => setRejectionDateFrom(e.target.value)}
                   className="h-8 w-36 text-xs"
                   placeholder="From date"
@@ -11665,11 +11698,24 @@ export default function RetailerOrders() {
                 <span className="text-xs text-gray-500">To:</span>
                 <Input
                   type="date"
-                  value={rejectionDateTo}
+                  value={rejectionDateTo || rejectionLossDateTo}
                   onChange={(e) => setRejectionDateTo(e.target.value)}
                   className="h-8 w-36 text-xs"
                   placeholder="To date"
                 />
+                <Button 
+                  size="sm" 
+                  variant="default"
+                  onClick={() => {
+                    // Apply the dates - update the Rejection Loss dates which triggers API call
+                    if (rejectionDateFrom) setRejectionLossDateFrom(rejectionDateFrom);
+                    if (rejectionDateTo) setRejectionLossDateTo(rejectionDateTo);
+                  }}
+                  className="h-8 px-3 bg-red-600 hover:bg-red-700 text-white"
+                  disabled={!rejectionDateFrom && !rejectionDateTo}
+                >
+                  Apply
+                </Button>
                 <select
                   value={rejectionRetailerFilter}
                   onChange={(e) => setRejectionRetailerFilter(e.target.value)}
@@ -11703,7 +11749,7 @@ export default function RetailerOrders() {
                   </Button>
                 )}
                 <span className="text-xs text-gray-500">
-                  Showing {filteredRejections.length} of {rejections.length}
+                  Showing {filteredRejections.length} of {rejections.length} • Period: {rejectionLossDateFrom} to {rejectionLossDateTo}
                 </span>
               </div>
             </CardHeader>
@@ -11719,7 +11765,7 @@ export default function RetailerOrders() {
                       <th className="p-3 text-left font-medium text-gray-500">INVOICE DATE / PRODUCT</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">QTY</th>
-                      <th className="p-3 text-right font-medium text-gray-500">VALUE MRP <span className="text-xs font-normal">(COGS)</span></th>
+                      <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
                       <th className="p-3 text-left font-medium text-gray-500">REASON</th>
                       <th className="p-3 text-center font-medium text-gray-500">CREDIT NOTE</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
@@ -11745,7 +11791,6 @@ export default function RetailerOrders() {
                         const isExpanded = expandedRejectionDates[date];
                         const totalQty = dateRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
                         const totalValue = dateRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
-                        const totalCogs = dateRejections.reduce((sum, r) => sum + (r.rejection_cogs || 0), 0);
                         
                         // Get unique retailers for this date
                         const uniqueRetailers = [...new Set(dateRejections.map(r => getRetailerNameById(r.retailer_id) || r.retailer_name))];
@@ -11764,12 +11809,7 @@ export default function RetailerOrders() {
                               <td className="p-3 font-semibold text-gray-800">{formatDate(date)}</td>
                               <td className="p-3 text-gray-600 text-xs">{uniqueRetailers.length === 1 ? uniqueRetailers[0] : `${uniqueRetailers.length} retailers`}</td>
                               <td className="p-3 text-center text-red-600 font-semibold">{totalQty}</td>
-                              <td className="p-3 text-right">
-                                <span className="text-red-600 font-semibold">{formatCurrency(totalValue)}</span>
-                                {totalCogs > 0 && (
-                                  <span className="text-xs text-gray-500 ml-1">({formatCurrency(totalCogs)})</span>
-                                )}
-                              </td>
+                              <td className="p-3 text-right text-red-600 font-semibold">{formatCurrency(totalValue)}</td>
                               <td className="p-3 text-gray-500 text-xs">{dateRejections.length} item(s)</td>
                               <td className="p-3"></td>
                             </tr>
@@ -11792,12 +11832,7 @@ export default function RetailerOrders() {
                                 </td>
                                 <td className="p-2 text-gray-600 text-sm">{getRetailerNameById(rejection.retailer_id) || rejection.retailer_name}</td>
                                 <td className="p-2 text-center text-red-500">{rejection.quantity}</td>
-                                <td className="p-2 text-right">
-                                  <span className="text-red-500">{formatCurrency(rejection.rejection_value)}</span>
-                                  {rejection.rejection_cogs > 0 && (
-                                    <span className="text-xs text-gray-400 ml-1">({formatCurrency(rejection.rejection_cogs)})</span>
-                                  )}
-                                </td>
+                                <td className="p-2 text-right text-red-500">{formatCurrency(rejection.rejection_value)}</td>
                                 <td className="p-2 text-gray-500">{rejection.reason}</td>
                                 <td className="p-2 text-center">
                                   {rejection.credit_note_number ? (

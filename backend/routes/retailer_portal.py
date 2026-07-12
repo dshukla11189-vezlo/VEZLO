@@ -1138,6 +1138,39 @@ async def get_retailer_rejections(
                 rej_id = rejection.get("id")
                 if rej_id and rej_id in cn_map:
                     rejection.update(cn_map[rej_id])
+        
+        # Calculate COGS for each rejection
+        # Get dispatch items to find purchase price
+        dispatch_ids = list(set(r.get("dispatch_id") for r in rejections if r.get("dispatch_id")))
+        dispatch_items_map = {}
+        if dispatch_ids:
+            dispatches = await db.retailer_dispatches.find(
+                {"id": {"$in": dispatch_ids}},
+                {"_id": 0, "id": 1, "items": 1}
+            ).to_list(len(dispatch_ids))
+            for d in dispatches:
+                for item in d.get("items", []):
+                    key = f"{d['id']}_{item.get('product_id')}_{item.get('variant_id', '')}"
+                    dispatch_items_map[key] = item
+        
+        # Calculate rejection_cogs for each rejection
+        for rejection in rejections:
+            qty = rejection.get("quantity", 0) or 0
+            mrp = rejection.get("mrp", 0) or 0
+            dispatch_id = rejection.get("dispatch_id")
+            product_id = rejection.get("product_id")
+            variant_id = rejection.get("variant_id", "")
+            
+            # Try to find purchase price from dispatch item
+            cogs_price = 0
+            if dispatch_id and product_id:
+                key = f"{dispatch_id}_{product_id}_{variant_id}"
+                dispatch_item = dispatch_items_map.get(key)
+                if dispatch_item:
+                    cogs_price = dispatch_item.get("purchase_price", 0) or dispatch_item.get("cogs_price", 0) or 0
+            
+            # Calculate COGS value
+            rejection["rejection_cogs"] = round(qty * cogs_price, 2) if cogs_price else 0
     
     return rejections
 

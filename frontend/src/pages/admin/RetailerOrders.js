@@ -371,7 +371,9 @@ export default function RetailerOrders() {
   const [filteredRejections, setFilteredRejections] = useState([]);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const [editingRejection, setEditingRejection] = useState(null);
-  const [rejectionDateFilter, setRejectionDateFilter] = useState('');
+  // Changed from single date to From/To date range
+  const [rejectionDateFrom, setRejectionDateFrom] = useState('');
+  const [rejectionDateTo, setRejectionDateTo] = useState('');
   const [rejectionRetailerFilter, setRejectionRetailerFilter] = useState('');
   const [rejectionProductFilter, setRejectionProductFilter] = useState('');
   const [rejectionForm, setRejectionForm] = useState({
@@ -2595,12 +2597,22 @@ export default function RetailerOrders() {
     loadImmediatelyPayable();
   }, [selectedRetailer, loadImmediatelyPayable]);
 
-  // Filter rejections by date, retailer, and product
+  // Filter rejections by date range, retailer, and product
   useEffect(() => {
     let filtered = [...rejections];
     
-    if (rejectionDateFilter) {
-      filtered = filtered.filter(r => r.rejection_date?.split('T')[0] === rejectionDateFilter);
+    // Filter by date range (From/To)
+    if (rejectionDateFrom) {
+      filtered = filtered.filter(r => {
+        const rejDate = r.rejection_date?.split('T')[0];
+        return rejDate >= rejectionDateFrom;
+      });
+    }
+    if (rejectionDateTo) {
+      filtered = filtered.filter(r => {
+        const rejDate = r.rejection_date?.split('T')[0];
+        return rejDate <= rejectionDateTo;
+      });
     }
     
     if (rejectionRetailerFilter) {
@@ -2614,7 +2626,7 @@ export default function RetailerOrders() {
     }
     
     setFilteredRejections(filtered);
-  }, [rejections, rejectionDateFilter, rejectionRetailerFilter, rejectionProductFilter]);
+  }, [rejections, rejectionDateFrom, rejectionDateTo, rejectionRetailerFilter, rejectionProductFilter]);
 
   // Load closing inventory when retailer or date changes
   useEffect(() => {
@@ -11642,12 +11654,21 @@ export default function RetailerOrders() {
               </div>
               {/* Filters row */}
               <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-xs text-gray-500">From:</span>
                 <Input
                   type="date"
-                  value={rejectionDateFilter}
-                  onChange={(e) => setRejectionDateFilter(e.target.value)}
+                  value={rejectionDateFrom}
+                  onChange={(e) => setRejectionDateFrom(e.target.value)}
                   className="h-8 w-36 text-xs"
-                  placeholder="Filter by date"
+                  placeholder="From date"
+                />
+                <span className="text-xs text-gray-500">To:</span>
+                <Input
+                  type="date"
+                  value={rejectionDateTo}
+                  onChange={(e) => setRejectionDateTo(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                  placeholder="To date"
                 />
                 <select
                   value={rejectionRetailerFilter}
@@ -11666,12 +11687,13 @@ export default function RetailerOrders() {
                   className="h-8 w-32 text-xs"
                   placeholder="Product..."
                 />
-                {(rejectionDateFilter || rejectionRetailerFilter || rejectionProductFilter) && (
+                {(rejectionDateFrom || rejectionDateTo || rejectionRetailerFilter || rejectionProductFilter) && (
                   <Button 
                     size="sm" 
                     variant="ghost" 
                     onClick={() => { 
-                      setRejectionDateFilter(''); 
+                      setRejectionDateFrom(''); 
+                      setRejectionDateTo(''); 
                       setRejectionRetailerFilter(''); 
                       setRejectionProductFilter(''); 
                     }} 
@@ -11697,7 +11719,7 @@ export default function RetailerOrders() {
                       <th className="p-3 text-left font-medium text-gray-500">INVOICE DATE / PRODUCT</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">QTY</th>
-                      <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
+                      <th className="p-3 text-right font-medium text-gray-500">VALUE MRP <span className="text-xs font-normal">(COGS)</span></th>
                       <th className="p-3 text-left font-medium text-gray-500">REASON</th>
                       <th className="p-3 text-center font-medium text-gray-500">CREDIT NOTE</th>
                       <th className="p-3 text-center font-medium text-gray-500">ACTIONS</th>
@@ -11723,6 +11745,7 @@ export default function RetailerOrders() {
                         const isExpanded = expandedRejectionDates[date];
                         const totalQty = dateRejections.reduce((sum, r) => sum + (r.quantity || 0), 0);
                         const totalValue = dateRejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
+                        const totalCogs = dateRejections.reduce((sum, r) => sum + (r.rejection_cogs || 0), 0);
                         
                         // Get unique retailers for this date
                         const uniqueRetailers = [...new Set(dateRejections.map(r => getRetailerNameById(r.retailer_id) || r.retailer_name))];
@@ -11741,7 +11764,12 @@ export default function RetailerOrders() {
                               <td className="p-3 font-semibold text-gray-800">{formatDate(date)}</td>
                               <td className="p-3 text-gray-600 text-xs">{uniqueRetailers.length === 1 ? uniqueRetailers[0] : `${uniqueRetailers.length} retailers`}</td>
                               <td className="p-3 text-center text-red-600 font-semibold">{totalQty}</td>
-                              <td className="p-3 text-right text-red-600 font-semibold">{formatCurrency(totalValue)}</td>
+                              <td className="p-3 text-right">
+                                <span className="text-red-600 font-semibold">{formatCurrency(totalValue)}</span>
+                                {totalCogs > 0 && (
+                                  <span className="text-xs text-gray-500 ml-1">({formatCurrency(totalCogs)})</span>
+                                )}
+                              </td>
                               <td className="p-3 text-gray-500 text-xs">{dateRejections.length} item(s)</td>
                               <td className="p-3"></td>
                             </tr>
@@ -11764,7 +11792,12 @@ export default function RetailerOrders() {
                                 </td>
                                 <td className="p-2 text-gray-600 text-sm">{getRetailerNameById(rejection.retailer_id) || rejection.retailer_name}</td>
                                 <td className="p-2 text-center text-red-500">{rejection.quantity}</td>
-                                <td className="p-2 text-right text-red-500">{formatCurrency(rejection.rejection_value)}</td>
+                                <td className="p-2 text-right">
+                                  <span className="text-red-500">{formatCurrency(rejection.rejection_value)}</span>
+                                  {rejection.rejection_cogs > 0 && (
+                                    <span className="text-xs text-gray-400 ml-1">({formatCurrency(rejection.rejection_cogs)})</span>
+                                  )}
+                                </td>
                                 <td className="p-2 text-gray-500">{rejection.reason}</td>
                                 <td className="p-2 text-center">
                                   {rejection.credit_note_number ? (

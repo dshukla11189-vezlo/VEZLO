@@ -3246,6 +3246,61 @@ export default function RetailerDashboard() {
                           </div>
                         </div>
                         
+                        {/* Rejection MRP + Rejection % Chart - 2nd Position */}
+                        <div className="bg-gradient-to-br from-red-50 to-white rounded-xl p-3 border border-red-200">
+                          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                            <AlertTriangle size={14} className="text-red-500" />
+                            {viewModeLabel} Rejection MRP
+                          </p>
+                          <div className="h-32">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={chartData} margin={{ top: 25, right: 5, left: -20, bottom: 5 }}>
+                                <XAxis 
+                                  dataKey="shortLabel" 
+                                  tick={{ fontSize: 10, fill: '#6b7280' }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  interval={0}
+                                  angle={chartData.length > 5 ? -45 : 0}
+                                  textAnchor={chartData.length > 5 ? 'end' : 'middle'}
+                                  height={chartData.length > 5 ? 35 : 18}
+                                />
+                                <YAxis hide={true} />
+                                <Tooltip 
+                                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #fecaca' }}
+                                  formatter={(value, name, props) => {
+                                    const gross = props.payload.orderValue || 0;
+                                    const pct = gross > 0 ? ((value / gross) * 100).toFixed(1) : '—';
+                                    return [
+                                      `₹${value.toLocaleString()} (${pct}% of Gross)`, 
+                                      'Rejection'
+                                    ];
+                                  }}
+                                  labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+                                />
+                                <Bar dataKey="rejectionValue" radius={[4, 4, 0, 0]} maxBarSize={35}>
+                                  {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={rejectionColors[index % rejectionColors.length]} />
+                                  ))}
+                                  <LabelList 
+                                    dataKey="rejectionValue" 
+                                    position="top" 
+                                    style={{ fontSize: 11, fontWeight: 600, fill: '#dc2626' }}
+                                    formatter={formatValue}
+                                  />
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                          {/* Summary - Total Rejection % */}
+                          <div className="mt-2 pt-2 border-t border-red-100 flex items-center justify-between text-xs">
+                            <span className="text-red-600 font-medium">Total: {formatCurrency(totalRejections)}</span>
+                            <span className="text-red-500 font-semibold">
+                              {totalGrossMrp > 0 ? ((totalRejections / totalGrossMrp) * 100).toFixed(1) : '—'}% Rejection
+                            </span>
+                          </div>
+                        </div>
+                        
                         {/* Earnings/Profit Chart */}
                         <div className="bg-white/80 rounded-xl p-3 border border-emerald-100">
                           <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
@@ -3328,61 +3383,6 @@ export default function RetailerDashboard() {
                                 </Bar>
                               </BarChart>
                             </ResponsiveContainer>
-                          </div>
-                        </div>
-                        
-                        {/* Rejection MRP + Rejection % Chart */}
-                        <div className="bg-gradient-to-br from-red-50 to-white rounded-xl p-3 border border-red-200">
-                          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
-                            <AlertTriangle size={14} className="text-red-500" />
-                            {viewModeLabel} Rejection MRP
-                          </p>
-                          <div className="h-32">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={chartData} margin={{ top: 25, right: 5, left: -20, bottom: 5 }}>
-                                <XAxis 
-                                  dataKey="shortLabel" 
-                                  tick={{ fontSize: 10, fill: '#6b7280' }}
-                                  axisLine={false}
-                                  tickLine={false}
-                                  interval={0}
-                                  angle={chartData.length > 5 ? -45 : 0}
-                                  textAnchor={chartData.length > 5 ? 'end' : 'middle'}
-                                  height={chartData.length > 5 ? 35 : 18}
-                                />
-                                <YAxis hide={true} />
-                                <Tooltip 
-                                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #fecaca' }}
-                                  formatter={(value, name, props) => {
-                                    const gross = props.payload.orderValue || 0;
-                                    const pct = gross > 0 ? ((value / gross) * 100).toFixed(1) : '—';
-                                    return [
-                                      `₹${value.toLocaleString()} (${pct}% of Gross)`, 
-                                      'Rejection'
-                                    ];
-                                  }}
-                                  labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
-                                />
-                                <Bar dataKey="rejectionValue" radius={[4, 4, 0, 0]} maxBarSize={35}>
-                                  {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={rejectionColors[index % rejectionColors.length]} />
-                                  ))}
-                                  <LabelList 
-                                    dataKey="rejectionValue" 
-                                    position="top" 
-                                    style={{ fontSize: 11, fontWeight: 600, fill: '#dc2626' }}
-                                    formatter={formatValue}
-                                  />
-                                </Bar>
-                              </BarChart>
-                            </ResponsiveContainer>
-                          </div>
-                          {/* Summary - Total Rejection % */}
-                          <div className="mt-2 pt-2 border-t border-red-100 flex items-center justify-between text-xs">
-                            <span className="text-red-600 font-medium">Total: {formatCurrency(totalRejections)}</span>
-                            <span className="text-red-500 font-semibold">
-                              {totalGrossMrp > 0 ? ((totalRejections / totalGrossMrp) * 100).toFixed(1) : '—'}% Rejection
-                            </span>
                           </div>
                         </div>
                       </div>

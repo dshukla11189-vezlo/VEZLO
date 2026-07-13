@@ -9777,7 +9777,7 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
     
     if current_user["role"] == "retailer":
         # Regular retailer: only their own dispatches
-        dispatch_query = {"retailer_id": current_user["id"]}
+        dispatch_query = {"retailer_id": current_user["user_id"]}
         dispatch_limit = 500
     # Admin/staff: all dispatches (no filter)
     

@@ -9836,6 +9836,39 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
                         if piece_key not in mrp_lookup or mrp_lookup[piece_key].get("mrp", 0) <= 0:
                             mrp_lookup[piece_key] = mrp_data
     
+    # Global dispatch fallback for new retailers with no dispatch history
+    # Only for retailers - admin/staff already query global dispatches above
+    global_mrp_count = 0
+    if current_user["role"] == "retailer":
+        global_dispatches = await db.retailer_dispatches.find(
+            {},
+            {"_id": 0, "items": 1, "dispatch_date": 1}
+        ).sort("dispatch_date", -1).to_list(2000)
+
+        for dispatch in global_dispatches:
+            dispatch_date = dispatch.get("dispatch_date", "")[:10]
+            for item in dispatch.get("items", []):
+                product_id = item.get("product_id", "")
+                variant_id = item.get("variant_id", "")
+                mrp = item.get("mrp", 0) or 0
+
+                if product_id and variant_id and mrp > 0:
+                    key = f"{product_id}_{variant_id}"
+                    if key not in mrp_lookup or mrp_lookup[key].get("mrp", 0) <= 0:
+                        mrp_data = {
+                            "mrp": mrp,
+                            "date": dispatch_date,
+                            "product_name": item.get("product_name", ""),
+                            "variant_name": item.get("variant_name", ""),
+                            "source": "global_dispatch"
+                        }
+                        mrp_lookup[key] = mrp_data
+                        global_mrp_count += 1
+                        if product_id in piece_products:
+                            piece_key = f"{product_id}_{piece_products[product_id]}"
+                            if piece_key not in mrp_lookup or mrp_lookup[piece_key].get("mrp", 0) <= 0:
+                                mrp_lookup[piece_key] = mrp_data
+    
     return {
         "mrp_data": mrp_lookup,
         "today": today,
@@ -9843,6 +9876,7 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
         "today_count": len([e for e in today_mrp if e.get("mrp", 0) > 0]),
         "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0]),
         "dispatch_fallback_count": dispatch_mrp_count,
+        "global_dispatch_fallback_count": global_mrp_count,
         "piece_products_count": len(piece_products)
     }
 

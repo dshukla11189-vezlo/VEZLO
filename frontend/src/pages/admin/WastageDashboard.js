@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet, RefreshCw, ChevronDown } from 'lucide-react';
+import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Scale, Calendar, BarChart3, FileSpreadsheet, RefreshCw, ChevronDown, Printer } from 'lucide-react';
 
 // Export utility function
 const exportToCSV = (data, filename, columns) => {
@@ -444,6 +444,130 @@ export default function WastageDashboard() {
     }
   };
 
+  // Print wastage table for selected date
+  const printWastageTable = () => {
+    if (!selectedDateWastage || !selectedDateWastage.products?.length) {
+      toast.error('No wastage data to print');
+      return;
+    }
+
+    const products = [...selectedDateWastage.products]
+      .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0));
+
+    // Calculate totals
+    const totalWastageKg = products.reduce((sum, p) => sum + (p.wastage_qty || 0), 0);
+    const totalWastageValue = products.reduce((sum, p) => sum + (p.wastage_value || 0), 0);
+    const totalClosingValue = products.reduce((sum, p) => sum + ((p.closing_qty || 0) * (p.cogs_price || 0)), 0);
+
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Wastage Report - ${selectedWastageDate}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; color: #333; margin-bottom: 5px; }
+          h2 { text-align: center; color: #666; margin-top: 5px; font-size: 14px; font-weight: normal; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+          th { background-color: #fef2f2; color: #b91c1c; padding: 8px; text-align: right; border: 1px solid #fecaca; }
+          th:first-child { text-align: left; }
+          td { padding: 8px; border: 1px solid #e5e7eb; text-align: right; }
+          td:first-child { text-align: left; font-weight: 500; }
+          .positive { color: #16a34a; }
+          .negative { color: #dc2626; }
+          .total-row { background-color: #fef2f2; font-weight: bold; }
+          .summary { display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px; }
+          .summary-item { text-align: center; }
+          .summary-label { font-size: 11px; color: #666; margin-bottom: 4px; }
+          .summary-value { font-size: 18px; font-weight: bold; color: #dc2626; }
+          @media print {
+            body { padding: 10px; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Mr Organix - Wastage Report</h1>
+        <h2>Date: ${new Date(selectedWastageDate).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</h2>
+        
+        <div class="summary">
+          <div class="summary-item">
+            <div class="summary-label">Total Wastage</div>
+            <div class="summary-value">${totalWastageKg.toFixed(2)} Kg</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Total Value Lost</div>
+            <div class="summary-value">₹${totalWastageValue.toLocaleString()}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Total Closing Value</div>
+            <div class="summary-value">₹${totalClosingValue.toLocaleString()}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Products</div>
+            <div class="summary-value">${products.length}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Opening</th>
+              <th>Purchase</th>
+              <th>Dispatch</th>
+              <th>Closing</th>
+              <th>Closing Value</th>
+              <th>Wastage (Kg)</th>
+              <th>Value (₹)</th>
+              <th>%</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${products.map(product => {
+              const closingValue = (product.closing_qty || 0) * (product.cogs_price || 0);
+              return `
+                <tr>
+                  <td>${product.product_name || 'Unknown'}</td>
+                  <td>${(product.opening_qty || 0).toFixed(1)}</td>
+                  <td class="positive">+${(product.purchase_qty || 0).toFixed(1)}</td>
+                  <td class="negative">${(product.dispatch_qty || 0) > 0 ? '-' : ''}${(product.dispatch_qty || 0).toFixed(1)}</td>
+                  <td>${(product.closing_qty || 0).toFixed(1)}</td>
+                  <td>₹${Math.round(closingValue).toLocaleString()}</td>
+                  <td class="negative">${(product.wastage_qty || 0).toFixed(2)}</td>
+                  <td class="negative">₹${Math.round(product.wastage_value || 0).toLocaleString()}</td>
+                  <td class="negative">${(product.wastage_percent || 0).toFixed(1)}%</td>
+                </tr>
+              `;
+            }).join('')}
+            <tr class="total-row">
+              <td>Total (${products.length} products)</td>
+              <td>-</td>
+              <td>-</td>
+              <td>-</td>
+              <td>-</td>
+              <td>₹${Math.round(totalClosingValue).toLocaleString()}</td>
+              <td>${totalWastageKg.toFixed(2)} Kg</td>
+              <td>₹${Math.round(totalWastageValue).toLocaleString()}</td>
+              <td>-</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <p style="text-align: center; margin-top: 30px; color: #999; font-size: 10px;">
+          Generated on ${new Date().toLocaleString('en-IN')}
+        </p>
+        
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   // Fix historical wastage values - useful when wastage_value is 0 for items without purchases
   const [fixingWastage, setFixingWastage] = useState(false);
   const fixHistoricalWastageValues = async () => {
@@ -684,6 +808,17 @@ export default function WastageDashboard() {
                   <RefreshCw size={12} className="mr-1" />
                 )}
                 Recalculate
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={printWastageTable}
+                disabled={loadingSelectedDate || !selectedDateWastage?.products?.length}
+                className="border-gray-300 text-gray-700 hover:bg-gray-50 h-8 text-xs"
+                title="Print wastage table"
+              >
+                <Printer size={12} className="mr-1" />
+                Print
               </Button>
               {selectedDateWastage && (
                 <span className="text-sm text-red-600 font-semibold">

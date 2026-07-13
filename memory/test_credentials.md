@@ -10,22 +10,26 @@
 - **Password**: staff123
 - **Role**: Staff
 
-## Retailer Portal (All Retailers)
-- **Password**: 12345 (standardized for all retailers in preview)
+## Retailer Portal
+- **URL**: https://harvest-hub-384.preview.emergentagent.com/login
+- **Standard Password**: retailer123
 
-### Retailers in Preview DB:
+### Primary Test Retailers:
+| Shop Name | Email | Password |
+|-----------|-------|----------|
+| Tamanna Mart | tamannamart08@gmail.com | retailer123 |
+| Bagwan Fruit Shop, Baner | jameel@gmail.com | retailer123 |
+
+### Other Retailers in Preview DB (no password set):
 | Shop Name | Email |
 |-----------|-------|
-| Tamanna Mart (Ghisendra Choudhary) | tamannamart08@gmail.com |
-| Lucky | bhaveshdewasi803@gmail.com |
-| Rohan | rohansirvi69@gmail.com |
-| Sonaji Kharat | kharatsarika013@gmail.com |
-| Chelaram | puneri@gmail.com |
-| Kartik Narang | Narangsupermart@gmail.com |
-| Ashish Gurkha | dev@gmail.com |
-| Deep Barhaiya | deep.barhaiya@gmail.com |
+| Jai Bhawani Traders Mundhwa | bhaveshdewasi803@gmail.com |
+| Park Way Mart | rohansirvi69@gmail.com |
+| Savtamali | kharatsarika013@gmail.com |
+| Puneri Fresh Mart | puneri@gmail.com |
+| Narang Super Mart | Narangsupermart@gmail.com |
 
 ## Notes
-- **July 1, 2026**: Admin password reset to 'admin123', all retailer passwords set to '12345'
+- **July 13, 2026**: Retailer passwords set to 'retailer123' for Tamanna Mart and Bagwan
 - Production credentials may differ - this file is for preview/testing only
 - Database: `test_database`

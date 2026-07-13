@@ -2732,6 +2732,16 @@ export default function RetailerOrders() {
     const filteredTotalPayments = filteredPaymentsForStats.reduce((sum, p) => 
       sum + (p.amount || 0), 0);
     
+    // Compute pending amount only from unpaid invoices, accounting for credit adjustments
+    const filteredPendingAmount = filteredInvoicesForStats
+      .filter(inv => inv.status === 'pending' || inv.status === 'partial')
+      .reduce((sum, inv) => {
+        const netPayable = inv.net_payable || 0;
+        const paidAmount = inv.paid_amount || 0;
+        const creditAdjusted = inv.total_credit_adjusted || 0;
+        return sum + Math.max(0, netPayable - paidAmount - creditAdjusted);
+      }, 0);
+    
     setDashboardStats({
       totalIndents: filteredIndentsForStats.length,
       pendingIndents: filteredIndentsForStats.filter(i => i.status === 'pending').length,
@@ -2746,7 +2756,7 @@ export default function RetailerOrders() {
       totalRejectionCogs,
       totalRejectionCount,
       totalRejectionItems,
-      pendingAmount: filteredTotalInvoiced - filteredTotalPayments,
+      pendingAmount: filteredPendingAmount,
       // Today's Orders (indents for today, dispatches for today) - using IST timezone
       todayIndentsCount: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === getISTDate()).length,
       todayIndentsQty: filteredIndentsForStats.filter(i => i.indent_date?.split('T')[0] === getISTDate())

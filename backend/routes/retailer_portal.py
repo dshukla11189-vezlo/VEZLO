@@ -2876,7 +2876,7 @@ async def update_credit_note(credit_note_id: str, input: dict, current_user: dic
 @router.get("/retailer-credit-notes/summary/{retailer_id}")
 async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Depends(get_current_user)):
     """Get credit note summary for a retailer"""
-    all_cns = await db.retailer_credit_notes.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(500)
+    all_cns = await db.retailer_credit_notes.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(50000)
     
     total_credit_issued = sum(cn.get("amount", 0) for cn in all_cns)
     total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in all_cns)
@@ -9728,7 +9728,7 @@ async def get_retailer_catalogue(
 
 @router.get("/retailer-catalogue/mrp")
 async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_user)):
-    """Get MRP data for retailer catalogue products - checks today first, then yesterday"""
+    """Get MRP data for retailer catalogue products - checks today first, then yesterday, then dispatch history as fallback"""
     from datetime import timedelta
     
     # Get today and yesterday dates
@@ -9770,12 +9770,50 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
                 "variant_name": entry.get("variant_name", "")
             }
     
+    # Fallback: for any product+variant missing from primary result, check dispatch history
+    # Dispatches are sorted newest-first, so first match = most recent MRP for that product+variant
+    dispatch_query = {}
+    dispatch_limit = 2000
+    
+    if current_user["role"] == "retailer":
+        # Regular retailer: only their own dispatches
+        dispatch_query = {"retailer_id": current_user["id"]}
+        dispatch_limit = 500
+    # Admin/staff: all dispatches (no filter)
+    
+    dispatches = await db.retailer_dispatches.find(
+        dispatch_query,
+        {"_id": 0, "items": 1, "dispatch_date": 1}
+    ).sort("dispatch_date", -1).to_list(dispatch_limit)
+    
+    dispatch_mrp_count = 0
+    for dispatch in dispatches:
+        dispatch_date = dispatch.get("dispatch_date", "")[:10]
+        for item in dispatch.get("items", []):
+            product_id = item.get("product_id", "")
+            variant_id = item.get("variant_id", "")
+            mrp = item.get("mrp", 0) or 0
+            
+            if product_id and variant_id and mrp > 0:
+                key = f"{product_id}_{variant_id}"
+                # Only insert if NOT already in mrp_lookup with a positive value
+                if key not in mrp_lookup or mrp_lookup[key].get("mrp", 0) <= 0:
+                    mrp_lookup[key] = {
+                        "mrp": mrp,
+                        "date": dispatch_date,
+                        "product_name": item.get("product_name", ""),
+                        "variant_name": item.get("variant_name", ""),
+                        "source": "dispatch"
+                    }
+                    dispatch_mrp_count += 1
+    
     return {
         "mrp_data": mrp_lookup,
         "today": today,
         "yesterday": yesterday,
         "today_count": len([e for e in today_mrp if e.get("mrp", 0) > 0]),
-        "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0])
+        "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0]),
+        "dispatch_fallback_count": dispatch_mrp_count
     }
 
 @router.post("/retailer-catalogue")

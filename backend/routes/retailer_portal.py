@@ -9735,6 +9735,19 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
     
+    # Build piece_products lookup: product_id -> display_unit (e.g., "unit_piece", "unit_packet")
+    # This is used to add dual-key entries for Piece/Packet based products
+    piece_products = {}
+    catalogue_items = await db.retailer_catalogue.find(
+        {"display_unit": {"$in": ["Piece", "Packet", "piece", "packet"]}},
+        {"_id": 0, "product_id": 1, "display_unit": 1}
+    ).to_list(1000)
+    for cat_item in catalogue_items:
+        pid = cat_item.get("product_id")
+        display_unit = cat_item.get("display_unit", "").lower()
+        if pid and display_unit:
+            piece_products[pid] = f"unit_{display_unit}"
+    
     # Fetch today's MRP entries
     today_mrp = await db.daily_mrp.find({"date": today}, {"_id": 0}).to_list(1000)
     yesterday_mrp = await db.daily_mrp.find({"date": yesterday}, {"_id": 0}).to_list(1000)
@@ -9749,12 +9762,17 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
         mrp = entry.get("mrp", 0)
         if product_id and variant_id and mrp and mrp > 0:
             key = f"{product_id}_{variant_id}"
-            mrp_lookup[key] = {
+            mrp_data = {
                 "mrp": mrp,
                 "date": yesterday,
                 "product_name": entry.get("product_name", ""),
                 "variant_name": entry.get("variant_name", "")
             }
+            mrp_lookup[key] = mrp_data
+            # Dual-key insertion for Piece/Packet products
+            if product_id in piece_products:
+                piece_key = f"{product_id}_{piece_products[product_id]}"
+                mrp_lookup[piece_key] = mrp_data
     
     # Then, add/overwrite with today's MRP
     for entry in today_mrp:
@@ -9763,12 +9781,17 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
         mrp = entry.get("mrp", 0)
         if product_id and variant_id and mrp and mrp > 0:
             key = f"{product_id}_{variant_id}"
-            mrp_lookup[key] = {
+            mrp_data = {
                 "mrp": mrp,
                 "date": today,
                 "product_name": entry.get("product_name", ""),
                 "variant_name": entry.get("variant_name", "")
             }
+            mrp_lookup[key] = mrp_data
+            # Dual-key insertion for Piece/Packet products
+            if product_id in piece_products:
+                piece_key = f"{product_id}_{piece_products[product_id]}"
+                mrp_lookup[piece_key] = mrp_data
     
     # Fallback: for any product+variant missing from primary result, check dispatch history
     # Dispatches are sorted newest-first, so first match = most recent MRP for that product+variant
@@ -9798,14 +9821,20 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
                 key = f"{product_id}_{variant_id}"
                 # Only insert if NOT already in mrp_lookup with a positive value
                 if key not in mrp_lookup or mrp_lookup[key].get("mrp", 0) <= 0:
-                    mrp_lookup[key] = {
+                    mrp_data = {
                         "mrp": mrp,
                         "date": dispatch_date,
                         "product_name": item.get("product_name", ""),
                         "variant_name": item.get("variant_name", ""),
                         "source": "dispatch"
                     }
+                    mrp_lookup[key] = mrp_data
                     dispatch_mrp_count += 1
+                    # Dual-key insertion for Piece/Packet products
+                    if product_id in piece_products:
+                        piece_key = f"{product_id}_{piece_products[product_id]}"
+                        if piece_key not in mrp_lookup or mrp_lookup[piece_key].get("mrp", 0) <= 0:
+                            mrp_lookup[piece_key] = mrp_data
     
     return {
         "mrp_data": mrp_lookup,
@@ -9813,7 +9842,8 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
         "yesterday": yesterday,
         "today_count": len([e for e in today_mrp if e.get("mrp", 0) > 0]),
         "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0]),
-        "dispatch_fallback_count": dispatch_mrp_count
+        "dispatch_fallback_count": dispatch_mrp_count,
+        "piece_products_count": len(piece_products)
     }
 
 @router.post("/retailer-catalogue")

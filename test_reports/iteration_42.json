@@ -1,0 +1,39 @@
+{
+  "summary": "Verified both bug fixes for Mr Organix. (1) Backend: GET /api/retailer-catalogue/mrp now returns dual-key entries for Piece/Packet products. Created /app/backend/tests/test_retailer_catalogue_mrp_dual_key.py (9 tests, all PASSED). Confirmed piece_products_count=20 in preview DB; Cabbage=35, Cauliflower=45, Bottle Gourd=35 at their *_unit_piece keys. Dual-key sweep found >=3 keys ending in _unit_piece/_unit_packet, all with positive MRP values. (2) Frontend: Add Product dialog on /admin/products has max-h-[90vh] overflow-y-auto and is verified via Playwright on both 1920x1080 (dialog 972px, exactly 90vh, bottom fits) and 768x700 (dialog 630px = 90vh; internal scrollHeight 968 > clientHeight 628 => scrollable). Dialog is contained inside viewport and internally scrollable in both cases. No issues found; both fixes are working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin > Products > Add Product dialog", "issues": ["Non-blocking React hydration warning in console: <span> cannot be a child of <option> in the Unit dropdown (Radix/Emergent overlay is injecting <span> wrappers into <option> elements). Does not affect the dialog fix itself but pollutes the console. Root cause is the emergent 'x-file-name' overlay wrappers inside <option> tags at /app/frontend/src/pages/admin/Products.js:~1795. Consider suppressing overlay on <option> children or ignoring."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_retailer_catalogue_mrp_dual_key.py",
+    "/app/test_reports/pytest/iteration_42_mrp_dual_key.xml"
+  ],
+  "action_items": [
+    "None required — both bugs verified as fixed.",
+    "Optional: investigate the <option><span></span></option> hydration warning printed to console when Add Product dialog opens (source: Radix/Emergent DEV overlay injecting spans into <option> children in Products.js Unit dropdown)."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/routes/retailer_portal.py is 10,432 lines — should be split into smaller modules (retailer_catalogue.py, retailer_dispatches.py, retailer_indents.py, etc.). Well above the 700-line guideline.",
+    "get_retailer_catalogue_mrp (retailer_portal.py:9729-9847) contains 3 near-identical blocks (yesterday_mrp loop, today_mrp loop, dispatch loop) that all do the same dual-key insertion. Extract a helper `_insert_mrp_and_dual_key(mrp_lookup, product_id, variant_id, mrp_data, piece_products)` to keep this DRY. Ensures the dual-key fix cannot silently regress in one branch but not the others.",
+    "The Piece/Packet detection uses `.lower()` on display_unit and matches against a 4-tuple ['Piece','Packet','piece','packet']. Prefer `display_unit.lower() in {'piece','packet'}` — the 4-tuple with duplicates is confusing.",
+    "/app/frontend/src/pages/admin/Products.js is 3006 lines — split into ProductForm.js, ProductList.js, ProductVariantsSection.js etc.",
+    "Frontend uses a native <select> for the Unit dropdown while other selects use shadcn — inconsistent UX; also triggers the hydration warning noted above."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_retailer_catalogue_mrp_dual_key.py (new)"
+  ],
+  "success_rate": {"backend": "9/9 (100%)", "frontend": "2/2 viewport checks (100%)"},
+  "test_credentials": "admin@freshflow.com / admin123 (identifier field, not email). Login endpoint: POST /api/auth/login (NOT /api/login — /api/login returns 404).",
+  "seed_data_creation": "None. Tests only GET /api/retailer-catalogue/mrp; no writes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two bug fixes verified in iteration 42: (a) Backend dual-key MRP fix at /app/backend/routes/retailer_portal.py:9729 — regression test at /app/backend/tests/test_retailer_catalogue_mrp_dual_key.py; (b) Frontend Add Product dialog viewport-cap fix at /app/frontend/src/pages/admin/Products.js:1682 (className='sm:max-w-[500px] max-h-[90vh] overflow-y-auto'). Login endpoint is POST /api/auth/login with body {\"identifier\":..., \"password\":...} — NOT /api/login. Preview DB has 20 Piece/Packet catalogue rows; specific verified product IDs are documented in the test file.",
+  "rca of the issue": "Bug 1 (MRP): Frontend catalog display looks up MRP by key '{product_id}_unit_piece' (or _unit_packet) for products whose display_unit is Piece/Packet, but backend was only writing keys '{product_id}_{variant_id}'. Result: Piece/Packet products showed no MRP. FIX at retailer_portal.py:9772-9775, 9791-9794, 9833-9837 — pre-builds a `piece_products` map (product_id -> 'unit_piece'/'unit_packet') from db.retailer_catalogue and, whenever a product is encountered in yesterday_mrp / today_mrp / dispatch fallback, also writes an additional entry under the dual key. Verified: 20 piece_products_count in preview DB; Cabbage=35, Cauliflower=45, Bottle Gourd=35 all present at their _unit_piece keys. Bug 2 (dialog): DialogContent didn't cap height, so on shorter viewports the dialog extended past the bottom edge of the screen and the Create Product button was unreachable. FIX at Products.js:1682 — added 'max-h-[90vh] overflow-y-auto'. Verified: on 768x700 viewport the intrinsic content (968px) is capped at 630px (~90vh) and internally scrollable, so all fields (including Create Product button) are accessible."
+}

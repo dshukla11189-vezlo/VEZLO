@@ -867,7 +867,7 @@ export default function RetailerOrders() {
       // Include date range for proper filtering
       params.append('start_date', rejectionLossDateFrom);
       params.append('end_date', rejectionLossDateTo);
-      params.append('limit', '2000'); // Increase limit to get all rejections in range
+      params.append('limit', '50000'); // Increased limit to get all rejections in range
       const response = await api.get(`/api/retailer-rejections?${params.toString()}`);
       setRejections(response.data);
     } catch (error) {
@@ -8122,19 +8122,16 @@ export default function RetailerOrders() {
           <div className="flex items-end justify-between">
             <div>
               <p className="text-3xl font-bold text-red-600">
-                {formatCurrency(rejectionAnalyticsState.totalValue)}
+                {formatCurrency(rejectionAnalyticsState.totalValue)} <span className="text-lg font-normal">MRP</span>
                 {rejectionAnalyticsState.totalCogs > 0 && (
                   <span className="text-lg text-gray-500 font-normal ml-2">
-                    ({formatCurrency(rejectionAnalyticsState.totalCogs)})
+                    ({formatCurrency(rejectionAnalyticsState.totalCogs)} COGS)
                   </span>
                 )}
               </p>
               <p className="text-xs text-red-500 mt-1">
                 {rejectionAnalyticsState.count} rejection(s) • {rejectionAnalyticsState.totalQty} items
                 <span className="text-gray-400 ml-2">(of {rejections.length} total)</span>
-                {rejectionAnalyticsState.totalCogs > 0 && (
-                  <span className="text-gray-400 ml-1">• MRP (COGS)</span>
-                )}
               </p>
             </div>
             {rejectionAnalyticsState.topProductByQty && (
@@ -8387,14 +8384,13 @@ export default function RetailerOrders() {
                   <div className="bg-white/70 rounded-lg p-2 border border-red-100">
                     <p className="text-[9px] md:text-[10px] text-red-600 uppercase font-medium truncate">Total Rejections</p>
                     <p className="text-sm md:text-lg font-bold text-red-700">
-                      {formatCurrency(totalRejections)}
+                      {formatCurrency(totalRejections)} <span className="text-xs font-normal">MRP</span>
                       {totalRejectionCogs > 0 && (
-                        <span className="text-xs text-gray-500 font-normal ml-1">({formatCurrency(totalRejectionCogs)})</span>
+                        <span className="text-xs text-gray-500 font-normal ml-1">({formatCurrency(totalRejectionCogs)} COGS)</span>
                       )}
                     </p>
                     <p className="text-[8px] md:text-[9px] text-gray-500">
                       ({totalRejectionCount} items)
-                      {totalRejectionCogs > 0 && <span className="ml-1">• MRP (COGS)</span>}
                     </p>
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-emerald-100">
@@ -8477,9 +8473,9 @@ export default function RetailerOrders() {
                             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                             formatter={(value, name, props) => {
                               const cogs = props.payload.rejectionCogs;
-                              const cogsStr = cogs > 0 ? ` (COGS: ₹${cogs.toLocaleString()})` : '';
+                              const cogsStr = cogs > 0 ? ` (₹${cogs.toLocaleString()} COGS)` : '';
                               return [
-                                `₹${value.toLocaleString()}${cogsStr} • ${props.payload.rejectionCount} items`, 
+                                `₹${value.toLocaleString()} MRP${cogsStr} • ${props.payload.rejectionCount} items`, 
                                 'Rejections'
                               ];
                             }}

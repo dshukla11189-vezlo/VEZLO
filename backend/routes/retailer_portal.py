@@ -1093,7 +1093,7 @@ async def get_retailer_rejections(
     retailer_id: str = None,
     start_date: str = None,
     end_date: str = None,
-    limit: int = 2000,
+    limit: int = 50000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -1139,38 +1139,88 @@ async def get_retailer_rejections(
                 if rej_id and rej_id in cn_map:
                     rejection.update(cn_map[rej_id])
         
-        # Calculate COGS for each rejection
-        # Get dispatch items to find purchase price
-        dispatch_ids = list(set(r.get("dispatch_id") for r in rejections if r.get("dispatch_id")))
-        dispatch_items_map = {}
-        if dispatch_ids:
-            dispatches = await db.retailer_dispatches.find(
-                {"id": {"$in": dispatch_ids}},
-                {"_id": 0, "id": 1, "items": 1}
-            ).to_list(len(dispatch_ids))
-            for d in dispatches:
-                for item in d.get("items", []):
-                    key = f"{d['id']}_{item.get('product_id')}_{item.get('variant_id', '')}"
-                    dispatch_items_map[key] = item
+        # Calculate COGS for each rejection using daily_cogs collection
+        # This mirrors the pattern in dashboard_analytics.py
+        
+        # Helper function to extract packaging weight
+        def get_packaging_weight_gm(unit_str):
+            if not unit_str:
+                return 0
+            unit_lower = str(unit_str).lower()
+            import re
+            
+            # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
+            range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit_lower)
+            if range_match:
+                low = int(range_match.group(1))
+                high = int(range_match.group(2))
+                return (low + high) // 2  # Use midpoint
+            
+            # Single value with optional + (e.g., "500+ gm", "250 gm")
+            gm_match = re.search(r'(\d+)\+?\s*(?:gm|g)\b', unit_lower)
+            if gm_match:
+                return int(gm_match.group(1))
+            kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', unit_lower)
+            if kg_match:
+                return float(kg_match.group(1)) * 1000
+            # Handle Half Dozen and Dozen variants
+            if 'half dozen' in unit_lower or 'half-dozen' in unit_lower:
+                return 500
+            elif 'dozen' in unit_lower and 'half' not in unit_lower:
+                return 1000
+            # Fallback patterns
+            if 'bunch' in unit_lower:
+                return 100  # Bunch is typically ~100gm
+            return 0
+        
+        # Build cost_alias_map for product name normalization
+        cost_alias_map = {}
+        products_list = await db.products.find({}, {"_id": 0, "name": 1, "cost_alias": 1}).to_list(500)
+        for p in products_list:
+            alias_name = p.get("cost_alias")
+            if alias_name:
+                cost_alias_map[p.get("name")] = alias_name
+        
+        # Get unique rejection dates and prefetch daily_cogs for those dates
+        rejection_dates = list(set(r.get("rejection_date", "")[:10] for r in rejections if r.get("rejection_date")))
+        
+        # Build daily_cogs_map: (product_name, date) -> cogs_price
+        daily_cogs_map = {}
+        if rejection_dates:
+            daily_cogs_docs = await db.daily_cogs.find(
+                {"date": {"$in": rejection_dates}},
+                {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}
+            ).to_list(10000)
+            for doc in daily_cogs_docs:
+                key = (doc.get("product_name", ""), doc.get("date", ""))
+                daily_cogs_map[key] = doc.get("daily_cogs", 0) or 0
         
         # Calculate rejection_cogs for each rejection
         for rejection in rejections:
             qty = rejection.get("quantity", 0) or 0
-            mrp = rejection.get("mrp", 0) or 0
-            dispatch_id = rejection.get("dispatch_id")
-            product_id = rejection.get("product_id")
-            variant_id = rejection.get("variant_id", "")
+            product_name = rejection.get("product_name", "")
+            variant_name = rejection.get("variant_name", "")
+            rej_date = rejection.get("rejection_date", "")[:10]
             
-            # Try to find purchase price from dispatch item
-            cogs_price = 0
-            if dispatch_id and product_id:
-                key = f"{dispatch_id}_{product_id}_{variant_id}"
-                dispatch_item = dispatch_items_map.get(key)
-                if dispatch_item:
-                    cogs_price = dispatch_item.get("purchase_price", 0) or dispatch_item.get("cogs_price", 0) or 0
+            # Get packaging weight to convert qty to kg
+            packaging_weight_gm = get_packaging_weight_gm(variant_name)
+            if packaging_weight_gm > 0:
+                kg_rejected = qty * (packaging_weight_gm / 1000)
+            else:
+                kg_rejected = qty  # Fallback: assume qty is in kg
+            
+            # Look up COGS price from daily_cogs collection
+            lookup_product = cost_alias_map.get(product_name, product_name)
+            daily_cogs_key = (lookup_product, rej_date)
+            cogs_price_per_kg = daily_cogs_map.get(daily_cogs_key, 0)
+            
+            # If not found with alias, try original product name
+            if cogs_price_per_kg == 0 and lookup_product != product_name:
+                daily_cogs_key = (product_name, rej_date)
+                cogs_price_per_kg = daily_cogs_map.get(daily_cogs_key, 0)
             
             # Calculate COGS value
-            rejection["rejection_cogs"] = round(qty * cogs_price, 2) if cogs_price else 0
+            rejection["rejection_cogs"] = round(kg_rejected * cogs_price_per_kg, 2)
     
     return rejections
 

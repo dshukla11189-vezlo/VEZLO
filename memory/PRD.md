@@ -2,6 +2,23 @@
 
 ## Changelog (July 2026)
 
+### July 13, 2026 - Add Product Popup & MRP Dual-Key Fix ✅
+- **BUG FIX 1**: "Add Product" popup going off-screen in Products tab
+  - **Root Cause**: DialogContent lacked height constraints, extending past viewport on smaller screens
+  - **Fix Applied**: Added `max-h-[90vh] overflow-y-auto` to DialogContent
+  - **Files Modified**: `/app/frontend/src/pages/admin/Products.js` (line 1682)
+  - **Verified**: Dialog contained within viewport on 1920x1080 and 768x700 viewports
+
+- **BUG FIX 2**: Piece/Packet-based products showing ₹0 MRP in retailer catalogue
+  - **Root Cause**: Frontend looks up MRP by key `{product_id}_unit_piece` or `{product_id}_unit_packet`, but backend only wrote keys `{product_id}_{variant_id}`
+  - **Fix Applied**: Implemented dual-key insertion logic in `get_retailer_catalogue_mrp()`:
+    1. Query `retailer_catalogue` for products with `display_unit` = "Piece"/"Packet"
+    2. Build `piece_products` lookup: `product_id → "unit_piece"/"unit_packet"`
+    3. In yesterday_mrp, today_mrp, and dispatch fallback loops, insert MRP under BOTH original key AND dual-key
+  - **Files Modified**: `/app/backend/routes/retailer_portal.py` (lines 9729-9847)
+  - **Verified MRPs**: Cabbage=₹35, Cauliflower=₹45, Bottle Gourd=₹35 at their `*_unit_piece` keys
+  - **Regression Test**: `/app/backend/tests/test_retailer_catalogue_mrp_dual_key.py` (9 tests, 100% pass)
+
 ### July 11, 2026 - Auto-Indent Datetime Bug Fix ✅
 - **BUG FIX**: Fixed `TypeError: can't compare offset-naive and offset-aware datetimes` in auto-indent generation
   - **Root Cause**: Invoice dates stored as naive ISO strings (without 'Z' or timezone offset) were parsed inconsistently - some became timezone-aware (when 'Z' was present), others remained naive

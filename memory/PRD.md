@@ -2,6 +2,40 @@
 
 ## Changelog (July 2026)
 
+### July 13, 2026 - Indents & Dispatches Tab Filters ✅
+- **FEATURE**: Added From/To date pickers, searchable retailer dropdown, Apply and Clear buttons to Indents and Dispatches tabs
+  - Mirrors the pattern already on Invoice / Credit Note tabs
+  - **Backend Changes**:
+    - `GET /api/retailer-indents`: limit raised from 200 → 50000
+    - `GET /api/retailer-dispatches`: limit raised from 200 → 50000
+  - **Frontend Changes**:
+    - New state variables: `indentDateFrom`, `indentDateTo`, `indentRetailerFilter`, `indentRetailerSearch`, `showIndentRetailerDropdown` (same for dispatch*)
+    - `loadIndents()` and `loadDispatches()` now use server-side filtering with `start_date`, `end_date`, `retailer_id`, and `limit=50000`
+    - Simplified `filteredIndents` and `filteredDispatches` useEffects (server handles filtering)
+    - Tab click handler now reloads Indents/Dispatches on switch
+    - Replaced old single-date filter UI with full filter row
+  - **Legacy Fix**: Renamed `from_date/to_date` → `start_date/end_date` in 3 API calls (lines 4006, 4518, 5138)
+  - **Files Modified**:
+    - `/app/backend/routes/retailer_portal.py` (lines 253, 521)
+    - `/app/frontend/src/pages/admin/RetailerOrders.js` (multiple sections)
+  - **Verified**: Both tabs show count and load data correctly with filters
+
+### July 13, 2026 - Global Dispatch MRP Fallback ✅
+- **FEATURE**: Added global dispatch MRP fallback for new retailers with no dispatch history
+  - Only runs for `role == "retailer"` (admin/staff already query global dispatches)
+  - Queries ALL retailer dispatches sorted by date DESC, limit 2000
+  - Only inserts when composite key is missing or has MRP ≤ 0 (preserves per-retailer priority)
+  - Includes dual-key insertion for Piece/Packet products
+  - **Files Modified**: `/app/backend/routes/retailer_portal.py` (lines 9839-9870)
+  - **Verified**: Tamanna Mart gets 47 additional MRPs from global dispatches (source: `global_dispatch`)
+
+### July 13, 2026 - Pending Amount Dashboard Fix ✅
+- **BUG FIX**: Fixed incorrect Pending Amount in Payments dashboard block
+  - **Root Cause**: `dashboardStats.pendingAmount` was `filteredTotalInvoiced - filteredTotalPayments`, ignoring credit adjustments and including paid invoices
+  - **Fix Applied**: New `filteredPendingAmount` that only sums unpaid invoices (`status === 'pending' || 'partial'`) with `Math.max(0, net_payable - paid_amount - total_credit_adjusted)`
+  - **Files Modified**: `/app/frontend/src/pages/admin/RetailerOrders.js` (lines 2735-2759)
+  - **Verified**: Payments block shows correct ₹18,985.40 pending
+
 ### July 13, 2026 - Add Product Popup & MRP Dual-Key Fix ✅
 - **BUG FIX 1**: "Add Product" popup going off-screen in Products tab
   - **Root Cause**: DialogContent lacked height constraints, extending past viewport on smaller screens

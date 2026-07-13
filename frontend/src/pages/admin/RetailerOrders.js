@@ -307,6 +307,20 @@ export default function RetailerOrders() {
   const [indentDateFilter, setIndentDateFilter] = useState(today);
   const [dispatchDateFilter, setDispatchDateFilter] = useState(today);
   
+  // Indent tab filter state (From/To dates + searchable retailer dropdown)
+  const [indentDateFrom, setIndentDateFrom] = useState('');
+  const [indentDateTo, setIndentDateTo] = useState('');
+  const [indentRetailerFilter, setIndentRetailerFilter] = useState('');
+  const [indentRetailerSearch, setIndentRetailerSearch] = useState('');
+  const [showIndentRetailerDropdown, setShowIndentRetailerDropdown] = useState(false);
+  
+  // Dispatch tab filter state (From/To dates + searchable retailer dropdown)
+  const [dispatchDateFrom, setDispatchDateFrom] = useState('');
+  const [dispatchDateTo, setDispatchDateTo] = useState('');
+  const [dispatchRetailerFilter, setDispatchRetailerFilter] = useState('');
+  const [dispatchRetailerSearch, setDispatchRetailerSearch] = useState('');
+  const [showDispatchRetailerDropdown, setShowDispatchRetailerDropdown] = useState(false);
+  
   // Indents state
   const [indents, setIndents] = useState([]);
   const [filteredIndents, setFilteredIndents] = useState([]);
@@ -749,34 +763,34 @@ export default function RetailerOrders() {
   const loadIndents = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
-      if (indentDateFilter) {
-        params.append('start_date', indentDateFilter);
-        params.append('end_date', indentDateFilter);
-      }
-      const queryString = params.toString() ? `?${params.toString()}` : '';
-      const response = await api.get(`/api/retailer-indents${queryString}`);
+      // Use indentRetailerFilter if set, else fall back to selectedRetailer
+      const retailerId = indentRetailerFilter || selectedRetailer;
+      if (retailerId) params.append('retailer_id', retailerId);
+      if (indentDateFrom) params.append('start_date', indentDateFrom);
+      if (indentDateTo) params.append('end_date', indentDateTo);
+      params.append('limit', '50000');
+      const response = await api.get(`/api/retailer-indents?${params.toString()}`);
       setIndents(response.data);
     } catch (error) {
       console.error('Failed to load indents:', error);
     }
-  }, [selectedRetailer, indentDateFilter]);
+  }, [selectedRetailer, indentRetailerFilter, indentDateFrom, indentDateTo]);
 
   const loadDispatches = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
-      if (dispatchDateFilter) {
-        params.append('start_date', dispatchDateFilter);
-        params.append('end_date', dispatchDateFilter);
-      }
-      const queryString = params.toString() ? `?${params.toString()}` : '';
-      const response = await api.get(`/api/retailer-dispatches${queryString}`);
+      // Use dispatchRetailerFilter if set, else fall back to selectedRetailer
+      const retailerId = dispatchRetailerFilter || selectedRetailer;
+      if (retailerId) params.append('retailer_id', retailerId);
+      if (dispatchDateFrom) params.append('start_date', dispatchDateFrom);
+      if (dispatchDateTo) params.append('end_date', dispatchDateTo);
+      params.append('limit', '50000');
+      const response = await api.get(`/api/retailer-dispatches?${params.toString()}`);
       setDispatches(response.data);
     } catch (error) {
       console.error('Failed to load dispatches:', error);
     }
-  }, [selectedRetailer, dispatchDateFilter]);
+  }, [selectedRetailer, dispatchRetailerFilter, dispatchDateFrom, dispatchDateTo]);
 
   const loadInvoices = useCallback(async () => {
     try {
@@ -2548,18 +2562,10 @@ export default function RetailerOrders() {
     loadAll();
   }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable, loadCreditNotes]);
 
-  // Filter indents by date
+  // Server handles date filtering now - just pass through indents
   useEffect(() => {
-    if (!indentDateFilter) {
-      setFilteredIndents(indents);
-    } else {
-      const filtered = indents.filter(indent => {
-        const indentDate = indent.indent_date?.split('T')[0];
-        return indentDate === indentDateFilter;
-      });
-      setFilteredIndents(filtered);
-    }
-  }, [indents, indentDateFilter]);
+    setFilteredIndents(indents);
+  }, [indents]);
 
   // Load dispatches for all visible indents (for showing dispatch status in indent table)
   const loadDispatchesForIndents = useCallback(async () => {
@@ -2595,32 +2601,10 @@ export default function RetailerOrders() {
     }
   }, [activeTab, filteredIndents, loadDispatchesForIndents]);
 
-  // Reload indents when date filter changes
+  // Server handles date filtering now - just pass through dispatches
   useEffect(() => {
-    if (indentDateFilter) {
-      loadIndents();
-    }
-  }, [indentDateFilter, loadIndents]);
-
-  // Filter dispatches by date
-  useEffect(() => {
-    if (!dispatchDateFilter) {
-      setFilteredDispatches(dispatches);
-    } else {
-      const filtered = dispatches.filter(dispatch => {
-        const dispatchDate = dispatch.dispatch_date?.split('T')[0];
-        return dispatchDate === dispatchDateFilter;
-      });
-      setFilteredDispatches(filtered);
-    }
-  }, [dispatches, dispatchDateFilter]);
-
-  // Reload dispatches when date filter changes
-  useEffect(() => {
-    if (dispatchDateFilter) {
-      loadDispatches();
-    }
-  }, [dispatchDateFilter, loadDispatches]);
+    setFilteredDispatches(dispatches);
+  }, [dispatches]);
 
   // Reload immediately payable when selected retailer changes
   useEffect(() => {
@@ -4019,7 +4003,7 @@ export default function RetailerOrders() {
     
     try {
       // Fetch indents for the selected date
-      const response = await api.get(`/api/retailer-indents?from_date=${dailyReqDate}&to_date=${dailyReqDate}`);
+      const response = await api.get(`/api/retailer-indents?start_date=${dailyReqDate}&end_date=${dailyReqDate}`);
       const allIndents = response.data || [];
       
       // Filter indents to only include those matching the exact selected date
@@ -4531,7 +4515,7 @@ export default function RetailerOrders() {
     setMrpIndentProducts([]);
     
     try {
-      const response = await api.get(`/api/retailer-indents?from_date=${date}&to_date=${date}`);
+      const response = await api.get(`/api/retailer-indents?start_date=${date}&end_date=${date}`);
       const allIndents = response.data || [];
       
       // Filter indents to only include those matching the exact selected date
@@ -5151,7 +5135,7 @@ export default function RetailerOrders() {
       // If indent products not loaded yet, try to fetch them
       if (!productsToUse || productsToUse.length === 0) {
         // Fetch indents for the dailyReqDate to get unique products
-        const indentsRes = await api.get(`/api/retailer-indents?from_date=${dailyReqDate}&to_date=${dailyReqDate}`);
+        const indentsRes = await api.get(`/api/retailer-indents?start_date=${dailyReqDate}&end_date=${dailyReqDate}`);
         const allIndents = (indentsRes.data || []).filter(indent => {
           const indentDateStr = (indent.indent_date || '').toString().slice(0, 10);
           return indentDateStr === dailyReqDate;
@@ -8947,6 +8931,8 @@ export default function RetailerOrders() {
                   onClick={() => {
                     setActiveTab(tab.id);
                     // Refresh tab-specific data when switching tabs
+                    if (tab.id === 'indents') loadIndents();
+                    if (tab.id === 'dispatches') loadDispatches();
                     if (tab.id === 'invoices') loadInvoices();
                     if (tab.id === 'rejections' && rejections.length === 0) loadRejections();
                     if (tab.id === 'creditNotes' && creditNotes.length === 0) loadCreditNotes();
@@ -10150,47 +10136,123 @@ export default function RetailerOrders() {
         {/* ==================== INDENTS TAB ==================== */}
         {activeTab === 'indents' && (
           <Card>
-            <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <div className="flex items-center gap-3">
-                <CardTitle className="text-sm">Retailer Indents</CardTitle>
-                <div className="flex items-center gap-2">
+            <CardHeader className="py-3 border-b">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle className="text-sm">Retailer Indents</CardTitle>
+                  <span className="text-xs text-gray-500">From:</span>
                   <Input
                     type="date"
-                    value={indentDateFilter}
-                    onChange={(e) => setIndentDateFilter(e.target.value)}
+                    value={indentDateFrom}
+                    onChange={(e) => setIndentDateFrom(e.target.value)}
                     className="h-8 w-36 text-xs"
+                    placeholder="From date"
                   />
-                  {indentDateFilter && (
-                    <Button size="sm" variant="ghost" onClick={() => setIndentDateFilter('')} className="h-8 px-2">
+                  <span className="text-xs text-gray-500">To:</span>
+                  <Input
+                    type="date"
+                    value={indentDateTo}
+                    onChange={(e) => setIndentDateTo(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                    placeholder="To date"
+                  />
+                  {/* Searchable Retailer Dropdown */}
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={indentRetailerSearch}
+                      onChange={(e) => {
+                        setIndentRetailerSearch(e.target.value);
+                        setShowIndentRetailerDropdown(true);
+                      }}
+                      onFocus={() => setShowIndentRetailerDropdown(true)}
+                      placeholder={indentRetailerFilter ? retailers.find(r => r.id === indentRetailerFilter)?.company_name || retailers.find(r => r.id === indentRetailerFilter)?.name || 'All Retailers' : 'All Retailers'}
+                      className="h-8 w-44 text-xs"
+                    />
+                    {showIndentRetailerDropdown && (
+                      <div className="absolute z-50 w-64 mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        <div
+                          onClick={() => {
+                            setIndentRetailerFilter('');
+                            setIndentRetailerSearch('');
+                            setShowIndentRetailerDropdown(false);
+                          }}
+                          className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer font-medium text-gray-600"
+                        >
+                          All Retailers
+                        </div>
+                        {retailers
+                          .filter(r => {
+                            const name = (r.company_name || r.name || '').toLowerCase();
+                            return name.includes(indentRetailerSearch.toLowerCase());
+                          })
+                          .slice(0, 20)
+                          .map(r => (
+                            <div
+                              key={r.id}
+                              onClick={() => {
+                                setIndentRetailerFilter(r.id);
+                                setIndentRetailerSearch('');
+                                setShowIndentRetailerDropdown(false);
+                              }}
+                              className={`px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer ${indentRetailerFilter === r.id ? 'bg-blue-50' : ''}`}
+                            >
+                              {r.company_name || r.name}
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="default"
+                    onClick={loadIndents}
+                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Apply
+                  </Button>
+                  {(indentDateFrom || indentDateTo || indentRetailerFilter) && (
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => { 
+                        setIndentDateFrom(''); 
+                        setIndentDateTo(''); 
+                        setIndentRetailerFilter('');
+                        setIndentRetailerSearch('');
+                      }} 
+                      className="h-8 px-2"
+                    >
                       <X size={12} /> Clear
                     </Button>
                   )}
+                  <span className="text-xs text-gray-500 ml-2">Showing {filteredIndents.length} indents</span>
                 </div>
-              </div>
-              <div className="flex gap-2 items-center">
-                {/* Language Toggle for Indent */}
-                <select 
-                  value={indentLanguage} 
-                  onChange={(e) => setIndentLanguage(e.target.value)}
-                  className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
-                  title="Language for expanded view & PDF"
-                >
-                  <option value="en">English</option>
-                  <option value="hi">हिंदी</option>
-                  <option value="mr">मराठी</option>
-                </select>
-                <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
-                  <FileSpreadsheet size={14} className="mr-1" /> Export
-                </Button>
-                <Button size="sm" variant="outline" onClick={printIndents} title="Print">
-                  <Printer size={14} className="mr-1" /> Print
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50">
-                  <Zap size={14} className="mr-1" /> Auto Indent
-                </Button>
-                <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
-                  <Plus size={14} className="mr-1" /> New Indent
-                </Button>
+                <div className="flex gap-2 items-center">
+                  {/* Language Toggle for Indent */}
+                  <select 
+                    value={indentLanguage} 
+                    onChange={(e) => setIndentLanguage(e.target.value)}
+                    className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                    title="Language for expanded view & PDF"
+                  >
+                    <option value="en">English</option>
+                    <option value="hi">हिंदी</option>
+                    <option value="mr">मराठी</option>
+                  </select>
+                  <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
+                    <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={printIndents} title="Print">
+                    <Printer size={14} className="mr-1" /> Print
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50">
+                    <Zap size={14} className="mr-1" /> Auto Indent
+                  </Button>
+                  <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
+                    <Plus size={14} className="mr-1" /> New Indent
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -10209,7 +10271,7 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredIndents.length === 0 ? (
-                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">{indentDateFilter ? `No indents for ${indentDateFilter}` : 'No indents found'}</td></tr>
+                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">{(indentDateFrom || indentDateTo) ? `No indents for selected date range` : 'No indents found'}</td></tr>
                     ) : filteredIndents.map((indent, indentIdx) => (
                       <React.Fragment key={indent.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleIndentExpand(indent.id)}>
@@ -10598,38 +10660,114 @@ export default function RetailerOrders() {
         {/* ==================== DISPATCHES TAB ==================== */}
         {activeTab === 'dispatches' && (
           <Card>
-            <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <div className="flex items-center gap-3">
-                <CardTitle className="text-sm">Dispatches</CardTitle>
-                <div className="flex items-center gap-2">
+            <CardHeader className="py-3 border-b">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle className="text-sm">Dispatches</CardTitle>
+                  <span className="text-xs text-gray-500">From:</span>
                   <Input
                     type="date"
-                    value={dispatchDateFilter}
-                    onChange={(e) => setDispatchDateFilter(e.target.value)}
+                    value={dispatchDateFrom}
+                    onChange={(e) => setDispatchDateFrom(e.target.value)}
                     className="h-8 w-36 text-xs"
+                    placeholder="From date"
                   />
-                  {dispatchDateFilter && (
-                    <Button size="sm" variant="ghost" onClick={() => setDispatchDateFilter('')} className="h-8 px-2">
+                  <span className="text-xs text-gray-500">To:</span>
+                  <Input
+                    type="date"
+                    value={dispatchDateTo}
+                    onChange={(e) => setDispatchDateTo(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                    placeholder="To date"
+                  />
+                  {/* Searchable Retailer Dropdown */}
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={dispatchRetailerSearch}
+                      onChange={(e) => {
+                        setDispatchRetailerSearch(e.target.value);
+                        setShowDispatchRetailerDropdown(true);
+                      }}
+                      onFocus={() => setShowDispatchRetailerDropdown(true)}
+                      placeholder={dispatchRetailerFilter ? retailers.find(r => r.id === dispatchRetailerFilter)?.company_name || retailers.find(r => r.id === dispatchRetailerFilter)?.name || 'All Retailers' : 'All Retailers'}
+                      className="h-8 w-44 text-xs"
+                    />
+                    {showDispatchRetailerDropdown && (
+                      <div className="absolute z-50 w-64 mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        <div
+                          onClick={() => {
+                            setDispatchRetailerFilter('');
+                            setDispatchRetailerSearch('');
+                            setShowDispatchRetailerDropdown(false);
+                          }}
+                          className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer font-medium text-gray-600"
+                        >
+                          All Retailers
+                        </div>
+                        {retailers
+                          .filter(r => {
+                            const name = (r.company_name || r.name || '').toLowerCase();
+                            return name.includes(dispatchRetailerSearch.toLowerCase());
+                          })
+                          .slice(0, 20)
+                          .map(r => (
+                            <div
+                              key={r.id}
+                              onClick={() => {
+                                setDispatchRetailerFilter(r.id);
+                                setDispatchRetailerSearch('');
+                                setShowDispatchRetailerDropdown(false);
+                              }}
+                              className={`px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer ${dispatchRetailerFilter === r.id ? 'bg-blue-50' : ''}`}
+                            >
+                              {r.company_name || r.name}
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="default"
+                    onClick={loadDispatches}
+                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Apply
+                  </Button>
+                  {(dispatchDateFrom || dispatchDateTo || dispatchRetailerFilter) && (
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => { 
+                        setDispatchDateFrom(''); 
+                        setDispatchDateTo(''); 
+                        setDispatchRetailerFilter('');
+                        setDispatchRetailerSearch('');
+                      }} 
+                      className="h-8 px-2"
+                    >
                       <X size={12} /> Clear
                     </Button>
                   )}
+                  <span className="text-xs text-gray-500 ml-2">Showing {filteredDispatches.length} dispatches</span>
                 </div>
-              </div>
-              <div className="flex gap-2 items-center">
-                {/* Language Toggle for Dispatch */}
-                <select 
-                  value={dispatchLanguage} 
-                  onChange={(e) => setDispatchLanguage(e.target.value)}
-                  className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
-                  title="Language for expanded view & export"
-                >
-                  <option value="en">English</option>
-                  <option value="hi">हिंदी</option>
-                  <option value="mr">मराठी</option>
-                </select>
-                <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel">
-                  <FileSpreadsheet size={14} className="mr-1" /> Export
-                </Button>
+                <div className="flex gap-2 items-center">
+                  {/* Language Toggle for Dispatch */}
+                  <select 
+                    value={dispatchLanguage} 
+                    onChange={(e) => setDispatchLanguage(e.target.value)}
+                    className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                    title="Language for expanded view & export"
+                  >
+                    <option value="en">English</option>
+                    <option value="hi">हिंदी</option>
+                    <option value="mr">मराठी</option>
+                  </select>
+                  <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel">
+                    <FileSpreadsheet size={14} className="mr-1" /> Export
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -10652,7 +10790,7 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredDispatches.length === 0 ? (
-                      <tr><td colSpan={11} className="p-8 text-center text-gray-400">{dispatchDateFilter ? `No dispatches for ${dispatchDateFilter}` : 'No dispatches found'}</td></tr>
+                      <tr><td colSpan={11} className="p-8 text-center text-gray-400">{(dispatchDateFrom || dispatchDateTo) ? `No dispatches for selected date range` : 'No dispatches found'}</td></tr>
                     ) : filteredDispatches.map((dispatch, dispatchIdx) => (
                       <React.Fragment key={dispatch.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedDispatchId(expandedDispatchId === dispatch.id ? null : dispatch.id)}>

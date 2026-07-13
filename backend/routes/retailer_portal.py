@@ -250,7 +250,7 @@ async def get_retailer_indents(
     retailer_id: str = None,
     start_date: str = None,
     end_date: str = None,
-    limit: int = 200,
+    limit: int = 50000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -518,7 +518,7 @@ async def get_retailer_dispatches(
     retailer_id: str = None,
     start_date: str = None,
     end_date: str = None,
-    limit: int = 200,
+    limit: int = 50000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}

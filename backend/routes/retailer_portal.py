@@ -2389,9 +2389,12 @@ async def get_retailer_credit_notes(
     status: str = None,
     original_invoice_id: str = None,
     adjusted_against_invoice: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 50000,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get all credit notes, optionally filtered by retailer, status, or invoice"""
+    """Get all credit notes, optionally filtered by retailer, status, date range, or invoice"""
     query = {}
     if current_user["role"] == "retailer":
         query["retailer_id"] = current_user["user_id"]
@@ -2401,6 +2404,15 @@ async def get_retailer_credit_notes(
     if status:
         query["status"] = status
     
+    # Date filtering on created_at
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["created_at"] = date_query
+    
     # Filter by original invoice (credit notes CREATED FROM this invoice)
     if original_invoice_id:
         query["original_invoice_id"] = original_invoice_id
@@ -2409,7 +2421,7 @@ async def get_retailer_credit_notes(
     if adjusted_against_invoice:
         query["adjusted_against_invoices.invoice_id"] = adjusted_against_invoice
     
-    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    credit_notes = await db.retailer_credit_notes.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     return credit_notes
 
 @router.get("/retailer-credit-notes/pending/{retailer_id}")
@@ -4345,7 +4357,7 @@ async def get_retailer_invoices(
     retailer_id: str = None,
     start_date: str = None,
     end_date: str = None,
-    limit: int = 200,
+    limit: int = 50000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}

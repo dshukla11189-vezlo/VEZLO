@@ -401,6 +401,20 @@ export default function RetailerOrders() {
   const [editingCreditNote, setEditingCreditNote] = useState(null);
   const [editCreditNoteForm, setEditCreditNoteForm] = useState({ amount: '', remarks: '' });
   
+  // Invoice tab filter state
+  const [invoiceDateFrom, setInvoiceDateFrom] = useState('');
+  const [invoiceDateTo, setInvoiceDateTo] = useState('');
+  const [invoiceRetailerFilter, setInvoiceRetailerFilter] = useState('');
+  const [invoiceRetailerSearch, setInvoiceRetailerSearch] = useState('');
+  const [showInvoiceRetailerDropdown, setShowInvoiceRetailerDropdown] = useState(false);
+  
+  // Credit Note tab filter state
+  const [creditNoteDateFrom, setCreditNoteDateFrom] = useState('');
+  const [creditNoteDateTo, setCreditNoteDateTo] = useState('');
+  const [creditNoteRetailerFilter, setCreditNoteRetailerFilter] = useState('');
+  const [creditNoteRetailerSearch, setCreditNoteRetailerSearch] = useState('');
+  const [showCreditNoteRetailerDropdown, setShowCreditNoteRetailerDropdown] = useState(false);
+  
   // Credit Note Adjustment state (for payment modal)
   const [pendingCreditNotesForPayment, setPendingCreditNotesForPayment] = useState([]);
   const [selectedCreditAdjustments, setSelectedCreditAdjustments] = useState([]); // [{credit_note_id, amount}]
@@ -766,13 +780,19 @@ export default function RetailerOrders() {
 
   const loadInvoices = useCallback(async () => {
     try {
-      const params = selectedRetailer ? `?retailer_id=${selectedRetailer}` : '';
-      const response = await api.get(`/api/retailer-invoices${params}`);
+      const params = new URLSearchParams();
+      // Use invoiceRetailerFilter if set, else fall back to selectedRetailer
+      const retailerId = invoiceRetailerFilter || selectedRetailer;
+      if (retailerId) params.append('retailer_id', retailerId);
+      if (invoiceDateFrom) params.append('start_date', invoiceDateFrom);
+      if (invoiceDateTo) params.append('end_date', invoiceDateTo);
+      params.append('limit', '50000');
+      const response = await api.get(`/api/retailer-invoices?${params.toString()}`);
       setInvoices(response.data);
     } catch (error) {
       console.error('Failed to load invoices:', error);
     }
-  }, [selectedRetailer]);
+  }, [selectedRetailer, invoiceRetailerFilter, invoiceDateFrom, invoiceDateTo]);
 
   // Load retailer statement/ledger
   const loadStatement = useCallback(async (retailerId, startDate, endDate) => {
@@ -896,14 +916,19 @@ export default function RetailerOrders() {
   const loadCreditNotes = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (selectedRetailer) params.append('retailer_id', selectedRetailer);
+      // Use creditNoteRetailerFilter if set, else fall back to selectedRetailer
+      const retailerId = creditNoteRetailerFilter || selectedRetailer;
+      if (retailerId) params.append('retailer_id', retailerId);
       if (creditNoteFilter.status) params.append('status', creditNoteFilter.status);
+      if (creditNoteDateFrom) params.append('start_date', creditNoteDateFrom);
+      if (creditNoteDateTo) params.append('end_date', creditNoteDateTo);
+      params.append('limit', '50000');
       const response = await api.get(`/api/retailer-credit-notes?${params.toString()}`);
       setCreditNotes(response.data || []);
     } catch (error) {
       console.error('Failed to load credit notes:', error);
     }
-  }, [selectedRetailer, creditNoteFilter.status]);
+  }, [selectedRetailer, creditNoteRetailerFilter, creditNoteFilter.status, creditNoteDateFrom, creditNoteDateTo]);
 
   // Load all dispatches for rejection analytics date range
   const loadDispatchesForRejection = useCallback(async () => {
@@ -8912,8 +8937,9 @@ export default function RetailerOrders() {
                   onClick={() => {
                     setActiveTab(tab.id);
                     // Refresh tab-specific data when switching tabs
-                    if (tab.id === 'invoices' && invoices.length === 0) loadInvoices();
+                    if (tab.id === 'invoices') loadInvoices();
                     if (tab.id === 'rejections' && rejections.length === 0) loadRejections();
+                    if (tab.id === 'creditNotes' && creditNotes.length === 0) loadCreditNotes();
                   }}
                   className={`whitespace-nowrap text-xs md:text-sm ${activeTab === tab.id ? 'bg-[#14532D]' : ''}`}
                 >
@@ -11056,6 +11082,98 @@ export default function RetailerOrders() {
                   ))}
                 </div>
               </div>
+              {/* Date and Retailer Filters */}
+              <div className="flex flex-wrap gap-2 items-center border-t pt-3">
+                <span className="text-xs text-gray-500">From:</span>
+                <Input
+                  type="date"
+                  value={invoiceDateFrom}
+                  onChange={(e) => setInvoiceDateFrom(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                  placeholder="From date"
+                />
+                <span className="text-xs text-gray-500">To:</span>
+                <Input
+                  type="date"
+                  value={invoiceDateTo}
+                  onChange={(e) => setInvoiceDateTo(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                  placeholder="To date"
+                />
+                {/* Searchable Retailer Dropdown */}
+                <div className="relative">
+                  <Input
+                    type="text"
+                    value={invoiceRetailerSearch}
+                    onChange={(e) => {
+                      setInvoiceRetailerSearch(e.target.value);
+                      setShowInvoiceRetailerDropdown(true);
+                    }}
+                    onFocus={() => setShowInvoiceRetailerDropdown(true)}
+                    placeholder={invoiceRetailerFilter ? retailers.find(r => r.id === invoiceRetailerFilter)?.company_name || retailers.find(r => r.id === invoiceRetailerFilter)?.name || 'All Retailers' : 'All Retailers'}
+                    className="h-8 w-44 text-xs"
+                  />
+                  {showInvoiceRetailerDropdown && (
+                    <div className="absolute z-50 w-64 mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      <div
+                        onClick={() => {
+                          setInvoiceRetailerFilter('');
+                          setInvoiceRetailerSearch('');
+                          setShowInvoiceRetailerDropdown(false);
+                        }}
+                        className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer font-medium text-gray-600"
+                      >
+                        All Retailers
+                      </div>
+                      {retailers
+                        .filter(r => {
+                          const name = (r.company_name || r.name || '').toLowerCase();
+                          return name.includes(invoiceRetailerSearch.toLowerCase());
+                        })
+                        .slice(0, 20)
+                        .map(r => (
+                          <div
+                            key={r.id}
+                            onClick={() => {
+                              setInvoiceRetailerFilter(r.id);
+                              setInvoiceRetailerSearch('');
+                              setShowInvoiceRetailerDropdown(false);
+                            }}
+                            className={`px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer ${invoiceRetailerFilter === r.id ? 'bg-blue-50' : ''}`}
+                          >
+                            {r.company_name || r.name}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <Button 
+                  size="sm" 
+                  variant="default"
+                  onClick={loadInvoices}
+                  className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Apply
+                </Button>
+                {(invoiceDateFrom || invoiceDateTo || invoiceRetailerFilter) && (
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    onClick={() => { 
+                      setInvoiceDateFrom(''); 
+                      setInvoiceDateTo(''); 
+                      setInvoiceRetailerFilter('');
+                      setInvoiceRetailerSearch('');
+                    }} 
+                    className="h-8 px-2"
+                  >
+                    <X size={12} /> Clear
+                  </Button>
+                )}
+                <span className="text-xs text-gray-500 ml-auto">
+                  Showing {invoices.length} invoices
+                </span>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -12491,6 +12609,99 @@ export default function RetailerOrders() {
                       </>
                     )}
                   </Button>
+                </div>
+                
+                {/* Date and Retailer Filters */}
+                <div className="flex flex-wrap gap-2 items-center border-t pt-3 mt-3">
+                  <span className="text-xs text-gray-500">From:</span>
+                  <Input
+                    type="date"
+                    value={creditNoteDateFrom}
+                    onChange={(e) => setCreditNoteDateFrom(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                    placeholder="From date"
+                  />
+                  <span className="text-xs text-gray-500">To:</span>
+                  <Input
+                    type="date"
+                    value={creditNoteDateTo}
+                    onChange={(e) => setCreditNoteDateTo(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                    placeholder="To date"
+                  />
+                  {/* Searchable Retailer Dropdown */}
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={creditNoteRetailerSearch}
+                      onChange={(e) => {
+                        setCreditNoteRetailerSearch(e.target.value);
+                        setShowCreditNoteRetailerDropdown(true);
+                      }}
+                      onFocus={() => setShowCreditNoteRetailerDropdown(true)}
+                      placeholder={creditNoteRetailerFilter ? retailers.find(r => r.id === creditNoteRetailerFilter)?.company_name || retailers.find(r => r.id === creditNoteRetailerFilter)?.name || 'All Retailers' : 'All Retailers'}
+                      className="h-8 w-44 text-xs"
+                    />
+                    {showCreditNoteRetailerDropdown && (
+                      <div className="absolute z-50 w-64 mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        <div
+                          onClick={() => {
+                            setCreditNoteRetailerFilter('');
+                            setCreditNoteRetailerSearch('');
+                            setShowCreditNoteRetailerDropdown(false);
+                          }}
+                          className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer font-medium text-gray-600"
+                        >
+                          All Retailers
+                        </div>
+                        {retailers
+                          .filter(r => {
+                            const name = (r.company_name || r.name || '').toLowerCase();
+                            return name.includes(creditNoteRetailerSearch.toLowerCase());
+                          })
+                          .slice(0, 20)
+                          .map(r => (
+                            <div
+                              key={r.id}
+                              onClick={() => {
+                                setCreditNoteRetailerFilter(r.id);
+                                setCreditNoteRetailerSearch('');
+                                setShowCreditNoteRetailerDropdown(false);
+                              }}
+                              className={`px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer ${creditNoteRetailerFilter === r.id ? 'bg-purple-50' : ''}`}
+                            >
+                              {r.company_name || r.name}
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="default"
+                    onClick={loadCreditNotes}
+                    className="h-8 px-3 bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    Apply
+                  </Button>
+                  {(creditNoteDateFrom || creditNoteDateTo || creditNoteRetailerFilter) && (
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => { 
+                        setCreditNoteDateFrom(''); 
+                        setCreditNoteDateTo(''); 
+                        setCreditNoteRetailerFilter('');
+                        setCreditNoteRetailerSearch('');
+                      }} 
+                      className="h-8 px-2"
+                    >
+                      <X size={12} /> Clear
+                    </Button>
+                  )}
+                  <span className="text-xs text-gray-500 ml-auto">
+                    Showing {creditNotes.length} credit notes
+                  </span>
                 </div>
                 
                 {/* Diagnostic Results Panel */}

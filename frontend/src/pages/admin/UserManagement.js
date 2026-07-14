@@ -37,7 +37,8 @@ export default function UserManagement() {
     address: '',
     commission_percentage: 0,
     upfront_collection_percentage: 50,
-    model_changed_at: ''
+    model_changed_at: '',
+    status: 'active'
   });
 
   const loadUsers = useCallback(async () => {
@@ -106,7 +107,8 @@ export default function UserManagement() {
       address: user.address || '',
       commission_percentage: user.commission_percentage || 0,
       upfront_collection_percentage: user.upfront_collection_percentage ?? 50,
-      model_changed_at: user.model_changed_at || ''
+      model_changed_at: user.model_changed_at || '',
+      status: user.status || 'active'
     });
     setShowModal(true);
   };
@@ -136,7 +138,8 @@ export default function UserManagement() {
       address: '',
       commission_percentage: 0,
       upfront_collection_percentage: 50,
-      model_changed_at: ''
+      model_changed_at: '',
+      status: 'active'
     });
     setShowPassword(false);
   };
@@ -224,6 +227,7 @@ export default function UserManagement() {
                     <th className="p-3 text-left font-medium text-gray-500">USER</th>
                     <th className="p-3 text-left font-medium text-gray-500">EMAIL</th>
                     <th className="p-3 text-left font-medium text-gray-500">ROLE</th>
+                    <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                     <th className="p-3 text-left font-medium text-gray-500">CONTACT</th>
                     <th className="p-3 text-left font-medium text-gray-500">COMPANY</th>
                     <th className="p-3 text-center font-medium text-gray-500">COMMISSION</th>
@@ -235,13 +239,13 @@ export default function UserManagement() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-gray-400">
+                      <td colSpan={10} className="p-8 text-center text-gray-400">
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-gray-400">
+                      <td colSpan={10} className="p-8 text-center text-gray-400">
                         No users found
                       </td>
                     </tr>
@@ -266,6 +270,13 @@ export default function UserManagement() {
                               <RoleIcon size={12} />
                               {roleConfig.label}
                             </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            {user.role === 'retailer' ? (
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${user.status === 'churned' ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-700'}`}>
+                                {user.status === 'churned' ? 'Churned' : 'Active'}
+                              </span>
+                            ) : '-'}
                           </td>
                           <td className="p-3 text-gray-600">{user.contact || '-'}</td>
                           <td className="p-3 text-gray-600">{user.company_name || '-'}</td>
@@ -484,6 +495,45 @@ export default function UserManagement() {
                       <p className="text-[10px] text-gray-500 mt-1">
                         Retailer pays {100 - (formData.commission_percentage || 0)}% of MRP
                       </p>
+                      {editingUser && (
+                        <p className="text-[10px] text-orange-600 mt-1">
+                          ⚠️ Changing this will record the new rate from today. Historical dispatches keep their existing rate.
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* Commission History (read-only, only when editing) */}
+                    {editingUser && editingUser.commission_history && editingUser.commission_history.length > 0 && (
+                      <div className="col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Commission History</label>
+                        <div className="bg-gray-50 p-2 rounded border text-xs space-y-1 max-h-24 overflow-y-auto">
+                          {editingUser.commission_history.map((h, idx) => (
+                            <div key={idx} className="flex justify-between text-gray-600">
+                              <span>{h.rate}%</span>
+                              <span>{h.effective_from} to {h.effective_to || 'Present'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Status field for retailers */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                        className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
+                        data-testid="user-status-select"
+                      >
+                        <option value="active">Active</option>
+                        <option value="churned">Churned</option>
+                      </select>
+                      {formData.status === 'churned' && (
+                        <p className="text-[10px] text-red-600 mt-1">
+                          Churned retailers will not appear in dropdowns for new indents/dispatches
+                        </p>
+                      )}
                     </div>
                     
                     <div>

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
-from typing import Optional, List, Literal, Union
+from typing import Optional, List, Literal, Union, Dict, Any
 from datetime import datetime, timezone
 import uuid
 
@@ -34,6 +34,9 @@ class User(BaseModel):
     upfront_collection_percentage: Optional[float] = 50  # For retailers: 50%, 100%, etc.
     model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)
     referral_code: Optional[str] = None  # Auto-generated for retailers
+    status: str = 'active'  # 'active' | 'churned'
+    churned_at: Optional[str] = None  # ISO date string when set
+    commission_history: List[Dict[str, Any]] = []  # each item: { rate, effective_from, effective_to }
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class RegisterRequest(BaseModel):
@@ -46,6 +49,7 @@ class RegisterRequest(BaseModel):
     address: Optional[str] = None
     commission_percentage: Optional[float] = 0
     upfront_collection_percentage: Optional[float] = 50
+    status: str = 'active'  # 'active' | 'churned'
 
 class LoginRequest(BaseModel):
     identifier: str  # Can be email or mobile number
@@ -77,6 +81,7 @@ class UserUpdate(BaseModel):
     commission_percentage: Optional[float] = None
     upfront_collection_percentage: Optional[float] = None
     model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)
+    status: Optional[str] = None  # 'active' | 'churned'
 
 # Product Models
 class Product(BaseModel):

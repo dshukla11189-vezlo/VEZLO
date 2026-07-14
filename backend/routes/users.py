@@ -10,7 +10,7 @@ import random
 import string
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from dependencies import (
     db,
@@ -82,6 +82,15 @@ async def create_user(input: RegisterRequest, current_user: dict = Depends(get_c
         while await db.users.find_one({"referral_code": referral_code}):
             referral_code = ''.join(random.choices(string.digits, k=5))
         user_dict["referral_code"] = referral_code
+        
+        # Initialize status and commission_history for retailers
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        user_dict['status'] = input.status if hasattr(input, 'status') and input.status else 'active'
+        user_dict['commission_history'] = [{
+            'rate': user_dict.get('commission_percentage', 0.0),
+            'effective_from': today,
+            'effective_to': None
+        }]
     
     user = User(**user_dict)
     
@@ -133,6 +142,36 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["address"] = input.address
     if input.commission_percentage is not None:
         update_data["commission_percentage"] = input.commission_percentage
+        
+        # Track commission history for retailers
+        if existing.get('role') == 'retailer':
+            old_commission = existing.get('commission_percentage', 0) or 0
+            if old_commission != input.commission_percentage:
+                today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                hist = existing.get('commission_history') or []
+                # Close the current open row
+                if hist and hist[-1].get('effective_to') is None:
+                    yesterday = (datetime.strptime(today, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+                    hist[-1]['effective_to'] = yesterday
+                # Append new open row with the new rate
+                hist.append({
+                    'rate': input.commission_percentage,
+                    'effective_from': today,
+                    'effective_to': None
+                })
+                update_data['commission_history'] = hist
+                logger.info(f"Commission change: {existing.get('company_name', existing.get('name'))} changed from {old_commission}% to {input.commission_percentage}%")
+    
+    # Handle status changes for retailers (active/churned)
+    if input.status is not None:
+        if input.status == 'churned' and existing.get('status') != 'churned':
+            update_data['status'] = 'churned'
+            update_data['churned_at'] = datetime.now(timezone.utc).isoformat()
+            logger.info(f"Retailer {existing.get('company_name', existing.get('name'))} marked as churned")
+        elif input.status == 'active' and existing.get('status') == 'churned':
+            update_data['status'] = 'active'
+            update_data['churned_at'] = None
+            logger.info(f"Retailer {existing.get('company_name', existing.get('name'))} reactivated")
     
     # Track upfront percentage changes for retailers
     upfront_change_log = None
@@ -251,4 +290,50 @@ async def get_upfront_change_history(user_id: str, current_user: dict = Depends(
         "retailer_name": user.get("company_name") or user.get("name") if user else "Unknown",
         "current_upfront_percentage": user.get("upfront_collection_percentage", 0) if user else 0,
         "change_history": history
+    }
+
+
+
+@router.post("/users/migrate-retailer-status-and-commission-history")
+async def migrate_retailer_status_and_commission_history(current_user: dict = Depends(get_current_user)):
+    """
+    One-shot migration endpoint to add status and commission_history to existing retailers.
+    Run ONCE after deploying the schema changes.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run this migration")
+    
+    retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(10000)
+    
+    status_added = 0
+    commission_history_added = 0
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    for retailer in retailers:
+        update_data = {}
+        
+        # If status is missing, set to 'active'
+        if not retailer.get('status'):
+            update_data['status'] = 'active'
+            status_added += 1
+        
+        # If commission_history is missing, initialize it
+        if not retailer.get('commission_history'):
+            created_date = retailer.get('created_at', '')[:10] if retailer.get('created_at') else today
+            update_data['commission_history'] = [{
+                'rate': retailer.get('commission_percentage', 0) or 0,
+                'effective_from': created_date,
+                'effective_to': None
+            }]
+            commission_history_added += 1
+        
+        if update_data:
+            await db.users.update_one({"id": retailer["id"]}, {"$set": update_data})
+            logger.info(f"Migrated retailer {retailer.get('company_name', retailer.get('name'))}: {list(update_data.keys())}")
+    
+    return {
+        "message": "Migration completed",
+        "total_retailers": len(retailers),
+        "status_added": status_added,
+        "commission_history_added": commission_history_added
     }

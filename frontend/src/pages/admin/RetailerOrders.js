@@ -5794,49 +5794,49 @@ export default function RetailerOrders() {
               
               // Build compact total string with non-zero components
               const totalParts = [];
-              if (kgTotal > 0) totalParts.push(\`\${kgTotal.toFixed(2)} \${labels.kg}\`);
-              if (pieceTotal > 0) totalParts.push(\`\${pieceTotal} pcs\`);
-              if (packetTotal > 0) totalParts.push(\`\${packetTotal} pkt\`);
-              if (dozenTotal > 0) totalParts.push(\`\${dozenTotal} doz\`);
+              if (kgTotal > 0) totalParts.push(kgTotal.toFixed(2) + ' ' + labels.kg);
+              if (pieceTotal > 0) totalParts.push(pieceTotal + ' pcs');
+              if (packetTotal > 0) totalParts.push(packetTotal + ' pkt');
+              if (dozenTotal > 0) totalParts.push(dozenTotal + ' doz');
               const categoryTotalDisplay = totalParts.length > 0 ? totalParts.join(' + ') : '0 ' + labels.kg;
               
-              return \`
+              return `
                 <h3 style="margin-top: 20px; margin-bottom: 5px; background-color: #e8f5e9; padding: 8px; border-radius: 4px; color: #1b5e20;">
-                  \${category} (\${items.length} items)
+                  ${category} (${items.length} items)
                 </h3>
                 <table>
                   <thead>
                     <tr>
-                      <th style="width:5%">\${labels.serial}</th>
-                      <th style="width:35%">\${labels.productName}</th>
-                      <th style="width:22%" class="text-center">\${labels.purchaseReq}</th>
-                      <th style="width:12%" class="text-center">\${labels.purchasePrice}</th>
-                      <th style="width:26%">\${labels.remarks}</th>
+                      <th style="width:5%">${labels.serial}</th>
+                      <th style="width:35%">${labels.productName}</th>
+                      <th style="width:22%" class="text-center">${labels.purchaseReq}</th>
+                      <th style="width:12%" class="text-center">${labels.purchasePrice}</th>
+                      <th style="width:26%">${labels.remarks}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    \${items.map((item) => {
+                    ${items.map((item) => {
                       globalIdx++;
-                      const ppDisplay = item.purchasePrice ? \`₹\${parseFloat(item.purchasePrice).toFixed(2)}\` : '-';
-                      return \`
+                      const ppDisplay = item.purchasePrice ? '₹' + parseFloat(item.purchasePrice).toFixed(2) : '-';
+                      return `
                         <tr>
-                          <td class="text-center">\${globalIdx}</td>
-                          <td>\${getDisplayName(item)}</td>
-                          <td class="text-center purchase-req">\${getPurchaseReqDisplay(item)}</td>
-                          <td class="text-center" style="color: #15803d; font-weight: 600;">\${ppDisplay}</td>
-                          <td>\${item.remarks || '-'}</td>
+                          <td class="text-center">${globalIdx}</td>
+                          <td>${getDisplayName(item)}</td>
+                          <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
+                          <td class="text-center" style="color: #15803d; font-weight: 600;">${ppDisplay}</td>
+                          <td>${item.remarks || '-'}</td>
                         </tr>
-                      \`;
+                      `;
                     }).join('')}
                     <tr style="font-weight:bold; background-color:#f0f9f0;">
-                      <td colspan="2">\${category} \${labels.total}</td>
-                      <td class="text-center">\${categoryTotalDisplay}</td>
+                      <td colspan="2">${category} ${labels.total}</td>
+                      <td class="text-center">${categoryTotalDisplay}</td>
                       <td></td>
                       <td></td>
                     </tr>
                   </tbody>
                 </table>
-              \`;
+              `;
             }).join('');
           })()}
           <div style="margin-top: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; text-align: center;">
@@ -5847,10 +5847,10 @@ export default function RetailerOrders() {
               const packetTotal = allItems.filter(it => it.purchaseUnit === 'Packet').reduce((s, it) => s + (it.qtyPackets || it.qtyUnits || 0), 0);
               const dozenTotal = allItems.filter(it => it.purchaseUnit === 'Dozen').reduce((s, it) => s + (it.qtyDozens || it.qtyUnits || 0), 0);
               const totalParts = [];
-              if (kgTotal > 0) totalParts.push(\`\${kgTotal.toFixed(2)} \${labels.kg}\`);
-              if (pieceTotal > 0) totalParts.push(\`\${pieceTotal} pcs\`);
-              if (packetTotal > 0) totalParts.push(\`\${packetTotal} pkt\`);
-              if (dozenTotal > 0) totalParts.push(\`\${dozenTotal} doz\`);
+              if (kgTotal > 0) totalParts.push(kgTotal.toFixed(2) + ' ' + labels.kg);
+              if (pieceTotal > 0) totalParts.push(pieceTotal + ' pcs');
+              if (packetTotal > 0) totalParts.push(packetTotal + ' pkt');
+              if (dozenTotal > 0) totalParts.push(dozenTotal + ' doz');
               return totalParts.length > 0 ? totalParts.join(' + ') : '0 ' + labels.kg;
             })()}</strong>
           </div>

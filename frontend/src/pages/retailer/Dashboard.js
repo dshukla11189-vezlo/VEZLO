@@ -170,6 +170,11 @@ export default function RetailerDashboard() {
   const [dailyRejectionSummary, setDailyRejectionSummary] = useState([]);
   const [loadingDailySummary, setLoadingDailySummary] = useState(false);
   const [expandedDailyDates, setExpandedDailyDates] = useState({});
+  
+  // Rejection Details Drilldown Modal
+  const [showRejectionDetailsModal, setShowRejectionDetailsModal] = useState(false);
+  const [rejectionDrilldownProduct, setRejectionDrilldownProduct] = useState(null); // null = L1 (list), object = L2 (date-wise)
+  
   const [rejectionDateFrom, setRejectionDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 84); // 12 weeks default
@@ -390,6 +395,91 @@ export default function RetailerDashboard() {
   const [firstOrderDateInitialized, setFirstOrderDateInitialized] = useState(false);
   const [chartViewMode, setChartViewMode] = useState('weekly'); // 'daily', 'weekly', 'monthly'
   
+  // Rejection Details Drilldown Data - computed from client state
+  const rejectionDetailsData = useMemo(() => {
+    // Filter both datasets to the same active date window
+    const inRange = (dateStr) => {
+      if (!dateStr) return false;
+      const d = String(dateStr).slice(0, 10);
+      if (dashboardDateFrom && d < dashboardDateFrom) return false;
+      if (dashboardDateTo && d > dashboardDateTo) return false;
+      return true;
+    };
+
+    // Aggregate supplied qty per product from dispatches
+    const suppliedByProduct = {};
+    (dispatches || []).forEach(disp => {
+      if (!inRange(disp.dispatch_date)) return;
+      (disp.items || []).forEach(item => {
+        const pid = item.product_id;
+        if (!pid) return;
+        if (!suppliedByProduct[pid]) suppliedByProduct[pid] = { name: item.product_name || 'Unknown', supplied_qty: 0 };
+        suppliedByProduct[pid].supplied_qty += (item.supplied_qty || 0);
+      });
+    });
+
+    // Aggregate rejection qty per product
+    const rejectedByProduct = {};
+    (rejections || []).forEach(rej => {
+      if (!inRange(rej.rejection_date)) return;
+      const pid = rej.product_id || 'unknown';
+      if (!rejectedByProduct[pid]) rejectedByProduct[pid] = { name: rej.product_name || 'Unknown', rejection_qty: 0, records: [] };
+      rejectedByProduct[pid].rejection_qty += (rej.quantity || 0);
+      rejectedByProduct[pid].records.push(rej);
+    });
+
+    // Build L1 product list
+    const productRows = Object.keys(rejectedByProduct).map(pid => {
+      const rej = rejectedByProduct[pid];
+      const supplied = suppliedByProduct[pid]?.supplied_qty || 0;
+      const pct = supplied > 0 ? (rej.rejection_qty / supplied) * 100 : (rej.rejection_qty > 0 ? 100 : 0);
+      return {
+        product_id: pid,
+        product_name: rej.name,
+        rejection_qty: rej.rejection_qty,
+        supplied_qty: supplied,
+        rejection_pct: pct,
+        records: rej.records,
+      };
+    }).sort((a, b) => b.rejection_pct - a.rejection_pct);
+
+    return { productRows, suppliedByProduct };
+  }, [rejections, dispatches, dashboardDateFrom, dashboardDateTo]);
+
+  // L2 (date-wise) for the currently selected product — computed only when a product is picked
+  const rejectionDrilldownDates = useMemo(() => {
+    if (!rejectionDrilldownProduct) return [];
+    const pid = rejectionDrilldownProduct.product_id;
+
+    // Supplied qty per date for this product
+    const suppliedByDate = {};
+    (dispatches || []).forEach(disp => {
+      const d = String(disp.dispatch_date || '').slice(0, 10);
+      if (!d) return;
+      if (dashboardDateFrom && d < dashboardDateFrom) return;
+      if (dashboardDateTo && d > dashboardDateTo) return;
+      (disp.items || []).forEach(item => {
+        if (item.product_id !== pid) return;
+        suppliedByDate[d] = (suppliedByDate[d] || 0) + (item.supplied_qty || 0);
+      });
+    });
+
+    // Rejection qty per date for this product
+    const rejByDate = {};
+    (rejectionDrilldownProduct.records || []).forEach(rej => {
+      const d = String(rej.rejection_date || '').slice(0, 10);
+      if (!d) return;
+      rejByDate[d] = (rejByDate[d] || 0) + (rej.quantity || 0);
+    });
+
+    return Object.keys(rejByDate).map(d => {
+      const rq = rejByDate[d];
+      const sq = suppliedByDate[d] || 0;
+      const pct = sq > 0 ? (rq / sq) * 100 : (rq > 0 ? 100 : 0);
+      return { date: d, rejection_qty: rq, supplied_qty: sq, rejection_pct: pct };
+    }).sort((a, b) => b.rejection_pct - a.rejection_pct);
+  }, [rejectionDrilldownProduct, dispatches, dashboardDateFrom, dashboardDateTo]);
+
   // Indent form
   const [showIndentModal, setShowIndentModal] = useState(false);
   const [indentForm, setIndentForm] = useState({
@@ -3248,10 +3338,18 @@ export default function RetailerDashboard() {
                         
                         {/* Rejection MRP + Rejection % Chart - 2nd Position */}
                         <div className="bg-gradient-to-br from-red-50 to-white rounded-xl p-3 border border-red-200">
-                          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
-                            <AlertTriangle size={14} className="text-red-500" />
-                            {viewModeLabel} Rejection MRP
-                          </p>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1">
+                              <AlertTriangle size={14} className="text-red-500" />
+                              {viewModeLabel} Rejection MRP
+                            </p>
+                            <button
+                              onClick={() => { setRejectionDrilldownProduct(null); setShowRejectionDetailsModal(true); }}
+                              className="text-[10px] px-2 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              View Details
+                            </button>
+                          </div>
                           <div className="h-32">
                             <ResponsiveContainer width="100%" height="100%">
                               <BarChart data={chartData} margin={{ top: 25, right: 5, left: -20, bottom: 5 }}>
@@ -7874,6 +7972,119 @@ export default function RetailerDashboard() {
                     </Button>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Rejection Details Drilldown Modal */}
+        {showRejectionDetailsModal && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-red-50">
+                <div className="flex items-center gap-2">
+                  {rejectionDrilldownProduct && (
+                    <button
+                      onClick={() => setRejectionDrilldownProduct(null)}
+                      className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
+                    >
+                      ← Back
+                    </button>
+                  )}
+                  <h3 className="text-lg font-semibold text-red-700">
+                    {rejectionDrilldownProduct 
+                      ? `Rejection Details: ${rejectionDrilldownProduct.product_name}`
+                      : 'Rejection Details by Product'
+                    }
+                  </h3>
+                </div>
+                <button
+                  onClick={() => { setShowRejectionDetailsModal(false); setRejectionDrilldownProduct(null); }}
+                  className="text-gray-500 hover:text-gray-700 text-xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+              
+              {/* Body */}
+              <div className="p-4 overflow-y-auto flex-1">
+                {!rejectionDrilldownProduct ? (
+                  /* L1: Product List */
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Showing {rejectionDetailsData.productRows.length} products with rejections 
+                      ({dashboardDateFrom} to {dashboardDateTo}). Click a row to see date-wise breakdown.
+                    </p>
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-gray-600">Product</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejected Qty</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Supplied Qty</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejection %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rejectionDetailsData.productRows.map((row, idx) => (
+                          <tr 
+                            key={row.product_id}
+                            onClick={() => setRejectionDrilldownProduct(row)}
+                            className="border-b hover:bg-red-50 cursor-pointer transition-colors"
+                          >
+                            <td className="p-2 font-medium text-gray-800">{row.product_name}</td>
+                            <td className="p-2 text-right text-red-600 font-semibold">{row.rejection_qty}</td>
+                            <td className="p-2 text-right text-gray-600">{row.supplied_qty || '—'}</td>
+                            <td className="p-2 text-right font-bold text-red-700">
+                              {row.supplied_qty === 0 && row.rejection_qty === 0 ? '—' : `${row.rejection_pct.toFixed(1)}%`}
+                            </td>
+                          </tr>
+                        ))}
+                        {rejectionDetailsData.productRows.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="p-4 text-center text-gray-400">No rejections in selected period</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  /* L2: Date-wise Breakdown */
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Date-wise rejection breakdown for <strong>{rejectionDrilldownProduct.product_name}</strong>.
+                      Total: {rejectionDrilldownProduct.rejection_qty} rejected / {rejectionDrilldownProduct.supplied_qty} supplied 
+                      ({rejectionDrilldownProduct.rejection_pct.toFixed(1)}%)
+                    </p>
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-gray-600">Date</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejected Qty</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Supplied Qty</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejection %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rejectionDrilldownDates.map((row, idx) => (
+                          <tr key={row.date} className="border-b hover:bg-gray-50">
+                            <td className="p-2 text-gray-800">{row.date}</td>
+                            <td className="p-2 text-right text-red-600 font-semibold">{row.rejection_qty}</td>
+                            <td className="p-2 text-right text-gray-600">{row.supplied_qty || '—'}</td>
+                            <td className="p-2 text-right font-bold text-red-700">
+                              {row.supplied_qty === 0 && row.rejection_qty === 0 ? '—' : `${row.rejection_pct.toFixed(1)}%`}
+                            </td>
+                          </tr>
+                        ))}
+                        {rejectionDrilldownDates.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="p-4 text-center text-gray-400">No date records found</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           </div>

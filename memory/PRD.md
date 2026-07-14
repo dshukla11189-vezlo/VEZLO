@@ -2,6 +2,30 @@
 
 ## Changelog (July 2026)
 
+### July 14, 2026 - Rejection Drilldown Feature ✅
+- **FEATURE**: Added "View Details" drilldown to Rejection blocks on both Retailer and Admin portals
+  - **Formula**: Rejection % = (rejection_count / supplied_qty) × 100 (COUNT-based, not value-based)
+  - **Retailer Portal** (`/app/frontend/src/pages/retailer/Dashboard.js`):
+    - New state: `showRejectionDetailsModal`, `rejectionDrilldownProduct`
+    - New useMemo: `rejectionDetailsData` (L1 product list), `rejectionDrilldownDates` (L2 date-wise)
+    - Added "View Details" button to Rejection MRP chart header
+    - Added modal with L1 (product list sorted by Rejection % DESC) and L2 (date-wise breakdown)
+    - Click product row → see date-wise rejection breakdown for that product
+  - **Admin Portal** (`/app/frontend/src/pages/admin/RetailerOrders.js`):
+    - Made product rows clickable in "By Product (Count %)" section of Rejection Analytics modal
+    - Added `cursor-pointer hover:bg-red-50` to rows + onClick that opens existing drilldown
+    - Added "View Details" button to Weekly Rejections chart in earnings section
+  - **Verified**: Both portals show L1 product list with correct Rejection %, clicking opens L2 date-wise breakdown
+
+### July 14, 2026 - Rejection % Metric ✅
+- **FEATURE**: Added Rejection % display to admin Rejection block
+  - Extended `rejectionAnalyticsState` with `grossMrpValue`
+  - Raised `loadDispatchesForRejection` limit from 1000 → 50000
+  - Added "(23.1% Rejection)" to Rejection Loss block stats row
+  - Added "23.1% of Gross MRP" to Total Rejections summary card
+  - Formula: `(Total Rejection MRP / Gross MRP) × 100`
+  - Files: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 ### July 13, 2026 - Indents & Dispatches Tab Filters ✅
 - **FEATURE**: Added From/To date pickers, searchable retailer dropdown, Apply and Clear buttons to Indents and Dispatches tabs
   - Mirrors the pattern already on Invoice / Credit Note tabs

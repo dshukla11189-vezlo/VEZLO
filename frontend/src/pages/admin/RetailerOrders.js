@@ -8498,10 +8498,18 @@ export default function RetailerOrders() {
                   
                   {/* Rejections Chart */}
                   <div className="bg-white/80 rounded-xl p-2 border border-red-100">
-                    <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1">
-                      <AlertTriangle size={12} className="text-red-500" />
-                      {viewModeLabel} Rejections
-                    </p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] font-semibold text-gray-600 flex items-center gap-1">
+                        <AlertTriangle size={12} className="text-red-500" />
+                        {viewModeLabel} Rejections
+                      </p>
+                      <button
+                        onClick={() => setShowRejectionAnalyticsModal(true)}
+                        className="text-[9px] px-1.5 py-0.5 rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        View Details
+                      </button>
+                    </div>
                     <div className="h-28 touch-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} margin={{ top: 22, right: 5, left: -20, bottom: 5 }}>
@@ -14835,7 +14843,77 @@ export default function RetailerOrders() {
                         </p>
                         <div className="space-y-2 max-h-52 overflow-y-auto">
                           {(productCountTab === 'high' ? rejectionAnalytics.highSellingProducts : rejectionAnalytics.lowSellingProducts)?.map((item, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                            <div 
+                              key={idx} 
+                              className="flex items-center justify-between text-sm bg-white p-2 rounded border cursor-pointer hover:bg-red-50 transition-colors"
+                              onClick={() => {
+                                // Build drilldown data (same logic as View button)
+                                const product = rejectionAnalytics.byProductCount.find(p => p.name === item.name);
+                                if (product) {
+                                  const productRejections = rejections.filter(r => {
+                                    const rejDate = r.rejection_date?.split('T')[0];
+                                    if (!rejDate) return false;
+                                    if (rejDate < rejectionLossDateFrom || rejDate > rejectionLossDateTo) return false;
+                                    return r.product_name === product.name;
+                                  });
+                                  
+                                  const byRetailer = {};
+                                  const byDate = {};
+                                  const byDay = { Sun: 0, Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0 };
+                                  const byReason = {};
+                                  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                                  
+                                  productRejections.forEach(r => {
+                                    const retailerName = retailers.find(ret => ret.id === r.retailer_id)?.company_name || r.retailer_id || 'Unknown';
+                                    if (!byRetailer[retailerName]) byRetailer[retailerName] = { qty: 0, value: 0, count: 0 };
+                                    byRetailer[retailerName].qty += r.quantity || 0;
+                                    byRetailer[retailerName].value += r.rejection_value || 0;
+                                    byRetailer[retailerName].count += 1;
+                                    
+                                    const date = r.rejection_date?.split('T')[0] || 'Unknown';
+                                    if (!byDate[date]) byDate[date] = { qty: 0, value: 0, count: 0 };
+                                    byDate[date].qty += r.quantity || 0;
+                                    byDate[date].value += r.rejection_value || 0;
+                                    byDate[date].count += 1;
+                                    
+                                    const dayIndex = new Date(r.rejection_date).getDay();
+                                    byDay[days[dayIndex]] += r.quantity || 0;
+                                    
+                                    const reason = r.reason || 'Not Specified';
+                                    if (!byReason[reason]) byReason[reason] = { qty: 0, value: 0, count: 0 };
+                                    byReason[reason].qty += r.quantity || 0;
+                                    byReason[reason].value += r.rejection_value || 0;
+                                    byReason[reason].count += 1;
+                                  });
+                                  
+                                  const byRetailerList = Object.entries(byRetailer)
+                                    .map(([name, data]) => ({ name, ...data }))
+                                    .sort((a, b) => b.qty - a.qty);
+                                  const byDateList = Object.entries(byDate)
+                                    .map(([date, data]) => ({ date, ...data }))
+                                    .sort((a, b) => b.date.localeCompare(a.date));
+                                  const byReasonList = Object.entries(byReason)
+                                    .map(([reason, data]) => ({ reason, ...data }))
+                                    .sort((a, b) => b.qty - a.qty);
+                                  
+                                  setRejectionProductDrilldown({
+                                    product_name: product.name,
+                                    product_id: product.product_id,
+                                    qty: product.qty,
+                                    suppliedQty: product.suppliedQty,
+                                    value: product.value,
+                                    rejPctByCount: product.rejPctByCount,
+                                    rejPctByValue: product.rejPctByValue,
+                                    totalRejections: productRejections.length,
+                                    byRetailer: byRetailerList,
+                                    byDate: byDateList,
+                                    byDay,
+                                    byReason: byReasonList,
+                                    rejections: productRejections
+                                  });
+                                }
+                              }}
+                            >
                               <div className="flex items-center gap-2">
                                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-400 text-white' : idx === 2 ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-600'}`}>
                                   {idx + 1}

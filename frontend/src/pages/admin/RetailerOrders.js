@@ -4025,15 +4025,34 @@ export default function RetailerOrders() {
             productNameMr: item.product_name_mr || '',
             category: item.category || 'Other',
             qtyUnits: item.qty_units,
-            qtyKg: item.qty_kg,
+            qtyKg: item.qty_kg || 0,
             requirementKg: item.requirement_kg,
             purchaseUnit: item.purchase_unit || '',
             purchaseWeightName: item.purchase_weight_name || '',
+            qtyDozens: item.qty_dozens || 0,
+            qtyPieces: item.qty_pieces || 0,
+            qtyPackets: item.qty_packets || 0,
             remarks: item.remarks || ''
           }));
-          setSavedReqData(savedData);
+          
+          // D3: Backward compat - enrich items that have empty purchaseUnit from live retailer_catalogue
+          const catalogueUnitByPid = {};
+          const catalogueWeightNameByPid = {};
+          (retailerCatalogue || []).forEach(c => {
+            if (c.product_id) {
+              if (c.purchase_unit) catalogueUnitByPid[c.product_id] = c.purchase_unit;
+              if (c.purchase_weight_name) catalogueWeightNameByPid[c.product_id] = c.purchase_weight_name;
+            }
+          });
+          const enrichedData = savedData.map(it => ({
+            ...it,
+            purchaseUnit: it.purchaseUnit || catalogueUnitByPid[it.productId] || '',
+            purchaseWeightName: it.purchaseWeightName || catalogueWeightNameByPid[it.productId] || '',
+          }));
+          
+          setSavedReqData(enrichedData);
           // Default to saved view if saved data exists
-          setDailyReqData(savedData);
+          setDailyReqData(enrichedData);
           setDailyReqViewMode('saved');
         } else {
           setSavedReqData([]);
@@ -5767,49 +5786,73 @@ export default function RetailerOrders() {
             let globalIdx = 0;
             return sortedCategories.map(category => {
               const items = groups[category];
-              const categoryTotal = items.reduce((sum, item) => sum + (item.requirementKg || 0), 0);
+              // Split totals by unit family - don't mix native units into KG sum
+              const kgTotal = items.filter(it => !['Piece','Packet','Dozen'].includes(it.purchaseUnit)).reduce((s, it) => s + (it.requirementKg || 0), 0);
+              const pieceTotal = items.filter(it => it.purchaseUnit === 'Piece').reduce((s, it) => s + (it.qtyPieces || it.qtyUnits || 0), 0);
+              const packetTotal = items.filter(it => it.purchaseUnit === 'Packet').reduce((s, it) => s + (it.qtyPackets || it.qtyUnits || 0), 0);
+              const dozenTotal = items.filter(it => it.purchaseUnit === 'Dozen').reduce((s, it) => s + (it.qtyDozens || it.qtyUnits || 0), 0);
               
-              return `
+              // Build compact total string with non-zero components
+              const totalParts = [];
+              if (kgTotal > 0) totalParts.push(\`\${kgTotal.toFixed(2)} \${labels.kg}\`);
+              if (pieceTotal > 0) totalParts.push(\`\${pieceTotal} pcs\`);
+              if (packetTotal > 0) totalParts.push(\`\${packetTotal} pkt\`);
+              if (dozenTotal > 0) totalParts.push(\`\${dozenTotal} doz\`);
+              const categoryTotalDisplay = totalParts.length > 0 ? totalParts.join(' + ') : '0 ' + labels.kg;
+              
+              return \`
                 <h3 style="margin-top: 20px; margin-bottom: 5px; background-color: #e8f5e9; padding: 8px; border-radius: 4px; color: #1b5e20;">
-                  ${category} (${items.length} items)
+                  \${category} (\${items.length} items)
                 </h3>
                 <table>
                   <thead>
                     <tr>
-                      <th style="width:5%">${labels.serial}</th>
-                      <th style="width:35%">${labels.productName}</th>
-                      <th style="width:22%" class="text-center">${labels.purchaseReq}</th>
-                      <th style="width:12%" class="text-center">${labels.purchasePrice}</th>
-                      <th style="width:26%">${labels.remarks}</th>
+                      <th style="width:5%">\${labels.serial}</th>
+                      <th style="width:35%">\${labels.productName}</th>
+                      <th style="width:22%" class="text-center">\${labels.purchaseReq}</th>
+                      <th style="width:12%" class="text-center">\${labels.purchasePrice}</th>
+                      <th style="width:26%">\${labels.remarks}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${items.map((item) => {
+                    \${items.map((item) => {
                       globalIdx++;
-                      const ppDisplay = item.purchasePrice ? `₹${parseFloat(item.purchasePrice).toFixed(2)}` : '-';
-                      return `
+                      const ppDisplay = item.purchasePrice ? \`₹\${parseFloat(item.purchasePrice).toFixed(2)}\` : '-';
+                      return \`
                         <tr>
-                          <td class="text-center">${globalIdx}</td>
-                          <td>${getDisplayName(item)}</td>
-                          <td class="text-center purchase-req">${getPurchaseReqDisplay(item)}</td>
-                          <td class="text-center" style="color: #15803d; font-weight: 600;">${ppDisplay}</td>
-                          <td>${item.remarks || '-'}</td>
+                          <td class="text-center">\${globalIdx}</td>
+                          <td>\${getDisplayName(item)}</td>
+                          <td class="text-center purchase-req">\${getPurchaseReqDisplay(item)}</td>
+                          <td class="text-center" style="color: #15803d; font-weight: 600;">\${ppDisplay}</td>
+                          <td>\${item.remarks || '-'}</td>
                         </tr>
-                      `;
+                      \`;
                     }).join('')}
                     <tr style="font-weight:bold; background-color:#f0f9f0;">
-                      <td colspan="2">${category} ${labels.total}</td>
-                      <td class="text-center">${categoryTotal.toFixed(2)} ${labels.kg}</td>
+                      <td colspan="2">\${category} \${labels.total}</td>
+                      <td class="text-center">\${categoryTotalDisplay}</td>
                       <td></td>
                       <td></td>
                     </tr>
                   </tbody>
                 </table>
-              `;
+              \`;
             }).join('');
           })()}
           <div style="margin-top: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; text-align: center;">
-            <strong>Grand ${labels.total}: ${dailyReqData.reduce((sum, item) => sum + (item.requirementKg || 0), 0).toFixed(2)} ${labels.kg}</strong>
+            <strong>Grand ${labels.total}: ${(() => {
+              const allItems = dailyReqData;
+              const kgTotal = allItems.filter(it => !['Piece','Packet','Dozen'].includes(it.purchaseUnit)).reduce((s, it) => s + (it.requirementKg || 0), 0);
+              const pieceTotal = allItems.filter(it => it.purchaseUnit === 'Piece').reduce((s, it) => s + (it.qtyPieces || it.qtyUnits || 0), 0);
+              const packetTotal = allItems.filter(it => it.purchaseUnit === 'Packet').reduce((s, it) => s + (it.qtyPackets || it.qtyUnits || 0), 0);
+              const dozenTotal = allItems.filter(it => it.purchaseUnit === 'Dozen').reduce((s, it) => s + (it.qtyDozens || it.qtyUnits || 0), 0);
+              const totalParts = [];
+              if (kgTotal > 0) totalParts.push(\`\${kgTotal.toFixed(2)} \${labels.kg}\`);
+              if (pieceTotal > 0) totalParts.push(\`\${pieceTotal} pcs\`);
+              if (packetTotal > 0) totalParts.push(\`\${packetTotal} pkt\`);
+              if (dozenTotal > 0) totalParts.push(\`\${dozenTotal} doz\`);
+              return totalParts.length > 0 ? totalParts.join(' + ') : '0 ' + labels.kg;
+            })()}</strong>
           </div>
           <div class="footer">
             ${labels.generatedOn}: ${new Date().toLocaleString(dateLocale)} | Mr Organix
@@ -6007,7 +6050,12 @@ export default function RetailerOrders() {
           qty_kg: item.qtyKg,
           wastage_pct: item.wastagePct,
           requirement_kg: item.requirementKg,
-          remarks: item.remarks || ''
+          remarks: item.remarks || '',
+          purchase_unit: item.purchaseUnit || '',
+          purchase_weight_name: item.purchaseWeightName || '',
+          qty_dozens: item.qtyDozens || 0,
+          qty_pieces: item.qtyPieces || 0,
+          qty_packets: item.qtyPackets || 0
         })),
         total_qty_units: dailyReqData.reduce((sum, item) => sum + item.qtyUnits, 0),
         total_qty_kg: dailyReqData.reduce((sum, item) => sum + item.qtyKg, 0),

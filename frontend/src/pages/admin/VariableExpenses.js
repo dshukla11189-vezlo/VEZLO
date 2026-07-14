@@ -404,7 +404,9 @@ export default function VariableExpenses() {
       settlement_status: expense.settlement_status || (isPaidByEmployee && !expense.is_settled ? 'pending_reimbursement' : 'settled'),
       settlement_date: expense.settlement_date?.split('T')[0] || '',
       settlement_remarks: expense.settlement_remarks || '',
-      vertical: expense.vertical || 'all'
+      vertical: expense.vertical || 'all',
+      split_type: expense.split_type || 'all_equal',
+      retailer_ids: expense.retailer_ids || [],
     });
     setShowAddDialog(true);
   };
@@ -1438,18 +1440,18 @@ export default function VariableExpenses() {
                   {/* Retailer multi-select - Only for 'selected' split type */}
                   {formData.split_type === 'selected' && (
                     <div className="mt-3 p-3 bg-gray-50 rounded border">
-                      <label className="text-xs font-medium text-gray-700 mb-2 block">Select Retailers ({formData.retailer_ids.length} selected)</label>
+                      <label className="text-xs font-medium text-gray-700 mb-2 block">Select Retailers ({(formData.retailer_ids || []).length} selected)</label>
                       <div className="max-h-40 overflow-y-auto space-y-1">
                         {retailers.filter(r => (r.status || 'active') !== 'churned').map(retailer => (
                           <label key={retailer.id} className="flex items-center gap-2 cursor-pointer text-sm hover:bg-white p-1 rounded">
                             <input 
                               type="checkbox"
-                              checked={formData.retailer_ids.includes(retailer.id)}
+                              checked={(formData.retailer_ids || []).includes(retailer.id)}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setFormData(prev => ({ ...prev, retailer_ids: [...prev.retailer_ids, retailer.id] }));
+                                  setFormData(prev => ({ ...prev, retailer_ids: [...(prev.retailer_ids || []), retailer.id] }));
                                 } else {
-                                  setFormData(prev => ({ ...prev, retailer_ids: prev.retailer_ids.filter(id => id !== retailer.id) }));
+                                  setFormData(prev => ({ ...prev, retailer_ids: (prev.retailer_ids || []).filter(id => id !== retailer.id) }));
                                 }
                               }}
                             />
@@ -1457,7 +1459,7 @@ export default function VariableExpenses() {
                           </label>
                         ))}
                       </div>
-                      {formData.retailer_ids.length === 0 && (
+                      {(formData.retailer_ids || []).length === 0 && (
                         <p className="text-xs text-red-500 mt-2">Please select at least one retailer</p>
                       )}
                     </div>

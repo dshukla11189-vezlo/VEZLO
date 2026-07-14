@@ -423,8 +423,9 @@ export default function RetailerDashboard() {
     (rejections || []).forEach(rej => {
       if (!inRange(rej.rejection_date)) return;
       const pid = rej.product_id || 'unknown';
-      if (!rejectedByProduct[pid]) rejectedByProduct[pid] = { name: rej.product_name || 'Unknown', rejection_qty: 0, records: [] };
+      if (!rejectedByProduct[pid]) rejectedByProduct[pid] = { name: rej.product_name || 'Unknown', rejection_qty: 0, rejection_value: 0, records: [] };
       rejectedByProduct[pid].rejection_qty += (rej.quantity || 0);
+      rejectedByProduct[pid].rejection_value += (rej.rejection_value || 0);
       rejectedByProduct[pid].records.push(rej);
     });
 
@@ -439,6 +440,7 @@ export default function RetailerDashboard() {
         rejection_qty: rej.rejection_qty,
         supplied_qty: supplied,
         rejection_pct: pct,
+        rejection_value: rej.rejection_value,
         records: rej.records,
       };
     }).sort((a, b) => b.rejection_pct - a.rejection_pct);
@@ -466,17 +468,19 @@ export default function RetailerDashboard() {
 
     // Rejection qty per date for this product
     const rejByDate = {};
+    const rejValueByDate = {};
     (rejectionDrilldownProduct.records || []).forEach(rej => {
       const d = String(rej.rejection_date || '').slice(0, 10);
       if (!d) return;
       rejByDate[d] = (rejByDate[d] || 0) + (rej.quantity || 0);
+      rejValueByDate[d] = (rejValueByDate[d] || 0) + (rej.rejection_value || 0);
     });
 
     return Object.keys(rejByDate).map(d => {
       const rq = rejByDate[d];
       const sq = suppliedByDate[d] || 0;
       const pct = sq > 0 ? (rq / sq) * 100 : (rq > 0 ? 100 : 0);
-      return { date: d, rejection_qty: rq, supplied_qty: sq, rejection_pct: pct };
+      return { date: d, rejection_qty: rq, supplied_qty: sq, rejection_pct: pct, rejection_value: rejValueByDate[d] || 0 };
     }).sort((a, b) => b.rejection_pct - a.rejection_pct);
   }, [rejectionDrilldownProduct, dispatches, dashboardDateFrom, dashboardDateTo]);
 
@@ -8023,6 +8027,7 @@ export default function RetailerDashboard() {
                           <th className="p-2 text-right font-medium text-gray-600">Rejected Qty</th>
                           <th className="p-2 text-right font-medium text-gray-600">Supplied Qty</th>
                           <th className="p-2 text-right font-medium text-gray-600">Rejection %</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejection Value</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -8038,11 +8043,12 @@ export default function RetailerDashboard() {
                             <td className="p-2 text-right font-bold text-red-700">
                               {row.supplied_qty === 0 && row.rejection_qty === 0 ? '—' : `${row.rejection_pct.toFixed(1)}%`}
                             </td>
+                            <td className="p-2 text-right text-red-600 font-semibold">{formatCurrency(row.rejection_value)}</td>
                           </tr>
                         ))}
                         {rejectionDetailsData.productRows.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="p-4 text-center text-gray-400">No rejections in selected period</td>
+                            <td colSpan={5} className="p-4 text-center text-gray-400">No rejections in selected period</td>
                           </tr>
                         )}
                       </tbody>
@@ -8063,6 +8069,7 @@ export default function RetailerDashboard() {
                           <th className="p-2 text-right font-medium text-gray-600">Rejected Qty</th>
                           <th className="p-2 text-right font-medium text-gray-600">Supplied Qty</th>
                           <th className="p-2 text-right font-medium text-gray-600">Rejection %</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejection Value</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -8074,11 +8081,12 @@ export default function RetailerDashboard() {
                             <td className="p-2 text-right font-bold text-red-700">
                               {row.supplied_qty === 0 && row.rejection_qty === 0 ? '—' : `${row.rejection_pct.toFixed(1)}%`}
                             </td>
+                            <td className="p-2 text-right text-red-600 font-semibold">{formatCurrency(row.rejection_value)}</td>
                           </tr>
                         ))}
                         {rejectionDrilldownDates.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="p-4 text-center text-gray-400">No date records found</td>
+                            <td colSpan={5} className="p-4 text-center text-gray-400">No date records found</td>
                           </tr>
                         )}
                       </tbody>

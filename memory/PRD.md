@@ -2,6 +2,21 @@
 
 ## Changelog (July 2026)
 
+### July 14, 2026 - Rejection Drilldown Refinement ✅
+- **ENHANCEMENT**: Added "Rejection Value" column to rejection drilldown modals
+  - **Retailer Portal** (`Dashboard.js`):
+    - Extended `rejectionDetailsData` useMemo to track `rejection_value` per product
+    - Extended `rejectionDrilldownDates` useMemo to track `rejection_value` per date
+    - Added "Rejection Value" column to L1 (product list) and L2 (date-wise) tables
+    - Shows formatted currency values (₹80.00, ₹240.00, etc.)
+  - **Admin Portal** (`RetailerOrders.js`):
+    - Added new state: `showAdminRejectionDetailsModal`, `adminRejectionDrilldownProduct`
+    - Added new useMemos: `adminRejectionDetailsData`, `adminRejectionDrilldownDates`
+    - Chart "View Details" button now opens NEW modal (mirrors retailer portal)
+    - Rejection Loss block "View Details" stays pointed at existing Analytics modal
+    - New modal scoped by `selectedRetailer` (empty = All Retailers)
+    - Both L1 and L2 tables have "Rejection Value" column
+
 ### July 14, 2026 - Rejection Drilldown Feature ✅
 - **FEATURE**: Added "View Details" drilldown to Rejection blocks on both Retailer and Admin portals
   - **Formula**: Rejection % = (rejection_count / supplied_qty) × 100 (COUNT-based, not value-based)

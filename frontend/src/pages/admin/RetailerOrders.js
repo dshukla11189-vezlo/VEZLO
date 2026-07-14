@@ -564,6 +564,7 @@ export default function RetailerOrders() {
   // Admin Rejection Details Modal (mirrors retailer portal drilldown)
   const [showAdminRejectionDetailsModal, setShowAdminRejectionDetailsModal] = useState(false);
   const [adminRejectionDrilldownProduct, setAdminRejectionDrilldownProduct] = useState(null);
+  const [adminRejectionDrilldownRetailer, setAdminRejectionDrilldownRetailer] = useState(null); // { retailer_id, retailer_name } for L3, null for L2-retailer / L2-date
   
   // Earnings Analytics state (uses same date filter as rejection loss)
   const [earningsChartViewMode, setEarningsChartViewMode] = useState('weekly'); // 'daily', 'weekly', 'monthly'
@@ -3105,15 +3106,21 @@ export default function RetailerOrders() {
       if (rejectionLossDateFrom && d < rejectionLossDateFrom) return;
       if (rejectionLossDateTo && d > rejectionLossDateTo) return;
       if (selectedRetailer && disp.retailer_id !== selectedRetailer) return;
+      if (adminRejectionDrilldownRetailer && disp.retailer_id !== adminRejectionDrilldownRetailer.retailer_id) return;
       (disp.items || []).forEach(item => {
         if (item.product_id !== pid) return;
         suppliedByDate[d] = (suppliedByDate[d] || 0) + (item.supplied_qty || 0);
       });
     });
 
+    // Filter records by retailer if drilled down to specific retailer
+    const records = adminRejectionDrilldownRetailer
+      ? (adminRejectionDrilldownProduct.records || []).filter(r => r.retailer_id === adminRejectionDrilldownRetailer.retailer_id)
+      : (adminRejectionDrilldownProduct.records || []);
+
     const rejByDate = {};
     const rejValueByDate = {};
-    (adminRejectionDrilldownProduct.records || []).forEach(rej => {
+    records.forEach(rej => {
       const d = String(rej.rejection_date || '').slice(0, 10);
       if (!d) return;
       rejByDate[d] = (rejByDate[d] || 0) + (rej.quantity || 0);
@@ -3126,7 +3133,46 @@ export default function RetailerOrders() {
       const pct = sq > 0 ? (rq / sq) * 100 : (rq > 0 ? 100 : 0);
       return { date: d, rejection_qty: rq, supplied_qty: sq, rejection_pct: pct, rejection_value: rejValueByDate[d] || 0 };
     }).sort((a, b) => b.rejection_pct - a.rejection_pct);
-  }, [adminRejectionDrilldownProduct, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer]);
+  }, [adminRejectionDrilldownProduct, adminRejectionDrilldownRetailer, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer]);
+
+  // L2-retailer breakdown (only when selectedRetailer is empty and product is selected but no retailer drilled)
+  const adminRejectionDrilldownRetailers = useMemo(() => {
+    if (!adminRejectionDrilldownProduct || adminRejectionDrilldownRetailer || selectedRetailer) return [];
+    const pid = adminRejectionDrilldownProduct.product_id;
+
+    // Supplied qty per retailer for this product, respecting date range
+    const suppliedByRetailer = {};
+    (allDispatchesForRejection || []).forEach(disp => {
+      const d = String(disp.dispatch_date || '').slice(0, 10);
+      if (!d) return;
+      if (rejectionLossDateFrom && d < rejectionLossDateFrom) return;
+      if (rejectionLossDateTo && d > rejectionLossDateTo) return;
+      const rid = disp.retailer_id;
+      if (!rid) return;
+      (disp.items || []).forEach(item => {
+        if (item.product_id !== pid) return;
+        suppliedByRetailer[rid] = (suppliedByRetailer[rid] || 0) + (item.supplied_qty || 0);
+      });
+    });
+
+    // Rejected qty + value per retailer for this product (records already pre-filtered by date via L1 memo)
+    const rejByRetailer = {};
+    (adminRejectionDrilldownProduct.records || []).forEach(rej => {
+      const rid = rej.retailer_id || 'unknown';
+      if (!rejByRetailer[rid]) {
+        const rName = rej.retailer_name || retailers.find(r => r.id === rid)?.company_name || retailers.find(r => r.id === rid)?.name || 'Unknown';
+        rejByRetailer[rid] = { retailer_id: rid, retailer_name: rName, rejection_qty: 0, rejection_value: 0 };
+      }
+      rejByRetailer[rid].rejection_qty += (rej.quantity || 0);
+      rejByRetailer[rid].rejection_value += (rej.rejection_value || 0);
+    });
+
+    return Object.values(rejByRetailer).map(r => {
+      const sq = suppliedByRetailer[r.retailer_id] || 0;
+      const pct = sq > 0 ? (r.rejection_qty / sq) * 100 : (r.rejection_qty > 0 ? 100 : 0);
+      return { ...r, supplied_qty: sq, rejection_pct: pct };
+    }).sort((a, b) => b.rejection_pct - a.rejection_pct);
+  }, [adminRejectionDrilldownProduct, adminRejectionDrilldownRetailer, selectedRetailer, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo, retailers]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -15639,7 +15685,13 @@ export default function RetailerOrders() {
                 <div className="flex items-center gap-2">
                   {adminRejectionDrilldownProduct && (
                     <button
-                      onClick={() => setAdminRejectionDrilldownProduct(null)}
+                      onClick={() => {
+                        if (adminRejectionDrilldownRetailer) {
+                          setAdminRejectionDrilldownRetailer(null);  // L3 → L2-retailer
+                        } else {
+                          setAdminRejectionDrilldownProduct(null);   // L2 → L1
+                        }
+                      }}
                       className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
                     >
                       ← Back
@@ -15647,9 +15699,11 @@ export default function RetailerOrders() {
                   )}
                   <div>
                     <h3 className="text-lg font-semibold text-red-700">
-                      {adminRejectionDrilldownProduct 
-                        ? `Rejection Details: ${adminRejectionDrilldownProduct.product_name}`
-                        : 'Rejection Details'
+                      {!adminRejectionDrilldownProduct 
+                        ? 'Rejection Details'
+                        : adminRejectionDrilldownRetailer
+                          ? `Rejection Details — ${adminRejectionDrilldownProduct.product_name} › ${adminRejectionDrilldownRetailer.retailer_name}`
+                          : `Rejection Details — ${adminRejectionDrilldownProduct.product_name}`
                       }
                     </h3>
                     <p className="text-xs text-gray-500">
@@ -15661,7 +15715,11 @@ export default function RetailerOrders() {
                   </div>
                 </div>
                 <button
-                  onClick={() => { setShowAdminRejectionDetailsModal(false); setAdminRejectionDrilldownProduct(null); }}
+                  onClick={() => { 
+                    setShowAdminRejectionDetailsModal(false); 
+                    setAdminRejectionDrilldownProduct(null); 
+                    setAdminRejectionDrilldownRetailer(null);
+                  }}
                   className="text-gray-500 hover:text-gray-700 text-xl font-bold"
                 >
                   ×
@@ -15675,7 +15733,7 @@ export default function RetailerOrders() {
                   <div>
                     <p className="text-xs text-gray-500 mb-3">
                       Showing {adminRejectionDetailsData.productRows.length} products with rejections 
-                      ({rejectionLossDateFrom} to {rejectionLossDateTo}). Click a row to see date-wise breakdown.
+                      ({rejectionLossDateFrom} to {rejectionLossDateTo}). Click a row to see {selectedRetailer ? 'date-wise' : 'retailer-wise'} breakdown.
                     </p>
                     <table className="w-full text-sm">
                       <thead className="bg-red-50 sticky top-0">
@@ -15711,11 +15769,51 @@ export default function RetailerOrders() {
                       </tbody>
                     </table>
                   </div>
-                ) : (
-                  /* L2: Date-wise Breakdown */
+                ) : (!adminRejectionDrilldownRetailer && !selectedRetailer) ? (
+                  /* L2-retailer: Retailer breakdown (only when All Retailers and no retailer drilled) */
                   <div>
                     <p className="text-xs text-gray-500 mb-3">
-                      Date-wise rejection breakdown for <strong>{adminRejectionDrilldownProduct.product_name}</strong>.
+                      Retailer-wise rejection breakdown for <strong>{adminRejectionDrilldownProduct.product_name}</strong>.
+                      Total: {adminRejectionDrilldownProduct.rejection_qty} rejected / {adminRejectionDrilldownProduct.supplied_qty} supplied 
+                      ({adminRejectionDrilldownProduct.rejection_pct.toFixed(1)}%). Click a row to see date-wise breakdown.
+                    </p>
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-gray-600">Retailer</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejected Qty</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Supplied Qty</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejection %</th>
+                          <th className="p-2 text-right font-medium text-gray-600">Rejection Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminRejectionDrilldownRetailers.length === 0 ? (
+                          <tr><td colSpan={5} className="p-4 text-center text-gray-500">No retailer breakdown for this product in the selected range.</td></tr>
+                        ) : adminRejectionDrilldownRetailers.map(row => (
+                          <tr
+                            key={row.retailer_id}
+                            className="cursor-pointer hover:bg-red-50 border-b transition-colors"
+                            onClick={() => setAdminRejectionDrilldownRetailer({ retailer_id: row.retailer_id, retailer_name: row.retailer_name })}
+                          >
+                            <td className="p-2 font-medium text-gray-800">{row.retailer_name}</td>
+                            <td className="p-2 text-right text-red-600 font-semibold">{row.rejection_qty}</td>
+                            <td className="p-2 text-right text-gray-600">{row.supplied_qty || '—'}</td>
+                            <td className="p-2 text-right font-bold text-red-700">
+                              {row.supplied_qty === 0 && row.rejection_qty === 0 ? '—' : `${row.rejection_pct.toFixed(1)}%`}
+                            </td>
+                            <td className="p-2 text-right text-red-600 font-semibold">{formatCurrency(row.rejection_value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  /* L2-date (selectedRetailer set) OR L3-date (retailer drilled) — Date-wise Breakdown */
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Date-wise rejection breakdown for <strong>{adminRejectionDrilldownProduct.product_name}</strong>
+                      {adminRejectionDrilldownRetailer && <> at <strong>{adminRejectionDrilldownRetailer.retailer_name}</strong></>}.
                       Total: {adminRejectionDrilldownProduct.rejection_qty} rejected / {adminRejectionDrilldownProduct.supplied_qty} supplied 
                       ({adminRejectionDrilldownProduct.rejection_pct.toFixed(1)}%)
                     </p>

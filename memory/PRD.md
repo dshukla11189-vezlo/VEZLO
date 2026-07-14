@@ -2,6 +2,24 @@
 
 ## Changelog (July 2026)
 
+### July 14, 2026 - Admin Rejection 3-Level Drilldown ✅
+- **ENHANCEMENT**: Extended admin Rejection Details modal with retailer-wise middle level
+  - **New Flow** (when All Retailers selected):
+    - L1: Product list → L2: Retailer breakdown → L3: Date-wise
+  - **Original Flow** (when specific retailer selected):
+    - L1: Product list → L2: Date-wise (unchanged)
+  - **New State**: `adminRejectionDrilldownRetailer` (holds `{retailer_id, retailer_name}` for L3)
+  - **New useMemo**: `adminRejectionDrilldownRetailers` - aggregates rejection qty/value per retailer for selected product
+  - **Updated useMemo**: `adminRejectionDrilldownDates` - now filters by `adminRejectionDrilldownRetailer` when set
+  - **Back Button Logic**:
+    - L3 → L2-retailer: clears `adminRejectionDrilldownRetailer`
+    - L2 → L1: clears `adminRejectionDrilldownProduct`
+  - **Header Breadcrumb**:
+    - L1: "Rejection Details"
+    - L2: "Rejection Details — {product_name}"
+    - L3: "Rejection Details — {product_name} › {retailer_name}"
+  - **Files Modified**: `/app/frontend/src/pages/admin/RetailerOrders.js`
+
 ### July 14, 2026 - Rejection Drilldown Refinement ✅
 - **ENHANCEMENT**: Added "Rejection Value" column to rejection drilldown modals
   - **Retailer Portal** (`Dashboard.js`):

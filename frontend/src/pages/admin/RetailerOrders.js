@@ -3160,7 +3160,9 @@ export default function RetailerOrders() {
     (adminRejectionDrilldownProduct.records || []).forEach(rej => {
       const rid = rej.retailer_id || 'unknown';
       if (!rejByRetailer[rid]) {
-        const rName = rej.retailer_name || retailers.find(r => r.id === rid)?.company_name || retailers.find(r => r.id === rid)?.name || 'Unknown';
+        // Prioritize company_name from retailers list over rej.retailer_name (which is often owner name)
+        const retailer = retailers.find(r => r.id === rid);
+        const rName = retailer?.company_name || retailer?.name || rej.retailer_name || 'Unknown';
         rejByRetailer[rid] = { retailer_id: rid, retailer_name: rName, rejection_qty: 0, rejection_value: 0 };
       }
       rejByRetailer[rid].rejection_qty += (rej.quantity || 0);

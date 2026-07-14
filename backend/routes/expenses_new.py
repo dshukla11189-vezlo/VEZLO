@@ -13,6 +13,7 @@ from dependencies import (
     db,
     get_current_user,
 )
+from utils.retailers import get_active_retailers_on_date
 
 router = APIRouter(tags=["expenses"])
 
@@ -398,19 +399,7 @@ async def get_variable_expenses_by_retailer(
     # Fetch all retailers for "all_equal" split type
     all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
     
-    # Helper: Get active retailers on a specific date
-    def get_active_retailers_on_date(all_retailers_list, expense_date_str):
-        active_ids = []
-        for r in all_retailers_list:
-            status = r.get("status", "active")
-            churned_at = r.get("churned_at", "")
-            if status == "churned" and churned_at:
-                if churned_at[:10] < expense_date_str:
-                    continue
-            elif status == "churned":
-                continue
-            active_ids.append(r.get("id"))
-        return active_ids
+    # Note: get_active_retailers_on_date is imported from utils.retailers
     
     # Build retailer shares
     retailer_shares = []

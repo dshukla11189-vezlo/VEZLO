@@ -2,6 +2,41 @@
 
 ## Changelog (July 2026)
 
+### July 14, 2026 - Part H3, H4, I Implementation ✅
+- **Part H3: P&L Allocation Refactor** - Variable Expense three-way split allocation
+  - **New split_type handling**: 'all_equal' (equal among all active retailers), 'selected' (equal among selected retailers), 'proportional' (legacy - based on sales share)
+  - Added `direct_ve_by_retailer` dictionary to track direct VE allocations
+  - Added `legacy_retail_pool` for proportional VEs
+  - Customer P&L now uses: `direct_ve + (legacy_retail_pool * customer_share)`
+  - Helper functions extracted to `/app/backend/utils/retailers.py`:
+    - `get_active_retailers_on_date()` - filters churned retailers based on expense date
+    - `alloc_residual_to_first()` - handles rounding residuals
+  - **Files Modified**: `/app/backend/routes/dashboard_analytics.py` (lines 1885-1973, 2609-2630)
+
+- **Part H4: VE Detail View Button** - New endpoint and modal for VE breakdown
+  - **New Endpoint**: `GET /api/expenses/variable/by-retailer/{retailer_id}`
+    - Returns expense breakdown with split_type, retailers_included, retailer_share
+    - Filters by from_date and to_date query parameters
+  - **Frontend Modal**: Added "View" button (eye icon) on VAR EXP tile in Customer P&L modal
+    - Shows table with: Date, Category, Split Type (badge), # Retailers, Original Amount, Your Share
+    - Split Type badges: Blue="All Equal", Purple="Selected", Green="Proportional"
+    - Proportional expenses show "% of sales" instead of share amount
+  - **Files Modified**: `/app/backend/routes/expenses_new.py` (lines 371-458), `/app/frontend/src/pages/admin/Dashboard.js`
+
+- **Part I: Cross-cutting Integration** - Active retailers filter for dropdowns
+  - Added `activeRetailers` computed value using `useMemo` to filter churned retailers
+  - Filter: `retailers.filter(r => (r.status || 'active') !== 'churned')`
+  - Updated 5 dropdown selectors to use `activeRetailers.map`:
+    1. Daily Requirement retailer dropdown
+    2. Invoice Create retailer dropdown
+    3. Rejection Form retailer dropdown
+    4. Auto-Indent retailer dropdown
+    5. Closing Inventory retailer dropdown
+  - **Note**: Filter dropdowns for viewing historical data remain unchanged (show all retailers)
+  - **Files Modified**: `/app/frontend/src/pages/admin/RetailerOrders.js` (lines 8185-8192, and dropdown locations)
+
+- **Testing**: All 8 backend tests passed (iteration_43). E2E verified via Playwright.
+
 ### July 14, 2026 - Admin Rejection 3-Level Drilldown ✅
 - **ENHANCEMENT**: Extended admin Rejection Details modal with retailer-wise middle level
   - **New Flow** (when All Retailers selected):

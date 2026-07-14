@@ -28,6 +28,7 @@ from dependencies import (
 from models import StockClosingEntry, StockClosingBulkEntry
 from routes.qc_grn import calculate_grn_loss
 from routes.products_packaging import extract_weight_from_packaging_name
+from utils.retailers import get_active_retailers_on_date, alloc_residual_to_first
 from routes.daily_cogs import get_daily_cogs_map
 from routes.combo_utils import (
     is_combo_product,
@@ -1885,33 +1886,7 @@ async def get_pnl_report(
     direct_ve_by_retailer = {}  # retailer_id -> allocated amount
     legacy_retail_pool = 0  # Retail VEs that use legacy proportional allocation
     
-    # Helper: Get active retailers on a specific date (status != 'churned' OR churned_at > date)
-    def get_active_retailers_on_date(all_retailers_list, expense_date_str):
-        """Returns list of retailer IDs that were active on the given date"""
-        active_ids = []
-        for r in all_retailers_list:
-            status = r.get("status", "active")
-            churned_at = r.get("churned_at", "")
-            if status == "churned" and churned_at:
-                # If churned before expense_date, skip
-                if churned_at[:10] < expense_date_str:
-                    continue
-            elif status == "churned":
-                # Churned with no date means currently churned - skip
-                continue
-            active_ids.append(r.get("id"))
-        return active_ids
-    
-    # Helper: Allocate residual cents to first key
-    def alloc_residual_to_first(shares_dict, total_amount, first_key):
-        """Allocate any residual cents to the first key to ensure amounts sum exactly"""
-        if not shares_dict or not first_key:
-            return shares_dict
-        allocated = sum(shares_dict.values())
-        residual = round(total_amount - allocated, 2)
-        if residual != 0 and first_key in shares_dict:
-            shares_dict[first_key] = round(shares_dict[first_key] + residual, 2)
-        return shares_dict
+    # Note: get_active_retailers_on_date and alloc_residual_to_first are imported from utils.retailers
     
     for exp in variable_expenses:
         category = exp.get("category", "Other")

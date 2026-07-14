@@ -3986,7 +3986,11 @@ export default function AdminDashboard() {
               <div>
                 <h3 className="text-lg font-bold">Variable Expense Breakdown</h3>
                 <p className="text-sm text-gray-500">
-                  Total allocated: ₹{(veDetailData.total_share || 0).toLocaleString()}
+                  {(veDetailData.total_share || 0) > 0 ? (
+                    <>Direct allocation: ₹{(veDetailData.total_share || 0).toLocaleString()}</>
+                  ) : (
+                    <>All expenses allocated by sales proportion</>
+                  )}
                 </p>
               </div>
               <button

@@ -464,7 +464,8 @@ export default function RetailerOrders() {
     totalCogs: 0,
     count: 0,
     totalQty: 0,
-    topProductByQty: null
+    topProductByQty: null,
+    grossMrpValue: 0
   });
   
   // Payments state
@@ -951,7 +952,7 @@ export default function RetailerOrders() {
       const params = new URLSearchParams();
       params.append('start_date', rejectionLossDateFrom);
       params.append('end_date', rejectionLossDateTo);
-      params.append('limit', '1000'); // Get more dispatches for full analysis
+      params.append('limit', '50000'); // Get more dispatches for full analysis
       const response = await api.get(`/api/retailer-dispatches?${params.toString()}`);
       setAllDispatchesForRejection(response.data || []);
     } catch (error) {
@@ -978,16 +979,32 @@ export default function RetailerOrders() {
 
   // Update rejection analytics when dates or rejections change
   useEffect(() => {
-    // Filter rejections by date range
+    // Filter rejections by date range and selectedRetailer
     const filtered = rejections.filter(r => {
       const rejDate = r.rejection_date?.split('T')[0];
       if (!rejDate) return false;
-      return rejDate >= rejectionLossDateFrom && rejDate <= rejectionLossDateTo;
+      if (rejDate < rejectionLossDateFrom || rejDate > rejectionLossDateTo) return false;
+      if (selectedRetailer && r.retailer_id !== selectedRetailer) return false;
+      return true;
     });
     
     const totalValue = filtered.reduce((sum, r) => sum + (r.rejection_value || 0), 0);
     const totalCogs = filtered.reduce((sum, r) => sum + (r.rejection_cogs || 0), 0);
     const totalQty = filtered.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    
+    // Compute grossMrpValue from allDispatchesForRejection, filtered by date range AND selectedRetailer
+    const filteredDispatchesForGross = allDispatchesForRejection.filter(d => {
+      const dispDate = (d.dispatch_date || '').split('T')[0];
+      if (!dispDate) return false;
+      if (rejectionLossDateFrom && dispDate < rejectionLossDateFrom) return false;
+      if (rejectionLossDateTo && dispDate > rejectionLossDateTo) return false;
+      if (selectedRetailer && d.retailer_id !== selectedRetailer) return false;
+      return true;
+    });
+    const grossMrpValue = filteredDispatchesForGross.reduce((sum, d) => {
+      if (d.total_mrp_value && d.total_mrp_value > 0) return sum + d.total_mrp_value;
+      return sum + (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
+    }, 0);
     
     // Find top rejected product
     const productTotals = {};
@@ -1010,11 +1027,13 @@ export default function RetailerOrders() {
     console.log('Rejection Analytics Updated:', {
       dateFrom: rejectionLossDateFrom,
       dateTo: rejectionLossDateTo,
+      selectedRetailer,
       totalRejections: rejections.length,
       filteredCount: filtered.length,
       totalValue,
       totalCogs,
-      totalQty
+      totalQty,
+      grossMrpValue
     });
     
     setRejectionAnalyticsState({
@@ -1022,9 +1041,10 @@ export default function RetailerOrders() {
       totalCogs,
       count: filtered.length,
       totalQty,
-      topProductByQty: topProduct
+      topProductByQty: topProduct,
+      grossMrpValue
     });
-  }, [rejections, rejectionLossDateFrom, rejectionLossDateTo]);
+  }, [rejections, rejectionLossDateFrom, rejectionLossDateTo, allDispatchesForRejection, selectedRetailer]);
 
   // Set date range from first invoice to today once invoices are loaded
   const [hasSetInitialDateRange, setHasSetInitialDateRange] = useState(false);
@@ -8147,6 +8167,11 @@ export default function RetailerOrders() {
                     ({formatCurrency(rejectionAnalyticsState.totalCogs)} COGS)
                   </span>
                 )}
+                <span className="text-sm text-red-500 font-semibold ml-2">
+                  ({rejectionAnalyticsState.grossMrpValue > 0
+                    ? ((rejectionAnalyticsState.totalValue / rejectionAnalyticsState.grossMrpValue) * 100).toFixed(1)
+                    : '—'}% Rejection)
+                </span>
               </p>
               <p className="text-xs text-red-500 mt-1">
                 {rejectionAnalyticsState.count} rejection(s) • {rejectionAnalyticsState.totalQty} items
@@ -8410,6 +8435,9 @@ export default function RetailerOrders() {
                     </p>
                     <p className="text-[8px] md:text-[9px] text-gray-500">
                       ({totalRejectionCount} items)
+                    </p>
+                    <p className="text-[8px] md:text-[9px] text-red-600 font-semibold">
+                      {totalOrderValue > 0 ? ((totalRejections / totalOrderValue) * 100).toFixed(1) : '—'}% of Gross MRP
                     </p>
                   </div>
                   <div className="bg-white/70 rounded-lg p-2 border border-emerald-100">

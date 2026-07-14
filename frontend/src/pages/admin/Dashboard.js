@@ -396,6 +396,11 @@ export default function AdminDashboard() {
   const [loadingCustomerDetail, setLoadingCustomerDetail] = useState(false);
   const [expandedCustomerDates, setExpandedCustomerDates] = useState({}); // For product dropdown
   
+  // VE Detail View Modal State
+  const [showVEDetailModal, setShowVEDetailModal] = useState(false);
+  const [veDetailData, setVEDetailData] = useState(null);
+  const [loadingVEDetail, setLoadingVEDetail] = useState(false);
+  
   // Persist customer date filters
   useEffect(() => {
     localStorage.setItem('dashboard_customerDateFrom', customerDetailDateFrom);
@@ -585,6 +590,7 @@ export default function AdminDashboard() {
       totals.grossMargin = totals.sales > 0 ? (adjustedGrossProfit / totals.sales * 100) : 0;
       totals.profitPerUnit = totals.qty > 0 ? (adjustedGrossProfit / totals.qty) : 0;
       totals.customerType = customerType;
+      totals.retailerId = retailerId;  // Store retailerId for VE detail lookup
       totals.grnLossShare = grnLossShare;
       totals.rejectionShare = rejectionShareAtCOGS;  // Store COGS-based rejection for display
       // Add variable expenses and commission from customer_pnl
@@ -616,6 +622,22 @@ export default function AdminDashboard() {
       toast.error('Failed to load customer details');
     } finally {
       setLoadingCustomerDetail(false);
+    }
+  }, [customerDetailDateFrom, customerDetailDateTo]);
+
+  // Load VE Detail for a retailer
+  const loadVEDetail = useCallback(async (retailerId) => {
+    if (!retailerId) return;
+    setLoadingVEDetail(true);
+    try {
+      const response = await api.get(`/api/expenses/variable/by-retailer/${retailerId}?from_date=${customerDetailDateFrom}&to_date=${customerDetailDateTo}`);
+      setVEDetailData(response.data);
+      setShowVEDetailModal(true);
+    } catch (error) {
+      console.error('Failed to load VE detail:', error);
+      toast.error('Failed to load variable expense details');
+    } finally {
+      setLoadingVEDetail(false);
     }
   }, [customerDetailDateFrom, customerDetailDateTo]);
 
@@ -3552,9 +3574,19 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 {/* 8. VAR EXP */}
-                <div className="text-center p-2 bg-white rounded shadow-sm" title="Only vertical-specific expenses (excludes shared 'All' expenses)">
+                <div className="text-center p-2 bg-white rounded shadow-sm relative" title="Only vertical-specific expenses (excludes shared 'All' expenses)">
                   <p className="text-[10px] text-gray-500 font-medium">VAR EXP</p>
                   <p className="text-sm font-bold text-pink-600">₹{(customerDetailData.totals.variableExpenses || 0).toLocaleString()}</p>
+                  {/* View button for Retail customers with VE */}
+                  {customerDetailData.totals.customerType === 'Retail' && customerDetailData.totals.retailerId && (customerDetailData.totals.variableExpenses || 0) > 0 && (
+                    <button
+                      onClick={() => loadVEDetail(customerDetailData.totals.retailerId)}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-pink-100 hover:bg-pink-200 rounded-full flex items-center justify-center"
+                      title="View VE Breakdown"
+                    >
+                      <Eye size={10} className="text-pink-600" />
+                    </button>
+                  )}
                 </div>
                 {/* 9. NET P/L = Gross P/L - Commission/GRN Loss - Variable Expense */}
                 <div className="text-center p-2 bg-green-50 rounded shadow-sm border border-green-200">
@@ -3938,6 +3970,97 @@ export default function AdminDashboard() {
             {/* Modal Footer */}
             <div className="p-3 border-t bg-gray-50 text-center">
               <Button variant="outline" onClick={() => setSelectedProduct(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* VE Detail Modal */}
+      {showVEDetailModal && veDetailData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 border-b flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold">Variable Expense Breakdown</h3>
+                <p className="text-sm text-gray-500">
+                  Total allocated: ₹{(veDetailData.total_share || 0).toLocaleString()}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowVEDetailModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            
+            {/* Modal Content */}
+            <div className="flex-1 overflow-auto p-4">
+              {loadingVEDetail ? (
+                <div className="flex items-center justify-center h-32">
+                  <RefreshCw size={24} className="animate-spin text-pink-500" />
+                </div>
+              ) : veDetailData.expenses?.length > 0 ? (
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left font-medium text-gray-600">DATE</th>
+                      <th className="p-2 text-left font-medium text-gray-600">CATEGORY</th>
+                      <th className="p-2 text-left font-medium text-gray-600">SPLIT TYPE</th>
+                      <th className="p-2 text-center font-medium text-gray-600"># RETAILERS</th>
+                      <th className="p-2 text-right font-medium text-gray-600">ORIGINAL AMT</th>
+                      <th className="p-2 text-right font-medium text-pink-600">YOUR SHARE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {veDetailData.expenses.map((exp, idx) => (
+                      <tr key={idx} className="border-b hover:bg-gray-50">
+                        <td className="p-2">
+                          {new Date(exp.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                        </td>
+                        <td className="p-2">
+                          <span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{exp.category}</span>
+                        </td>
+                        <td className="p-2">
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            exp.split_type === 'all_equal' ? 'bg-blue-100 text-blue-700' :
+                            exp.split_type === 'selected' ? 'bg-purple-100 text-purple-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {exp.split_type === 'all_equal' ? 'All Equal' :
+                             exp.split_type === 'selected' ? 'Selected' : 'Proportional'}
+                          </span>
+                        </td>
+                        <td className="p-2 text-center">
+                          {exp.retailers_included === -1 ? (
+                            <span className="text-gray-400 text-[10px]">By Sales</span>
+                          ) : exp.retailers_included}
+                        </td>
+                        <td className="p-2 text-right text-gray-600">₹{exp.original_amount?.toLocaleString()}</td>
+                        <td className="p-2 text-right font-medium text-pink-600">
+                          {exp.split_type === 'proportional' ? (
+                            <span className="text-gray-400 text-[10px]">% of sales</span>
+                          ) : (
+                            `₹${exp.retailer_share?.toLocaleString()}`
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="flex items-center justify-center h-32 text-gray-400">
+                  No variable expenses found for this retailer
+                </div>
+              )}
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="p-3 border-t bg-gray-50 text-center">
+              <Button variant="outline" onClick={() => setShowVEDetailModal(false)}>
                 Close
               </Button>
             </div>

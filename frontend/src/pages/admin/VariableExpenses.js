@@ -80,7 +80,8 @@ export default function VariableExpenses() {
     settlement_date: '',
     settlement_remarks: '',
     vertical: 'all', // 'all', 'qc', or 'retail'
-    retailer_id: '' // For retail-specific expenses
+    split_type: 'all_equal', // 'all_equal' | 'selected' | 'proportional'
+    retailer_ids: [] // For 'selected' split type
   });
   
   // Payment Details Modal state (for recording payment details when marking as Paid)
@@ -214,7 +215,8 @@ export default function VariableExpenses() {
       settlement_date: '',
       settlement_remarks: '',
       vertical: 'all',
-      retailer_id: ''
+      split_type: 'all_equal',
+      retailer_ids: []
     });
     setEditingExpense(null);
   };
@@ -282,7 +284,9 @@ export default function VariableExpenses() {
         payment_date: formData.payment_date,
         payment_reference: formData.payment_reference,
         settlement_status: settlementStatus,
-        retailer_id: formData.vertical === 'retail' ? formData.retailer_id : null
+        // New split fields for retail vertical
+        split_type: formData.vertical === 'retail' ? formData.split_type : null,
+        retailer_ids: formData.vertical === 'retail' && formData.split_type === 'selected' ? formData.retailer_ids : []
       };
       
       if (editingExpense) {
@@ -1382,26 +1386,82 @@ export default function VariableExpenses() {
                 </p>
               </div>
               
-              {/* Retailer Selection - Only shown when vertical is 'retail' */}
+              {/* Split Type Selection - Only shown when vertical is 'retail' */}
               {formData.vertical === 'retail' && (
-                <div>
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">Retailer</label>
-                  <Select value={formData.retailer_id} onValueChange={(v) => setFormData(prev => ({ ...prev, retailer_id: v }))}>
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue placeholder="Select Retailer (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Retailers</SelectItem>
-                      {retailers.map(retailer => (
-                        <SelectItem key={retailer.id} value={retailer.id}>
-                          {retailer.company_name || retailer.name || retailer.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Select specific retailer or "All Retailers" for general retail expense
-                  </p>
+                <div className="space-y-3">
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Split Type</label>
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-2 cursor-pointer p-2 rounded border hover:bg-gray-50">
+                      <input 
+                        type="radio"
+                        name="split_type"
+                        value="all_equal"
+                        checked={formData.split_type === 'all_equal'}
+                        onChange={() => setFormData(prev => ({ ...prev, split_type: 'all_equal', retailer_ids: [] }))}
+                        className="mt-1"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">Split equally across all active retailers</span>
+                        <p className="text-xs text-gray-500">For tech, marketing, admin expenses - split among all retailers active on expense date</p>
+                      </div>
+                    </label>
+                    <label className="flex items-start gap-2 cursor-pointer p-2 rounded border hover:bg-gray-50">
+                      <input 
+                        type="radio"
+                        name="split_type"
+                        value="selected"
+                        checked={formData.split_type === 'selected'}
+                        onChange={() => setFormData(prev => ({ ...prev, split_type: 'selected' }))}
+                        className="mt-1"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">Select specific retailers</span>
+                        <p className="text-xs text-gray-500">Equal split among selected retailers only</p>
+                      </div>
+                    </label>
+                    <label className="flex items-start gap-2 cursor-pointer p-2 rounded border hover:bg-gray-50">
+                      <input 
+                        type="radio"
+                        name="split_type"
+                        value="proportional"
+                        checked={formData.split_type === 'proportional'}
+                        onChange={() => setFormData(prev => ({ ...prev, split_type: 'proportional', retailer_ids: [] }))}
+                        className="mt-1"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">Split proportionally by sales</span>
+                        <p className="text-xs text-gray-500">Only retailers with sales on expense date, weighted by their sales amount</p>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  {/* Retailer multi-select - Only for 'selected' split type */}
+                  {formData.split_type === 'selected' && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded border">
+                      <label className="text-xs font-medium text-gray-700 mb-2 block">Select Retailers ({formData.retailer_ids.length} selected)</label>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {retailers.filter(r => (r.status || 'active') !== 'churned').map(retailer => (
+                          <label key={retailer.id} className="flex items-center gap-2 cursor-pointer text-sm hover:bg-white p-1 rounded">
+                            <input 
+                              type="checkbox"
+                              checked={formData.retailer_ids.includes(retailer.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData(prev => ({ ...prev, retailer_ids: [...prev.retailer_ids, retailer.id] }));
+                                } else {
+                                  setFormData(prev => ({ ...prev, retailer_ids: prev.retailer_ids.filter(id => id !== retailer.id) }));
+                                }
+                              }}
+                            />
+                            {retailer.company_name || retailer.name || retailer.email}
+                          </label>
+                        ))}
+                      </div>
+                      {formData.retailer_ids.length === 0 && (
+                        <p className="text-xs text-red-500 mt-2">Please select at least one retailer</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               

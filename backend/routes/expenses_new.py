@@ -368,5 +368,104 @@ async def bulk_settle_fixed_expenses(data: dict, current_user: dict = Depends(ge
     
     return {"message": f"Settled {result.modified_count} expenses", "count": result.modified_count}
 
+# ==================== VARIABLE EXPENSE BY RETAILER BREAKDOWN ====================
+
+@router.get("/expenses/variable/by-retailer/{retailer_id}")
+async def get_variable_expenses_by_retailer(
+    retailer_id: str,
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get variable expense breakdown for a specific retailer.
+    Returns VE shares based on split_type: all_equal, selected, proportional.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = {"vertical": "retail"}
+    if from_date:
+        query["date"] = {"$gte": from_date}
+    if to_date:
+        if "date" in query:
+            query["date"]["$lte"] = to_date + "T23:59:59"
+        else:
+            query["date"] = {"$lte": to_date + "T23:59:59"}
+    
+    expenses = await db.variable_expenses.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    
+    # Fetch all retailers for "all_equal" split type
+    all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
+    
+    # Helper: Get active retailers on a specific date
+    def get_active_retailers_on_date(all_retailers_list, expense_date_str):
+        active_ids = []
+        for r in all_retailers_list:
+            status = r.get("status", "active")
+            churned_at = r.get("churned_at", "")
+            if status == "churned" and churned_at:
+                if churned_at[:10] < expense_date_str:
+                    continue
+            elif status == "churned":
+                continue
+            active_ids.append(r.get("id"))
+        return active_ids
+    
+    # Build retailer shares
+    retailer_shares = []
+    total_share = 0
+    
+    for exp in expenses:
+        exp_date = exp.get("date", "")[:10]
+        amount = exp.get("amount", 0) or 0
+        split_type = exp.get("split_type", "proportional")
+        selected_retailer_ids = exp.get("retailer_ids", []) or []
+        
+        share = 0
+        included = False
+        retailers_count = 0
+        
+        if split_type == "selected":
+            # Only selected retailers
+            if retailer_id in selected_retailer_ids:
+                share = round(amount / len(selected_retailer_ids), 2) if selected_retailer_ids else 0
+                included = True
+                retailers_count = len(selected_retailer_ids)
+        elif split_type == "all_equal":
+            # All active retailers on expense date
+            active_ids = get_active_retailers_on_date(all_retailers, exp_date)
+            if retailer_id in active_ids:
+                share = round(amount / len(active_ids), 2) if active_ids else 0
+                included = True
+                retailers_count = len(active_ids)
+        else:
+            # proportional - this retailer's share depends on sales proportion
+            # For now, mark as proportional (calculated in P&L)
+            included = True
+            share = 0  # Will be calculated based on sales
+            retailers_count = -1  # Indicates proportional
+        
+        if included:
+            total_share += share
+            retailer_shares.append({
+                "expense_id": exp.get("id"),
+                "date": exp_date,
+                "category": exp.get("category", "Other"),
+                "description": exp.get("description", ""),
+                "original_amount": amount,
+                "split_type": split_type,
+                "retailers_included": retailers_count,
+                "retailer_share": round(share, 2),
+                "paid_to": exp.get("paid_to", "")
+            })
+    
+    return {
+        "retailer_id": retailer_id,
+        "total_share": round(total_share, 2),
+        "expenses": retailer_shares
+    }
+
+
 # ==================== RETAILER PORTAL APIs ====================
 

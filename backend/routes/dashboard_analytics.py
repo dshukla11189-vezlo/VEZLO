@@ -1881,6 +1881,38 @@ async def get_pnl_report(
     variable_retail = 0
     variable_all = 0  # Will be split equally
     
+    # NEW: Track direct VE allocation by retailer for split_type handling
+    direct_ve_by_retailer = {}  # retailer_id -> allocated amount
+    legacy_retail_pool = 0  # Retail VEs that use legacy proportional allocation
+    
+    # Helper: Get active retailers on a specific date (status != 'churned' OR churned_at > date)
+    def get_active_retailers_on_date(all_retailers_list, expense_date_str):
+        """Returns list of retailer IDs that were active on the given date"""
+        active_ids = []
+        for r in all_retailers_list:
+            status = r.get("status", "active")
+            churned_at = r.get("churned_at", "")
+            if status == "churned" and churned_at:
+                # If churned before expense_date, skip
+                if churned_at[:10] < expense_date_str:
+                    continue
+            elif status == "churned":
+                # Churned with no date means currently churned - skip
+                continue
+            active_ids.append(r.get("id"))
+        return active_ids
+    
+    # Helper: Allocate residual cents to first key
+    def alloc_residual_to_first(shares_dict, total_amount, first_key):
+        """Allocate any residual cents to the first key to ensure amounts sum exactly"""
+        if not shares_dict or not first_key:
+            return shares_dict
+        allocated = sum(shares_dict.values())
+        residual = round(total_amount - allocated, 2)
+        if residual != 0 and first_key in shares_dict:
+            shares_dict[first_key] = round(shares_dict[first_key] + residual, 2)
+        return shares_dict
+    
     for exp in variable_expenses:
         category = exp.get("category", "Other")
         amount = exp.get("amount", 0) or 0
@@ -1896,6 +1928,42 @@ async def get_pnl_report(
         if vertical == "qc":
             variable_qc += amount
         elif vertical == "retail":
+            # NEW: Handle split_type for retail VEs
+            split_type = exp.get("split_type", "proportional")  # Default to legacy proportional
+            retailer_ids = exp.get("retailer_ids", []) or []
+            
+            if split_type == "selected" and retailer_ids:
+                # Equal split among selected retailers
+                share_per = round(amount / len(retailer_ids), 2) if retailer_ids else 0
+                expense_shares = {}
+                for rid in retailer_ids:
+                    expense_shares[rid] = share_per
+                # Allocate residual to first
+                if retailer_ids:
+                    expense_shares = alloc_residual_to_first(expense_shares, amount, retailer_ids[0])
+                # Accumulate to direct_ve_by_retailer
+                for rid, share in expense_shares.items():
+                    direct_ve_by_retailer[rid] = direct_ve_by_retailer.get(rid, 0) + share
+                    
+            elif split_type == "all_equal":
+                # Equal split among ALL active retailers on expense date
+                active_retailer_ids = get_active_retailers_on_date(all_retailers, exp_date)
+                if active_retailer_ids:
+                    share_per = round(amount / len(active_retailer_ids), 2)
+                    expense_shares = {rid: share_per for rid in active_retailer_ids}
+                    expense_shares = alloc_residual_to_first(expense_shares, amount, active_retailer_ids[0])
+                    for rid, share in expense_shares.items():
+                        direct_ve_by_retailer[rid] = direct_ve_by_retailer.get(rid, 0) + share
+                else:
+                    # No active retailers - add to legacy pool
+                    legacy_retail_pool += amount
+                    
+            else:
+                # split_type == "proportional" or legacy (no split_type)
+                # Add to legacy pool for proportional allocation by sales
+                legacy_retail_pool += amount
+            
+            # Still track total retail VE
             variable_retail += amount
         else:
             variable_all += amount
@@ -2549,8 +2617,14 @@ async def get_pnl_report(
             customer_entry["rejection_share"] = round(actual_rejection_cogs, 2)
             
             customer_entry["commission"] = round(total_retail_commission * customer_share, 2)
-            # Allocate ONLY Retail-specific variable expenses (NOT including "all" expenses)
-            customer_entry["variable_expenses"] = round(variable_retail * customer_share, 2)
+            
+            # NEW: Variable expenses = direct allocation + proportional share of legacy pool
+            # direct_ve_by_retailer contains amounts from 'selected' and 'all_equal' split types
+            # legacy_retail_pool contains amounts from 'proportional' split type (or no split_type)
+            direct_ve = direct_ve_by_retailer.get(retailer_id, 0) if retailer_id else 0
+            proportional_ve = legacy_retail_pool * customer_share if legacy_retail_pool > 0 else 0
+            customer_entry["variable_expenses"] = round(direct_ve + proportional_ve, 2)
+            
             # NOTE: Fixed expenses removed from customer-level P&L as per user request
             customer_entry["fixed_expenses"] = 0
             # Calculate customer's COGS share and wastage share

@@ -8184,6 +8184,13 @@ export default function RetailerOrders() {
   const filteredPaymentRetailers = retailers.filter(r => 
     (r.company_name || r.name || '').toLowerCase().includes(paymentRetailerSearch.toLowerCase())
   );
+  
+  // Active retailers (exclude churned) for dropdowns that create new entities
+  // Churned retailers should not appear in create/select dropdowns but should remain visible in historical data displays
+  const activeRetailers = useMemo(() => 
+    retailers.filter(r => (r.status || 'active') !== 'churned'),
+    [retailers]
+  );
 
   const toggleIndentExpand = (id) => {
     setExpandedIndents(prev => ({ ...prev, [id]: !prev[id] }));
@@ -9189,7 +9196,7 @@ export default function RetailerOrders() {
                     className="h-9 px-3 rounded-md border border-gray-200 text-sm"
                   >
                     <option value="">All Retailers</option>
-                    {retailers.map(r => (
+                    {activeRetailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
@@ -11393,7 +11400,7 @@ export default function RetailerOrders() {
                     className="h-8 px-2 rounded border text-sm"
                   >
                     <option value="">Select Retailer</option>
-                    {retailers.map(r => (
+                    {activeRetailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
@@ -13444,7 +13451,7 @@ export default function RetailerOrders() {
                     className="w-full h-9 border rounded px-3 text-sm"
                   >
                     <option value="">-- Select Retailer --</option>
-                    {retailers.map(r => (
+                    {activeRetailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
@@ -16877,7 +16884,7 @@ export default function RetailerOrders() {
                     required
                   >
                     <option value="">Select Retailer</option>
-                    {retailers.map(r => (
+                    {activeRetailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
@@ -17924,7 +17931,7 @@ export default function RetailerOrders() {
                     required
                   >
                     <option value="">-- Choose a Retailer --</option>
-                    {retailers.map(r => (
+                    {activeRetailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>

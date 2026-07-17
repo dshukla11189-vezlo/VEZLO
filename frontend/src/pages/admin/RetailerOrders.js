@@ -565,6 +565,7 @@ export default function RetailerOrders() {
   const [showAdminRejectionDetailsModal, setShowAdminRejectionDetailsModal] = useState(false);
   const [adminRejectionDrilldownProduct, setAdminRejectionDrilldownProduct] = useState(null);
   const [adminRejectionDrilldownRetailer, setAdminRejectionDrilldownRetailer] = useState(null); // { retailer_id, retailer_name } for L3, null for L2-retailer / L2-date
+  const [adminRejectionDetailsSearch, setAdminRejectionDetailsSearch] = useState('');
   
   // Earnings Analytics state (uses same date filter as rejection loss)
   const [earningsChartViewMode, setEarningsChartViewMode] = useState('weekly'); // 'daily', 'weekly', 'monthly'
@@ -7539,7 +7540,7 @@ export default function RetailerOrders() {
         }
       }
       
-      setRejectionDispatchItems(items);
+      setRejectionDispatchItems([...items].sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '')));
     } catch (error) {
       console.error('Failed to load dispatch items:', error);
       setRejectionDispatchItems([]);
@@ -15776,6 +15777,7 @@ export default function RetailerOrders() {
                     setShowAdminRejectionDetailsModal(false); 
                     setAdminRejectionDrilldownProduct(null); 
                     setAdminRejectionDrilldownRetailer(null);
+                    setAdminRejectionDetailsSearch('');
                   }}
                   className="text-gray-500 hover:text-gray-700 text-xl font-bold"
                 >
@@ -15789,9 +15791,16 @@ export default function RetailerOrders() {
                   /* L1: Product List */
                   <div>
                     <p className="text-xs text-gray-500 mb-3">
-                      Showing {adminRejectionDetailsData.productRows.length} products with rejections 
+                      Showing {adminRejectionDetailsData.productRows.filter(r => !adminRejectionDetailsSearch || (r.product_name || '').toLowerCase().includes(adminRejectionDetailsSearch.toLowerCase())).length} products with rejections 
                       ({rejectionLossDateFrom} to {rejectionLossDateTo}). Click a row to see {selectedRetailer ? 'date-wise' : 'retailer-wise'} breakdown.
                     </p>
+                    <input
+                      type="text"
+                      placeholder="Search products..."
+                      value={adminRejectionDetailsSearch}
+                      onChange={(e) => setAdminRejectionDetailsSearch(e.target.value)}
+                      className="w-full px-3 py-2 mb-3 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    />
                     <table className="w-full text-sm">
                       <thead className="bg-red-50 sticky top-0">
                         <tr>
@@ -15803,10 +15812,12 @@ export default function RetailerOrders() {
                         </tr>
                       </thead>
                       <tbody>
-                        {adminRejectionDetailsData.productRows.map((row, idx) => (
+                        {adminRejectionDetailsData.productRows
+                          .filter(r => !adminRejectionDetailsSearch || (r.product_name || '').toLowerCase().includes(adminRejectionDetailsSearch.toLowerCase()))
+                          .map((row, idx) => (
                           <tr 
                             key={row.product_id}
-                            onClick={() => setAdminRejectionDrilldownProduct(row)}
+                            onClick={() => { setAdminRejectionDrilldownProduct(row); setAdminRejectionDetailsSearch(''); }}
                             className="border-b hover:bg-red-50 cursor-pointer transition-colors"
                           >
                             <td className="p-2 font-medium text-gray-800">{row.product_name}</td>

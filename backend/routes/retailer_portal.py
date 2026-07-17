@@ -9748,50 +9748,48 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
         if pid and display_unit:
             piece_products[pid] = f"unit_{display_unit}"
     
-    # Fetch today's MRP entries
-    today_mrp = await db.daily_mrp.find({"date": today}, {"_id": 0}).to_list(1000)
-    yesterday_mrp = await db.daily_mrp.find({"date": yesterday}, {"_id": 0}).to_list(1000)
-    
     # Build MRP lookup: key = "product_id_variant_id" -> mrp
     mrp_lookup = {}
     
-    # First, add yesterday's MRP (will be overwritten by today's if exists)
-    for entry in yesterday_mrp:
-        product_id = entry.get("product_id", "")
-        variant_id = entry.get("variant_id", "")
+    # Fetch the LATEST daily_mrp entry per product/variant across all dates
+    pipeline = [
+        {"$match": {"mrp": {"$gt": 0}}},
+        {"$sort": {"date": -1, "updated_at": -1}},
+        {"$group": {
+            "_id": {"product_id": "$product_id", "variant_id": "$variant_id"},
+            "mrp": {"$first": "$mrp"},
+            "date": {"$first": "$date"},
+            "product_name": {"$first": "$product_name"},
+            "variant_name": {"$first": "$variant_name"},
+        }},
+    ]
+    latest_mrp_entries = await db.daily_mrp.aggregate(pipeline).to_list(5000)
+
+    today_count = 0
+    yesterday_count = 0
+    for entry in latest_mrp_entries:
+        product_id = entry["_id"]["product_id"]
+        variant_id = entry["_id"]["variant_id"]
         mrp = entry.get("mrp", 0)
-        if product_id and variant_id and mrp and mrp > 0:
+        entry_date = entry.get("date", "")
+        if product_id and variant_id and mrp > 0:
             key = f"{product_id}_{variant_id}"
             mrp_data = {
                 "mrp": mrp,
-                "date": yesterday,
+                "date": entry_date,
                 "product_name": entry.get("product_name", ""),
-                "variant_name": entry.get("variant_name", "")
+                "variant_name": entry.get("variant_name", ""),
+                "source": "daily_mrp_latest",
             }
             mrp_lookup[key] = mrp_data
-            # Dual-key insertion for Piece/Packet products
+            # Dual-key insertion for Piece / Packet products — preserve existing pattern
             if product_id in piece_products:
                 piece_key = f"{product_id}_{piece_products[product_id]}"
                 mrp_lookup[piece_key] = mrp_data
-    
-    # Then, add/overwrite with today's MRP
-    for entry in today_mrp:
-        product_id = entry.get("product_id", "")
-        variant_id = entry.get("variant_id", "")
-        mrp = entry.get("mrp", 0)
-        if product_id and variant_id and mrp and mrp > 0:
-            key = f"{product_id}_{variant_id}"
-            mrp_data = {
-                "mrp": mrp,
-                "date": today,
-                "product_name": entry.get("product_name", ""),
-                "variant_name": entry.get("variant_name", "")
-            }
-            mrp_lookup[key] = mrp_data
-            # Dual-key insertion for Piece/Packet products
-            if product_id in piece_products:
-                piece_key = f"{product_id}_{piece_products[product_id]}"
-                mrp_lookup[piece_key] = mrp_data
+            if entry_date == today:
+                today_count += 1
+            elif entry_date == yesterday:
+                yesterday_count += 1
     
     # Fallback: for any product+variant missing from primary result, check dispatch history
     # Dispatches are sorted newest-first, so first match = most recent MRP for that product+variant
@@ -9873,8 +9871,8 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
         "mrp_data": mrp_lookup,
         "today": today,
         "yesterday": yesterday,
-        "today_count": len([e for e in today_mrp if e.get("mrp", 0) > 0]),
-        "yesterday_count": len([e for e in yesterday_mrp if e.get("mrp", 0) > 0]),
+        "today_count": today_count,
+        "yesterday_count": yesterday_count,
         "dispatch_fallback_count": dispatch_mrp_count,
         "global_dispatch_fallback_count": global_mrp_count,
         "piece_products_count": len(piece_products)

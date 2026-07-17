@@ -174,6 +174,7 @@ export default function RetailerDashboard() {
   // Rejection Details Drilldown Modal
   const [showRejectionDetailsModal, setShowRejectionDetailsModal] = useState(false);
   const [rejectionDrilldownProduct, setRejectionDrilldownProduct] = useState(null); // null = L1 (list), object = L2 (date-wise)
+  const [rejectionDetailsSearch, setRejectionDetailsSearch] = useState('');
   
   const [rejectionDateFrom, setRejectionDateFrom] = useState(() => {
     const d = new Date();
@@ -8004,7 +8005,7 @@ export default function RetailerDashboard() {
                   </h3>
                 </div>
                 <button
-                  onClick={() => { setShowRejectionDetailsModal(false); setRejectionDrilldownProduct(null); }}
+                  onClick={() => { setShowRejectionDetailsModal(false); setRejectionDrilldownProduct(null); setRejectionDetailsSearch(''); }}
                   className="text-gray-500 hover:text-gray-700 text-xl font-bold"
                 >
                   ×
@@ -8017,9 +8018,16 @@ export default function RetailerDashboard() {
                   /* L1: Product List */
                   <div>
                     <p className="text-xs text-gray-500 mb-3">
-                      Showing {rejectionDetailsData.productRows.length} products with rejections 
+                      Showing {rejectionDetailsData.productRows.filter(r => !rejectionDetailsSearch || (r.product_name || '').toLowerCase().includes(rejectionDetailsSearch.toLowerCase())).length} products with rejections 
                       ({dashboardDateFrom} to {dashboardDateTo}). Click a row to see date-wise breakdown.
                     </p>
+                    <input
+                      type="text"
+                      placeholder="Search products..."
+                      value={rejectionDetailsSearch}
+                      onChange={(e) => setRejectionDetailsSearch(e.target.value)}
+                      className="w-full px-3 py-2 mb-3 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    />
                     <table className="w-full text-sm">
                       <thead className="bg-red-50 sticky top-0">
                         <tr>
@@ -8031,10 +8039,12 @@ export default function RetailerDashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rejectionDetailsData.productRows.map((row, idx) => (
+                        {rejectionDetailsData.productRows
+                          .filter(r => !rejectionDetailsSearch || (r.product_name || '').toLowerCase().includes(rejectionDetailsSearch.toLowerCase()))
+                          .map((row, idx) => (
                           <tr 
                             key={row.product_id}
-                            onClick={() => setRejectionDrilldownProduct(row)}
+                            onClick={() => { setRejectionDrilldownProduct(row); setRejectionDetailsSearch(''); }}
                             className="border-b hover:bg-red-50 cursor-pointer transition-colors"
                           >
                             <td className="p-2 font-medium text-gray-800">{row.product_name}</td>

@@ -406,6 +406,10 @@ export default function RetailerOrders() {
   const [recordRejectionDateRows, setRecordRejectionDateRows] = useState([]);
   const [recordRejectionSubmitting, setRecordRejectionSubmitting] = useState(false);
   const [recordRejectionDispatchesFetched, setRecordRejectionDispatchesFetched] = useState(false);
+  const [recordRejectionDrafts, setRecordRejectionDrafts] = useState([]);
+  // Each draft: { key: `${product_id}__${variant_id||''}`, product_id, product_name, variant_id, variant_name,
+  //              entries: [{ dispatch_date, dispatch_id, quantity, reason, remarks, mrp, supplied_qty, total_previous_qty }] }
+  const [recordRejectionEditingDraftKey, setRecordRejectionEditingDraftKey] = useState(null);
   
   // Daily Rejection Summary state (view by recorded date)
   const [rejectionViewMode, setRejectionViewMode] = useState('by-invoice'); // 'by-invoice' or 'by-recorded'
@@ -3056,10 +3060,10 @@ export default function RetailerOrders() {
   }, [rejections, dispatches, allDispatchesForRejection, retailers, rejectionLossDateFrom, rejectionLossDateTo]);
 
   // ========== NEW RECORD REJECTION WIZARD MEMOS ==========
-  // Last 30 days window helper — recomputed on every open so the window rolls with today
-  const RECORD_REJECTION_WINDOW_DAYS = 30;
+  // Last 10 days window helper — recomputed on every open so the window rolls with today
+  const RECORD_REJECTION_WINDOW_DAYS = 10;
 
-  // Products dispatched to the selected retailer in the last 30 days
+  // Products dispatched to the selected retailer in the last 10 days
   const recordRejectionProductOptions = useMemo(() => {
     if (!recordRejectionRetailer) return [];
     const cutoffTs = Date.now() - RECORD_REJECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -3084,7 +3088,7 @@ export default function RetailerOrders() {
     return Array.from(seen.values()).sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''));
   }, [allDispatchesForRejection, recordRejectionRetailer]);
 
-  // Dispatch dates for the selected (retailer, product) in the last 30 days,
+  // Dispatch dates for the selected (retailer, product) in the last 10 days,
   // annotated with supplied qty and existing rejection history from `rejections` state.
   const recordRejectionAvailableDates = useMemo(() => {
     if (!recordRejectionRetailer || !recordRejectionProduct) return [];
@@ -7851,6 +7855,122 @@ export default function RetailerOrders() {
     setRecordRejectionProductSearch('');
     setRecordRejectionDateRows([]);
     setRecordRejectionDispatchesFetched(false);
+    setRecordRejectionDrafts([]);
+    setRecordRejectionEditingDraftKey(null);
+  };
+
+  const handleAddToDraft = () => {
+    const selected = recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0);
+    if (selected.length === 0) {
+      setRejectionErrorDialog({ open: true, message: 'Tick at least one date and enter a rejection quantity.' });
+      return;
+    }
+    for (const row of selected) {
+      const maxAllowed = (row.supplied_qty || 0) - (row.total_previous_qty || 0);
+      if (row.rejection_qty > maxAllowed) {
+        setRejectionErrorDialog({ open: true, message: `On ${row.dispatch_date}, rejection ${row.rejection_qty} exceeds allowed ${maxAllowed} (supplied ${row.supplied_qty}, already rejected ${row.total_previous_qty}).` });
+        return;
+      }
+      if (!row.reason || !row.reason.trim()) {
+        setRejectionErrorDialog({ open: true, message: `Reason is required for the entry on ${row.dispatch_date}.` });
+        return;
+      }
+    }
+    const draftKey = `${recordRejectionProduct.product_id}__${recordRejectionProduct.variant_id || ''}`;
+    const draftObj = {
+      key: draftKey,
+      product_id: recordRejectionProduct.product_id,
+      product_name: recordRejectionProduct.product_name,
+      variant_id: recordRejectionProduct.variant_id || null,
+      variant_name: recordRejectionProduct.variant_name || '',
+      entries: selected.map(r => ({
+        dispatch_date: r.dispatch_date,
+        dispatch_id: r.dispatch_id || null,
+        quantity: r.rejection_qty,
+        reason: r.reason,
+        remarks: r.remarks || '',
+        mrp: r.mrp || 0,
+        supplied_qty: r.supplied_qty || 0,
+        total_previous_qty: r.total_previous_qty || 0,
+      })),
+    };
+    setRecordRejectionDrafts(prev => {
+      const idx = prev.findIndex(d => d.key === draftKey);
+      if (idx >= 0) { const copy = [...prev]; copy[idx] = draftObj; return copy; }
+      return [...prev, draftObj];
+    });
+    toast.success(recordRejectionEditingDraftKey ? 'Draft updated' : 'Added to draft');
+    setRecordRejectionEditingDraftKey(null);
+    setRecordRejectionProduct(null);
+    setRecordRejectionProductSearch('');
+    setRecordRejectionStep(2);
+  };
+
+  const handleSubmitAllDrafts = async () => {
+    if (recordRejectionDrafts.length === 0) return;
+    setRecordRejectionSubmitting(true);
+    let completedDrafts = 0;
+    try {
+      for (const draft of recordRejectionDrafts) {
+        for (const entry of draft.entries) {
+          await api.post('/api/retailer-rejections', {
+            retailer_id: recordRejectionRetailer.id,
+            rejection_date: new Date(entry.dispatch_date).toISOString(),
+            product_id: draft.product_id,
+            product_name: draft.product_name,
+            variant_id: draft.variant_id || null,
+            variant_name: draft.variant_name || '',
+            quantity: entry.quantity,
+            mrp: entry.mrp || 0,
+            reason: entry.reason,
+            remarks: entry.remarks || '',
+            dispatch_id: entry.dispatch_id || null,
+          });
+        }
+        completedDrafts++;
+      }
+      await loadRejections();
+      const totalEntries = recordRejectionDrafts.reduce((s, d) => s + d.entries.length, 0);
+      toast.success(`Recorded ${totalEntries} rejection(s) across ${recordRejectionDrafts.length} product(s)`);
+      setShowRejectionModal(false);
+      resetRecordRejectionWizard();
+    } catch (err) {
+      setRejectionErrorDialog({
+        open: true,
+        message: `Failed on draft ${completedDrafts + 1} of ${recordRejectionDrafts.length}: ${err?.response?.data?.detail || err?.message || 'Unknown error'}. ${completedDrafts} draft(s) already submitted. Remaining drafts are preserved — retry Submit All.`,
+      });
+      // Remove successfully-committed drafts so retry does not double-post
+      setRecordRejectionDrafts(prev => prev.slice(completedDrafts));
+    } finally {
+      setRecordRejectionSubmitting(false);
+    }
+  };
+
+  const handleEditDraft = (draftKey) => {
+    const draft = recordRejectionDrafts.find(d => d.key === draftKey);
+    if (!draft) return;
+    setRecordRejectionProduct({
+      product_id: draft.product_id,
+      product_name: draft.product_name,
+      variant_id: draft.variant_id,
+      variant_name: draft.variant_name,
+    });
+    setRecordRejectionEditingDraftKey(draftKey);
+    setRecordRejectionStep(3);
+    // The useEffect populates recordRejectionDateRows from recordRejectionAvailableDates
+    // Merge the draft's saved entries back in after that sync fires.
+    setTimeout(() => {
+      setRecordRejectionDateRows(prevRows => prevRows.map(row => {
+        const saved = draft.entries.find(e => e.dispatch_date === row.dispatch_date);
+        return saved ? { ...row, selected: true, rejection_qty: saved.quantity, reason: saved.reason, remarks: saved.remarks } : row;
+      }));
+    }, 100);
+  };
+
+  const handleDeleteDraft = (draftKey) => {
+    if (!window.confirm('Remove this draft?')) return;
+    setRecordRejectionDrafts(prev => prev.filter(d => d.key !== draftKey));
+    toast.info('Draft removed');
   };
 
   const handleDeleteRejection = async (rejectionId) => {
@@ -17077,8 +17197,13 @@ export default function RetailerOrders() {
                       onClick={() => {
                         if (recordRejectionStep === 3) {
                           setRecordRejectionProduct(null);
+                          setRecordRejectionEditingDraftKey(null);
                           setRecordRejectionStep(2);
                         } else if (recordRejectionStep === 2) {
+                          if (recordRejectionDrafts.length > 0) {
+                            if (!window.confirm('Drafts will be discarded if you switch retailer. Continue?')) return;
+                            setRecordRejectionDrafts([]);
+                          }
                           setRecordRejectionProduct(null);
                           setRecordRejectionRetailer(null);
                           setRecordRejectionStep(1);
@@ -17149,6 +17274,46 @@ export default function RetailerOrders() {
                 {/* Step 2: Product Picker */}
                 {recordRejectionStep === 2 && (
                   <div>
+                    {/* Drafts Panel */}
+                    {recordRejectionDrafts.length > 0 && (
+                      <div className="mb-3 border rounded bg-green-50 p-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-green-700">
+                            Drafts ({recordRejectionDrafts.length} product{recordRejectionDrafts.length > 1 ? 's' : ''}, {recordRejectionDrafts.reduce((s, d) => s + d.entries.length, 0)} entries)
+                          </span>
+                        </div>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-left text-gray-600">
+                              <th className="p-1">Product</th>
+                              <th className="p-1">Variant</th>
+                              <th className="p-1 text-center"># Entries</th>
+                              <th className="p-1 text-center">Total Qty</th>
+                              <th className="p-1 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recordRejectionDrafts.map(draft => (
+                              <tr key={draft.key} className="border-t">
+                                <td className="p-1">{draft.product_name}</td>
+                                <td className="p-1 text-gray-500">{draft.variant_name || '—'}</td>
+                                <td className="p-1 text-center">{draft.entries.length}</td>
+                                <td className="p-1 text-center">{draft.entries.reduce((s, e) => s + e.quantity, 0)}</td>
+                                <td className="p-1 text-center">
+                                  <button onClick={() => handleEditDraft(draft.key)} className="text-blue-600 hover:underline mr-2" title="Edit">
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button onClick={() => handleDeleteDraft(draft.key)} className="text-red-600 hover:underline" title="Delete">
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    
                     {allDispatchesForRejection.length === 0 && !recordRejectionDispatchesFetched ? (
                       <div className="text-center py-8 text-gray-400">
                         Loading dispatches...
@@ -17164,32 +17329,47 @@ export default function RetailerOrders() {
                       <>
                         <input
                           type="text"
-                          placeholder="Search product dispatched to this retailer in last 30 days..."
+                          placeholder="Search product dispatched to this retailer in last 10 days..."
                           value={recordRejectionProductSearch}
                           onChange={(e) => setRecordRejectionProductSearch(e.target.value)}
                           className="w-full px-3 py-2 mb-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
                         />
-                        <p className="text-xs text-gray-400 mb-2">Showing products supplied in the last 30 days.</p>
+                        <p className="text-xs text-gray-400 mb-2">Showing products supplied in the last 10 days.</p>
                         <div className="max-h-72 overflow-y-auto border rounded">
                           {recordRejectionProductOptions
                             .filter(opt => !recordRejectionProductSearch || (opt.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase()))
-                            .map((opt, idx) => (
-                              <div
-                                key={`${opt.product_id}__${opt.variant_id || idx}`}
-                                onClick={() => {
-                                  setRecordRejectionProduct(opt);
-                                  setRecordRejectionProductSearch('');
-                                  setRecordRejectionStep(3);
-                                }}
-                                className="p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0"
-                              >
-                                <div className="font-medium text-sm">{opt.product_name}</div>
-                                {opt.variant_name && <div className="text-xs text-gray-500">{opt.variant_name}</div>}
-                              </div>
-                            ))
+                            .map((opt, idx) => {
+                              const draftKey = `${opt.product_id}__${opt.variant_id || ''}`;
+                              const existingDraft = recordRejectionDrafts.find(d => d.key === draftKey);
+                              return (
+                                <div
+                                  key={`${opt.product_id}__${opt.variant_id || idx}`}
+                                  onClick={() => {
+                                    if (existingDraft) {
+                                      handleEditDraft(draftKey);
+                                    } else {
+                                      setRecordRejectionProduct(opt);
+                                      setRecordRejectionProductSearch('');
+                                      setRecordRejectionStep(3);
+                                    }
+                                  }}
+                                  className={`p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0 ${existingDraft ? 'bg-green-50' : ''}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-sm">{opt.product_name}</div>
+                                      {opt.variant_name && <div className="text-xs text-gray-500">{opt.variant_name}</div>}
+                                    </div>
+                                    {existingDraft && (
+                                      <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded">Draft</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
                           }
                           {recordRejectionProductOptions.filter(opt => !recordRejectionProductSearch || (opt.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase())).length === 0 && (
-                            <div className="p-4 text-center text-gray-400 text-sm">No products dispatched to this retailer in the last 30 days.</div>
+                            <div className="p-4 text-center text-gray-400 text-sm">No products dispatched to this retailer in the last 10 days.</div>
                           )}
                         </div>
                       </>
@@ -17200,10 +17380,17 @@ export default function RetailerOrders() {
                 {/* Step 3: Date Rows Table */}
                 {recordRejectionStep === 3 && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-3">Last 30 supply dates. Tick the dates you want to record rejection against.</p>
+                    <p className="text-xs text-gray-500 mb-2">Last 10 supply dates. Tick the dates you want to record rejection against. <span className="text-gray-400 ml-1">(Showing last 10 supply days for performance)</span></p>
+                    {recordRejectionDrafts.length > 0 && (
+                      <div className="mb-2 p-2 bg-green-50 border rounded text-xs text-green-700">
+                        {recordRejectionDrafts.length} draft{recordRejectionDrafts.length > 1 ? 's' : ''} saved ({recordRejectionDrafts.reduce((s, d) => s + d.entries.length, 0)} entries).
+                        {!recordRejectionEditingDraftKey && ' Fill entries below and click Add to Draft to save this product.'}
+                        {recordRejectionEditingDraftKey && ' Editing an existing draft — click Update Draft when done.'}
+                      </div>
+                    )}
                     {recordRejectionDateRows.length === 0 ? (
                       <div className="p-4 bg-gray-50 rounded text-sm text-gray-500 text-center">
-                        No supply dates for this product in the last 30 days.
+                        No supply dates for this product in the last 10 days.
                       </div>
                     ) : (
                       <div className="border rounded overflow-x-auto">
@@ -17337,24 +17524,39 @@ export default function RetailerOrders() {
                 )}
               </div>
               
-              {/* Footer - only show in Step 3 */}
-              {recordRejectionStep === 3 && (
+              {/* Footer - show in Step 3 always, and in Step 2 when drafts exist */}
+              {(recordRejectionStep === 3 || (recordRejectionStep === 2 && recordRejectionDrafts.length > 0)) && (
                 <div className="flex items-center justify-between gap-2 p-3 sm:p-4 border-t bg-white flex-shrink-0">
                   <span className="text-xs text-gray-500">
-                    Total rows selected: {recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length}
+                    {recordRejectionStep === 3 && (
+                      <>Total rows selected: {recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length}</>
+                    )}
+                    {recordRejectionStep === 2 && recordRejectionDrafts.length > 0 && (
+                      <>{recordRejectionDrafts.length} draft{recordRejectionDrafts.length > 1 ? 's' : ''}, {recordRejectionDrafts.reduce((s, d) => s + d.entries.length, 0)} entries total</>
+                    )}
                   </span>
                   <div className="flex gap-2">
-                    <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRecordRejectionWizard(); }}>
-                      Cancel
-                    </Button>
-                    <Button 
-                      type="button"
-                      className="bg-red-600 hover:bg-red-700"
-                      disabled={recordRejectionSubmitting || recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length === 0}
-                      onClick={handleRecordRejectionSubmit}
-                    >
-                      {recordRejectionSubmitting ? 'Saving...' : `Record Rejections (${recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length})`}
-                    </Button>
+                    <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRecordRejectionWizard(); }}>Cancel</Button>
+                    {recordRejectionStep === 3 && (
+                      <Button
+                        type="button"
+                        className="bg-blue-600 hover:bg-blue-700"
+                        disabled={recordRejectionSubmitting || recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length === 0}
+                        onClick={handleAddToDraft}
+                      >
+                        {recordRejectionEditingDraftKey ? 'Update Draft' : 'Add to Draft'}
+                      </Button>
+                    )}
+                    {recordRejectionDrafts.length > 0 && (
+                      <Button
+                        type="button"
+                        className="bg-red-600 hover:bg-red-700"
+                        disabled={recordRejectionSubmitting}
+                        onClick={handleSubmitAllDrafts}
+                      >
+                        {recordRejectionSubmitting ? 'Submitting...' : `Submit All (${recordRejectionDrafts.length})`}
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}

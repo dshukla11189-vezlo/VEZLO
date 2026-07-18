@@ -3672,7 +3672,7 @@ export default function Procurement() {
                               <details className="cursor-pointer">
                                 <summary className="text-xs text-blue-600 hover:text-blue-800">View details</summary>
                                 <div className="mt-1 space-y-1 pl-2 border-l-2 border-blue-100">
-                                  {proc.products?.map((p, i) => (
+                                  {[...(proc.products || [])].sort((a, b) => getProductName(a).localeCompare(getProductName(b))).map((p, i) => (
                                     <div key={i} className="text-xs">
                                       {getProductName(p)}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
                                     </div>
@@ -3682,7 +3682,7 @@ export default function Procurement() {
                             </div>
                           ) : (
                             <div className="space-y-1">
-                              {proc.products?.map((p, i) => (
+                              {[...(proc.products || [])].sort((a, b) => getProductName(a).localeCompare(getProductName(b))).map((p, i) => (
                                 <div key={i} className="text-xs">
                                   {getProductName(p)}: {p.quantity} {getUnitLabel(p.unit, p.unit_size)} @ ₹{p.rate}
                                 </div>

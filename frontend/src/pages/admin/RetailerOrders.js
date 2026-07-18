@@ -21,7 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/pop
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../../components/ui/command';
 import { 
   Plus, Package, Truck, AlertTriangle, AlertCircle, DollarSign, 
-  Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, FileText, Download, Check,
+  Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, ChevronLeft, FileText, Download, Check,
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -396,6 +396,16 @@ export default function RetailerOrders() {
     items: [] // Changed to array of items for multi-item rejection
   });
   const [rejectionDispatchItems, setRejectionDispatchItems] = useState([]); // Dispatch items for selected date
+  
+  // New Record Rejection wizard state
+  const [recordRejectionStep, setRecordRejectionStep] = useState(1); // 1=retailer, 2=product, 3=dates
+  const [recordRejectionRetailer, setRecordRejectionRetailer] = useState(null);   // { id, name }
+  const [recordRejectionProduct, setRecordRejectionProduct] = useState(null);     // { product_id, product_name, variant_id, variant_name }
+  const [recordRejectionRetailerSearch, setRecordRejectionRetailerSearch] = useState('');
+  const [recordRejectionProductSearch, setRecordRejectionProductSearch] = useState('');
+  const [recordRejectionDateRows, setRecordRejectionDateRows] = useState([]);
+  const [recordRejectionSubmitting, setRecordRejectionSubmitting] = useState(false);
+  const [recordRejectionDispatchesFetched, setRecordRejectionDispatchesFetched] = useState(false);
   
   // Daily Rejection Summary state (view by recorded date)
   const [rejectionViewMode, setRejectionViewMode] = useState('by-invoice'); // 'by-invoice' or 'by-recorded'
@@ -3043,6 +3053,105 @@ export default function RetailerOrders() {
       retailerDispatchMap
     };
   }, [rejections, dispatches, allDispatchesForRejection, retailers, rejectionLossDateFrom, rejectionLossDateTo]);
+
+  // ========== NEW RECORD REJECTION WIZARD MEMOS ==========
+  // Last 30 days window helper — recomputed on every open so the window rolls with today
+  const RECORD_REJECTION_WINDOW_DAYS = 30;
+
+  // Products dispatched to the selected retailer in the last 30 days
+  const recordRejectionProductOptions = useMemo(() => {
+    if (!recordRejectionRetailer) return [];
+    const cutoffTs = Date.now() - RECORD_REJECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const seen = new Map();
+    (allDispatchesForRejection || []).forEach(disp => {
+      if (disp.retailer_id !== recordRejectionRetailer.id) return;
+      const d = new Date(disp.dispatch_date);
+      if (isNaN(d.getTime()) || d.getTime() < cutoffTs) return;
+      (disp.items || []).forEach(item => {
+        if (!item.product_id) return;
+        const key = `${item.product_id}__${item.variant_id || ''}`;
+        if (!seen.has(key)) {
+          seen.set(key, {
+            product_id: item.product_id,
+            product_name: item.product_name || 'Unknown',
+            variant_id: item.variant_id || null,
+            variant_name: item.variant_name || '',
+          });
+        }
+      });
+    });
+    return Array.from(seen.values()).sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''));
+  }, [allDispatchesForRejection, recordRejectionRetailer]);
+
+  // Dispatch dates for the selected (retailer, product) in the last 30 days,
+  // annotated with supplied qty and existing rejection history from `rejections` state.
+  const recordRejectionAvailableDates = useMemo(() => {
+    if (!recordRejectionRetailer || !recordRejectionProduct) return [];
+    const cutoffTs = Date.now() - RECORD_REJECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const pid = recordRejectionProduct.product_id;
+    const vid = recordRejectionProduct.variant_id || null;
+
+    const dateMap = new Map(); // key = YYYY-MM-DD
+    (allDispatchesForRejection || []).forEach(disp => {
+      if (disp.retailer_id !== recordRejectionRetailer.id) return;
+      const d = new Date(disp.dispatch_date);
+      if (isNaN(d.getTime()) || d.getTime() < cutoffTs) return;
+      const dateKey = String(disp.dispatch_date).slice(0, 10);
+      let mrpForRow = 0;
+      let suppliedForRow = 0;
+      (disp.items || []).forEach(item => {
+        if (item.product_id !== pid) return;
+        if ((item.variant_id || null) !== vid) return;
+        suppliedForRow += (item.supplied_qty || 0);
+        if (item.mrp && item.mrp > 0) mrpForRow = item.mrp;
+      });
+      if (suppliedForRow <= 0) return;
+      const existing = dateMap.get(dateKey);
+      if (existing) {
+        existing.supplied_qty += suppliedForRow;
+        existing.mrp = existing.mrp || mrpForRow;
+        if (!existing.dispatch_id) existing.dispatch_id = disp.id || disp._id || null;
+      } else {
+        dateMap.set(dateKey, {
+          dispatch_date: dateKey,
+          dispatch_id: disp.id || disp._id || null,
+          supplied_qty: suppliedForRow,
+          mrp: mrpForRow,
+          previous_rejections: [],
+          total_previous_qty: 0,
+          selected: false,
+          rejection_qty: 0,
+          reason: '',
+          remarks: '',
+        });
+      }
+    });
+
+    // Attach existing rejection history from the `rejections` state (loaded page-wide)
+    (rejections || []).forEach(rej => {
+      if (rej.retailer_id !== recordRejectionRetailer.id) return;
+      if (rej.product_id !== pid) return;
+      if ((rej.variant_id || null) !== vid) return;
+      const dateKey = String(rej.rejection_date || '').slice(0, 10);
+      const row = dateMap.get(dateKey);
+      if (!row) return;
+      row.previous_rejections.push({
+        id: rej.id,
+        quantity: rej.quantity || 0,
+        reason: rej.reason || '',
+        remarks: rej.remarks || '',
+        created_at: rej.created_at || '',
+      });
+      row.total_previous_qty += (rej.quantity || 0);
+    });
+
+    return Array.from(dateMap.values()).sort((a, b) => b.dispatch_date.localeCompare(a.dispatch_date));
+  }, [allDispatchesForRejection, rejections, recordRejectionRetailer, recordRejectionProduct]);
+
+  // Sync computed dates into editable row state whenever the product selection changes
+  useEffect(() => {
+    setRecordRejectionDateRows(recordRejectionAvailableDates);
+  }, [recordRejectionAvailableDates]);
 
   // Admin Rejection Details Data (mirrors retailer portal drilldown, scoped by selectedRetailer)
   const adminRejectionDetailsData = useMemo(() => {
@@ -7682,6 +7791,67 @@ export default function RetailerOrders() {
     }
   };
 
+  // ========== NEW RECORD REJECTION WIZARD HANDLERS ==========
+  const handleRecordRejectionSubmit = async () => {
+    const selected = recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0);
+    if (selected.length === 0) {
+      setRejectionErrorDialog({ open: true, message: 'Tick at least one date and enter a rejection quantity.' });
+      return;
+    }
+    // Validate: qty > 0 requires reason, and qty must not exceed supplied - already rejected
+    for (const row of selected) {
+      const maxAllowed = (row.supplied_qty || 0) - (row.total_previous_qty || 0);
+      if (row.rejection_qty > maxAllowed) {
+        setRejectionErrorDialog({
+          open: true,
+          message: `On ${row.dispatch_date}, rejection ${row.rejection_qty} exceeds allowed ${maxAllowed} (supplied ${row.supplied_qty}, already rejected ${row.total_previous_qty}).`
+        });
+        return;
+      }
+      if (!row.reason || !row.reason.trim()) {
+        setRejectionErrorDialog({ open: true, message: `Reason is required for the entry on ${row.dispatch_date}.` });
+        return;
+      }
+    }
+    setRecordRejectionSubmitting(true);
+    try {
+      for (const row of selected) {
+        await api.post('/api/retailer-rejections', {
+          retailer_id: recordRejectionRetailer.id,
+          rejection_date: new Date(row.dispatch_date).toISOString(),
+          product_id: recordRejectionProduct.product_id,
+          product_name: recordRejectionProduct.product_name,
+          variant_id: recordRejectionProduct.variant_id || null,
+          variant_name: recordRejectionProduct.variant_name || '',
+          quantity: row.rejection_qty,
+          mrp: row.mrp || 0,
+          reason: row.reason,
+          remarks: row.remarks || '',
+          dispatch_id: row.dispatch_id || null,
+        });
+      }
+      // Refresh page-wide rejection + dispatch state so the modal reflects the new history immediately
+      await loadRejections();
+      toast.success(`Recorded ${selected.length} rejection(s) successfully`);
+      setShowRejectionModal(false);
+      resetRecordRejectionWizard();
+    } catch (err) {
+      setRejectionErrorDialog({ open: true, message: err?.response?.data?.detail || err?.message || 'Failed to save rejection.' });
+    } finally {
+      setRecordRejectionSubmitting(false);
+    }
+  };
+
+  const resetRecordRejectionWizard = () => {
+    setRecordRejectionStep(1);
+    setRecordRejectionRetailer(null);
+    setRecordRejectionProduct(null);
+    setRecordRejectionRetailerSearch('');
+    setRecordRejectionProductSearch('');
+    setRecordRejectionDateRows([]);
+    setRecordRejectionDispatchesFetched(false);
+  };
+
   const handleDeleteRejection = async (rejectionId) => {
     if (!window.confirm('Are you sure you want to delete this rejection? Any linked credit note will also be deleted/voided.')) return;
     try {
@@ -12172,7 +12342,7 @@ export default function RetailerOrders() {
                   <Button size="sm" variant="outline" onClick={exportRejections} title="Export to Excel">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => setShowRejectionModal(true)}>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => { resetRecordRejectionWizard(); setShowRejectionModal(true); }}>
                     <Plus size={14} className="mr-1" /> Record Rejection
                   </Button>
                 </div>
@@ -16875,137 +17045,246 @@ export default function RetailerOrders() {
           </div>
         )}
 
-        {/* ==================== REJECTION MODAL ==================== */}
+        {/* ==================== REJECTION MODAL (Wizard) ==================== */}
         {showRejectionModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              {/* Header */}
               <div className="flex items-center justify-between p-3 sm:p-4 border-b flex-shrink-0">
-                <h3 className="text-base sm:text-lg font-semibold">Record Rejection</h3>
-                <button onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="p-1 hover:bg-gray-100 rounded">
+                <div className="flex items-center gap-2">
+                  {recordRejectionStep > 1 && (
+                    <button
+                      onClick={() => {
+                        if (recordRejectionStep === 3) {
+                          setRecordRejectionProduct(null);
+                          setRecordRejectionStep(2);
+                        } else if (recordRejectionStep === 2) {
+                          setRecordRejectionProduct(null);
+                          setRecordRejectionRetailer(null);
+                          setRecordRejectionStep(1);
+                        }
+                      }}
+                      className="p-1 hover:bg-gray-100 rounded text-gray-500"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                  )}
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold">Record Rejection</h3>
+                    <p className="text-xs text-gray-500">
+                      {recordRejectionStep === 1 && 'Step 1: Select Retailer'}
+                      {recordRejectionStep === 2 && `${recordRejectionRetailer?.name} › Select Product`}
+                      {recordRejectionStep === 3 && `${recordRejectionRetailer?.name} › ${recordRejectionProduct?.product_name}${recordRejectionProduct?.variant_name ? ' (' + recordRejectionProduct.variant_name + ')' : ''}`}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => { setShowRejectionModal(false); resetRecordRejectionWizard(); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
-              <div className="p-3 sm:p-4 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Retailer *</label>
-                  <select
-                    value={rejectionForm.retailer_id}
-                    onChange={(e) => setRejectionForm(prev => ({ ...prev, retailer_id: e.target.value }))}
-                    className="w-full h-9 px-3 rounded-md border border-gray-200 text-sm"
-                    required
-                  >
-                    <option value="">Select Retailer</option>
-                    {activeRetailers.map(r => (
-                      <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
-                  <Input
-                    type="date"
-                    value={rejectionForm.rejection_date}
-                    onChange={(e) => setRejectionForm(prev => ({ ...prev, rejection_date: e.target.value }))}
-                    required
-                  />
-                </div>
 
-                {/* Dispatch Items for selected date/retailer */}
-                {rejectionForm.retailer_id && rejectionForm.rejection_date && (
+              {/* Body */}
+              <div className="p-3 sm:p-4 overflow-y-auto flex-1">
+                {/* Step 1: Retailer Picker */}
+                {recordRejectionStep === 1 && (
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">
-                      Dispatch Items for {formatDate(rejectionForm.rejection_date)}
-                    </label>
-                    {rejectionDispatchItems.length === 0 ? (
+                    <input
+                      type="text"
+                      placeholder="Search retailer..."
+                      value={recordRejectionRetailerSearch}
+                      onChange={(e) => setRecordRejectionRetailerSearch(e.target.value)}
+                      className="w-full px-3 py-2 mb-3 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    />
+                    {activeRetailers.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400">Loading retailers...</div>
+                    ) : (
+                      <div className="max-h-80 overflow-y-auto border rounded">
+                        {activeRetailers
+                          .slice()
+                          .sort((a, b) => ((a.company_name || a.name) || '').localeCompare((b.company_name || b.name) || ''))
+                          .filter(r => !recordRejectionRetailerSearch || (r.company_name || r.name || '').toLowerCase().includes(recordRejectionRetailerSearch.toLowerCase()))
+                          .slice(0, 100)
+                          .map(r => (
+                            <div
+                              key={r.id}
+                              onClick={() => {
+                                setRecordRejectionRetailer({ id: r.id, name: r.company_name || r.name });
+                                setRecordRejectionRetailerSearch('');
+                                setRecordRejectionStep(2);
+                              }}
+                              className="p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0 text-sm"
+                            >
+                              {r.company_name || r.name}
+                            </div>
+                          ))
+                        }
+                        {activeRetailers.filter(r => !recordRejectionRetailerSearch || (r.company_name || r.name || '').toLowerCase().includes(recordRejectionRetailerSearch.toLowerCase())).length === 0 && (
+                          <div className="p-4 text-center text-gray-400 text-sm">No retailer matches.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 2: Product Picker */}
+                {recordRejectionStep === 2 && (
+                  <div>
+                    {allDispatchesForRejection.length === 0 && !recordRejectionDispatchesFetched ? (
+                      <div className="text-center py-8 text-gray-400">
+                        Loading dispatches...
+                        {(() => {
+                          if (!recordRejectionDispatchesFetched) {
+                            loadDispatchesForRejection();
+                            setRecordRejectionDispatchesFetched(true);
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          placeholder="Search product dispatched to this retailer in last 30 days..."
+                          value={recordRejectionProductSearch}
+                          onChange={(e) => setRecordRejectionProductSearch(e.target.value)}
+                          className="w-full px-3 py-2 mb-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                        />
+                        <p className="text-xs text-gray-400 mb-2">Showing products supplied in the last 30 days.</p>
+                        <div className="max-h-72 overflow-y-auto border rounded">
+                          {recordRejectionProductOptions
+                            .filter(opt => !recordRejectionProductSearch || (opt.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase()))
+                            .map((opt, idx) => (
+                              <div
+                                key={`${opt.product_id}__${opt.variant_id || idx}`}
+                                onClick={() => {
+                                  setRecordRejectionProduct(opt);
+                                  setRecordRejectionProductSearch('');
+                                  setRecordRejectionStep(3);
+                                }}
+                                className="p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0"
+                              >
+                                <div className="font-medium text-sm">{opt.product_name}</div>
+                                {opt.variant_name && <div className="text-xs text-gray-500">{opt.variant_name}</div>}
+                              </div>
+                            ))
+                          }
+                          {recordRejectionProductOptions.filter(opt => !recordRejectionProductSearch || (opt.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase())).length === 0 && (
+                            <div className="p-4 text-center text-gray-400 text-sm">No products dispatched to this retailer in the last 30 days.</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3: Date Rows Table */}
+                {recordRejectionStep === 3 && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">Last 30 supply dates. Tick the dates you want to record rejection against.</p>
+                    {recordRejectionDateRows.length === 0 ? (
                       <div className="p-4 bg-gray-50 rounded text-sm text-gray-500 text-center">
-                        No dispatches found for this date
+                        No supply dates for this product in the last 30 days.
                       </div>
                     ) : (
                       <div className="border rounded overflow-x-auto">
-                        <table className="w-full text-xs sm:text-sm min-w-[500px]">
+                        <table className="w-full text-xs sm:text-sm min-w-[650px]">
                           <thead className="bg-gray-50 sticky top-0">
                             <tr>
                               <th className="p-2 text-center w-8">
                                 <Check size={14} />
                               </th>
-                              <th className="p-2 text-left min-w-[120px]">Product</th>
+                              <th className="p-2 text-left w-24">Date</th>
                               <th className="p-2 text-center w-16">Supplied</th>
-                              <th className="p-2 text-center w-24">Previous Rej.</th>
-                              <th className="p-2 text-center w-20">New Reject</th>
-                              <th className="p-2 text-center w-16">MRP</th>
-                              <th className="p-2 text-left min-w-[130px]">Reason</th>
+                              <th className="p-2 text-center w-24">Existing Rej.</th>
+                              <th className="p-2 text-center w-20">New Qty</th>
+                              <th className="p-2 text-left min-w-[100px]">Reason</th>
+                              <th className="p-2 text-left min-w-[80px]">Remarks</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {rejectionDispatchItems.map((item, idx) => (
-                              <React.Fragment key={idx}>
-                                <tr className={`border-t ${item.selected ? 'bg-red-50' : ''}`}>
+                            {recordRejectionDateRows.map((row, idx) => {
+                              const maxAllowed = (row.supplied_qty || 0) - (row.total_previous_qty || 0);
+                              return (
+                                <tr key={row.dispatch_date} className={`border-t ${row.selected ? 'bg-red-50' : ''}`}>
                                   <td className="p-2 text-center">
                                     <input
                                       type="checkbox"
-                                      checked={item.selected}
-                                      onChange={(e) => updateRejectionItem(idx, 'selected', e.target.checked)}
+                                      checked={row.selected}
+                                      onChange={(e) => {
+                                        const newRows = [...recordRejectionDateRows];
+                                        newRows[idx] = {
+                                          ...newRows[idx],
+                                          selected: e.target.checked,
+                                          rejection_qty: e.target.checked ? newRows[idx].rejection_qty : 0,
+                                          reason: e.target.checked ? newRows[idx].reason : '',
+                                        };
+                                        setRecordRejectionDateRows(newRows);
+                                      }}
                                       className="w-4 h-4"
                                     />
                                   </td>
-                                  <td className="p-2">
-                                    <div className="font-medium text-sm">{getProductName(item)}</div>
-                                    {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                                  <td className="p-2 text-sm">
+                                    {new Date(row.dispatch_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                                   </td>
-                                  <td className="p-2 text-center text-gray-600 text-sm">{item.supplied_qty}</td>
+                                  <td className="p-2 text-center text-gray-600">{row.supplied_qty}</td>
                                   <td className="p-2 text-center">
-                                    {item.total_previous_qty > 0 ? (
-                                      <div className="text-xs">
-                                        <span className="font-medium text-red-600">{item.total_previous_qty}</span>
-                                        <button
-                                          type="button"
-                                          className="ml-1 text-blue-600 hover:text-blue-800 underline"
-                                          onClick={() => {
-                                            setRejectionDispatchItems(prev => prev.map((it, i) => 
-                                              i === idx ? {...it, showHistory: !it.showHistory} : it
-                                            ));
-                                          }}
-                                        >
-                                          ({item.previous_rejections?.length || 0} entries)
-                                        </button>
+                                    {row.total_previous_qty > 0 ? (
+                                      <div className="relative group">
+                                        <span className="font-medium text-red-600 cursor-help">{row.total_previous_qty}</span>
+                                        <div className="absolute z-20 hidden group-hover:block bg-white border shadow-lg p-2 rounded text-xs w-48 left-0 top-full mt-1">
+                                          <div className="font-medium text-gray-700 mb-1">Previous Rejections:</div>
+                                          {row.previous_rejections.map((pr, prIdx) => (
+                                            <div key={prIdx} className="text-gray-600 py-0.5 border-b last:border-0">
+                                              {pr.quantity} - {pr.reason}
+                                              {pr.created_at && (
+                                                <div className="text-[10px] text-gray-400">
+                                                  {new Date(pr.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
                                     ) : (
-                                      <span className="text-gray-400 text-xs">None</span>
+                                      <span className="text-gray-400">—</span>
                                     )}
                                   </td>
                                   <td className="p-2 text-center">
-                                    <Input
+                                    <input
                                       type="number"
                                       min="0"
-                                      max={item.supplied_qty - item.total_previous_qty}
-                                      value={item.rejection_qty || ''}
+                                      max={maxAllowed}
+                                      value={row.rejection_qty || ''}
                                       onChange={(e) => {
                                         const val = parseFloat(e.target.value) || 0;
-                                        const maxAllowed = item.supplied_qty - item.total_previous_qty;
                                         if (val > maxAllowed) {
                                           setRejectionErrorDialog({
                                             open: true,
                                             title: 'Rejection Limit Exceeded',
-                                            message: `Cannot exceed remaining quantity (${maxAllowed}).\n\nSupplied: ${item.supplied_qty}\nAlready rejected: ${item.total_previous_qty}\nRemaining: ${maxAllowed}`
+                                            message: `Cannot exceed remaining quantity (${maxAllowed}).\n\nSupplied: ${row.supplied_qty}\nAlready rejected: ${row.total_previous_qty}\nRemaining: ${maxAllowed}`
                                           });
                                           return;
                                         }
-                                        updateRejectionItem(idx, 'rejection_qty', val);
-                                        if (val > 0) updateRejectionItem(idx, 'selected', true);
+                                        const newRows = [...recordRejectionDateRows];
+                                        newRows[idx] = { ...newRows[idx], rejection_qty: val, selected: val > 0 ? true : newRows[idx].selected };
+                                        setRecordRejectionDateRows(newRows);
                                       }}
-                                      className="w-16 h-7 text-center text-sm"
-                                      disabled={!item.selected && !item.rejection_qty}
+                                      disabled={!row.selected}
+                                      className="w-16 h-7 text-center text-sm border rounded disabled:bg-gray-100"
                                     />
                                   </td>
-                                  <td className="p-2 text-center text-gray-600 text-sm">₹{item.mrp}</td>
                                   <td className="p-2">
                                     <select
-                                      value={item.reason || ''}
-                                      onChange={(e) => updateRejectionItem(idx, 'reason', e.target.value)}
-                                      className="w-full min-w-[110px] h-8 px-2 rounded border text-sm"
-                                      disabled={!item.selected}
+                                      value={row.reason || ''}
+                                      onChange={(e) => {
+                                        const newRows = [...recordRejectionDateRows];
+                                        newRows[idx] = { ...newRows[idx], reason: e.target.value };
+                                        setRecordRejectionDateRows(newRows);
+                                      }}
+                                      disabled={!row.selected}
+                                      className="w-full min-w-[90px] h-7 px-1 rounded border text-sm disabled:bg-gray-100"
                                     >
-                                      <option value="">Select Reason</option>
+                                      <option value="">Select</option>
                                       <option value="Rotten">Rotten</option>
                                       <option value="Damaged">Damaged</option>
                                       <option value="Quality Issue">Quality Issue</option>
@@ -17013,76 +17292,52 @@ export default function RetailerOrders() {
                                       <option value="Other">Other</option>
                                     </select>
                                   </td>
+                                  <td className="p-2">
+                                    <input
+                                      type="text"
+                                      value={row.remarks || ''}
+                                      onChange={(e) => {
+                                        const newRows = [...recordRejectionDateRows];
+                                        newRows[idx] = { ...newRows[idx], remarks: e.target.value };
+                                        setRecordRejectionDateRows(newRows);
+                                      }}
+                                      disabled={!row.selected}
+                                      placeholder="Optional"
+                                      className="w-full min-w-[70px] h-7 px-2 rounded border text-sm disabled:bg-gray-100"
+                                    />
+                                  </td>
                                 </tr>
-                                {/* Rejection History Row */}
-                                {item.showHistory && item.previous_rejections?.length > 0 && (
-                                  <tr className="bg-amber-50">
-                                    <td colSpan="7" className="p-2 pl-10">
-                                      <div className="text-xs">
-                                        <div className="font-medium text-amber-800 mb-1">Rejections for this date:</div>
-                                        <div className="space-y-1">
-                                          {item.previous_rejections.map((rej, rIdx) => (
-                                            <div key={rIdx} className="flex flex-wrap gap-2 sm:gap-4 text-gray-600 py-1 border-b border-amber-100 last:border-0">
-                                              <span className="font-medium text-red-600">{rej.quantity} units</span>
-                                              <span>₹{rej.rejection_value?.toFixed(2)}</span>
-                                              <span className="text-gray-500">{rej.reason}</span>
-                                              {rej.created_at && (
-                                                <span className="text-gray-400 text-[10px] italic">
-                                                  (Recorded: {new Date(rej.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} {new Date(rej.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})
-                                                </span>
-                                              )}
-                                            </div>
-                                          ))}
-                                        </div>
-                                        <div className="mt-1 pt-1 border-t border-amber-200 font-medium text-amber-800">
-                                          Total for this date: {item.total_previous_qty} units (₹{item.total_previous_value?.toFixed(2)})
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </React.Fragment>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
                     )}
                   </div>
                 )}
-
-                {/* Remarks for all rejections */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks (Optional)</label>
-                  <Input
-                    type="text"
-                    value={rejectionForm.remarks || ''}
-                    onChange={(e) => {
-                      // Update remarks for all selected items
-                      const remarks = e.target.value;
-                      setRejectionForm(prev => ({ ...prev, remarks }));
-                      setRejectionDispatchItems(prev => prev.map(item => 
-                        item.selected ? { ...item, remarks } : item
-                      ));
-                    }}
-                    placeholder="Enter remarks for rejections"
-                  />
-                </div>
               </div>
               
-              {/* Sticky footer buttons */}
-              <div className="flex gap-2 p-3 sm:p-4 border-t bg-white flex-shrink-0">
-                <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRejectionForm(); }} className="flex-1">
-                  Cancel
-                </Button>
-                <Button 
-                  type="button"
-                  className="flex-1 bg-red-600 hover:bg-red-700"
-                  disabled={!rejectionDispatchItems.some(i => i.selected && i.rejection_qty > 0)}
-                  onClick={handleCreateRejections}
-                >
-                  Record Rejections ({rejectionDispatchItems.filter(i => i.selected && i.rejection_qty > 0).length})
-                </Button>
-              </div>
+              {/* Footer - only show in Step 3 */}
+              {recordRejectionStep === 3 && (
+                <div className="flex items-center justify-between gap-2 p-3 sm:p-4 border-t bg-white flex-shrink-0">
+                  <span className="text-xs text-gray-500">
+                    Total rows selected: {recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" onClick={() => { setShowRejectionModal(false); resetRecordRejectionWizard(); }}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      type="button"
+                      className="bg-red-600 hover:bg-red-700"
+                      disabled={recordRejectionSubmitting || recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length === 0}
+                      onClick={handleRecordRejectionSubmit}
+                    >
+                      {recordRejectionSubmitting ? 'Saving...' : `Record Rejections (${recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0).length})`}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

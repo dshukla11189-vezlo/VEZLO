@@ -2756,10 +2756,11 @@ export default function RetailerOrders() {
     const filteredPendingAmount = filteredInvoicesForStats
       .filter(inv => inv.status === 'pending' || inv.status === 'partial')
       .reduce((sum, inv) => {
-        const netPayable = inv.net_payable || 0;
+        const retailer = retailers.find(r => r.id === inv.retailer_id);
+        const baseNetPayable = getEffectiveNetPayable(inv, retailer);
         const paidAmount = inv.paid_amount || 0;
         const creditAdjusted = inv.total_credit_adjusted || 0;
-        return sum + Math.max(0, netPayable - paidAmount - creditAdjusted);
+        return sum + Math.max(0, baseNetPayable - paidAmount - creditAdjusted);
       }, 0);
     
     setDashboardStats({
@@ -7980,15 +7981,15 @@ export default function RetailerOrders() {
       const invoicesRes = await api.get(`/api/retailer-invoices?retailer_id=${paymentForm.retailer_id}`);
       const allInvoices = invoicesRes.data;
       
+      // Get retailer info first so we can use getEffectiveNetPayable
+      const retailer = retailers.find(r => r.id === paymentForm.retailer_id);
+      
       // Calculate totals based on INVOICES (not dispatches)
       const totalMrpValue = allDispatches.reduce((sum, d) => sum + (d.total_mrp_value || 0), 0);
-      const totalInvoiced = allInvoices.reduce((sum, i) => sum + (i.net_payable || 0), 0);
+      const totalInvoiced = allInvoices.reduce((sum, i) => sum + getEffectiveNetPayable(i, retailer), 0);
       const totalPaid = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      // Pending = Invoiced - Paid (rejections are already deducted in invoice net_payable)
+      // Pending = Invoiced - Paid (using date-aware effective net payable)
       const pendingAmount = totalInvoiced - totalPaid;
-      
-      // Get retailer info
-      const retailer = retailers.find(r => r.id === paymentForm.retailer_id);
       
       setPaymentContext({
         retailer_name: retailer?.company_name || retailer?.name,
@@ -8062,7 +8063,9 @@ export default function RetailerOrders() {
     setSelectedInvoiceForPayment(invoice);
     // Calculate remaining amount: net_payable - credit_notes_adjusted - already_paid
     const creditAdjusted = invoice.total_credit_adjusted || 0;
-    const actualPayable = (invoice.net_payable || 0) - creditAdjusted;
+    const retailer = retailers.find(r => r.id === invoice.retailer_id);
+    const baseNetPayable = getEffectiveNetPayable(invoice, retailer);
+    const actualPayable = baseNetPayable - creditAdjusted;
     const remainingAmount = actualPayable - (invoice.paid_amount || 0);
     const currentUserId = getCurrentUserId();
     const currentUserName = getCurrentUserName();
@@ -8362,6 +8365,23 @@ export default function RetailerOrders() {
     retailers.filter(r => (r.status || 'active') !== 'churned'),
     [retailers]
   );
+
+  // Per-invoice date-aware effective net payable — mirrors the per-row pattern in the Invoice list at 11750-11758
+  // and the Payment Summary flow at getSelectedInvoicesData ~line 2187.
+  const getEffectiveNetPayable = (invoice, retailer) => {
+    if (!invoice) return 0;
+    const grossValue = invoice.gross_value || invoice.total_mrp_value || 0;
+    const commissionPct = invoice.commission_percentage || 0;
+    const upfront100 = retailer?.upfront_collection_percentage === 100;
+    const modelChangedAt = (retailer?.model_changed_at || '').slice(0, 10);
+    const invoiceDate = (invoice.invoice_date || '').slice(0, 10);
+    // Pre-changeover invoices for retailers with model_changed_at → keep stored net_payable (50% model, legitimate rejection deduction)
+    const isPreChangeover = modelChangedAt && invoiceDate && invoiceDate < modelChangedAt;
+    if (upfront100 && !isPreChangeover) {
+      return grossValue - (grossValue * commissionPct / 100);
+    }
+    return invoice.net_payable || 0;
+  };
 
   const toggleIndentExpand = (id) => {
     setExpandedIndents(prev => ({ ...prev, [id]: !prev[id] }));

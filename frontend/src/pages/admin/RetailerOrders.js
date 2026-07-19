@@ -3065,10 +3065,10 @@ export default function RetailerOrders() {
   }, [rejections, dispatches, allDispatchesForRejection, retailers, rejectionLossDateFrom, rejectionLossDateTo]);
 
   // ========== NEW RECORD REJECTION WIZARD MEMOS ==========
-  // Last 15 days window helper — recomputed on every open so the window rolls with today
-  const RECORD_REJECTION_WINDOW_DAYS = 15;
+  // Last 30 days window helper — recomputed on every open so the window rolls with today
+  const RECORD_REJECTION_WINDOW_DAYS = 30;
 
-  // Products dispatched to the selected retailer in the last 15 days
+  // Products dispatched to the selected retailer in the last 30 days
   const recordRejectionProductOptions = useMemo(() => {
     if (!recordRejectionRetailer) return [];
     const cutoffTs = Date.now() - RECORD_REJECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -3093,7 +3093,7 @@ export default function RetailerOrders() {
     return Array.from(seen.values()).sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''));
   }, [allDispatchesForRejection, recordRejectionRetailer]);
 
-  // Dispatch dates for the selected (retailer, product) in the last 15 days,
+  // Dispatch dates for the selected (retailer, product) in the last 30 days,
   // annotated with supplied qty and existing rejection history from `rejections` state.
   const recordRejectionAvailableDates = useMemo(() => {
     if (!recordRejectionRetailer || !recordRejectionProduct) return [];
@@ -17636,12 +17636,12 @@ export default function RetailerOrders() {
                       <>
                         <input
                           type="text"
-                          placeholder="Search product dispatched to this retailer in last 10 days..."
+                          placeholder="Search product dispatched to this retailer in last 30 days..."
                           value={recordRejectionProductSearch}
                           onChange={(e) => setRecordRejectionProductSearch(e.target.value)}
                           className="w-full px-3 py-2 mb-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
                         />
-                        <p className="text-xs text-gray-400 mb-2">Showing products supplied in the last 10 days.</p>
+                        <p className="text-xs text-gray-400 mb-2">Showing products supplied in the last 30 days.</p>
                         <div className="max-h-72 overflow-y-auto border rounded">
                           {recordRejectionProductOptions
                             .filter(opt => !recordRejectionProductSearch || (opt.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase()))
@@ -17676,7 +17676,7 @@ export default function RetailerOrders() {
                             })
                           }
                           {recordRejectionProductOptions.filter(opt => !recordRejectionProductSearch || (opt.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase())).length === 0 && (
-                            <div className="p-4 text-center text-gray-400 text-sm">No products dispatched to this retailer in the last 15 days.</div>
+                            <div className="p-4 text-center text-gray-400 text-sm">No products dispatched to this retailer in the last 30 days.</div>
                           )}
                         </div>
                       </>

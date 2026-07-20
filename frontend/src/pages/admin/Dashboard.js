@@ -2192,14 +2192,17 @@ export default function AdminDashboard() {
                                             
                                             {/* Level 4: Product/Item Details - Sorted by GM% DESC */}
                                             {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
-                                              // Calculate gross profit including item-level rejection
+                                              // Calculate net values (adjusted for rejection)
                                               const itemRejectionCogs = item.rejection_cogs || 0;
-                                              const itemGross = (item.gross_profit || 0) - itemRejectionCogs;
+                                              const itemRejectionValue = item.rejection_value || 0;
+                                              const itemGross = item.gross_profit || 0;   // backend now includes rejection
+                                              const itemNetRevenue = (item.revenue || 0) - itemRejectionValue;
+                                              const itemNetCogs    = (item.cogs || 0) - itemRejectionCogs;
                                               const itemCommission = item.commission || 0;
                                               const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
-                                              const itemGM = item.revenue > 0 ? (itemGross / item.revenue * 100) : (item.gross_margin || 0);
-                                              const itemSPKg = item.selling_price_per_kg || (item.supplied_kg > 0 ? item.revenue / item.supplied_kg : 0);
-                                              const itemPPKg = item.purchase_price_per_kg || (item.supplied_kg > 0 ? item.cogs / item.supplied_kg : 0);
+                                              const itemGM = itemNetRevenue > 0 ? (itemGross / itemNetRevenue * 100) : (item.gross_margin || 0);
+                                              const itemSPKg = item.selling_price_per_kg || (item.supplied_kg > 0 ? itemNetRevenue / item.supplied_kg : 0);
+                                              const itemPPKg = item.purchase_price_per_kg || (item.supplied_kg > 0 ? itemNetCogs / item.supplied_kg : 0);
                                               
                                               return (
                                                 <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
@@ -2209,10 +2212,10 @@ export default function AdminDashboard() {
                                                     <span className="text-sm text-gray-800 font-medium">{item.product}</span>
                                                     <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
                                                   </td>
-                                                  <td className="p-2 text-right text-green-600 text-sm">₹{item.revenue.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-green-600 text-sm">₹{itemNetRevenue.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
                                                   <td className="p-2 text-right text-green-700 text-sm font-medium">₹{itemSPKg.toFixed(1)}</td>
-                                                  <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
+                                                  <td className="p-2 text-right text-orange-500 text-sm">₹{itemNetCogs.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-orange-700 text-sm font-medium">₹{itemPPKg.toFixed(1)}</td>
                                                   <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-red-500 text-sm">{itemRejectionCogs > 0 ? `-₹${Math.round(itemRejectionCogs).toLocaleString()}` : '-'}</td>

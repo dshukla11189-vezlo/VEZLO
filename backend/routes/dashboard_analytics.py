@@ -2234,10 +2234,17 @@ async def get_pnl_report(
                     net_revenue_for_commission = item["revenue"] - line_rejection_value
                     commission_value = net_revenue_for_commission * commission_pct / 100 if net_revenue_for_commission > 0 else 0
                 
+                # Read rejection fields already attached to this line item
+                item_rejection_value = item.get("rejection_value", 0) or 0   # rejection at MRP
+                item_rejection_cogs  = item.get("rejection_cogs", 0) or 0    # rejection at COGS
+                
                 # Calculate gross profit and margins for this line item
-                # For retail: Gross Profit = Revenue - COGS - Wastage - Commission
-                line_gross_profit = item["revenue"] - cogs - wastage_value - commission_value
-                line_gross_margin = (line_gross_profit / item["revenue"] * 100) if item["revenue"] > 0 else 0
+                # Row Sales (net) − Row Purchase (net) − Wastage − Commission − Rejection loss at COGS
+                # This matches the Retail vertical aggregate formula
+                net_revenue = item["revenue"] - item_rejection_value
+                net_cogs    = cogs - item_rejection_cogs
+                line_gross_profit = net_revenue - net_cogs - wastage_value - commission_value - item_rejection_cogs
+                line_gross_margin = (line_gross_profit / net_revenue * 100) if net_revenue > 0 else 0
                 
                 # Calculate price/kg metrics using supplied_kg
                 selling_price_per_kg = (item["revenue"] / item["supplied_kg"]) if item["supplied_kg"] > 0 else 0

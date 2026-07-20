@@ -497,6 +497,14 @@ async def derive_fresh_wastage_for_date(
     dispatches_by_product = {}  # product_id -> float (qty in kg)
     all_dispatch_items = []
     
+    # Build cost-alias map: aliased product_id → canonical product_id
+    # Mirrors the pattern used in recalculate_dispatches_for_date lines 70-76.
+    cost_alias_id_map = {}
+    for p in all_products:
+        alias_id = p.get("cost_alias_product_id")
+        if alias_id:
+            cost_alias_id_map[p["id"]] = alias_id
+    
     if prefetched_data and "qc_dispatches_by_date" in prefetched_data:
         # Use pre-fetched dispatches
         qc_dispatches = prefetched_data["qc_dispatches_by_date"].get(date, [])
@@ -524,6 +532,9 @@ async def derive_fresh_wastage_for_date(
             if is_combo_product(product_name):
                 continue
             
+            # Fold aliased products into their canonical product (Spinach → Palak, Premium Mint → Mint)
+            target_product_id = cost_alias_id_map.get(product_id, product_id)
+            
             weight_gm = packaging_map.get(packaging_name)
             if not weight_gm:
                 weight_gm = extract_weight_from_packaging_name(packaging_name)
@@ -532,9 +543,9 @@ async def derive_fresh_wastage_for_date(
             
             qty_kg = (supplied_qty * weight_gm) / 1000
             
-            if product_id not in dispatches_by_product:
-                dispatches_by_product[product_id] = 0
-            dispatches_by_product[product_id] += qty_kg
+            if target_product_id not in dispatches_by_product:
+                dispatches_by_product[target_product_id] = 0
+            dispatches_by_product[target_product_id] += qty_kg
     
     # Add combo ingredient dispatches to their respective base products
     dispatches_by_product = add_combo_ingredient_dispatches(

@@ -2193,11 +2193,13 @@ export default function AdminDashboard() {
                                             {/* Level 4: Product/Item Details - Sorted by GM% DESC */}
                                             {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
                                               // Calculate net values (adjusted for rejection)
-                                              const itemRejectionCogs = item.rejection_cogs || 0;
+                                              const itemRejectionCogs  = item.rejection_cogs || 0;
                                               const itemRejectionValue = item.rejection_value || 0;
-                                              const itemGross = item.gross_profit || 0;   // backend now includes rejection
-                                              const itemNetRevenue = (item.revenue || 0) - itemRejectionValue;
-                                              const itemNetCogs    = (item.cogs || 0) - itemRejectionCogs;
+                                              const itemRejectionQty   = item.rejection_qty || 0;
+                                              const itemGross          = item.gross_profit || 0;
+                                              const itemNetRevenue     = (item.revenue || 0) - itemRejectionValue;
+                                              const itemNetCogs        = (item.cogs || 0) - itemRejectionCogs;
+                                              const itemNetQty         = (item.supplied_qty || 0) - itemRejectionQty;
                                               const itemCommission = item.commission || 0;
                                               const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
                                               const itemGM = itemNetRevenue > 0 ? (itemGross / itemNetRevenue * 100) : (item.gross_margin || 0);
@@ -2212,8 +2214,18 @@ export default function AdminDashboard() {
                                                     <span className="text-sm text-gray-800 font-medium">{item.product}</span>
                                                     <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
                                                   </td>
-                                                  <td className="p-2 text-right text-green-600 text-sm">₹{itemNetRevenue.toLocaleString()}</td>
-                                                  <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
+                                                  <td className="p-2 text-right text-green-600 text-sm">
+                                                    ₹{itemNetRevenue.toLocaleString()}
+                                                    {itemRejectionValue > 0 && (
+                                                      <span className="ml-1 text-xs text-gray-400">(-₹{itemRejectionValue.toLocaleString()})</span>
+                                                    )}
+                                                  </td>
+                                                  <td className="p-2 text-right text-gray-600 text-sm">
+                                                    {itemNetQty}
+                                                    {itemRejectionQty > 0 && (
+                                                      <span className="ml-1 text-xs text-gray-400">(-{itemRejectionQty})</span>
+                                                    )}
+                                                  </td>
                                                   <td className="p-2 text-right text-green-700 text-sm font-medium">₹{itemSPKg.toFixed(1)}</td>
                                                   <td className="p-2 text-right text-orange-500 text-sm">₹{itemNetCogs.toLocaleString()}</td>
                                                   <td className="p-2 text-right text-orange-700 text-sm font-medium">₹{itemPPKg.toFixed(1)}</td>

@@ -568,6 +568,12 @@ export default function RetailerOrders() {
   const [rejectionLossDateTo, setRejectionLossDateTo] = useState(getISTDate());
   const [showRejectionAnalyticsModal, setShowRejectionAnalyticsModal] = useState(false);
   const [rejectionRetailerDrilldown, setRejectionRetailerDrilldown] = useState(null); // For retailer-specific drill-down
+  
+  // P3 - Rejection Loss "View Details" 3-Level Drilldown Modal
+  const [rejLossModalOpen, setRejLossModalOpen] = useState(false);
+  const [rejLossDrilldownRetailer, setRejLossDrilldownRetailer] = useState(null); // { retailer_id, retailer_name }
+  const [rejLossDrilldownProduct, setRejLossDrilldownProduct] = useState(null);   // { product_id, product_name }
+  const [rejLossOpenedWithShortcut, setRejLossOpenedWithShortcut] = useState(false); // true when opened with a specific retailer selected
   const [allDispatchesForRejection, setAllDispatchesForRejection] = useState([]); // All dispatches for rejection % calc
   const [loadingRejectionDispatches, setLoadingRejectionDispatches] = useState(false);
   const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState(''); // Selected product for drilldown
@@ -3290,6 +3296,121 @@ export default function RetailerOrders() {
       return { ...r, supplied_qty: sq, rejection_pct: pct };
     }).sort((a, b) => b.rejection_pct - a.rejection_pct);
   }, [adminRejectionDrilldownProduct, adminRejectionDrilldownRetailer, selectedRetailer, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo, retailers]);
+
+  // ===== P3 - Rejection Loss 3-Level Drilldown useMemos =====
+  // Shared helper for date range filtering
+  const rejLossInRange = (dateStr) => {
+    if (!dateStr) return false;
+    const d = String(dateStr).slice(0, 10);
+    if (rejectionLossDateFrom && d < rejectionLossDateFrom) return false;
+    if (rejectionLossDateTo   && d > rejectionLossDateTo)   return false;
+    return true;
+  };
+
+  // L1 — retailer rows. CRITICAL: gate on rejLossModalOpen to prevent full-state scan while modal is closed
+  const rejLossRetailerRows = useMemo(() => {
+    if (!rejLossModalOpen) return [];   // perf gate
+    const suppliedByRetailer = {};
+    (allDispatchesForRejection || []).forEach(disp => {
+      if (!rejLossInRange(disp.dispatch_date)) return;
+      if (selectedRetailer && disp.retailer_id !== selectedRetailer) return;
+      const rid = disp.retailer_id;
+      if (!rid) return;
+      (disp.items || []).forEach(i => {
+        if (!suppliedByRetailer[rid]) suppliedByRetailer[rid] = 0;
+        suppliedByRetailer[rid] += (i.supplied_qty || 0);
+      });
+    });
+    const rejectedByRetailer = {};
+    (rejections || []).forEach(rej => {
+      if (!rejLossInRange(rej.rejection_date)) return;
+      if (selectedRetailer && rej.retailer_id !== selectedRetailer) return;
+      const rid = rej.retailer_id || 'unknown';
+      if (!rejectedByRetailer[rid]) {
+        // Find retailer name from retailers array
+        const retailerObj = (retailers || []).find(r => r.id === rid);
+        const rName = retailerObj?.name || rej.retailer_name || 'Unknown';
+        rejectedByRetailer[rid] = { retailer_id: rid, retailer_name: rName, rejection_qty: 0, rejection_value: 0, rejection_cogs: 0 };
+      }
+      rejectedByRetailer[rid].rejection_qty   += (rej.quantity || 0);
+      rejectedByRetailer[rid].rejection_value += (rej.rejection_value || 0);
+      rejectedByRetailer[rid].rejection_cogs  += (rej.rejection_cogs  || 0);
+    });
+    return Object.values(rejectedByRetailer).map(r => {
+      const sq  = suppliedByRetailer[r.retailer_id] || 0;
+      const pct = sq > 0 ? (r.rejection_qty / sq) * 100 : (r.rejection_qty > 0 ? 100 : 0);
+      return { ...r, supplied_qty: sq, rejection_pct: pct };
+    }).sort((a, b) => b.rejection_pct - a.rejection_pct);
+  }, [rejLossModalOpen, rejections, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo, selectedRetailer, retailers]);
+
+  // L2 — product rows for the selected retailer
+  const rejLossProductRows = useMemo(() => {
+    if (!rejLossModalOpen || !rejLossDrilldownRetailer) return [];
+    const rid = rejLossDrilldownRetailer.retailer_id;
+    const suppliedByProduct = {};
+    (allDispatchesForRejection || []).forEach(disp => {
+      if (disp.retailer_id !== rid) return;
+      if (!rejLossInRange(disp.dispatch_date)) return;
+      (disp.items || []).forEach(item => {
+        const pid = item.product_id;
+        if (!pid) return;
+        if (!suppliedByProduct[pid]) suppliedByProduct[pid] = { product_id: pid, product_name: item.product_name || 'Unknown', supplied_qty: 0 };
+        suppliedByProduct[pid].supplied_qty += (item.supplied_qty || 0);
+      });
+    });
+    const rejectedByProduct = {};
+    (rejections || []).forEach(rej => {
+      if (rej.retailer_id !== rid) return;
+      if (!rejLossInRange(rej.rejection_date)) return;
+      const pid = rej.product_id || 'unknown';
+      if (!rejectedByProduct[pid]) rejectedByProduct[pid] = { product_id: pid, product_name: rej.product_name || 'Unknown', rejection_qty: 0, rejection_value: 0, rejection_cogs: 0 };
+      rejectedByProduct[pid].rejection_qty   += (rej.quantity || 0);
+      rejectedByProduct[pid].rejection_value += (rej.rejection_value || 0);
+      rejectedByProduct[pid].rejection_cogs  += (rej.rejection_cogs  || 0);
+    });
+    return Object.values(rejectedByProduct).map(p => {
+      const sq  = suppliedByProduct[p.product_id]?.supplied_qty || 0;
+      const pct = sq > 0 ? (p.rejection_qty / sq) * 100 : (p.rejection_qty > 0 ? 100 : 0);
+      return { ...p, supplied_qty: sq, rejection_pct: pct };
+    }).sort((a, b) => b.rejection_pct - a.rejection_pct);
+  }, [rejLossModalOpen, rejLossDrilldownRetailer, rejections, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo]);
+
+  // L3 — date rows for retailer + product
+  const rejLossDateRows = useMemo(() => {
+    if (!rejLossModalOpen || !rejLossDrilldownRetailer || !rejLossDrilldownProduct) return [];
+    const rid = rejLossDrilldownRetailer.retailer_id;
+    const pid = rejLossDrilldownProduct.product_id;
+    const suppliedByDate = {};
+    (allDispatchesForRejection || []).forEach(disp => {
+      if (disp.retailer_id !== rid) return;
+      const d = String(disp.dispatch_date || '').slice(0, 10);
+      if (!d) return;
+      if (rejectionLossDateFrom && d < rejectionLossDateFrom) return;
+      if (rejectionLossDateTo   && d > rejectionLossDateTo)   return;
+      (disp.items || []).forEach(item => {
+        if (item.product_id !== pid) return;
+        suppliedByDate[d] = (suppliedByDate[d] || 0) + (item.supplied_qty || 0);
+      });
+    });
+    const rejectedByDate = {};
+    (rejections || []).forEach(rej => {
+      if (rej.retailer_id !== rid) return;
+      if (rej.product_id !== pid) return;
+      const d = String(rej.rejection_date || '').slice(0, 10);
+      if (!d) return;
+      if (rejectionLossDateFrom && d < rejectionLossDateFrom) return;
+      if (rejectionLossDateTo   && d > rejectionLossDateTo)   return;
+      if (!rejectedByDate[d]) rejectedByDate[d] = { date: d, rejection_qty: 0, rejection_value: 0, rejection_cogs: 0 };
+      rejectedByDate[d].rejection_qty   += (rej.quantity || 0);
+      rejectedByDate[d].rejection_value += (rej.rejection_value || 0);
+      rejectedByDate[d].rejection_cogs  += (rej.rejection_cogs  || 0);
+    });
+    return Object.values(rejectedByDate).map(row => {
+      const sq  = suppliedByDate[row.date] || 0;
+      const pct = sq > 0 ? (row.rejection_qty / sq) * 100 : (row.rejection_qty > 0 ? 100 : 0);
+      return { ...row, supplied_qty: sq, rejection_pct: pct };
+    }).sort((a, b) => b.rejection_pct - a.rejection_pct);
+  }, [rejLossModalOpen, rejLossDrilldownRetailer, rejLossDrilldownProduct, rejections, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -8619,7 +8740,22 @@ export default function RetailerOrders() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowRejectionAnalyticsModal(true)}
+              onClick={() => {
+                if (selectedRetailer) {
+                  // Shortcut: skip L1 retailer list, land directly on L2 product list for the selected retailer
+                  setRejLossDrilldownRetailer({
+                    retailer_id: selectedRetailer,
+                    retailer_name: getRetailerNameById(selectedRetailer),
+                  });
+                  setRejLossDrilldownProduct(null);
+                  setRejLossOpenedWithShortcut(true);
+                } else {
+                  setRejLossDrilldownRetailer(null);
+                  setRejLossDrilldownProduct(null);
+                  setRejLossOpenedWithShortcut(false);
+                }
+                setRejLossModalOpen(true);
+              }}
               className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-100"
               data-testid="view-rejection-details-btn"
             >
@@ -16221,6 +16357,210 @@ export default function RetailerOrders() {
                           <tr>
                             <td colSpan={5} className="p-4 text-center text-gray-400">No date records found</td>
                           </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== P3 REJECTION LOSS DRILLDOWN MODAL ==================== */}
+        {rejLossModalOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b bg-red-50">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-red-800">Rejection Loss Details</h3>
+                  {/* Breadcrumb */}
+                  <p className="text-sm text-red-600 mt-1">
+                    {!rejLossDrilldownRetailer && (rejLossOpenedWithShortcut ? getRetailerNameById(selectedRetailer) : 'All Retailers')}
+                    {rejLossDrilldownRetailer && !rejLossDrilldownProduct && rejLossDrilldownRetailer.retailer_name}
+                    {rejLossDrilldownRetailer && rejLossDrilldownProduct && (
+                      <>{rejLossDrilldownRetailer.retailer_name} › {rejLossDrilldownProduct.product_name}</>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Date range: {rejectionLossDateFrom || 'earliest'} to {rejectionLossDateTo || 'today'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Back button - shown when drilled down */}
+                  {(rejLossDrilldownRetailer || rejLossDrilldownProduct) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (rejLossDrilldownProduct) {
+                          setRejLossDrilldownProduct(null);          // L3 → L2
+                        } else if (rejLossDrilldownRetailer) {
+                          if (rejLossOpenedWithShortcut) {
+                            // In shortcut mode, L2 back == close
+                            setRejLossModalOpen(false);
+                            setRejLossDrilldownRetailer(null);
+                            setRejLossOpenedWithShortcut(false);
+                          } else {
+                            setRejLossDrilldownRetailer(null);       // L2 → L1
+                          }
+                        }
+                      }}
+                      className="h-8 text-xs"
+                    >
+                      <ChevronLeft size={14} className="mr-1" />
+                      Back
+                    </Button>
+                  )}
+                  {/* Close button */}
+                  <button
+                    onClick={() => {
+                      setRejLossModalOpen(false);
+                      setRejLossDrilldownRetailer(null);
+                      setRejLossDrilldownProduct(null);
+                      setRejLossOpenedWithShortcut(false);
+                    }}
+                    className="p-1 hover:bg-red-100 rounded"
+                  >
+                    <X size={20} className="text-red-600" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-auto p-4">
+                {/* L1 - Retailer List */}
+                {!rejLossDrilldownRetailer && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-red-800">S No</th>
+                          <th className="p-2 text-left font-medium text-red-800">Retailer</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejected Qty</th>
+                          <th className="p-2 text-right font-medium text-red-800">Supplied Qty</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejection %</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejection Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rejLossRetailerRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-4 text-center text-gray-400">No rejections in the selected date range.</td>
+                          </tr>
+                        ) : (
+                          rejLossRetailerRows.map((row, idx) => (
+                            <tr
+                              key={row.retailer_id}
+                              className="cursor-pointer hover:bg-red-50 border-b"
+                              onClick={() => setRejLossDrilldownRetailer({ retailer_id: row.retailer_id, retailer_name: row.retailer_name })}
+                            >
+                              <td className="p-2">{idx + 1}</td>
+                              <td className="p-2 font-medium">{row.retailer_name}</td>
+                              <td className="p-2 text-right">{row.rejection_qty}</td>
+                              <td className="p-2 text-right">{row.supplied_qty}</td>
+                              <td className="p-2 text-right">
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.rejection_pct >= 10 ? 'bg-red-100 text-red-700' : row.rejection_pct >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                  {row.rejection_pct.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="p-2 text-right">
+                                <span className="text-red-600 font-semibold">{formatCurrency(row.rejection_value)}</span>
+                                <span className="ml-1 text-xs text-gray-400">(COGS: {formatCurrency(row.rejection_cogs)})</span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* L2 - Product List for selected retailer */}
+                {rejLossDrilldownRetailer && !rejLossDrilldownProduct && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-red-800">S No</th>
+                          <th className="p-2 text-left font-medium text-red-800">Product</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejected Qty</th>
+                          <th className="p-2 text-right font-medium text-red-800">Supplied Qty</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejection %</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejection Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rejLossProductRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-4 text-center text-gray-400">No rejections for this retailer in the selected date range.</td>
+                          </tr>
+                        ) : (
+                          rejLossProductRows.map((row, idx) => (
+                            <tr
+                              key={row.product_id}
+                              className="cursor-pointer hover:bg-red-50 border-b"
+                              onClick={() => setRejLossDrilldownProduct({ product_id: row.product_id, product_name: row.product_name })}
+                            >
+                              <td className="p-2">{idx + 1}</td>
+                              <td className="p-2 font-medium">{row.product_name}</td>
+                              <td className="p-2 text-right">{row.rejection_qty}</td>
+                              <td className="p-2 text-right">{row.supplied_qty}</td>
+                              <td className="p-2 text-right">
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.rejection_pct >= 10 ? 'bg-red-100 text-red-700' : row.rejection_pct >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                  {row.rejection_pct.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="p-2 text-right">
+                                <span className="text-red-600 font-semibold">{formatCurrency(row.rejection_value)}</span>
+                                <span className="ml-1 text-xs text-gray-400">(COGS: {formatCurrency(row.rejection_cogs)})</span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* L3 - Date List for selected retailer + product */}
+                {rejLossDrilldownRetailer && rejLossDrilldownProduct && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-red-800">S No</th>
+                          <th className="p-2 text-left font-medium text-red-800">Date</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejected Qty</th>
+                          <th className="p-2 text-right font-medium text-red-800">Supplied Qty</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejection %</th>
+                          <th className="p-2 text-right font-medium text-red-800">Rejection Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rejLossDateRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-4 text-center text-gray-400">No rejections for this product in the selected date range.</td>
+                          </tr>
+                        ) : (
+                          rejLossDateRows.map((row, idx) => (
+                            <tr key={row.date} className="border-b hover:bg-gray-50">
+                              <td className="p-2">{idx + 1}</td>
+                              <td className="p-2 font-medium">{formatDate(row.date)}</td>
+                              <td className="p-2 text-right">{row.rejection_qty}</td>
+                              <td className="p-2 text-right">{row.supplied_qty}</td>
+                              <td className="p-2 text-right">
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.rejection_pct >= 10 ? 'bg-red-100 text-red-700' : row.rejection_pct >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                  {row.rejection_pct.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="p-2 text-right">
+                                <span className="text-red-600 font-semibold">{formatCurrency(row.rejection_value)}</span>
+                                <span className="ml-1 text-xs text-gray-400">(COGS: {formatCurrency(row.rejection_cogs)})</span>
+                              </td>
+                            </tr>
+                          ))
                         )}
                       </tbody>
                     </table>

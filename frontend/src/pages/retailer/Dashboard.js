@@ -971,6 +971,57 @@ export default function RetailerDashboard() {
     return `₹${(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  // V1 — 15-day rolling Net Sales & Rejection % for retailer portal
+  const netSalesAndRejection15d = useMemo(() => {
+    const today = getLocalDateString();
+    const fifteenDaysAgo = getISTDateWithOffset(-14);
+
+    const recentDispatches = (dispatches || []).filter(d => {
+      const dd = (d.dispatch_date || '').split('T')[0];
+      return dd >= fifteenDaysAgo && dd <= today;
+    });
+    const recentRejections = (rejections || []).filter(r => {
+      const rd = (r.rejection_date || '').split('T')[0];
+      return rd >= fifteenDaysAgo && rd <= today;
+    });
+
+    const grossByDay = {};
+    recentDispatches.forEach(d => {
+      const dd = (d.dispatch_date || '').split('T')[0];
+      if (!dd) return;
+      const mrp = (d.total_mrp_value && d.total_mrp_value > 0)
+        ? d.total_mrp_value
+        : (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
+      grossByDay[dd] = (grossByDay[dd] || 0) + mrp;
+    });
+    const rejByDay = {};
+    recentRejections.forEach(r => {
+      const rd = (r.rejection_date || '').split('T')[0];
+      if (!rd) return;
+      rejByDay[rd] = (rejByDay[rd] || 0) + (r.rejection_value || 0);
+    });
+
+    let totalNetSales = 0;
+    let deliveredDaysCount = 0;
+    Object.keys(grossByDay).forEach(day => {
+      if (grossByDay[day] > 0) {
+        totalNetSales += grossByDay[day] - (rejByDay[day] || 0);
+        deliveredDaysCount++;
+      }
+    });
+    const avgNetSales = deliveredDaysCount > 0 ? totalNetSales / deliveredDaysCount : 0;
+
+    let totalRejQty = 0;
+    let totalSuppliedQty = 0;
+    recentDispatches.forEach(d => {
+      (d.items || []).forEach(i => { totalSuppliedQty += (i.supplied_qty || 0); });
+    });
+    recentRejections.forEach(r => { totalRejQty += (r.quantity || 0); });
+    const rejectionPct = totalSuppliedQty > 0 ? (totalRejQty / totalSuppliedQty) * 100 : null;
+
+    return { avgNetSales, deliveredDaysCount, rejectionPct, totalSuppliedQty };
+  }, [dispatches, rejections]);
+
   // ==================== INDENT HANDLERS ====================
   const handleCreateIndent = async (e) => {
     e.preventDefault();
@@ -3075,6 +3126,24 @@ export default function RetailerDashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* V1 — Avg Net Sales & Rejection % (15d rolling) */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-gradient-to-br from-blue-50 to-white rounded-lg border border-blue-200 p-3">
+                <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide mb-1">Avg Net Sales (15d)</p>
+                <p className="text-xl font-bold text-blue-800">{formatCurrency(netSalesAndRejection15d.avgNetSales)}</p>
+                {netSalesAndRejection15d.deliveredDaysCount > 0 && (
+                  <p className="text-[10px] text-gray-500 mt-1">per delivered day ({netSalesAndRejection15d.deliveredDaysCount} days)</p>
+                )}
+              </div>
+              <div className="bg-gradient-to-br from-orange-50 to-white rounded-lg border border-orange-200 p-3">
+                <p className="text-xs text-orange-600 font-semibold uppercase tracking-wide mb-1">Rejection % (15d)</p>
+                <p className="text-xl font-bold text-orange-800">
+                  {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
+                </p>
+                <p className="text-[10px] text-gray-500 mt-1">last 15 days</p>
+              </div>
+            </div>
 
             {/* Your Earnings - Big Card with Date Picker */}
             <Card className="mb-6 border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-emerald-50 shadow-lg">

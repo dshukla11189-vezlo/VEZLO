@@ -8636,6 +8636,65 @@ export default function RetailerOrders() {
     [retailers]
   );
 
+  // V2 — 15-day rolling Net Sales & Rejection % for admin panel
+  const adminNetSalesAndRejection15d = useMemo(() => {
+    const today = getISTDate();
+    const fifteenDaysAgo = getISTDateWithOffset(-14);
+
+    const recentDispatches = (allDispatchesForRejection || []).filter(d => {
+      const dd = (d.dispatch_date || '').split('T')[0];
+      if (!dd || dd < fifteenDaysAgo || dd > today) return false;
+      if (selectedRetailer && d.retailer_id !== selectedRetailer) return false;
+      return true;
+    });
+    const recentRejections = (rejections || []).filter(r => {
+      const rd = (r.rejection_date || '').split('T')[0];
+      if (!rd || rd < fifteenDaysAgo || rd > today) return false;
+      if (selectedRetailer && r.retailer_id !== selectedRetailer) return false;
+      return true;
+    });
+
+    const grossByDay = {};
+    recentDispatches.forEach(d => {
+      const dd = (d.dispatch_date || '').split('T')[0];
+      if (!dd) return;
+      const mrp = (d.total_mrp_value && d.total_mrp_value > 0)
+        ? d.total_mrp_value
+        : (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
+      grossByDay[dd] = (grossByDay[dd] || 0) + mrp;
+    });
+    const rejByDay = {};
+    recentRejections.forEach(r => {
+      const rd = (r.rejection_date || '').split('T')[0];
+      if (!rd) return;
+      rejByDay[rd] = (rejByDay[rd] || 0) + (r.rejection_value || 0);
+    });
+
+    let totalNetSales = 0;
+    let deliveredDaysCount = 0;
+    Object.keys(grossByDay).forEach(day => {
+      if (grossByDay[day] > 0) {
+        totalNetSales += grossByDay[day] - (rejByDay[day] || 0);
+        deliveredDaysCount++;
+      }
+    });
+
+    const activeCount = activeRetailers.length || 1;
+    const avgNetSales = selectedRetailer
+      ? (deliveredDaysCount > 0 ? totalNetSales / deliveredDaysCount : 0)
+      : (deliveredDaysCount > 0 ? (totalNetSales / deliveredDaysCount) / activeCount : 0);
+
+    let totalRejQty = 0;
+    let totalSuppliedQty = 0;
+    recentDispatches.forEach(d => {
+      (d.items || []).forEach(i => { totalSuppliedQty += (i.supplied_qty || 0); });
+    });
+    recentRejections.forEach(r => { totalRejQty += (r.quantity || 0); });
+    const rejectionPct = totalSuppliedQty > 0 ? (totalRejQty / totalSuppliedQty) * 100 : null;
+
+    return { avgNetSales, deliveredDaysCount, rejectionPct, totalSuppliedQty, isAllRetailers: !selectedRetailer };
+  }, [allDispatchesForRejection, rejections, selectedRetailer, activeRetailers]);
+
   // Per-invoice date-aware effective net payable — mirrors the per-row pattern in the Invoice list at 11750-11758
   // and the Payment Summary flow at getSelectedInvoicesData ~line 2187.
   const getEffectiveNetPayable = (invoice, retailer) => {
@@ -8679,7 +8738,7 @@ export default function RetailerOrders() {
 
   return (
     <Layout title="Retailer Orders">
-      <div data-testid="retailer-orders-page">
+      <div data-testid="retailer-orders-page" className="min-w-0 overflow-x-hidden max-w-full">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 min-w-0 overflow-hidden">
           <div>
@@ -8814,7 +8873,7 @@ export default function RetailerOrders() {
           </div>
           
           {/* Date Filters Row */}
-          <div className="flex flex-wrap items-center gap-3 mb-3 bg-white/60 p-2 rounded-lg border border-red-100">
+          <div className="flex flex-wrap items-center gap-3 mb-3 bg-white/60 p-2 rounded-lg border border-red-100 min-w-0">
             <span className="text-xs text-red-600 font-medium">Period:</span>
             <div className="flex items-center gap-1 bg-white rounded border border-red-200 px-2">
               <input
@@ -8877,10 +8936,29 @@ export default function RetailerOrders() {
           </div>
         </div>
 
+        {/* V2 — Avg Net Sales & Rejection % (15d rolling) — sits between Rejection Loss (red) and Earnings (green) */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-gradient-to-br from-blue-50 to-white rounded-lg border border-blue-200 p-3">
+            <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide mb-1">Avg Net Sales (15d)</p>
+            <p className="text-xl font-bold text-blue-800">{formatCurrency(adminNetSalesAndRejection15d.avgNetSales)}</p>
+            <p className="text-[10px] text-gray-500 mt-1">
+              {adminNetSalesAndRejection15d.isAllRetailers ? 'avg per retailer, ' : ''}
+              per delivered day ({adminNetSalesAndRejection15d.deliveredDaysCount} days)
+            </p>
+          </div>
+          <div className="bg-gradient-to-br from-orange-50 to-white rounded-lg border border-orange-200 p-3">
+            <p className="text-xs text-orange-600 font-semibold uppercase tracking-wide mb-1">Rejection % (15d)</p>
+            <p className="text-xl font-bold text-orange-800">
+              {adminNetSalesAndRejection15d.rejectionPct !== null ? `${adminNetSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
+            </p>
+            <p className="text-[10px] text-gray-500 mt-1">last 15 days</p>
+          </div>
+        </div>
+
         {/* Retailer Earnings Block - Uses same date filter as Rejection Loss */}
         <div className="bg-emerald-50 rounded-lg border border-emerald-200 p-4 mb-4">
           {/* Header Row */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <div className="p-2 bg-emerald-100 rounded-lg">
                 <TrendingUp size={18} className="text-emerald-600" />
